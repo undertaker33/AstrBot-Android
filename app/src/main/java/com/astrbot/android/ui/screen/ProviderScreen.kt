@@ -238,6 +238,7 @@ internal fun ProviderCatalogContent(
                     capabilities = profile.capabilities,
                     enabled = profile.enabled,
                 )
+                Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
                 editingProvider = null
             },
         )

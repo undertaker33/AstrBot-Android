@@ -1,5 +1,7 @@
 package com.astrbot.android.data
 
+import android.content.Context
+import android.content.SharedPreferences
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.runtime.RuntimeLogRepository
@@ -8,6 +10,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 object NapCatBridgeRepository {
+    private const val PREFS_NAME = "napcat_bridge_config"
+    private const val KEY_RUNTIME_MODE = "runtime_mode"
+    private const val KEY_ENDPOINT = "endpoint"
+    private const val KEY_HEALTH_URL = "health_url"
+    private const val KEY_AUTO_START = "auto_start"
+    private const val KEY_START_COMMAND = "start_command"
+    private const val KEY_STOP_COMMAND = "stop_command"
+    private const val KEY_STATUS_COMMAND = "status_command"
+    private const val KEY_COMMAND_PREVIEW = "command_preview"
+
+    private var preferences: SharedPreferences? = null
     private val _config = MutableStateFlow(
         NapCatBridgeConfig(
             commandPreview = "Start NapCat runtime",
@@ -21,10 +34,28 @@ object NapCatBridgeRepository {
     val config: StateFlow<NapCatBridgeConfig> = _config.asStateFlow()
     val runtimeState: StateFlow<NapCatRuntimeState> = _runtimeState.asStateFlow()
 
+    fun initialize(context: Context) {
+        if (preferences != null) return
+        preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        _config.value = loadConfig(defaults = _config.value)
+        RuntimeLogRepository.append(
+            "Bridge config loaded: endpoint=${_config.value.endpoint} health=${_config.value.healthUrl} autoStart=${_config.value.autoStart}",
+        )
+    }
+
     fun updateConfig(config: NapCatBridgeConfig) {
         _config.value = config
+        persistConfig(config)
         RuntimeLogRepository.append(
             "Bridge config updated: endpoint=${config.endpoint} health=${config.healthUrl} autoStart=${config.autoStart}",
+        )
+    }
+
+    fun applyRuntimeDefaults(defaults: NapCatBridgeConfig) {
+        val mergedConfig = loadConfig(defaults)
+        _config.value = mergedConfig
+        RuntimeLogRepository.append(
+            "Bridge runtime defaults applied: endpoint=${mergedConfig.endpoint} health=${mergedConfig.healthUrl} autoStart=${mergedConfig.autoStart}",
         )
     }
 
@@ -128,5 +159,33 @@ object NapCatBridgeRepository {
             installerCached = cached,
             lastCheckAt = System.currentTimeMillis(),
         )
+    }
+
+    private fun loadConfig(defaults: NapCatBridgeConfig): NapCatBridgeConfig {
+        val prefs = preferences ?: return defaults
+        return defaults.copy(
+            runtimeMode = prefs.getString(KEY_RUNTIME_MODE, defaults.runtimeMode) ?: defaults.runtimeMode,
+            endpoint = prefs.getString(KEY_ENDPOINT, defaults.endpoint) ?: defaults.endpoint,
+            healthUrl = prefs.getString(KEY_HEALTH_URL, defaults.healthUrl) ?: defaults.healthUrl,
+            autoStart = prefs.getBoolean(KEY_AUTO_START, defaults.autoStart),
+            startCommand = prefs.getString(KEY_START_COMMAND, defaults.startCommand) ?: defaults.startCommand,
+            stopCommand = prefs.getString(KEY_STOP_COMMAND, defaults.stopCommand) ?: defaults.stopCommand,
+            statusCommand = prefs.getString(KEY_STATUS_COMMAND, defaults.statusCommand) ?: defaults.statusCommand,
+            commandPreview = prefs.getString(KEY_COMMAND_PREVIEW, defaults.commandPreview) ?: defaults.commandPreview,
+        )
+    }
+
+    private fun persistConfig(config: NapCatBridgeConfig) {
+        preferences
+            ?.edit()
+            ?.putString(KEY_RUNTIME_MODE, config.runtimeMode)
+            ?.putString(KEY_ENDPOINT, config.endpoint)
+            ?.putString(KEY_HEALTH_URL, config.healthUrl)
+            ?.putBoolean(KEY_AUTO_START, config.autoStart)
+            ?.putString(KEY_START_COMMAND, config.startCommand)
+            ?.putString(KEY_STOP_COMMAND, config.stopCommand)
+            ?.putString(KEY_STATUS_COMMAND, config.statusCommand)
+            ?.putString(KEY_COMMAND_PREVIEW, config.commandPreview)
+            ?.apply()
     }
 }

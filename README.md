@@ -9,6 +9,9 @@
 
 目标不是把桌面端的 Python 后端、Node WebUI、插件生态和协议栈原封不动搬进 Android，而是提炼其中适合手机场景的核心管理能力，并以 Kotlin + Compose + Android 前台服务的方式重建。
 
+~~目前有个致命问题：Android 设备上，AstrBot 用前台服务托管 NapCat；NapCat 再在容器里运行 Linux QQ。这个 Linux QQ 在应用切到后台后，登录态会变得不稳定，常见表现是 QQ 侧显示的 “Linux 已登录” 过一会失效或离线。实在没招了~~
+没开电池优化，我有点弱智了
+
 ## 项目来源
 
 ### 1. AstrBot-master 提供的能力来源

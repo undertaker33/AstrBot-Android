@@ -1,5 +1,6 @@
 package com.astrbot.android.ui.screen
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -181,6 +182,7 @@ fun SettingsScreen(
                                     autoStart = autoStart,
                                 ),
                             )
+                            Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
                         },
                         colors = monochromeButtonColors(),
                     ) {

@@ -63,7 +63,7 @@ object ContainerRuntimeInstaller {
         }
 
         val appHome = context.filesDir.absolutePath
-        NapCatBridgeRepository.updateConfig(
+        NapCatBridgeRepository.applyRuntimeDefaults(
             NapCatBridgeConfig(
                 endpoint = "ws://127.0.0.1:6199/ws",
                 healthUrl = "http://127.0.0.1:6099",

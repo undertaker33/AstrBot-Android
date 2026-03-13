@@ -1,5 +1,6 @@
 package com.astrbot.android.ui.screen
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +72,7 @@ fun BotScreen(
     val selectedBotId by botViewModel.selectedBotId.collectAsState()
     val providers by botViewModel.providers.collectAsState()
     val personas by botViewModel.personas.collectAsState()
+    val context = LocalContext.current
 
     val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
     val enabledPersonas = personas.filter { it.enabled }
@@ -89,6 +92,7 @@ fun BotScreen(
                 onSaveBot = { bot ->
                     botViewModel.save(bot)
                     botViewModel.select(bot.id)
+                    Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
                 },
                 onDeleteBot = { bot ->
                     botViewModel.select(bot.id)
