@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -23,9 +24,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CheckBox
+import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -54,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ProviderCapability
+import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.monochromeSwitchColors
@@ -72,6 +78,8 @@ fun BotScreen(
     val selectedBotId by botViewModel.selectedBotId.collectAsState()
     val providers by botViewModel.providers.collectAsState()
     val personas by botViewModel.personas.collectAsState()
+    val configProfiles by botViewModel.configProfiles.collectAsState()
+    val loginState by botViewModel.loginState.collectAsState()
     val context = LocalContext.current
 
     val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
@@ -80,7 +88,7 @@ fun BotScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF3F3F1)),
+            .background(MonochromeUi.pageBackground),
     ) {
         if (!showModels) {
             BotCatalogContent(
@@ -88,7 +96,12 @@ fun BotScreen(
                 selectedBotId = selectedBotId,
                 providerOptions = chatProviders,
                 personaOptions = enabledPersonas,
+                configOptions = configProfiles,
+                qqAccountOptions = loginState.savedAccounts,
                 onSelectBot = { botViewModel.select(it) },
+                onToggleBot = { bot, enabled ->
+                    botViewModel.save(bot.copy(autoReplyEnabled = enabled))
+                },
                 onSaveBot = { bot ->
                     botViewModel.save(bot)
                     botViewModel.select(bot.id)
@@ -116,7 +129,10 @@ private fun BotCatalogContent(
     selectedBotId: String,
     providerOptions: List<com.astrbot.android.model.ProviderProfile>,
     personaOptions: List<com.astrbot.android.model.PersonaProfile>,
+    configOptions: List<com.astrbot.android.model.ConfigProfile>,
+    qqAccountOptions: List<SavedQqAccount>,
     onSelectBot: (String) -> Unit,
+    onToggleBot: (BotProfile, Boolean) -> Unit,
     onSaveBot: (BotProfile) -> Unit,
     onDeleteBot: (BotProfile) -> Unit,
 ) {
@@ -169,10 +185,12 @@ private fun BotCatalogContent(
                     active = bot.id == selectedBotId,
                     providerName = providerOptions.firstOrNull { it.id == bot.defaultProviderId }?.name.orEmpty(),
                     personaName = personaOptions.firstOrNull { it.id == bot.defaultPersonaId }?.name.orEmpty(),
+                    qqAccountsLabel = bot.boundQqUins.ifEmpty { listOf("未绑定QQ") }.joinToString(", "),
                     onClick = {
                         onSelectBot(bot.id)
                         editingBot = bot
                     },
+                    onToggle = { enabled -> onToggleBot(bot, enabled) },
                 )
             }
         }
@@ -186,13 +204,14 @@ private fun BotCatalogContent(
                     accountHint = "",
                     defaultProviderId = providerOptions.firstOrNull()?.id.orEmpty(),
                     defaultPersonaId = personaOptions.firstOrNull()?.id.orEmpty(),
+                    configProfileId = configOptions.firstOrNull()?.id ?: "default",
                 )
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp),
-            containerColor = Color(0xFF151515),
-            contentColor = Color.White,
+            containerColor = MonochromeUi.fabBackground,
+            contentColor = MonochromeUi.fabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
             Icon(Icons.Outlined.Add, contentDescription = "新建机器人")
@@ -204,6 +223,8 @@ private fun BotCatalogContent(
             initialBot = profile,
             providerOptions = providerOptions.map { it.id to it.name },
             personaOptions = personaOptions.map { it.id to it.name },
+            configOptions = configOptions.map { it.id to it.name },
+            qqAccountOptions = qqAccountOptions,
             onDismiss = { editingBot = null },
             onDelete = {
                 if (bots.size > 1) {
@@ -237,20 +258,20 @@ internal fun CatalogToggleHeader(
                 leftLabel,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = if (leftSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (leftSelected) Color(0xFF0F172A) else Color(0xFF94A3B8),
+                color = if (leftSelected) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
             )
         }
         Text(
             "|",
             style = MaterialTheme.typography.titleMedium,
-            color = Color(0xFF94A3B8),
+            color = MonochromeUi.textSecondary,
         )
         TextButton(onClick = onSelectRight, contentPadding = PaddingValues(0.dp)) {
             Text(
                 rightLabel,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = if (leftSelected) FontWeight.Medium else FontWeight.Bold,
-                color = if (leftSelected) Color(0xFF94A3B8) else Color(0xFF0F172A),
+                color = if (leftSelected) MonochromeUi.textSecondary else MonochromeUi.textPrimary,
             )
         }
     }
@@ -277,6 +298,11 @@ internal fun ScrollableAssistChipRow(
                 } else {
                     null
                 },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = if (selectedItem == item) MonochromeUi.chipSelectedBackground else MonochromeUi.chipBackground,
+                    labelColor = if (selectedItem == item) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
+                    leadingIconContentColor = MonochromeUi.textPrimary,
+                ),
             )
         }
     }
@@ -288,7 +314,9 @@ private fun BotListCard(
     active: Boolean,
     providerName: String,
     personaName: String,
+    qqAccountsLabel: String,
     onClick: () -> Unit,
+    onToggle: (Boolean) -> Unit,
 ) {
     Surface(
         onClick = onClick,
@@ -305,11 +333,11 @@ private fun BotListCard(
         ) {
             Box(
                 modifier = Modifier
-                    .background(Color(0xFF1B1B1B), CircleShape)
+                    .background(MonochromeUi.mutedSurface, CircleShape)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(bot.displayName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+                Text(bot.displayName.take(1).uppercase(), color = MonochromeUi.textPrimary, fontWeight = FontWeight.Bold)
             }
             Column(
                 modifier = Modifier.weight(1f),
@@ -318,7 +346,7 @@ private fun BotListCard(
                 Text(bot.displayName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     text = buildList {
-                        add(bot.accountHint.ifBlank { bot.platformName })
+                        add(qqAccountsLabel)
                         if (bot.tag.isNotBlank()) add(bot.tag)
                     }.joinToString(" | "),
                     style = MaterialTheme.typography.bodySmall,
@@ -334,7 +362,7 @@ private fun BotListCard(
             }
             Switch(
                 checked = bot.autoReplyEnabled,
-                onCheckedChange = null,
+                onCheckedChange = onToggle,
                 colors = monochromeSwitchColors(),
             )
         }
@@ -346,32 +374,43 @@ private fun BotEditorDialog(
     initialBot: BotProfile,
     providerOptions: List<Pair<String, String>>,
     personaOptions: List<Pair<String, String>>,
+    configOptions: List<Pair<String, String>>,
+    qqAccountOptions: List<SavedQqAccount>,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onSave: (BotProfile) -> Unit,
 ) {
     var displayName by remember(initialBot.id) { mutableStateOf(initialBot.displayName) }
     var tag by remember(initialBot.id) { mutableStateOf(initialBot.tag) }
-    var accountHint by remember(initialBot.id) { mutableStateOf(initialBot.accountHint) }
+    var boundQqUins by remember(initialBot.id) { mutableStateOf(initialBot.boundQqUins) }
     var triggerWords by remember(initialBot.id) { mutableStateOf(initialBot.triggerWords.joinToString(", ")) }
     var autoReplyEnabled by remember(initialBot.id) { mutableStateOf(initialBot.autoReplyEnabled) }
+    var persistConversationLocally by remember(initialBot.id) { mutableStateOf(initialBot.persistConversationLocally) }
     var defaultProviderId by remember(initialBot.id) { mutableStateOf(initialBot.defaultProviderId) }
     var defaultPersonaId by remember(initialBot.id) { mutableStateOf(initialBot.defaultPersonaId) }
+    var configProfileId by remember(initialBot.id) { mutableStateOf(initialBot.configProfileId) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textPrimary,
         confirmButton = {
             TextButton(
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
                 onClick = {
                     onSave(
                         initialBot.copy(
                             displayName = displayName.trim().ifBlank { initialBot.displayName },
                             tag = tag.trim(),
-                            accountHint = accountHint.trim(),
+                            accountHint = boundQqUins.joinToString(", ").ifBlank { "未绑定QQ" },
+                            boundQqUins = boundQqUins,
                             triggerWords = triggerWords.split(",").map { it.trim() }.filter { it.isNotBlank() },
                             autoReplyEnabled = autoReplyEnabled,
+                            persistConversationLocally = persistConversationLocally,
                             defaultProviderId = defaultProviderId,
                             defaultPersonaId = defaultPersonaId,
+                            configProfileId = configProfileId,
                         ),
                     )
                 },
@@ -382,11 +421,17 @@ private fun BotEditorDialog(
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (initialBot.id != "qq-main") {
-                    TextButton(onClick = onDelete) {
+                    TextButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    ) {
                         Text("删除")
                     }
                 }
-                TextButton(onClick = onDismiss) {
+                TextButton(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                ) {
                     Text("取消")
                 }
             }
@@ -396,7 +441,7 @@ private fun BotEditorDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 320.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -415,18 +460,17 @@ private fun BotEditorDialog(
                     colors = monochromeOutlinedTextFieldColors(),
                 )
                 OutlinedTextField(
-                    value = accountHint,
-                    onValueChange = { accountHint = it },
-                    label = { Text("账号提示") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                OutlinedTextField(
                     value = triggerWords,
                     onValueChange = { triggerWords = it },
                     label = { Text("触发词") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = monochromeOutlinedTextFieldColors(),
+                )
+                MultiSelectionField(
+                    title = "绑定QQ",
+                    options = qqAccountOptions,
+                    selectedIds = boundQqUins,
+                    onSelectionChange = { boundQqUins = it },
                 )
                 SelectionField(
                     title = "默认模型",
@@ -440,12 +484,17 @@ private fun BotEditorDialog(
                     selectedId = defaultPersonaId,
                     onSelect = { defaultPersonaId = it },
                 )
+                SelectionField(
+                    title = "配置文件",
+                    options = configOptions,
+                    selectedId = configProfileId,
+                    onSelect = { configProfileId = it },
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.Top,
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text("自动回复", fontWeight = FontWeight.SemiBold)
                         Text(
                             "启用后可用于 QQ 自动回复。",
@@ -453,15 +502,115 @@ private fun BotEditorDialog(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                         )
                     }
-                    Switch(
-                        checked = autoReplyEnabled,
-                        onCheckedChange = { autoReplyEnabled = it },
-                        colors = monochromeSwitchColors(),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .width(76.dp)
+                            .padding(top = 4.dp),
+                        contentAlignment = Alignment.TopEnd,
+                    ) {
+                        Switch(
+                            checked = autoReplyEnabled,
+                            onCheckedChange = { autoReplyEnabled = it },
+                            colors = monochromeSwitchColors(),
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("对话数据持久化至本地", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "开启后，该机器人的对话会保存在本地，不随版本更新丢失。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .width(76.dp)
+                            .padding(top = 4.dp),
+                        contentAlignment = Alignment.TopEnd,
+                    ) {
+                        Switch(
+                            checked = persistConversationLocally,
+                            onCheckedChange = { persistConversationLocally = it },
+                            colors = monochromeSwitchColors(),
+                        )
+                    }
                 }
             }
         },
     )
+}
+
+@Composable
+private fun MultiSelectionField(
+    title: String,
+    options: List<SavedQqAccount>,
+    selectedIds: List<String>,
+    onSelectionChange: (List<String>) -> Unit,
+) {
+    var expanded by remember(selectedIds, options) { mutableStateOf(false) }
+    val summary = when {
+        selectedIds.isEmpty() -> "未选择QQ"
+        else -> options
+            .filter { it.uin in selectedIds }
+            .map { it.nickName.ifBlank { it.uin } }
+            .ifEmpty { selectedIds }
+            .joinToString(", ")
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = MaterialTheme.typography.labelSmall)
+        Surface(
+            onClick = { expanded = true },
+            shape = RoundedCornerShape(18.dp),
+            color = MonochromeUi.inputBackground,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(summary, style = MaterialTheme.typography.bodySmall)
+                Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, tint = MonochromeUi.textSecondary)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (options.isEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("暂无已保存QQ账号") },
+                    onClick = { expanded = false },
+                )
+            } else {
+                options.forEach { account ->
+                    val checked = selectedIds.contains(account.uin)
+                    DropdownMenuItem(
+                        text = { Text(account.nickName.ifBlank { account.uin }) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (checked) Icons.Outlined.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            onSelectionChange(
+                                if (checked) {
+                                    selectedIds - account.uin
+                                } else {
+                                    selectedIds + account.uin
+                                },
+                            )
+                        },
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -479,7 +628,7 @@ internal fun SelectionField(
         Surface(
             onClick = { expanded = true },
             shape = RoundedCornerShape(18.dp),
-            color = CardDefaults.outlinedCardColors().containerColor,
+            color = MonochromeUi.inputBackground,
         ) {
             Row(
                 modifier = Modifier
@@ -489,7 +638,7 @@ internal fun SelectionField(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(selectedLabel, style = MaterialTheme.typography.bodySmall)
-                Icon(Icons.Outlined.ArrowDropDown, contentDescription = null)
+                Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, tint = MonochromeUi.textSecondary)
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

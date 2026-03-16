@@ -77,7 +77,7 @@ fun LogScreen(
                 enabled = displayText.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MonochromeUi.strong,
-                    contentColor = Color.White,
+                    contentColor = MonochromeUi.strongText,
                 ),
             ) {
                 Text("复制全部")
@@ -93,6 +93,10 @@ fun LogScreen(
                     }
                 },
                 enabled = if (!showContext) logs.isNotEmpty() else contextPreview.isNotBlank(),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MonochromeUi.textPrimary,
+                    disabledContentColor = MonochromeUi.textSecondary,
+                ),
             ) {
                 Text("清空")
             }

@@ -2,6 +2,7 @@ package com.astrbot.android.runtime
 
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
@@ -22,6 +23,8 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -142,7 +145,7 @@ object OneBotBridgeServer {
     }
 
     private suspend fun processMessageEvent(event: IncomingMessageEvent) {
-        val bot = resolveReplyBot() ?: run {
+        val bot = resolveReplyBot(event) ?: run {
             RuntimeLogRepository.append("Auto reply skipped: no QQ bot profile available")
             return
         }
@@ -151,15 +154,7 @@ object OneBotBridgeServer {
             return
         }
 
-        val provider = resolveProvider(bot)
-        if (provider == null) {
-            RuntimeLogRepository.append("Auto reply skipped: no enabled chat provider configured")
-            sendFailureNoticeIfNeeded(event, "No chat model is configured for this bot.")
-            return
-        }
-
-        val persona = resolvePersona(bot)
-        val sessionId = buildSessionId(event)
+        val sessionId = buildSessionId(bot, event)
         val sessionTitle = buildSessionTitle(event)
         val conversationLock = conversationLocks.getOrPut(sessionId) { Mutex() }
 
@@ -168,10 +163,21 @@ object OneBotBridgeServer {
             if (session.title != sessionTitle) {
                 ConversationRepository.renameSession(sessionId, sessionTitle)
             }
+            val persona = resolvePersona(bot, session.personaId)
+            if (handleBotCommand(event, bot, sessionId, session, persona)) {
+                return@withLock
+            }
+            val provider = resolveProvider(bot, persona)
+            if (provider == null) {
+                RuntimeLogRepository.append("Auto reply skipped: no enabled chat provider configured")
+                sendFailureNoticeIfNeeded(event, "No chat model is configured for this bot.")
+                return@withLock
+            }
             ConversationRepository.updateSessionBindings(
                 sessionId = sessionId,
                 providerId = provider.id,
                 personaId = persona?.id.orEmpty(),
+                botId = bot.id,
             )
 
             ConversationRepository.appendMessage(sessionId, "user", event.promptContent)
@@ -184,7 +190,7 @@ object OneBotBridgeServer {
                 ChatCompletionService.sendChat(
                     provider = provider,
                     messages = currentSession.messages.takeLast(persona?.maxContextMessages ?: currentSession.maxContextMessages),
-                    systemPrompt = buildSystemPrompt(persona, event),
+                    systemPrompt = buildSystemPrompt(bot, persona, event),
                 )
             }.getOrElse { error ->
                 val details = error.message ?: error.javaClass.simpleName
@@ -202,35 +208,27 @@ object OneBotBridgeServer {
         if (event.text.isBlank()) return false
         if (event.selfId.isNotBlank() && event.selfId == event.userId) return false
 
-        val bot = resolveReplyBot() ?: return false
+        val bot = resolveReplyBot(event) ?: return false
         if (!bot.autoReplyEnabled) return false
 
         return when (event.messageType) {
             "private" -> true
-            "group" -> event.mentionsSelf || containsTriggerWord(event.text, bot.triggerWords)
+            "group" -> isBotCommand(event.text) || event.mentionsSelf || containsTriggerWord(event.text, bot.triggerWords)
             else -> false
         }
     }
 
-    private fun resolveReplyBot(): BotProfile? {
-        val selectedBot = BotRepository.botProfile.value
-        if (selectedBot.platformName.equals("QQ", ignoreCase = true) && selectedBot.autoReplyEnabled) {
-            return selectedBot
-        }
-
-        return BotRepository.botProfiles.value.firstOrNull {
-            it.platformName.equals("QQ", ignoreCase = true) && it.autoReplyEnabled
-        } ?: BotRepository.botProfiles.value.firstOrNull {
-            it.platformName.equals("QQ", ignoreCase = true)
-        }
+    private fun resolveReplyBot(event: IncomingMessageEvent): BotProfile? {
+        return BotRepository.resolveBoundBot(event.selfId)
     }
 
-    private fun resolveProvider(bot: BotProfile): ProviderProfile? {
+    private fun resolveProvider(bot: BotProfile, persona: PersonaProfile?): ProviderProfile? {
         val providers = ProviderRepository.providers.value.filter {
             it.enabled && ProviderCapability.CHAT in it.capabilities
         }
-        val persona = resolvePersona(bot)
+        val config = ConfigRepository.resolve(bot.configProfileId)
         val preferredIds = listOf(
+            config.defaultChatProviderId,
             bot.defaultProviderId,
             persona?.defaultProviderId.orEmpty(),
         ).filter { it.isNotBlank() }
@@ -240,31 +238,42 @@ object OneBotBridgeServer {
         } ?: providers.firstOrNull()
     }
 
-    private fun resolvePersona(bot: BotProfile): PersonaProfile? {
+    private fun resolvePersona(bot: BotProfile, sessionPersonaId: String? = null): PersonaProfile? {
         val personas = PersonaRepository.personas.value.filter { it.enabled }
-        return personas.firstOrNull { it.id == bot.defaultPersonaId } ?: personas.firstOrNull()
+        return personas.firstOrNull { it.id == sessionPersonaId && sessionPersonaId.isNullOrBlank().not() }
+            ?: personas.firstOrNull { it.id == bot.defaultPersonaId }
+            ?: personas.firstOrNull()
     }
 
     private fun buildSystemPrompt(
+        bot: BotProfile,
         persona: PersonaProfile?,
         event: IncomingMessageEvent,
     ): String? {
         val basePrompt = persona?.systemPrompt?.trim().orEmpty()
+        val config = ConfigRepository.resolve(bot.configProfileId)
         val channelPrompt = if (event.messageType == "group") {
             "You are replying inside a QQ group chat. Keep the answer concise and natural, and focus on the latest message."
         } else {
             "You are replying inside a QQ private chat. Keep the answer concise and natural."
         }
+        val timePrompt = if (config.realWorldTimeAwarenessEnabled) {
+            val now = ZonedDateTime.now()
+            "Current local time: ${now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))}."
+        } else {
+            null
+        }
         return listOfNotNull(
             basePrompt.takeIf { it.isNotBlank() },
             channelPrompt,
+            timePrompt,
         ).joinToString(separator = "\n\n").ifBlank { null }
     }
 
-    private fun buildSessionId(event: IncomingMessageEvent): String {
+    private fun buildSessionId(bot: BotProfile, event: IncomingMessageEvent): String {
         return when (event.messageType) {
-            "group" -> "qq-group-${event.groupId}"
-            else -> "qq-private-${event.userId}"
+            "group" -> "qq-${bot.id}-group-${event.groupId}"
+            else -> "qq-${bot.id}-private-${event.userId}"
         }
     }
 
@@ -312,6 +321,106 @@ object OneBotBridgeServer {
     private fun sendFailureNoticeIfNeeded(event: IncomingMessageEvent, message: String) {
         if (event.messageType == "private") {
             sendReply(event, message)
+        }
+    }
+
+    private fun handleBotCommand(
+        event: IncomingMessageEvent,
+        bot: BotProfile,
+        sessionId: String,
+        session: com.astrbot.android.model.ConversationSession,
+        currentPersona: PersonaProfile?,
+    ): Boolean {
+        val trimmedText = event.text.trim()
+        return when {
+            trimmedText.equals("/reset", ignoreCase = true) -> {
+                ConversationRepository.replaceMessages(sessionId, emptyList())
+                sendReply(event, "Current conversation context cleared.")
+                RuntimeLogRepository.append("Bot command handled: /reset session=$sessionId")
+                true
+            }
+
+            trimmedText.equals("/persona list", ignoreCase = true) -> {
+                val personas = PersonaRepository.personas.value.filter { it.enabled }
+                val message = if (personas.isEmpty()) {
+                    "No personas available."
+                } else {
+                    buildString {
+                        appendLine("Available personas:")
+                        personas.forEach { persona ->
+                            appendLine(
+                                if (persona.id == currentPersona?.id) "- ${persona.name} (current)" else "- ${persona.name}",
+                            )
+                        }
+                    }.trim()
+                }
+                sendReply(event, message)
+                RuntimeLogRepository.append("Bot command handled: /persona list session=$sessionId")
+                true
+            }
+
+            trimmedText.equals("/persona", ignoreCase = true) -> {
+                sendReply(
+                    event,
+                    listOf(
+                        "Persona commands:",
+                        "/persona list - list all personas and mark the current one",
+                        "/persona <name> - switch persona for the current conversation",
+                        "/persona view <name> - show the persona system prompt",
+                    ).joinToString("\n"),
+                )
+                RuntimeLogRepository.append("Bot command handled: /persona help session=$sessionId")
+                true
+            }
+
+            trimmedText.startsWith("/persona view ", ignoreCase = true) -> {
+                val name = trimmedText.substringAfter("/persona view", "").trim()
+                val persona = findPersonaByName(name)
+                sendReply(
+                    event,
+                    if (persona == null) {
+                        "Persona not found. Use /persona list to check available personas."
+                    } else {
+                        "Persona ${persona.name} system prompt:\n${persona.systemPrompt}"
+                    },
+                )
+                RuntimeLogRepository.append("Bot command handled: /persona view session=$sessionId target=${name.ifBlank { "-" }}")
+                true
+            }
+
+            trimmedText.startsWith("/persona ", ignoreCase = true) -> {
+                val name = trimmedText.substringAfter("/persona", "").trim()
+                val targetPersona = findPersonaByName(name)
+                if (targetPersona == null) {
+                    sendReply(event, "Persona not found. Use /persona list to check available personas.")
+                    RuntimeLogRepository.append("Bot command failed: persona not found target=${name.ifBlank { "-" }}")
+                    true
+                } else {
+                    val providerId = resolveProvider(bot, targetPersona)?.id ?: session.providerId
+                    ConversationRepository.updateSessionBindings(
+                        sessionId = sessionId,
+                        providerId = providerId,
+                        personaId = targetPersona.id,
+                        botId = bot.id,
+                    )
+                    sendReply(
+                        event,
+                        "Persona switched to ${targetPersona.name}. Use /reset to clear current context if you want to avoid old context affecting the new persona.",
+                    )
+                    RuntimeLogRepository.append("Bot command handled: /persona session=$sessionId target=${targetPersona.id}")
+                    true
+                }
+            }
+
+            else -> false
+        }
+    }
+
+    private fun findPersonaByName(name: String): PersonaProfile? {
+        val normalized = name.trim()
+        if (normalized.isBlank()) return null
+        return PersonaRepository.personas.value.firstOrNull {
+            it.enabled && it.name.equals(normalized, ignoreCase = true)
         }
     }
 
@@ -397,6 +506,11 @@ object OneBotBridgeServer {
             .map { it.trim().lowercase() }
             .filter { it.isNotBlank() }
             .any { trigger -> normalizedText.contains(trigger) }
+    }
+
+    private fun isBotCommand(text: String): Boolean {
+        val normalized = text.trim().lowercase()
+        return normalized == "/reset" || normalized.startsWith("/persona")
     }
 
     private fun jsonValueAsString(json: JSONObject, key: String): String {

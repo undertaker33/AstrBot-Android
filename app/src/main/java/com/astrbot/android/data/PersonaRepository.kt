@@ -149,7 +149,7 @@ object PersonaRepository {
             name = "Default Assistant",
             tag = "Default",
             systemPrompt = "You are a concise, reliable QQ assistant.",
-            enabledTools = setOf("web_search", "tts"),
+            enabledTools = emptySet(),
             maxContextMessages = 12,
         ),
     )

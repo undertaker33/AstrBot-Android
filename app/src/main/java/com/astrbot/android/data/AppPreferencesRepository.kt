@@ -15,6 +15,8 @@ class AppPreferencesRepository(private val context: Context) {
         val qqEnabled = booleanPreferencesKey("qq_enabled")
         val napCatContainerEnabled = booleanPreferencesKey("napcat_container_enabled")
         val preferredChatProvider = stringPreferencesKey("preferred_chat_provider")
+        val language = stringPreferencesKey("language")
+        val themeMode = stringPreferencesKey("theme_mode")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -22,6 +24,8 @@ class AppPreferencesRepository(private val context: Context) {
             qqEnabled = prefs[Keys.qqEnabled] ?: true,
             napCatContainerEnabled = prefs[Keys.napCatContainerEnabled] ?: true,
             preferredChatProvider = prefs[Keys.preferredChatProvider].orEmpty(),
+            language = AppLanguage.fromValue(prefs[Keys.language]),
+            themeMode = ThemeMode.fromValue(prefs[Keys.themeMode]),
         )
     }
 
@@ -36,10 +40,43 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setPreferredChatProvider(providerId: String) {
         context.dataStore.edit { it[Keys.preferredChatProvider] = providerId }
     }
+
+    suspend fun setLanguage(language: AppLanguage) {
+        context.dataStore.edit { it[Keys.language] = language.value }
+    }
+
+    suspend fun setThemeMode(themeMode: ThemeMode) {
+        context.dataStore.edit { it[Keys.themeMode] = themeMode.value }
+    }
 }
 
 data class AppSettings(
     val qqEnabled: Boolean,
     val napCatContainerEnabled: Boolean,
     val preferredChatProvider: String,
+    val language: AppLanguage = AppLanguage.CHINESE,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
 )
+
+enum class AppLanguage(val value: String) {
+    CHINESE("zh"),
+    ENGLISH("en");
+
+    companion object {
+        fun fromValue(value: String?): AppLanguage {
+            return entries.firstOrNull { it.value == value } ?: CHINESE
+        }
+    }
+}
+
+enum class ThemeMode(val value: String) {
+    SYSTEM("system"),
+    LIGHT("light"),
+    DARK("dark");
+
+    companion object {
+        fun fromValue(value: String?): ThemeMode {
+            return entries.firstOrNull { it.value == value } ?: SYSTEM
+        }
+    }
+}

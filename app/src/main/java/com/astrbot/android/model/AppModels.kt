@@ -42,13 +42,27 @@ data class BotProfile(
     val displayName: String = "Host Bot",
     val tag: String = "",
     val accountHint: String = "",
+    val boundQqUins: List<String> = emptyList(),
     val triggerWords: List<String> = listOf("astrbot"),
     val autoReplyEnabled: Boolean = true,
+    val persistConversationLocally: Boolean = false,
     val bridgeMode: String = "NapCat local bridge",
     val bridgeEndpoint: String = "ws://127.0.0.1:6199/ws",
     val defaultProviderId: String = "",
     val defaultPersonaId: String = "default",
+    val configProfileId: String = "default",
     val status: String = "Idle",
+)
+
+data class ConfigProfile(
+    val id: String = "",
+    val name: String = "",
+    val defaultChatProviderId: String = "",
+    val defaultVisionProviderId: String = "",
+    val sttEnabled: Boolean = false,
+    val ttsEnabled: Boolean = false,
+    val realWorldTimeAwarenessEnabled: Boolean = false,
+    val imageCaptionPrompt: String = "Describe the image in detail before sending it to the chat model.",
 )
 
 data class ConversationMessage(
@@ -61,6 +75,7 @@ data class ConversationMessage(
 data class ConversationSession(
     val id: String,
     val title: String,
+    val botId: String,
     val personaId: String,
     val providerId: String,
     val maxContextMessages: Int,

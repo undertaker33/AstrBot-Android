@@ -5,12 +5,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -81,7 +82,7 @@ fun PersonaScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF3F3F1)),
+            .background(MonochromeUi.pageBackground),
     ) {
         LazyColumn(
             modifier = Modifier
@@ -128,18 +129,18 @@ fun PersonaScreen(
                     name = "新人格",
                     tag = "",
                     systemPrompt = "",
-                    enabledTools = setOf("web_search"),
+                    enabledTools = emptySet(),
                     defaultProviderId = chatProviders.firstOrNull()?.id.orEmpty(),
                 )
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp),
-            containerColor = Color(0xFF151515),
-            contentColor = Color.White,
+            containerColor = MonochromeUi.fabBackground,
+            contentColor = MonochromeUi.fabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
-            Icon(Icons.Outlined.Add, contentDescription = "新建人格")
+            Icon(Icons.Outlined.Add, contentDescription = "新增人格")
         }
     }
 
@@ -160,7 +161,7 @@ fun PersonaScreen(
                         name = persona.name,
                         tag = persona.tag,
                         systemPrompt = persona.systemPrompt,
-                        enabledTools = persona.enabledTools,
+                        enabledTools = emptySet(),
                         defaultProviderId = persona.defaultProviderId,
                         maxContextMessages = persona.maxContextMessages,
                     )
@@ -194,11 +195,11 @@ private fun PersonaCard(
         ) {
             Box(
                 modifier = Modifier
-                    .background(Color(0xFFE7E7E4), CircleShape)
+                    .background(MonochromeUi.mutedSurface, CircleShape)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(persona.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = Color(0xFF111111))
+                Text(persona.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = MonochromeUi.textPrimary)
             }
             Column(
                 modifier = Modifier.weight(1f),
@@ -246,15 +247,16 @@ private fun PersonaEditorDialog(
     var systemPrompt by remember(initialPersona.id) { mutableStateOf(initialPersona.systemPrompt) }
     var defaultProviderId by remember(initialPersona.id) { mutableStateOf(initialPersona.defaultProviderId) }
     var maxContextMessages by remember(initialPersona.id) { mutableStateOf(initialPersona.maxContextMessages.toString()) }
-    var webSearchEnabled by remember(initialPersona.id) { mutableStateOf("web_search" in initialPersona.enabledTools) }
-    var ttsEnabled by remember(initialPersona.id) { mutableStateOf("tts" in initialPersona.enabledTools) }
-    var asrEnabled by remember(initialPersona.id) { mutableStateOf("asr" in initialPersona.enabledTools) }
     var enabled by remember(initialPersona.id) { mutableStateOf(initialPersona.enabled) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textPrimary,
         confirmButton = {
             TextButton(
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
                 onClick = {
                     onSave(
                         initialPersona.copy(
@@ -263,11 +265,7 @@ private fun PersonaEditorDialog(
                             systemPrompt = systemPrompt.trim(),
                             defaultProviderId = defaultProviderId,
                             maxContextMessages = maxContextMessages.toIntOrNull()?.coerceAtLeast(1) ?: 12,
-                            enabledTools = buildSet {
-                                if (webSearchEnabled) add("web_search")
-                                if (ttsEnabled) add("tts")
-                                if (asrEnabled) add("asr")
-                            },
+                            enabledTools = emptySet(),
                             enabled = enabled,
                         ),
                     )
@@ -279,11 +277,17 @@ private fun PersonaEditorDialog(
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (initialPersona.id != "default") {
-                    TextButton(onClick = onDelete) {
+                    TextButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    ) {
                         Text("删除")
                     }
                 }
-                TextButton(onClick = onDismiss) {
+                TextButton(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                ) {
                     Text("取消")
                 }
             }
@@ -293,7 +297,7 @@ private fun PersonaEditorDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 320.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -320,7 +324,7 @@ private fun PersonaEditorDialog(
                 OutlinedTextField(
                     value = maxContextMessages,
                     onValueChange = { maxContextMessages = it.filter(Char::isDigit) },
-                    label = { Text("上下文上限") },
+                    label = { Text("最大上下文消息数") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = monochromeOutlinedTextFieldColors(),
                 )
@@ -333,9 +337,6 @@ private fun PersonaEditorDialog(
                     maxLines = 10,
                     colors = monochromeOutlinedTextFieldColors(),
                 )
-                ToolSwitch("联网搜索", webSearchEnabled) { webSearchEnabled = it }
-                ToolSwitch("文字转语音", ttsEnabled) { ttsEnabled = it }
-                ToolSwitch("语音转文字", asrEnabled) { asrEnabled = it }
                 ToolSwitch("启用", enabled) { enabled = it }
             }
         },

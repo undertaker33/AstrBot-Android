@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -25,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Refresh
@@ -58,6 +62,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.data.AppLanguage
+import com.astrbot.android.data.AppPreferencesRepository
+import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
@@ -70,6 +77,7 @@ import kotlinx.coroutines.launch
 fun MeScreen(
     onOpenQqAccount: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenLogs: () -> Unit,
 ) {
     EntryListPage(
         entries = listOf(
@@ -84,6 +92,12 @@ fun MeScreen(
                 subtitle = "运行设置、容器控制和应用配置",
                 icon = Icons.Outlined.Settings,
                 onClick = onOpenSettings,
+            ),
+            EntryCardState(
+                title = "日志",
+                subtitle = "查看运行日志和对话上下文预览",
+                icon = Icons.Outlined.Refresh,
+                onClick = onOpenLogs,
             ),
         ),
     )
@@ -322,26 +336,81 @@ fun SettingsHubScreen(
     onBack: () -> Unit,
     onOpenRuntime: () -> Unit,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val repository = remember(context) { AppPreferencesRepository(context.applicationContext) }
+    val settings by repository.settings.collectAsState(
+        initial = com.astrbot.android.data.AppSettings(
+            qqEnabled = true,
+            napCatContainerEnabled = true,
+            preferredChatProvider = "",
+        ),
+    )
+    val scope = rememberCoroutineScope()
+
     SubPageScaffold(
         title = "设置",
         onBack = onBack,
     ) { innerPadding ->
-        Box(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            EntryListPage(
-                modifier = Modifier.fillMaxSize(),
-                entries = listOf(
-                    EntryCardState(
-                        title = "运行设置",
-                        subtitle = "桥接地址、启动命令和自动启动控制",
-                        icon = Icons.Outlined.Settings,
-                        onClick = onOpenRuntime,
+            item {
+                SettingSelectionCard(
+                    title = "语言选择",
+                    subtitle = "当前先提供中文 / English 切换入口。",
+                    icon = Icons.Outlined.Language,
+                    selectedLabel = when (settings.language) {
+                        AppLanguage.CHINESE -> "中文"
+                        AppLanguage.ENGLISH -> "English"
+                    },
+                    options = listOf(
+                        AppLanguage.CHINESE.value to "中文",
+                        AppLanguage.ENGLISH.value to "English",
                     ),
-                ),
-            )
+                    onSelect = { value ->
+                        scope.launch {
+                            repository.setLanguage(AppLanguage.fromValue(value))
+                        }
+                    },
+                )
+            }
+            item {
+                SettingSelectionCard(
+                    title = "深色模式",
+                    subtitle = "支持白天 / 夜晚 / 跟随系统。",
+                    icon = Icons.Outlined.Palette,
+                    selectedLabel = when (settings.themeMode) {
+                        ThemeMode.LIGHT -> "白天"
+                        ThemeMode.DARK -> "夜晚"
+                        ThemeMode.SYSTEM -> "跟随系统"
+                    },
+                    options = listOf(
+                        ThemeMode.LIGHT.value to "白天",
+                        ThemeMode.DARK.value to "夜晚",
+                        ThemeMode.SYSTEM.value to "跟随系统",
+                    ),
+                    onSelect = { value ->
+                        scope.launch {
+                            repository.setThemeMode(ThemeMode.fromValue(value))
+                        }
+                    },
+                )
+            }
+            item {
+                EntryCardState(
+                    title = "运行设置",
+                    subtitle = "桥接地址、启动命令和自动启动控制",
+                    icon = Icons.Outlined.Settings,
+                    onClick = onOpenRuntime,
+                ).also { entry ->
+                    AccountEntryCard(entry)
+                }
+            }
         }
     }
 }
@@ -378,12 +447,13 @@ internal fun SubPageHeader(
             Surface(
                 onClick = onBack,
                 shape = CircleShape,
-                color = Color.White,
+                color = MonochromeUi.iconButtonSurface,
                 modifier = Modifier.align(Alignment.CenterStart),
             ) {
                 Box(
                     modifier = Modifier
-                        .background(Color.White, CircleShape)
+                        .background(MonochromeUi.iconButtonSurface, CircleShape)
+                        .border(1.dp, MonochromeUi.border, CircleShape)
                         .padding(9.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -418,8 +488,8 @@ private fun EntryListPage(
         modifier = modifier
             .background(MonochromeUi.pageBackground)
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -435,32 +505,95 @@ private fun EntryListPage(
 private fun AccountEntryCard(entry: EntryCardState) {
     Surface(
         onClick = entry.onClick,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         color = MonochromeUi.cardBackground,
         tonalElevation = 2.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .background(MonochromeUi.mutedSurface, RoundedCornerShape(18.dp))
-                    .padding(14.dp),
+                    .background(MonochromeUi.mutedSurface, RoundedCornerShape(14.dp))
+                    .padding(10.dp),
             ) {
-                Icon(entry.icon, contentDescription = null, tint = Color(0xFF111111))
+                Icon(entry.icon, contentDescription = null, tint = MonochromeUi.textPrimary)
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Text(entry.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(entry.subtitle, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                Text(entry.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    entry.subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                )
             }
-            Icon(Icons.Outlined.ChevronRight, contentDescription = null)
+            Box(
+                modifier = Modifier.width(24.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Icon(
+                    Icons.Outlined.ChevronRight,
+                    contentDescription = null,
+                    tint = MonochromeUi.textPrimary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSelectionCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selectedLabel: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MonochromeUi.cardBackground,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(MonochromeUi.mutedSurface, RoundedCornerShape(14.dp))
+                        .padding(10.dp),
+                ) {
+                    Icon(icon, contentDescription = null, tint = MonochromeUi.textPrimary)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    )
+                }
+            }
+            SelectionField(
+                title = "",
+                options = options,
+                selectedId = options.firstOrNull { it.second == selectedLabel }?.first.orEmpty(),
+                onSelect = onSelect,
+            )
         }
     }
 }
@@ -474,25 +607,25 @@ private fun QuickActionChip(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(999.dp),
-        color = Color(0xFF2A2A2A),
+        color = MonochromeUi.mutedSurface,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, contentDescription = null, tint = Color.White)
-            Text(label, color = Color.White)
+            Icon(icon, contentDescription = null, tint = MonochromeUi.textPrimary)
+            Text(label, color = MonochromeUi.textPrimary)
         }
     }
 }
 
 @Composable
 private fun monochromeButtonColors() = ButtonDefaults.buttonColors(
-    containerColor = Color(0xFF1B1B1B),
-    contentColor = Color.White,
-    disabledContainerColor = Color(0xFFCFCFCA),
-    disabledContentColor = Color(0xFF7A7A7A),
+    containerColor = MonochromeUi.strong,
+    contentColor = MonochromeUi.strongText,
+    disabledContainerColor = MonochromeUi.border,
+    disabledContentColor = MonochromeUi.textSecondary,
 )
 
 @Composable
@@ -505,7 +638,7 @@ private fun CaptchaCard(
 
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = Color.White,
+        color = MonochromeUi.cardBackground,
         tonalElevation = 2.dp,
     ) {
         Column(

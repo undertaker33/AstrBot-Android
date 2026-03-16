@@ -3,12 +3,19 @@ package com.astrbot.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.lifecycleScope
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.astrbot.android.data.AppPreferencesRepository
+import com.astrbot.android.data.AppSettings
 import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.runtime.ContainerBridgeController
 import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.AstrBotApp
 import com.astrbot.android.ui.theme.AstrBotTheme
 import kotlinx.coroutines.launch
@@ -16,11 +23,21 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = android.graphics.Color.parseColor("#F3F3F1")
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = true
+        val appPreferencesRepository = AppPreferencesRepository(applicationContext)
         setContent {
-            AstrBotTheme {
+            val appSettings by appPreferencesRepository.settings.collectAsState(
+                initial = AppSettings(
+                    qqEnabled = true,
+                    napCatContainerEnabled = true,
+                    preferredChatProvider = "",
+                ),
+            )
+            AstrBotTheme(themeMode = appSettings.themeMode) {
+                SideEffect {
+                    window.statusBarColor = MonochromeUi.pageBackground.toArgb()
+                    WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !MonochromeUi.isDarkTheme
+                }
                 AstrBotApp()
             }
         }

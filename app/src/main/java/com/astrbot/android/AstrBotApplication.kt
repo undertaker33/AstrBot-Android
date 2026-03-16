@@ -2,6 +2,8 @@ package com.astrbot.android
 
 import android.app.Application
 import com.astrbot.android.data.BotRepository
+import com.astrbot.android.data.ConfigRepository
+import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.PersonaRepository
@@ -23,6 +25,8 @@ class AstrBotApplication : Application() {
         NapCatLoginRepository.initialize(this)
         ProviderRepository.initialize(this)
         PersonaRepository.initialize(this)
+        ConfigRepository.initialize(this)
+        ConversationRepository.initialize(this)
         OneBotBridgeServer.start()
         appScope.launch(Dispatchers.IO) {
             BotRepository.initialize(this@AstrBotApplication)

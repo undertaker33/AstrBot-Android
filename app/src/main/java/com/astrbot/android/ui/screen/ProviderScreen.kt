@@ -6,12 +6,12 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,16 +22,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -73,16 +74,23 @@ fun ProviderScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF3F3F1)),
+            .background(MonochromeUi.pageBackground),
     ) {
         if (onBack != null) {
-            IconButton(
-                onClick = onBack,
+            Surface(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(start = 12.dp, top = 16.dp),
+                onClick = onBack,
+                shape = CircleShape,
+                color = MonochromeUi.iconButtonSurface,
             ) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                Box(
+                    modifier = Modifier.padding(9.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = MonochromeUi.textPrimary)
+                }
             }
         }
         ProviderCatalogContent(
@@ -105,18 +113,18 @@ internal fun ProviderCatalogContent(
     val scope = rememberCoroutineScope()
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedType by remember { mutableStateOf("全部") }
+    var selectedType by remember { mutableStateOf("All") }
     var editingProvider by remember { mutableStateOf<ProviderProfile?>(null) }
     var isFetchingModels by remember { mutableStateOf(false) }
     var fetchedModels by remember { mutableStateOf(emptyList<String>()) }
 
-    val typeChips = listOf("全部") + ProviderType.entries.map { providerTypeLabel(it) }
+    val typeChips = listOf("All") + ProviderType.entries.map(::providerTypeLabel)
     val filteredProviders = providers.filter { provider ->
         val matchesSearch = searchQuery.isBlank() ||
             provider.name.contains(searchQuery, ignoreCase = true) ||
             provider.model.contains(searchQuery, ignoreCase = true) ||
             provider.baseUrl.contains(searchQuery, ignoreCase = true)
-        val matchesType = selectedType == "全部" || providerTypeLabel(provider.providerType) == selectedType
+        val matchesType = selectedType == "All" || providerTypeLabel(provider.providerType) == selectedType
         matchesSearch && matchesType
     }
 
@@ -131,8 +139,8 @@ internal fun ProviderCatalogContent(
             if (showHeader) {
                 item {
                     CatalogToggleHeader(
-                        leftLabel = "机器人",
-                        rightLabel = "模型",
+                        leftLabel = "Bots",
+                        rightLabel = "Models",
                         leftSelected = false,
                         onSelectLeft = onSwitchToBots,
                         onSelectRight = {},
@@ -189,11 +197,11 @@ internal fun ProviderCatalogContent(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp),
-            containerColor = Color(0xFF151515),
-            contentColor = Color.White,
+            containerColor = MonochromeUi.fabBackground,
+            contentColor = MonochromeUi.fabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
-            Icon(Icons.Outlined.Add, contentDescription = "新建模型")
+            Icon(Icons.Outlined.Add, contentDescription = "新增模型")
         }
     }
 
@@ -266,11 +274,11 @@ private fun ProviderCard(
         ) {
             Box(
                 modifier = Modifier
-                    .background(Color(0xFF1B1B1B), CircleShape)
+                    .background(MonochromeUi.mutedSurface, CircleShape)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(provider.name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+                Text(provider.name.take(1).uppercase(), color = MonochromeUi.textPrimary, fontWeight = FontWeight.Bold)
             }
             Column(
                 modifier = Modifier.weight(1f),
@@ -317,14 +325,16 @@ private fun ProviderEditorDialog(
     var apiKey by remember(initialProvider.id) { mutableStateOf(initialProvider.apiKey) }
     var providerType by remember(initialProvider.id) { mutableStateOf(initialProvider.providerType) }
     var chatEnabled by remember(initialProvider.id) { mutableStateOf(ProviderCapability.CHAT in initialProvider.capabilities) }
-    var ttsEnabled by remember(initialProvider.id) { mutableStateOf(ProviderCapability.TTS in initialProvider.capabilities) }
-    var asrEnabled by remember(initialProvider.id) { mutableStateOf(ProviderCapability.ASR in initialProvider.capabilities) }
     var enabled by remember(initialProvider.id) { mutableStateOf(initialProvider.enabled) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textPrimary,
         confirmButton = {
             TextButton(
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
                 onClick = {
                     onSave(
                         initialProvider.copy(
@@ -334,11 +344,7 @@ private fun ProviderEditorDialog(
                             model = model.trim(),
                             apiKey = apiKey.trim(),
                             providerType = providerType,
-                            capabilities = buildSet {
-                                if (chatEnabled) add(ProviderCapability.CHAT)
-                                if (ttsEnabled) add(ProviderCapability.TTS)
-                                if (asrEnabled) add(ProviderCapability.ASR)
-                            },
+                            capabilities = if (chatEnabled) setOf(ProviderCapability.CHAT) else emptySet(),
                             enabled = enabled,
                         ),
                     )
@@ -350,11 +356,17 @@ private fun ProviderEditorDialog(
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (initialProvider.id.isNotBlank()) {
-                    TextButton(onClick = onDelete) {
+                    TextButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    ) {
                         Text("删除")
                     }
                 }
-                TextButton(onClick = onDismiss) {
+                TextButton(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                ) {
                     Text("取消")
                 }
             }
@@ -364,19 +376,15 @@ private fun ProviderEditorDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 300.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("名称") }, modifier = Modifier.fillMaxWidth(), colors = monochromeOutlinedTextFieldColors())
-                OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("Base URL") }, modifier = Modifier.fillMaxWidth(), colors = monochromeOutlinedTextFieldColors())
-                OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("模型名") }, modifier = Modifier.fillMaxWidth(), colors = monochromeOutlinedTextFieldColors())
                 OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text("API Key") },
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("名称") },
                     modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = PasswordVisualTransformation(),
                     colors = monochromeOutlinedTextFieldColors(),
                 )
                 SelectionField(
@@ -385,8 +393,30 @@ private fun ProviderEditorDialog(
                     selectedId = providerType.name,
                     onSelect = { selected -> providerType = ProviderType.valueOf(selected) },
                 )
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text("API Key") },
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = { Text("Base URL") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+                OutlinedTextField(
+                    value = model,
+                    onValueChange = { model = it },
+                    label = { Text("模型") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
+                    OutlinedButton(
                         onClick = {
                             onFetchModels(
                                 initialProvider.copy(
@@ -396,11 +426,12 @@ private fun ProviderEditorDialog(
                                 ),
                             )
                         },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
                     ) {
                         Text("拉取模型")
                     }
                     if (isFetchingModels) {
-                        CircularProgressIndicator(color = Color(0xFF1F1F1F))
+                        CircularProgressIndicator(color = MonochromeUi.textPrimary)
                     }
                 }
                 if (fetchedModels.isNotEmpty()) {
@@ -411,13 +442,18 @@ private fun ProviderEditorDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         fetchedModels.take(8).forEach { item ->
-                            AssistChip(onClick = { model = item }, label = { Text(item) })
+                            AssistChip(
+                                onClick = { model = item },
+                                label = { Text(item) },
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = MonochromeUi.chipBackground,
+                                    labelColor = MonochromeUi.textSecondary,
+                                ),
+                            )
                         }
                     }
                 }
-                CapabilitySwitch("对话", chatEnabled) { chatEnabled = it }
-                CapabilitySwitch("TTS", ttsEnabled) { ttsEnabled = it }
-                CapabilitySwitch("ASR", asrEnabled) { asrEnabled = it }
+                CapabilitySwitch("聊天能力", chatEnabled) { chatEnabled = it }
                 CapabilitySwitch("启用", enabled) { enabled = it }
             }
         },
@@ -446,6 +482,6 @@ internal fun providerTypeLabel(type: ProviderType): String {
         ProviderType.DEEPSEEK -> "DeepSeek"
         ProviderType.GEMINI -> "Gemini"
         ProviderType.ANTHROPIC -> "Anthropic"
-        ProviderType.CUSTOM -> "自定义"
+        ProviderType.CUSTOM -> "Custom"
     }
 }

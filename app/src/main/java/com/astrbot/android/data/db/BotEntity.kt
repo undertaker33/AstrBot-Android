@@ -21,22 +21,29 @@ data class BotEntity(
     val updatedAt: Long,
 )
 
-fun BotEntity.toProfile(): BotProfile {
+fun BotEntity.toProfile(
+    configProfileId: String = "default",
+    boundQqUins: List<String> = emptyList(),
+    persistConversationLocally: Boolean = false,
+): BotProfile {
     return BotProfile(
         id = id,
         platformName = platformName,
         displayName = displayName,
         tag = tag,
         accountHint = accountHint,
+        boundQqUins = boundQqUins,
         triggerWords = triggerWordsCsv
             .split(",")
             .map { it.trim() }
             .filter { it.isNotEmpty() },
         autoReplyEnabled = autoReplyEnabled,
+        persistConversationLocally = persistConversationLocally,
         bridgeMode = bridgeMode,
         bridgeEndpoint = bridgeEndpoint,
         defaultProviderId = defaultProviderId,
         defaultPersonaId = defaultPersonaId,
+        configProfileId = configProfileId,
         status = status,
     )
 }

@@ -20,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -207,11 +208,10 @@ fun SettingsScreen(
                             Icon(Icons.Outlined.PlayArrow, contentDescription = null)
                             Text("启动")
                         }
-                        Button(
+                        OutlinedButton(
                             onClick = { ContainerBridgeController.stop(context) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF404040),
-                                contentColor = Color.White,
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MonochromeUi.textPrimary,
                             ),
                         ) {
                             Icon(Icons.Outlined.Stop, contentDescription = null)
@@ -251,6 +251,6 @@ private fun RuntimeConfigCard(
 
 @Composable
 private fun monochromeButtonColors() = ButtonDefaults.buttonColors(
-    containerColor = Color(0xFF1B1B1B),
-    contentColor = Color.White,
+    containerColor = MonochromeUi.strong,
+    contentColor = MonochromeUi.strongText,
 )

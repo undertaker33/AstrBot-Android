@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 data class ChatUiState(
     val selectedBotId: String = "qq-main",
@@ -33,6 +36,7 @@ data class ChatUiState(
 class ChatViewModel : ViewModel() {
     val bots = BotRepository.botProfiles
     val providers = ProviderRepository.providers
+    val configProfiles = ConfigRepository.profiles
     val sessions = ConversationRepository.sessions
     val personas = PersonaRepository.personas
 
@@ -109,7 +113,7 @@ class ChatViewModel : ViewModel() {
     }
 
     fun createSession() {
-        val created = ConversationRepository.createSession()
+        val created = ConversationRepository.createSession(botId = selectedBot()?.id ?: BotRepository.selectedBotId.value)
         _uiState.value = _uiState.value.copy(
             selectedSessionId = created.id,
             error = "",
@@ -159,7 +163,7 @@ class ChatViewModel : ViewModel() {
                     ChatCompletionService.sendChat(
                         provider = provider,
                         messages = currentSession.messages.takeLast(currentSession.maxContextMessages),
-                        systemPrompt = persona?.systemPrompt,
+                        systemPrompt = buildSystemPrompt(persona?.systemPrompt),
                     )
                 }
                 ConversationRepository.appendMessage(sessionId, "assistant", response)
@@ -214,6 +218,12 @@ class ChatViewModel : ViewModel() {
             return preferredProviderId
         }
         val botProviderId = fallbackBot?.defaultProviderId
+        val configProviderId = fallbackBot
+            ?.configProfileId
+            ?.let { ConfigRepository.resolve(it).defaultChatProviderId }
+        if (!configProviderId.isNullOrBlank() && enabledProviders.any { it.id == configProviderId }) {
+            return configProviderId
+        }
         if (!botProviderId.isNullOrBlank() && enabledProviders.any { it.id == botProviderId }) {
             return botProviderId
         }
@@ -226,6 +236,7 @@ class ChatViewModel : ViewModel() {
             sessionId = sessionId,
             providerId = providerId,
             personaId = personaId,
+            botId = selectedBot()?.id ?: BotRepository.selectedBotId.value,
         )
     }
 
@@ -239,5 +250,16 @@ class ChatViewModel : ViewModel() {
         val title = content.lines().firstOrNull().orEmpty().trim().take(32)
             .ifBlank { ConversationRepository.DEFAULT_SESSION_TITLE }
         ConversationRepository.renameSession(sessionId, title)
+    }
+
+    private fun buildSystemPrompt(personaPrompt: String?): String? {
+        val config = selectedBot()?.configProfileId?.let(ConfigRepository::resolve)
+        val promptParts = mutableListOf<String>()
+        personaPrompt?.trim()?.takeIf { it.isNotBlank() }?.let(promptParts::add)
+        if (config?.realWorldTimeAwarenessEnabled == true) {
+            val now = ZonedDateTime.now()
+            promptParts += "Current local time: ${now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))}."
+        }
+        return promptParts.joinToString("\n\n").ifBlank { null }
     }
 }

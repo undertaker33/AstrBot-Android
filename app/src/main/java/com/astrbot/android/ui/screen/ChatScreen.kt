@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +27,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -44,7 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.ui.ChatTopBar
+import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
+import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 
@@ -63,6 +67,8 @@ fun ChatScreen(
     val currentBot = chatViewModel.selectedBot()
     val messages = chatViewModel.sessionMessages(uiState.selectedSessionId)
     val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
+    var showQqConversations by remember { mutableStateOf(true) }
+    val visibleSessions = sessions.filter { session -> showQqConversations || !session.isQqConversation() }
 
     var input by remember(uiState.selectedSessionId) { mutableStateOf("") }
     var selectorExpanded by remember(uiState.selectedSessionId, uiState.selectedBotId, uiState.selectedProviderId) {
@@ -72,12 +78,45 @@ fun ChatScreen(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.82f)) {
+            ModalDrawerSheet(
+                modifier = Modifier.fillMaxWidth(0.82f),
+                drawerContainerColor = MonochromeUi.drawerSurface,
+            ) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MonochromeUi.drawerSurface),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = MonochromeUi.cardBackground,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("展示QQ对话", color = MonochromeUi.textPrimary, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "关闭后仅显示应用内对话",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MonochromeUi.textSecondary,
+                                    )
+                                }
+                                Switch(
+                                    checked = showQqConversations,
+                                    onCheckedChange = { showQqConversations = it },
+                                    colors = monochromeSwitchColors(),
+                                )
+                            }
+                        }
+                    }
                     item {
                         Surface(
                             onClick = {
@@ -85,7 +124,7 @@ fun ChatScreen(
                                 scope.launch { drawerState.close() }
                             },
                             shape = RoundedCornerShape(18.dp),
-                            color = Color(0xFFE5E5E5),
+                            color = MonochromeUi.cardAltBackground,
                         ) {
                             Row(
                                 modifier = Modifier
@@ -94,18 +133,18 @@ fun ChatScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("新对话", color = Color(0xFF111111), fontWeight = FontWeight.SemiBold)
+                                Text("新对话", color = MonochromeUi.textPrimary, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
-                    items(sessions, key = { it.id }) { session ->
+                    items(visibleSessions, key = { it.id }) { session ->
                         Surface(
                             onClick = {
                                 chatViewModel.selectSession(session.id)
                                 scope.launch { drawerState.close() }
                             },
                             shape = RoundedCornerShape(18.dp),
-                            color = if (session.id == uiState.selectedSessionId) Color(0xFFE9E9E7) else Color.Transparent,
+                            color = if (session.id == uiState.selectedSessionId) MonochromeUi.cardAltBackground else Color.Transparent,
                         ) {
                             androidx.compose.foundation.layout.Column(
                                 modifier = Modifier
@@ -115,14 +154,17 @@ fun ChatScreen(
                             ) {
                                 Text(
                                     session.title,
-                                    color = Color(0xFF111111),
+                                    color = MonochromeUi.textPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    "${session.messages.size} 条消息",
+                                    buildList {
+                                        add("${session.messages.size} 条消息")
+                                        if (session.isQqConversation()) add("QQ")
+                                    }.joinToString(" | "),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF111111).copy(alpha = 0.55f),
+                                    color = MonochromeUi.textSecondary,
                                 )
                             }
                         }
@@ -134,8 +176,8 @@ fun ChatScreen(
         Scaffold(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF3F3F1)),
-            containerColor = Color(0xFFF3F3F1),
+                .background(MonochromeUi.pageBackground),
+            containerColor = MonochromeUi.pageBackground,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 Box(
@@ -146,41 +188,43 @@ fun ChatScreen(
                     ChatTopBar(
                         onOpenHistory = { scope.launch { drawerState.open() } },
                         onOpenBotSelector = { selectorExpanded = true },
+                        botSelectorDropdown = {
+                            DropdownMenu(
+                                expanded = selectorExpanded,
+                                onDismissRequest = { selectorExpanded = false },
+                                modifier = Modifier.align(Alignment.TopEnd),
+                            ) {
+                                Text(
+                                    "机器人",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                bots.forEach { bot ->
+                                    DropdownMenuItem(
+                                        text = { Text(bot.displayName) },
+                                        onClick = {
+                                            chatViewModel.selectBot(bot.id)
+                                            selectorExpanded = false
+                                        },
+                                    )
+                                }
+                                Text(
+                                    "模型",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                chatProviders.forEach { provider ->
+                                    DropdownMenuItem(
+                                        text = { Text(provider.name) },
+                                        onClick = {
+                                            chatViewModel.selectProvider(provider.id)
+                                            selectorExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        },
                     )
-                    DropdownMenu(
-                        expanded = selectorExpanded,
-                        onDismissRequest = { selectorExpanded = false },
-                        modifier = Modifier.align(Alignment.TopEnd),
-                    ) {
-                        Text(
-                            "机器人",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                        bots.forEach { bot ->
-                            DropdownMenuItem(
-                                text = { Text(bot.displayName) },
-                                onClick = {
-                                    chatViewModel.selectBot(bot.id)
-                                    selectorExpanded = false
-                                },
-                            )
-                        }
-                        Text(
-                            "模型",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                        chatProviders.forEach { provider ->
-                            DropdownMenuItem(
-                                text = { Text(provider.name) },
-                                onClick = {
-                                    chatViewModel.selectProvider(provider.id)
-                                    selectorExpanded = false
-                                },
-                            )
-                        }
-                    }
                 }
             },
             bottomBar = {
@@ -189,7 +233,7 @@ fun ChatScreen(
                         .fillMaxWidth()
                         .padding(start = 16.dp, end = 16.dp, top = 6.dp),
                     shape = RoundedCornerShape(24.dp),
-                    color = Color.White,
+                    color = MonochromeUi.elevatedSurface,
                 ) {
                     Row(
                         modifier = Modifier
@@ -218,7 +262,7 @@ fun ChatScreen(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(28.dp),
                                 strokeWidth = 2.dp,
-                                color = Color(0xFF1F1F1F),
+                                color = MonochromeUi.textPrimary,
                             )
                         } else {
                             Surface(
@@ -228,7 +272,7 @@ fun ChatScreen(
                                 },
                                 enabled = input.isNotBlank() && chatProviders.isNotEmpty(),
                                 shape = CircleShape,
-                                color = Color(0xFF1F1F1F),
+                                color = MonochromeUi.strong,
                             ) {
                                 Box(
                                     modifier = Modifier.size(38.dp),
@@ -237,7 +281,7 @@ fun ChatScreen(
                                     androidx.compose.material3.Icon(
                                         Icons.AutoMirrored.Outlined.Send,
                                         contentDescription = "发送",
-                                        tint = Color.White,
+                                        tint = MonochromeUi.strongText,
                                     )
                                 }
                             }
@@ -257,7 +301,7 @@ fun ChatScreen(
                     Text(
                         "对话已就绪。配置好模型后就可以开始聊天。",
                         style = MaterialTheme.typography.headlineLarge,
-                        color = Color(0xFF111111),
+                        color = MonochromeUi.textPrimary,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -279,15 +323,15 @@ fun ChatScreen(
                         ) {
                             Text(
                                 if (isUser) "你" else (currentBot?.displayName ?: "助手"),
-                                color = Color(0xFF111111).copy(alpha = 0.62f),
+                                color = MonochromeUi.textSecondary,
                             )
                             Surface(
                                 shape = RoundedCornerShape(24.dp),
-                                color = if (isUser) Color(0xFFE7E7E4) else Color.White,
+                                color = if (isUser) MonochromeUi.cardAltBackground else MonochromeUi.cardBackground,
                             ) {
                                 Text(
                                     message.content,
-                                    color = Color(0xFF111111),
+                                    color = MonochromeUi.textPrimary,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                                 )
                             }
@@ -297,4 +341,8 @@ fun ChatScreen(
             }
         }
     }
+}
+
+private fun com.astrbot.android.model.ConversationSession.isQqConversation(): Boolean {
+    return id.startsWith("qq-")
 }

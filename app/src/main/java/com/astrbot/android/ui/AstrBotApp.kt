@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -69,6 +70,7 @@ import androidx.navigation.compose.rememberNavController
 import com.astrbot.android.runtime.ContainerBridgeController
 import com.astrbot.android.ui.screen.BotScreen
 import com.astrbot.android.ui.screen.ChatScreen
+import com.astrbot.android.ui.screen.ConfigScreen
 import com.astrbot.android.ui.screen.LogScreen
 import com.astrbot.android.ui.screen.MeScreen
 import com.astrbot.android.ui.screen.PersonaScreen
@@ -77,6 +79,7 @@ import com.astrbot.android.ui.screen.QQAccountCenterScreen
 import com.astrbot.android.ui.screen.QQLoginScreen
 import com.astrbot.android.ui.screen.SettingsHubScreen
 import com.astrbot.android.ui.screen.SettingsScreen
+import com.astrbot.android.ui.screen.SubPageScaffold
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
 import kotlin.math.roundToInt
 
@@ -85,12 +88,11 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
     val navController = rememberNavController()
     val context = LocalContext.current
     var botModelsSelected by remember { mutableStateOf(false) }
-    var logContextSelected by remember { mutableStateOf(false) }
     val destinations = listOf(
         AppDestination.Bots,
         AppDestination.Personas,
         AppDestination.Chat,
-        AppDestination.Logs,
+        AppDestination.Config,
         AppDestination.Me,
     )
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -138,21 +140,11 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                             },
                         )
 
-                        AppDestination.Logs -> MainTopBar(
-                            title = if (logContextSelected) "上下文" else "日志",
-                            titleAlignment = TopBarTitleAlignment.End,
-                            leftContent = {
-                                TopBarToggle(
-                                    leftLabel = "日志",
-                                    rightLabel = "上下文",
-                                    leftSelected = !logContextSelected,
-                                    onSelectLeft = { logContextSelected = false },
-                                    onSelectRight = { logContextSelected = true },
-                                )
-                            },
-                        )
-
                         AppDestination.Chat -> Unit
+                        AppDestination.Config -> MainTopBar(
+                            title = "配置",
+                            titleAlignment = TopBarTitleAlignment.Center,
+                        )
                         AppDestination.Me -> MainTopBar(
                             title = "我的",
                             titleAlignment = TopBarTitleAlignment.Center,
@@ -168,7 +160,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                 ) {
                     NavigationBar(
                         modifier = Modifier.navigationBarsPadding(),
-                        containerColor = Color.White,
+                        containerColor = MonochromeUi.navBarBackground,
                         tonalElevation = 0.dp,
                     ) {
                         destinations.forEach { destination ->
@@ -186,11 +178,11 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                                 icon = { Icon(destination.icon, contentDescription = destination.label) },
                                 label = { Text(destination.label) },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Color(0xFF111111),
-                                    selectedTextColor = Color(0xFF111111),
-                                    unselectedIconColor = Color(0xFF666666),
-                                    unselectedTextColor = Color(0xFF666666),
-                                    indicatorColor = Color(0xFFE8E8E5),
+                                    selectedIconColor = MonochromeUi.textPrimary,
+                                    selectedTextColor = MonochromeUi.textPrimary,
+                                    unselectedIconColor = MonochromeUi.textSecondary,
+                                    unselectedTextColor = MonochromeUi.textSecondary,
+                                    indicatorColor = MonochromeUi.activeIndicator,
                                 ),
                             )
                         }
@@ -213,13 +205,28 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                 composable(AppDestination.Chat.route) {
                     ChatScreen()
                 }
+                composable(AppDestination.Config.route) {
+                    ConfigScreen()
+                }
                 composable(AppDestination.Logs.route) {
-                    LogScreen(showContext = logContextSelected)
+                    SubPageScaffold(
+                        title = "Logs",
+                        onBack = { navController.popBackStack() },
+                    ) { innerPadding ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        ) {
+                            LogScreen(showContext = false)
+                        }
+                    }
                 }
                 composable(AppDestination.Me.route) {
                     MeScreen(
                         onOpenQqAccount = { navController.navigate(AppDestination.QQAccount.route) },
                         onOpenSettings = { navController.navigate(AppDestination.SettingsHub.route) },
+                        onOpenLogs = { navController.navigate(AppDestination.Logs.route) },
                     )
                 }
                 composable(AppDestination.QQAccount.route) {
@@ -265,7 +272,7 @@ private fun MainTopBar(
     leftContent: @Composable (() -> Unit)? = null,
 ) {
     Surface(
-        color = MonochromeUi.pageBackground,
+        color = MonochromeUi.topBarSurface,
         shadowElevation = 0.dp,
     ) {
         Box(
@@ -314,7 +321,7 @@ private fun TopBarTitlePill(title: String) {
         Text(
             text = title,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            color = Color.White,
+            color = MonochromeUi.strongText,
             fontWeight = FontWeight.SemiBold,
         )
     }
@@ -335,15 +342,15 @@ private fun TopBarToggle(
         TextButton(onClick = onSelectLeft) {
             Text(
                 leftLabel,
-                color = if (leftSelected) MonochromeUi.textPrimary else Color(0xFF8A8A8A),
+                color = if (leftSelected) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
                 fontWeight = if (leftSelected) FontWeight.Bold else FontWeight.Medium,
             )
         }
-        Text("|", color = Color(0xFFAAAAAA))
+        Text("|", color = MonochromeUi.textSecondary)
         TextButton(onClick = onSelectRight) {
             Text(
                 rightLabel,
-                color = if (leftSelected) Color(0xFF8A8A8A) else MonochromeUi.textPrimary,
+                color = if (leftSelected) MonochromeUi.textSecondary else MonochromeUi.textPrimary,
                 fontWeight = if (leftSelected) FontWeight.Medium else FontWeight.Bold,
             )
         }
@@ -354,9 +361,10 @@ private fun TopBarToggle(
 internal fun ChatTopBar(
     onOpenHistory: () -> Unit,
     onOpenBotSelector: () -> Unit,
+    botSelectorDropdown: @Composable (BoxScope.() -> Unit) = {},
 ) {
     Surface(
-        color = MonochromeUi.pageBackground,
+        color = MonochromeUi.topBarSurface,
         shadowElevation = 0.dp,
     ) {
         Row(
@@ -373,15 +381,15 @@ internal fun ChatTopBar(
                 Surface(
                     onClick = onOpenHistory,
                     shape = CircleShape,
-                    color = Color.White,
+                    color = MonochromeUi.iconButtonSurface,
                 ) {
                     Box(
                         modifier = Modifier
-                            .border(1.dp, Color(0xFFD6D6D2), CircleShape)
+                            .border(1.dp, MonochromeUi.border, CircleShape)
                             .padding(9.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Outlined.Menu, contentDescription = "历史记录", tint = Color(0xFF111111))
+                        Icon(Icons.Outlined.Menu, contentDescription = "历史记录", tint = MonochromeUi.textPrimary)
                     }
                 }
             }
@@ -402,11 +410,11 @@ internal fun ChatTopBar(
                 Surface(
                     onClick = onOpenBotSelector,
                     shape = RoundedCornerShape(16.dp),
-                    color = Color.White,
+                    color = MonochromeUi.iconButtonSurface,
                 ) {
                     Row(
                         modifier = Modifier
-                            .border(1.dp, Color(0xFFD6D6D2), RoundedCornerShape(16.dp))
+                            .border(1.dp, MonochromeUi.border, RoundedCornerShape(16.dp))
                             .padding(horizontal = 10.dp, vertical = 7.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -419,6 +427,7 @@ internal fun ChatTopBar(
                         Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, tint = MonochromeUi.textPrimary)
                     }
                 }
+                botSelectorDropdown()
             }
         }
     }
@@ -591,6 +600,7 @@ private sealed class AppDestination(
     data object Bots : AppDestination("bots", "机器人", Icons.Outlined.SmartToy)
     data object Personas : AppDestination("personas", "人格", Icons.Outlined.Face)
     data object Chat : AppDestination("chat", "对话", Icons.Outlined.ChatBubbleOutline)
+    data object Config : AppDestination("config", "配置", Icons.Outlined.Settings)
     data object Logs : AppDestination("logs", "日志", Icons.AutoMirrored.Outlined.List)
     data object Me : AppDestination("me", "我的", Icons.Outlined.PersonOutline)
     data object QQAccount : AppDestination("qq-account", "QQ 账号", Icons.Outlined.PersonOutline)
