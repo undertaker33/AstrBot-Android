@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.screen
+﻿package com.astrbot.android.ui.screen
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -15,9 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Search
@@ -40,12 +40,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.R
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.ui.MonochromeUi
@@ -65,17 +66,19 @@ fun PersonaScreen(
     val context = LocalContext.current
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedTag by remember { mutableStateOf("全部") }
+    val allTagLabel = stringResource(R.string.bot_tag_all)
+    val newPersonaLabel = stringResource(R.string.persona_new)
+    var selectedTag by remember { mutableStateOf(allTagLabel) }
     var editingPersona by remember { mutableStateOf<PersonaProfile?>(null) }
 
     val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
-    val tags = listOf("全部") + personas.mapNotNull { it.tag.takeIf(String::isNotBlank) }.distinct().sorted()
+    val tags = listOf(allTagLabel) + personas.mapNotNull { it.tag.takeIf(String::isNotBlank) }.distinct().sorted()
     val filteredPersonas = personas.filter { persona ->
         val matchesSearch = searchQuery.isBlank() ||
             persona.name.contains(searchQuery, ignoreCase = true) ||
             persona.systemPrompt.contains(searchQuery, ignoreCase = true) ||
             persona.tag.contains(searchQuery, ignoreCase = true)
-        val matchesTag = selectedTag == "全部" || persona.tag == selectedTag
+        val matchesTag = selectedTag == allTagLabel || persona.tag == selectedTag
         matchesSearch && matchesTag
     }
 
@@ -99,7 +102,7 @@ fun PersonaScreen(
                         .fillMaxWidth()
                         .height(54.dp),
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    placeholder = { Text("搜索人格") },
+                    placeholder = { Text(stringResource(R.string.persona_search_placeholder)) },
                     shape = RoundedCornerShape(28.dp),
                     colors = monochromeOutlinedTextFieldColors(),
                     singleLine = true,
@@ -126,7 +129,7 @@ fun PersonaScreen(
             onClick = {
                 editingPersona = PersonaProfile(
                     id = UUID.randomUUID().toString(),
-                    name = "新人格",
+                    name = newPersonaLabel,
                     tag = "",
                     systemPrompt = "",
                     enabledTools = emptySet(),
@@ -140,7 +143,7 @@ fun PersonaScreen(
             contentColor = MonochromeUi.fabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
-            Icon(Icons.Outlined.Add, contentDescription = "新增人格")
+            Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.provider_add))
         }
     }
 
@@ -166,7 +169,7 @@ fun PersonaScreen(
                         maxContextMessages = persona.maxContextMessages,
                     )
                 }
-                Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 editingPersona = null
             },
         )
@@ -209,7 +212,7 @@ private fun PersonaCard(
                 Text(
                     text = buildList {
                         if (persona.tag.isNotBlank()) add(persona.tag)
-                        add("上下文 ${persona.maxContextMessages}")
+                        add(stringResource(R.string.persona_context_count, persona.maxContextMessages))
                         if (providerName.isNotBlank()) add(providerName)
                     }.joinToString(" | "),
                     style = MaterialTheme.typography.bodySmall,
@@ -271,7 +274,7 @@ private fun PersonaEditorDialog(
                     )
                 },
             ) {
-                Text("保存")
+                Text(stringResource(R.string.common_save))
             }
         },
         dismissButton = {
@@ -281,18 +284,18 @@ private fun PersonaEditorDialog(
                         onClick = onDelete,
                         colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
                     ) {
-                        Text("删除")
+                        Text(stringResource(R.string.common_delete))
                     }
                 }
                 TextButton(
                     onClick = onDismiss,
                     colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         },
-        title = { Text("编辑人格") },
+        title = { Text(stringResource(R.string.persona_edit_title)) },
         text = {
             Column(
                 modifier = Modifier
@@ -304,19 +307,19 @@ private fun PersonaEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("名称") },
+                    label = { Text(stringResource(R.string.persona_field_name)) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = monochromeOutlinedTextFieldColors(),
                 )
                 OutlinedTextField(
                     value = tag,
                     onValueChange = { tag = it },
-                    label = { Text("标签") },
+                    label = { Text(stringResource(R.string.persona_field_tag)) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = monochromeOutlinedTextFieldColors(),
                 )
                 SelectionField(
-                    title = "默认模型",
+                    title = stringResource(R.string.persona_field_default_model),
                     options = providerOptions,
                     selectedId = defaultProviderId,
                     onSelect = { defaultProviderId = it },
@@ -324,20 +327,20 @@ private fun PersonaEditorDialog(
                 OutlinedTextField(
                     value = maxContextMessages,
                     onValueChange = { maxContextMessages = it.filter(Char::isDigit) },
-                    label = { Text("最大上下文消息数") },
+                    label = { Text(stringResource(R.string.persona_field_max_context)) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = monochromeOutlinedTextFieldColors(),
                 )
                 OutlinedTextField(
                     value = systemPrompt,
                     onValueChange = { systemPrompt = it },
-                    label = { Text("系统提示词") },
+                    label = { Text(stringResource(R.string.persona_field_system_prompt)) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 6,
                     maxLines = 10,
                     colors = monochromeOutlinedTextFieldColors(),
                 )
-                ToolSwitch("启用", enabled) { enabled = it }
+                ToolSwitch(stringResource(R.string.common_enabled), enabled) { enabled = it }
             }
         },
     )

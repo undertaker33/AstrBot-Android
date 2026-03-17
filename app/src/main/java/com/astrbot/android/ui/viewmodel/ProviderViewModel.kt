@@ -1,7 +1,8 @@
-package com.astrbot.android.ui.viewmodel
+﻿package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
@@ -19,6 +20,8 @@ class ProviderViewModel : ViewModel() {
         apiKey: String,
         capabilities: Set<ProviderCapability>,
         enabled: Boolean = true,
+        multimodalRuleSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
     ) {
         ProviderRepository.save(
             id = id,
@@ -29,6 +32,8 @@ class ProviderViewModel : ViewModel() {
             apiKey = apiKey,
             capabilities = capabilities,
             enabled = enabled,
+            multimodalRuleSupport = multimodalRuleSupport,
+            multimodalProbeSupport = multimodalProbeSupport,
         )
     }
 

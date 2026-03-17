@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.screen
+﻿package com.astrbot.android.ui.screen
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -34,11 +34,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.R
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.runtime.ContainerBridgeController
 import com.astrbot.android.ui.MonochromeUi
@@ -66,7 +67,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             if (onBack != null) {
-                SubPageHeader(title = "运行设置", onBack = onBack)
+                SubPageHeader(title = stringResource(R.string.settings_runtime_title), onBack = onBack)
             }
         },
         containerColor = MonochromeUi.pageBackground,
@@ -85,36 +86,36 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text("运行设置", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_runtime_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        "这里配置 Android 侧桥接，用来启动 NapCat 并检查本地健康状态。",
+                        stringResource(R.string.settings_runtime_subtitle),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
                     )
                 }
             }
             item {
                 RuntimeConfigCard(
-                    title = "桥接地址",
-                    description = "这些是应用侧桥接地址，不是 NapCat WebUI 自己的网络面板。",
+                    title = stringResource(R.string.settings_runtime_card_endpoints_title),
+                    description = stringResource(R.string.settings_runtime_card_endpoints_desc),
                 ) {
                     OutlinedTextField(
                         value = endpoint,
                         onValueChange = { endpoint = it },
-                        label = { Text("反向 WS 地址") },
+                        label = { Text(stringResource(R.string.settings_runtime_endpoint_label)) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = monochromeOutlinedTextFieldColors(),
                     )
                     OutlinedTextField(
                         value = healthUrl,
                         onValueChange = { healthUrl = it },
-                        label = { Text("NapCat 健康检查地址") },
+                        label = { Text(stringResource(R.string.settings_runtime_health_label)) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = monochromeOutlinedTextFieldColors(),
                     )
                     OutlinedTextField(
                         value = commandPreview,
                         onValueChange = { commandPreview = it },
-                        label = { Text("命令预览") },
+                        label = { Text(stringResource(R.string.settings_runtime_preview_label)) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = monochromeOutlinedTextFieldColors(),
                     )
@@ -122,13 +123,13 @@ fun SettingsScreen(
             }
             item {
                 RuntimeConfigCard(
-                    title = "桥接命令",
-                    description = "这些 shell 命令由 Android 应用调用，用于启动、停止和检查容器运行状态。",
+                    title = stringResource(R.string.settings_runtime_card_commands_title),
+                    description = stringResource(R.string.settings_runtime_card_commands_desc),
                 ) {
                     OutlinedTextField(
                         value = startCommand,
                         onValueChange = { startCommand = it },
-                        label = { Text("启动命令") },
+                        label = { Text(stringResource(R.string.settings_runtime_start_label)) },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 2,
                         maxLines = 4,
@@ -137,7 +138,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = stopCommand,
                         onValueChange = { stopCommand = it },
-                        label = { Text("停止命令") },
+                        label = { Text(stringResource(R.string.settings_runtime_stop_label)) },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 2,
                         maxLines = 4,
@@ -146,7 +147,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = statusCommand,
                         onValueChange = { statusCommand = it },
-                        label = { Text("状态命令") },
+                        label = { Text(stringResource(R.string.settings_runtime_status_label)) },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 2,
                         maxLines = 4,
@@ -158,9 +159,9 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column {
-                            Text("自动启动", fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_runtime_auto_start_title), fontWeight = FontWeight.SemiBold)
                             Text(
-                                "应用请求时自动尝试启动 NapCat。",
+                                stringResource(R.string.settings_runtime_auto_start_desc),
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                             )
                         }
@@ -183,39 +184,37 @@ fun SettingsScreen(
                                     autoStart = autoStart,
                                 ),
                             )
-                            Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                         },
                         colors = monochromeButtonColors(),
                     ) {
                         Icon(Icons.Outlined.Save, contentDescription = null)
-                        Text("保存运行设置")
+                        Text(stringResource(R.string.settings_runtime_save_action))
                     }
                 }
             }
             item {
                 RuntimeConfigCard(
-                    title = "运行状态",
-                    description = "本地 NapCat 桥接的快速控制与状态查看。",
+                    title = stringResource(R.string.settings_runtime_status_title),
+                    description = stringResource(R.string.settings_runtime_status_desc),
                 ) {
-                    Text("状态：${runtimeState.status}")
-                    Text("最近动作：${runtimeState.lastAction}")
-                    Text("详情：${runtimeState.details}")
+                    Text(stringResource(R.string.settings_runtime_status_value, runtimeState.status))
+                    Text(stringResource(R.string.settings_runtime_last_action_value, runtimeState.lastAction))
+                    Text(stringResource(R.string.settings_runtime_details_value, runtimeState.details))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = { ContainerBridgeController.start(context) },
                             colors = monochromeButtonColors(),
                         ) {
                             Icon(Icons.Outlined.PlayArrow, contentDescription = null)
-                            Text("启动")
+                            Text(stringResource(R.string.runtime_start))
                         }
                         OutlinedButton(
                             onClick = { ContainerBridgeController.stop(context) },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MonochromeUi.textPrimary,
-                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
                         ) {
                             Icon(Icons.Outlined.Stop, contentDescription = null)
-                            Text("停止")
+                            Text(stringResource(R.string.runtime_stop))
                         }
                     }
                 }

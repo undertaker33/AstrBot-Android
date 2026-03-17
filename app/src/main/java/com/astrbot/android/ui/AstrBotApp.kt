@@ -1,4 +1,4 @@
-package com.astrbot.android.ui
+﻿package com.astrbot.android.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,8 +48,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -68,6 +70,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.astrbot.android.runtime.ContainerBridgeController
+import com.astrbot.android.R
 import com.astrbot.android.ui.screen.BotScreen
 import com.astrbot.android.ui.screen.ChatScreen
 import com.astrbot.android.ui.screen.ConfigScreen
@@ -88,12 +91,14 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
     val navController = rememberNavController()
     val context = LocalContext.current
     var botModelsSelected by remember { mutableStateOf(false) }
+    val botsLabel = stringResource(R.string.nav_bots)
+    val modelsLabel = stringResource(R.string.nav_models)
     val destinations = listOf(
-        AppDestination.Bots,
-        AppDestination.Personas,
-        AppDestination.Chat,
-        AppDestination.Config,
-        AppDestination.Me,
+        AppDestination.Bots to stringResource(R.string.nav_bots),
+        AppDestination.Personas to stringResource(R.string.nav_personas),
+        AppDestination.Chat to stringResource(R.string.nav_chat),
+        AppDestination.Config to stringResource(R.string.nav_config),
+        AppDestination.Me to stringResource(R.string.nav_me),
     )
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -106,21 +111,21 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
             .fillMaxSize()
             .background(MonochromeUi.pageBackground),
     ) {
-        val activeMainDestination = destinations.firstOrNull { destination ->
+        val activeMainDestination = destinations.firstOrNull { (destination, _) ->
             currentDestination?.hierarchy?.any { it.route == destination.route } == true
         }
         Scaffold(
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
-                activeMainDestination?.let { destination ->
+                activeMainDestination?.let { (destination, label) ->
                     when (destination) {
                         AppDestination.Bots -> MainTopBar(
-                            title = if (botModelsSelected) "模型" else "机器人",
+                            title = if (botModelsSelected) modelsLabel else botsLabel,
                             titleAlignment = TopBarTitleAlignment.End,
                             leftContent = {
                                 TopBarToggle(
-                                    leftLabel = "机器人",
-                                    rightLabel = "模型",
+                                    leftLabel = botsLabel,
+                                    rightLabel = modelsLabel,
                                     leftSelected = !botModelsSelected,
                                     onSelectLeft = { botModelsSelected = false },
                                     onSelectRight = { botModelsSelected = true },
@@ -129,11 +134,11 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                         )
 
                         AppDestination.Personas -> MainTopBar(
-                            title = "人格",
+                            title = stringResource(R.string.nav_personas),
                             titleAlignment = TopBarTitleAlignment.End,
                             leftContent = {
                                 Text(
-                                    "人格",
+                                    stringResource(R.string.nav_personas),
                                     color = MonochromeUi.textSecondary,
                                     fontWeight = FontWeight.Medium,
                                 )
@@ -141,42 +146,34 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                         )
 
                         AppDestination.Chat -> Unit
-                        AppDestination.Config -> MainTopBar(
-                            title = "配置",
-                            titleAlignment = TopBarTitleAlignment.Center,
-                        )
-                        AppDestination.Me -> MainTopBar(
-                            title = "我的",
-                            titleAlignment = TopBarTitleAlignment.Center,
-                        )
-                        else -> MainTopBar(title = destination.label)
+                        AppDestination.Config -> MainTopBar(title = stringResource(R.string.nav_config), titleAlignment = TopBarTitleAlignment.Center)
+                        AppDestination.Me -> MainTopBar(title = stringResource(R.string.nav_me), titleAlignment = TopBarTitleAlignment.Center)
+                        else -> MainTopBar(title = label)
                     }
                 }
             },
             bottomBar = {
-                if (destinations.any { destination ->
+                if (destinations.any { (destination, _) ->
                         currentDestination?.hierarchy?.any { it.route == destination.route } == true
-                    } && !(activeMainDestination == AppDestination.Chat && imeVisible)
+                    } && !(activeMainDestination?.first == AppDestination.Chat && imeVisible)
                 ) {
                     NavigationBar(
                         modifier = Modifier.navigationBarsPadding(),
                         containerColor = MonochromeUi.navBarBackground,
                         tonalElevation = 0.dp,
                     ) {
-                        destinations.forEach { destination ->
+                        destinations.forEach { (destination, label) ->
                             NavigationBarItem(
                                 selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true,
                                 onClick = {
                                     navController.navigate(destination.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
                                     }
                                 },
-                                icon = { Icon(destination.icon, contentDescription = destination.label) },
-                                label = { Text(destination.label) },
+                                icon = { Icon(destination.icon, contentDescription = label) },
+                                label = { Text(label) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MonochromeUi.textPrimary,
                                     selectedTextColor = MonochromeUi.textPrimary,
@@ -196,28 +193,14 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                 modifier = Modifier.padding(innerPadding),
             ) {
                 composable(AppDestination.Bots.route) {
-                    BotScreen(
-                        showModels = botModelsSelected,
-                        onShowBots = { botModelsSelected = false },
-                    )
+                    BotScreen(showModels = botModelsSelected, onShowBots = { botModelsSelected = false })
                 }
                 composable(AppDestination.Personas.route) { PersonaScreen() }
-                composable(AppDestination.Chat.route) {
-                    ChatScreen()
-                }
-                composable(AppDestination.Config.route) {
-                    ConfigScreen()
-                }
+                composable(AppDestination.Chat.route) { ChatScreen() }
+                composable(AppDestination.Config.route) { ConfigScreen() }
                 composable(AppDestination.Logs.route) {
-                    SubPageScaffold(
-                        title = "Logs",
-                        onBack = { navController.popBackStack() },
-                    ) { innerPadding ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding),
-                        ) {
+                    SubPageScaffold(title = stringResource(R.string.nav_logs), onBack = { navController.popBackStack() }) { inner ->
+                        Box(modifier = Modifier.fillMaxSize().padding(inner)) {
                             LogScreen(showContext = false)
                         }
                     }
@@ -235,21 +218,15 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                         onOpenLogin = { navController.navigate(AppDestination.QQLogin.route) },
                     )
                 }
-                composable(AppDestination.QQLogin.route) {
-                    QQLoginScreen(onBack = { navController.popBackStack() })
-                }
+                composable(AppDestination.QQLogin.route) { QQLoginScreen(onBack = { navController.popBackStack() }) }
                 composable(AppDestination.SettingsHub.route) {
                     SettingsHubScreen(
                         onBack = { navController.popBackStack() },
                         onOpenRuntime = { navController.navigate(AppDestination.Runtime.route) },
                     )
                 }
-                composable(AppDestination.Models.route) {
-                    ProviderScreen(onBack = { navController.popBackStack() })
-                }
-                composable(AppDestination.Runtime.route) {
-                    SettingsScreen(onBack = { navController.popBackStack() })
-                }
+                composable(AppDestination.Models.route) { ProviderScreen(onBack = { navController.popBackStack() }) }
+                composable(AppDestination.Runtime.route) { SettingsScreen(onBack = { navController.popBackStack() }) }
             }
         }
 
@@ -271,10 +248,7 @@ private fun MainTopBar(
     titleAlignment: TopBarTitleAlignment = TopBarTitleAlignment.Center,
     leftContent: @Composable (() -> Unit)? = null,
 ) {
-    Surface(
-        color = MonochromeUi.topBarSurface,
-        shadowElevation = 0.dp,
-    ) {
+    Surface(color = MonochromeUi.topBarSurface, shadowElevation = 0.dp) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -284,25 +258,18 @@ private fun MainTopBar(
         ) {
             if (titleAlignment == TopBarTitleAlignment.Center) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 64.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 64.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     TopBarTitlePill(title)
                 }
             } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterEnd,
-                ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
                     TopBarTitlePill(title)
                 }
             }
             Row(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .fillMaxHeight(),
+                modifier = Modifier.align(Alignment.CenterStart).fillMaxHeight(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 leftContent?.invoke()
@@ -313,11 +280,7 @@ private fun MainTopBar(
 
 @Composable
 private fun TopBarTitlePill(title: String) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MonochromeUi.strong,
-        tonalElevation = 1.dp,
-    ) {
+    Surface(shape = RoundedCornerShape(18.dp), color = MonochromeUi.strong, tonalElevation = 1.dp) {
         Text(
             text = title,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -335,10 +298,7 @@ private fun TopBarToggle(
     onSelectLeft: () -> Unit,
     onSelectRight: () -> Unit,
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = onSelectLeft) {
             Text(
                 leftLabel,
@@ -363,67 +323,32 @@ internal fun ChatTopBar(
     onOpenBotSelector: () -> Unit,
     botSelectorDropdown: @Composable (BoxScope.() -> Unit) = {},
 ) {
-    Surface(
-        color = MonochromeUi.topBarSurface,
-        shadowElevation = 0.dp,
-    ) {
+    Surface(color = MonochromeUi.topBarSurface, shadowElevation = 0.dp) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .padding(horizontal = 18.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 18.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Surface(
-                    onClick = onOpenHistory,
-                    shape = CircleShape,
-                    color = MonochromeUi.iconButtonSurface,
-                ) {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                Surface(onClick = onOpenHistory, shape = CircleShape, color = MonochromeUi.iconButtonSurface) {
                     Box(
-                        modifier = Modifier
-                            .border(1.dp, MonochromeUi.border, CircleShape)
-                            .padding(9.dp),
+                        modifier = Modifier.border(1.dp, MonochromeUi.border, CircleShape).padding(9.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Outlined.Menu, contentDescription = "历史记录", tint = MonochromeUi.textPrimary)
+                        Icon(Icons.Outlined.Menu, contentDescription = stringResource(R.string.chat_history), tint = MonochromeUi.textPrimary)
                     }
                 }
             }
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "对话",
-                    color = MonochromeUi.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                )
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(stringResource(R.string.chat_title), color = MonochromeUi.textPrimary, fontWeight = FontWeight.SemiBold)
             }
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                Surface(
-                    onClick = onOpenBotSelector,
-                    shape = RoundedCornerShape(16.dp),
-                    color = MonochromeUi.iconButtonSurface,
-                ) {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                Surface(onClick = onOpenBotSelector, shape = RoundedCornerShape(16.dp), color = MonochromeUi.iconButtonSurface) {
                     Row(
-                        modifier = Modifier
-                            .border(1.dp, MonochromeUi.border, RoundedCornerShape(16.dp))
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        modifier = Modifier.border(1.dp, MonochromeUi.border, RoundedCornerShape(16.dp)).padding(horizontal = 10.dp, vertical = 7.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = "机器人",
-                            color = MonochromeUi.textPrimary,
-                            maxLines = 1,
-                        )
+                        Text(text = stringResource(R.string.chat_selector_bots), color = MonochromeUi.textPrimary, maxLines = 1)
                         Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, tint = MonochromeUi.textPrimary)
                     }
                 }
@@ -448,16 +373,18 @@ private fun RuntimeOverlay(
     onStart: () -> Unit,
     onStop: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(true) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(120f) }
+    val runtimeTitle = stringResource(R.string.runtime_title)
+    val runtimeMinimize = stringResource(R.string.runtime_minimize)
+    val runtimeExpand = stringResource(R.string.runtime_expand)
+    val runtimeStart = stringResource(R.string.runtime_start)
+    val runtimeStop = stringResource(R.string.runtime_stop)
+    var expanded by rememberSaveable { mutableStateOf(true) }
+    var offsetX by rememberSaveable { mutableFloatStateOf(0f) }
+    var offsetY by rememberSaveable { mutableFloatStateOf(120f) }
     val progress = progressPercent.coerceIn(0, 100) / 100f
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(12.dp),
+        modifier = Modifier.fillMaxSize().statusBarsPadding().padding(12.dp),
         contentAlignment = Alignment.TopEnd,
     ) {
         Surface(
@@ -477,9 +404,7 @@ private fun RuntimeOverlay(
         ) {
             if (expanded) {
                 Column(
-                    modifier = Modifier
-                        .widthIn(max = 280.dp)
-                        .padding(16.dp),
+                    modifier = Modifier.widthIn(max = 280.dp).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(
@@ -488,71 +413,57 @@ private fun RuntimeOverlay(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("运行状态", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text(runtimeTitle, color = Color.White, fontWeight = FontWeight.SemiBold)
                             Text(status, color = Color(0xFFD1D5DB))
                         }
                         IconButton(onClick = { expanded = false }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
-                                contentDescription = "最小化",
+                                contentDescription = runtimeMinimize,
                                 tint = Color.White,
                             )
                         }
                     }
                     RuntimeProgressBar(
                         label = progressLabel.ifBlank {
-                            if (installerCached) "可继续安装" else "等待启动"
+                            if (installerCached) stringResource(R.string.runtime_installer_ready)
+                            else stringResource(R.string.runtime_waiting)
                         },
                         progress = progress,
                         installerCached = installerCached,
                     )
-                    Text(
-                        text = details,
-                        color = Color.White.copy(alpha = 0.74f),
-                    )
+                    Text(text = details, color = Color.White.copy(alpha = 0.74f))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(
-                            onClick = onStart,
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color(0xFF1F1F1F),
-                        ) {
+                        Surface(onClick = onStart, shape = RoundedCornerShape(16.dp), color = Color(0xFF1F1F1F)) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Outlined.PlayArrow, contentDescription = "启动", tint = Color.White)
-                                Text("启动", color = Color.White)
+                                Icon(Icons.Outlined.PlayArrow, contentDescription = runtimeStart, tint = Color.White)
+                                Text(runtimeStart, color = Color.White)
                             }
                         }
-                        Surface(
-                            onClick = onStop,
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color(0xFF3B3B3B),
-                        ) {
+                        Surface(onClick = onStop, shape = RoundedCornerShape(16.dp), color = Color(0xFF3B3B3B)) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Outlined.Stop, contentDescription = "停止", tint = Color.White)
-                                Text("停止", color = Color.White)
+                                Icon(Icons.Outlined.Stop, contentDescription = runtimeStop, tint = Color.White)
+                                Text(runtimeStop, color = Color.White)
                             }
                         }
                     }
                 }
             } else {
-                Surface(
-                    onClick = { expanded = true },
-                    shape = CircleShape,
-                    color = Color(0xFF111827),
-                ) {
+                Surface(onClick = { expanded = true }, shape = CircleShape, color = Color(0xFF111827)) {
                     Column(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Icon(Icons.Outlined.Memory, contentDescription = "运行时", tint = Color.White)
+                        Icon(Icons.Outlined.Memory, contentDescription = runtimeExpand, tint = Color.White)
                         Text(status.take(1), color = Color.White)
                     }
                 }
@@ -569,11 +480,7 @@ private fun RuntimeProgressBar(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, color = Color.White)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(999.dp)),
-        ) {
+        Box(modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(999.dp))) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(progress.coerceIn(0f, 1f))
@@ -583,9 +490,9 @@ private fun RuntimeProgressBar(
         }
         Text(
             text = if (installerCached) {
-                "已检测到现有安装资产，进度会从当前状态继续。"
+                stringResource(R.string.runtime_installer_ready_details)
             } else {
-                "正在从网络下载并安装运行时资产。"
+                stringResource(R.string.runtime_downloading_details)
             },
             color = Color.White.copy(alpha = 0.7f),
         )
@@ -594,18 +501,17 @@ private fun RuntimeProgressBar(
 
 private sealed class AppDestination(
     val route: String,
-    val label: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
 ) {
-    data object Bots : AppDestination("bots", "机器人", Icons.Outlined.SmartToy)
-    data object Personas : AppDestination("personas", "人格", Icons.Outlined.Face)
-    data object Chat : AppDestination("chat", "对话", Icons.Outlined.ChatBubbleOutline)
-    data object Config : AppDestination("config", "配置", Icons.Outlined.Settings)
-    data object Logs : AppDestination("logs", "日志", Icons.AutoMirrored.Outlined.List)
-    data object Me : AppDestination("me", "我的", Icons.Outlined.PersonOutline)
-    data object QQAccount : AppDestination("qq-account", "QQ 账号", Icons.Outlined.PersonOutline)
-    data object QQLogin : AppDestination("qq-login", "去登录", Icons.Outlined.PersonOutline)
-    data object SettingsHub : AppDestination("settings-hub", "设置", Icons.Outlined.Settings)
-    data object Models : AppDestination("models", "模型", Icons.Outlined.Memory)
-    data object Runtime : AppDestination("runtime", "运行设置", Icons.Outlined.Settings)
+    data object Bots : AppDestination("bots", Icons.Outlined.SmartToy)
+    data object Personas : AppDestination("personas", Icons.Outlined.Face)
+    data object Chat : AppDestination("chat", Icons.Outlined.ChatBubbleOutline)
+    data object Config : AppDestination("config", Icons.Outlined.Settings)
+    data object Logs : AppDestination("logs", Icons.AutoMirrored.Outlined.List)
+    data object Me : AppDestination("me", Icons.Outlined.PersonOutline)
+    data object QQAccount : AppDestination("qq-account", Icons.Outlined.PersonOutline)
+    data object QQLogin : AppDestination("qq-login", Icons.Outlined.PersonOutline)
+    data object SettingsHub : AppDestination("settings-hub", Icons.Outlined.Settings)
+    data object Models : AppDestination("models", Icons.Outlined.Memory)
+    data object Runtime : AppDestination("runtime", Icons.Outlined.Settings)
 }

@@ -15,7 +15,6 @@ class AppPreferencesRepository(private val context: Context) {
         val qqEnabled = booleanPreferencesKey("qq_enabled")
         val napCatContainerEnabled = booleanPreferencesKey("napcat_container_enabled")
         val preferredChatProvider = stringPreferencesKey("preferred_chat_provider")
-        val language = stringPreferencesKey("language")
         val themeMode = stringPreferencesKey("theme_mode")
     }
 
@@ -24,7 +23,6 @@ class AppPreferencesRepository(private val context: Context) {
             qqEnabled = prefs[Keys.qqEnabled] ?: true,
             napCatContainerEnabled = prefs[Keys.napCatContainerEnabled] ?: true,
             preferredChatProvider = prefs[Keys.preferredChatProvider].orEmpty(),
-            language = AppLanguage.fromValue(prefs[Keys.language]),
             themeMode = ThemeMode.fromValue(prefs[Keys.themeMode]),
         )
     }
@@ -41,10 +39,6 @@ class AppPreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[Keys.preferredChatProvider] = providerId }
     }
 
-    suspend fun setLanguage(language: AppLanguage) {
-        context.dataStore.edit { it[Keys.language] = language.value }
-    }
-
     suspend fun setThemeMode(themeMode: ThemeMode) {
         context.dataStore.edit { it[Keys.themeMode] = themeMode.value }
     }
@@ -54,7 +48,6 @@ data class AppSettings(
     val qqEnabled: Boolean,
     val napCatContainerEnabled: Boolean,
     val preferredChatProvider: String,
-    val language: AppLanguage = AppLanguage.CHINESE,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
 )
 

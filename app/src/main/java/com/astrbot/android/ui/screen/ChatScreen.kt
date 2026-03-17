@@ -1,9 +1,9 @@
-package com.astrbot.android.ui.screen
+﻿package com.astrbot.android.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -40,10 +40,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.R
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.ui.ChatTopBar
 import com.astrbot.android.ui.MonochromeUi
@@ -102,9 +104,9 @@ fun ChatScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("展示QQ对话", color = MonochromeUi.textPrimary, fontWeight = FontWeight.SemiBold)
+                                    Text(stringResource(R.string.chat_show_qq_title), color = MonochromeUi.textPrimary, fontWeight = FontWeight.SemiBold)
                                     Text(
-                                        "关闭后仅显示应用内对话",
+                                        stringResource(R.string.chat_show_qq_subtitle),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MonochromeUi.textSecondary,
                                     )
@@ -133,7 +135,7 @@ fun ChatScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("新对话", color = MonochromeUi.textPrimary, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.chat_new_conversation), color = MonochromeUi.textPrimary, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -146,7 +148,7 @@ fun ChatScreen(
                             shape = RoundedCornerShape(18.dp),
                             color = if (session.id == uiState.selectedSessionId) MonochromeUi.cardAltBackground else Color.Transparent,
                         ) {
-                            androidx.compose.foundation.layout.Column(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -160,8 +162,8 @@ fun ChatScreen(
                                 )
                                 Text(
                                     buildList {
-                                        add("${session.messages.size} 条消息")
-                                        if (session.isQqConversation()) add("QQ")
+                                        add(stringResource(R.string.chat_message_count, session.messages.size))
+                                        if (session.isQqConversation()) add(stringResource(R.string.chat_message_source_qq))
                                     }.joinToString(" | "),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MonochromeUi.textSecondary,
@@ -195,7 +197,7 @@ fun ChatScreen(
                                 modifier = Modifier.align(Alignment.TopEnd),
                             ) {
                                 Text(
-                                    "机器人",
+                                    stringResource(R.string.chat_selector_bots),
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                     style = MaterialTheme.typography.labelLarge,
                                 )
@@ -209,7 +211,7 @@ fun ChatScreen(
                                     )
                                 }
                                 Text(
-                                    "模型",
+                                    stringResource(R.string.chat_selector_models),
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                     style = MaterialTheme.typography.labelLarge,
                                 )
@@ -250,7 +252,7 @@ fun ChatScreen(
                                 Text(
                                     chatProviders.firstOrNull { it.id == uiState.selectedProviderId }?.name
                                         ?: currentBot?.displayName
-                                        ?: "请选择模型",
+                                        ?: stringResource(R.string.chat_choose_model),
                                 )
                             },
                             singleLine = true,
@@ -280,7 +282,7 @@ fun ChatScreen(
                                 ) {
                                     androidx.compose.material3.Icon(
                                         Icons.AutoMirrored.Outlined.Send,
-                                        contentDescription = "发送",
+                                        contentDescription = stringResource(R.string.chat_send),
                                         tint = MonochromeUi.strongText,
                                     )
                                 }
@@ -299,7 +301,7 @@ fun ChatScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        "对话已就绪。配置好模型后就可以开始聊天。",
+                        stringResource(R.string.chat_empty_hint),
                         style = MaterialTheme.typography.headlineLarge,
                         color = MonochromeUi.textPrimary,
                         fontWeight = FontWeight.Bold,
@@ -316,13 +318,13 @@ fun ChatScreen(
                 ) {
                     items(messages, key = { it.id }) { message ->
                         val isUser = message.role == "user"
-                        androidx.compose.foundation.layout.Column(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                if (isUser) "你" else (currentBot?.displayName ?: "助手"),
+                                if (isUser) stringResource(R.string.chat_role_you) else (currentBot?.displayName ?: stringResource(R.string.chat_role_assistant)),
                                 color = MonochromeUi.textSecondary,
                             )
                             Surface(

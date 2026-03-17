@@ -1,161 +1,363 @@
-package com.astrbot.android.data
+﻿package com.astrbot.android.data
 
-import com.astrbot.android.model.ConversationMessage
+import com.astrbot.android.model.FeatureSupportState
+import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
+import com.astrbot.android.model.inferMultimodalRuleSupport
+import com.astrbot.android.model.supportsChatCompletions
+import com.astrbot.android.model.usesOpenAiStyleChatApi
 import com.astrbot.android.runtime.RuntimeLogRepository
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
+import java.net.URLEncoder
 import java.net.URL
 import java.nio.charset.StandardCharsets
 
 object ChatCompletionService {
-    fun fetchModels(
-        baseUrl: String,
-        apiKey: String,
-        providerType: ProviderType,
-    ): List<String> {
-        require(
-            providerType == ProviderType.OPENAI_COMPATIBLE || providerType == ProviderType.DEEPSEEK,
-        ) {
-            "当前仅支持 OpenAI 兼容和 DeepSeek 的模型发现"
-        }
-        require(baseUrl.isNotBlank()) {
-            "Base URL 不能为空"
-        }
-        require(apiKey.isNotBlank()) {
-            "API Key 不能为空"
-        }
+    private const val MULTIMODAL_PROMPT = "Describe the main subject of this image in one short sentence."
+    private const val TEST_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9VE3d2QAAAAASUVORK5CYII="
 
-        val endpoint = baseUrl.trimEnd('/') + "/models"
-        RuntimeLogRepository.append("Fetch models: type=${providerType.name} endpoint=$endpoint")
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
+    fun fetchModels(baseUrl: String, apiKey: String, providerType: ProviderType): List<String> {
+        require(baseUrl.isNotBlank()) { "Base URL cannot be empty." }
+        return when {
+            providerType.usesOpenAiStyleChatApi() -> fetchOpenAiStyleModels(baseUrl, apiKey)
+            providerType == ProviderType.OLLAMA -> fetchOllamaModels(baseUrl)
+            providerType == ProviderType.GEMINI -> fetchGeminiModels(baseUrl, apiKey)
+            else -> throw IllegalStateException("Pull models is not supported for ${providerType.name}.")
+        }
+    }
+
+    fun detectMultimodalRule(provider: ProviderProfile): FeatureSupportState {
+        return inferMultimodalRuleSupport(provider.providerType, provider.model)
+    }
+
+    fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
+        require(ProviderCapability.CHAT in provider.capabilities) { "Multimodal checks are only available for chat models." }
+        require(provider.providerType.supportsChatCompletions()) { "This provider does not support chat completions." }
+
+        val result = when {
+            provider.providerType.usesOpenAiStyleChatApi() -> probeOpenAiStyleMultimodal(provider)
+            provider.providerType == ProviderType.OLLAMA -> probeOllamaMultimodal(provider)
+            provider.providerType == ProviderType.GEMINI -> probeGeminiMultimodal(provider)
+            else -> FeatureSupportState.UNKNOWN
+        }
+        RuntimeLogRepository.append("Multimodal probe: provider=${provider.name} result=${result.name}")
+        return result
+    }
+
+    fun sendChat(
+        provider: ProviderProfile,
+        messages: List<com.astrbot.android.model.ConversationMessage>,
+        systemPrompt: String? = null,
+    ): String {
+        require(provider.providerType.supportsChatCompletions()) { "This provider type does not support chat requests." }
+        require(provider.capabilities.contains(ProviderCapability.CHAT)) { "This provider is not configured as a chat model." }
+
+        return when {
+            provider.providerType.usesOpenAiStyleChatApi() -> sendOpenAiStyleChat(provider, messages, systemPrompt)
+            provider.providerType == ProviderType.OLLAMA -> sendOllamaChat(provider, messages, systemPrompt)
+            provider.providerType == ProviderType.GEMINI -> sendGeminiChat(provider, messages, systemPrompt)
+            else -> throw IllegalStateException("Chat routing is not implemented for ${provider.providerType.name}.")
+        }
+    }
+
+    private fun fetchOpenAiStyleModels(baseUrl: String, apiKey: String): List<String> {
+        require(apiKey.isNotBlank()) { "API key cannot be empty." }
+        val connection = openConnection(baseUrl.trimEnd('/') + "/models", "GET").apply {
+            setRequestProperty("Authorization", "Bearer $apiKey")
+        }
+        return readModelList(connection) { body -> JSONObject(body).optJSONArray("data") ?: JSONArray() }
+    }
+
+    private fun fetchOllamaModels(baseUrl: String): List<String> {
+        val connection = openConnection(baseUrl.trimEnd('/') + "/api/tags", "GET")
+        return readModelList(connection) { body -> JSONObject(body).optJSONArray("models") ?: JSONArray() }
+    }
+
+    private fun fetchGeminiModels(baseUrl: String, apiKey: String): List<String> {
+        require(apiKey.isNotBlank()) { "API key cannot be empty." }
+        val endpoint = baseUrl.trimEnd('/') + "/models?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8.name())
+        val connection = openConnection(endpoint, "GET")
+        return readModelList(connection) { body -> JSONObject(body).optJSONArray("models") ?: JSONArray() }
+            .map { it.removePrefix("models/") }
+    }
+
+    private fun readModelList(connection: HttpURLConnection, arrayProvider: (String) -> JSONArray): List<String> {
         return try {
-            connection.requestMethod = "GET"
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 30_000
-            connection.setRequestProperty("Authorization", "Bearer $apiKey")
-            connection.setRequestProperty("Content-Type", "application/json")
-
             val responseCode = connection.responseCode
             val body = readBody(connection, responseCode)
             if (responseCode !in 200..299) {
-                RuntimeLogRepository.append("Fetch models failed: HTTP $responseCode")
                 throw IllegalStateException("HTTP $responseCode: $body")
             }
-
-            val data = JSONObject(body).optJSONArray("data")
-                ?: throw IllegalStateException("模型列表响应缺少 data 字段")
-            val models = buildList {
-                for (index in 0 until data.length()) {
-                    val item = data.optJSONObject(index) ?: continue
-                    val id = item.optString("id")
+            val array = arrayProvider(body)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val id = item.optString("id").ifBlank { item.optString("name") }
                     if (id.isNotBlank()) add(id)
                 }
             }.distinct().sorted()
-            RuntimeLogRepository.append("Fetch models success: count=${models.size}")
-            models
-        } catch (error: Exception) {
-            RuntimeLogRepository.append(
-                "Fetch models error: ${error.message ?: error.javaClass.simpleName}",
-            )
-            throw error
         } finally {
             connection.disconnect()
         }
     }
 
-    fun sendChat(
-        provider: ProviderProfile,
-        messages: List<ConversationMessage>,
-        systemPrompt: String? = null,
-    ): String {
-        require(
-            provider.providerType == ProviderType.OPENAI_COMPATIBLE || provider.providerType == ProviderType.DEEPSEEK,
-        ) {
-            "当前仅支持 OpenAI 兼容和 DeepSeek 对话请求"
+    private fun probeOpenAiStyleMultimodal(provider: ProviderProfile): FeatureSupportState {
+        require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
+        val payload = JSONObject().apply {
+            put("model", provider.model)
+            put(
+                "messages",
+                JSONArray().put(
+                    JSONObject().put("role", "user").put(
+                        "content",
+                        JSONArray()
+                            .put(JSONObject().put("type", "text").put("text", MULTIMODAL_PROMPT))
+                            .put(
+                                JSONObject().put("type", "image_url").put(
+                                    "image_url",
+                                    JSONObject().put("url", "data:image/png;base64,$TEST_IMAGE_BASE64"),
+                                ),
+                            ),
+                    ),
+                ),
+            )
         }
-        require(provider.apiKey.isNotBlank()) {
-            "Provider API Key 为空"
-        }
+        return executeProbeRequest(
+            endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
+            payload = payload,
+            configure = { connection -> connection.setRequestProperty("Authorization", "Bearer ${provider.apiKey}") },
+            parser = { body ->
+                val content = JSONObject(body)
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content")
+                    .orEmpty()
+                if (content.isNotBlank()) FeatureSupportState.SUPPORTED else FeatureSupportState.UNSUPPORTED
+            },
+        )
+    }
 
-        val endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions"
+    private fun probeOllamaMultimodal(provider: ProviderProfile): FeatureSupportState {
+        val payload = JSONObject().apply {
+            put("model", provider.model)
+            put("stream", false)
+            put(
+                "messages",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", MULTIMODAL_PROMPT)
+                        .put("images", JSONArray().put(TEST_IMAGE_BASE64)),
+                ),
+            )
+        }
+        return executeProbeRequest(
+            endpoint = provider.baseUrl.trimEnd('/') + "/api/chat",
+            payload = payload,
+            configure = {},
+            parser = { body ->
+                val content = JSONObject(body).optJSONObject("message")?.optString("content").orEmpty()
+                if (content.isNotBlank()) FeatureSupportState.SUPPORTED else FeatureSupportState.UNSUPPORTED
+            },
+        )
+    }
+
+    private fun probeGeminiMultimodal(provider: ProviderProfile): FeatureSupportState {
+        require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
+        val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
+        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:generateContent?key=" +
+            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val payload = JSONObject().apply {
+            put(
+                "contents",
+                JSONArray().put(
+                    JSONObject().put(
+                        "parts",
+                        JSONArray()
+                            .put(JSONObject().put("text", MULTIMODAL_PROMPT))
+                            .put(
+                                JSONObject().put(
+                                    "inlineData",
+                                    JSONObject().put("mimeType", "image/png").put("data", TEST_IMAGE_BASE64),
+                                ),
+                            ),
+                    ),
+                ),
+            )
+        }
+        return executeProbeRequest(
+            endpoint = endpoint,
+            payload = payload,
+            configure = {},
+            parser = { body ->
+                val text = JSONObject(body)
+                    .optJSONArray("candidates")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("content")
+                    ?.optJSONArray("parts")
+                    ?.optJSONObject(0)
+                    ?.optString("text")
+                    .orEmpty()
+                if (text.isNotBlank()) FeatureSupportState.SUPPORTED else FeatureSupportState.UNSUPPORTED
+            },
+        )
+    }
+
+    private fun sendOpenAiStyleChat(
+        provider: ProviderProfile,
+        messages: List<com.astrbot.android.model.ConversationMessage>,
+        systemPrompt: String?,
+    ): String {
+        require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         val payload = JSONObject().apply {
             put("model", provider.model)
             put(
                 "messages",
                 JSONArray().apply {
                     if (!systemPrompt.isNullOrBlank()) {
-                        put(
-                            JSONObject().apply {
-                                put("role", "system")
-                                put("content", systemPrompt)
-                            },
-                        )
+                        put(JSONObject().put("role", "system").put("content", systemPrompt))
                     }
                     messages.forEach { message ->
+                        put(JSONObject().put("role", message.role).put("content", message.content))
+                    }
+                },
+            )
+        }
+        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/chat/completions", "POST").apply {
+            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
+        }
+        return executeJsonRequest(connection, payload) { body ->
+            JSONObject(body)
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                ?.takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("Model response is empty.")
+        }
+    }
+
+    private fun sendOllamaChat(
+        provider: ProviderProfile,
+        messages: List<com.astrbot.android.model.ConversationMessage>,
+        systemPrompt: String?,
+    ): String {
+        val payload = JSONObject().apply {
+            put("model", provider.model)
+            put("stream", false)
+            put(
+                "messages",
+                JSONArray().apply {
+                    if (!systemPrompt.isNullOrBlank()) {
+                        put(JSONObject().put("role", "system").put("content", systemPrompt))
+                    }
+                    messages.forEach { message ->
+                        put(JSONObject().put("role", message.role).put("content", message.content))
+                    }
+                },
+            )
+        }
+        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/api/chat", "POST")
+        return executeJsonRequest(connection, payload) { body ->
+            JSONObject(body).optJSONObject("message")?.optString("content")?.takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("Model response is empty.")
+        }
+    }
+
+    private fun sendGeminiChat(
+        provider: ProviderProfile,
+        messages: List<com.astrbot.android.model.ConversationMessage>,
+        systemPrompt: String?,
+    ): String {
+        require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
+        val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
+        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:generateContent?key=" +
+            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val payload = JSONObject().apply {
+            if (!systemPrompt.isNullOrBlank()) {
+                put(
+                    "system_instruction",
+                    JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))),
+                )
+            }
+            put(
+                "contents",
+                JSONArray().apply {
+                    messages.forEach { message ->
                         put(
-                            JSONObject().apply {
-                                put("role", message.role)
-                                put("content", message.content)
-                            },
+                            JSONObject()
+                                .put("role", if (message.role == "assistant") "model" else "user")
+                                .put("parts", JSONArray().put(JSONObject().put("text", message.content))),
                         )
                     }
                 },
             )
         }
+        val connection = openConnection(endpoint, "POST")
+        return executeJsonRequest(connection, payload) { body ->
+            JSONObject(body)
+                .optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+                ?.optJSONObject(0)
+                ?.optString("text")
+                ?.takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("Model response is empty.")
+        }
+    }
 
-        RuntimeLogRepository.append(
-            "Chat request: provider=${provider.name} model=${provider.model} messages=${messages.size}",
-        )
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
+    private fun executeProbeRequest(
+        endpoint: String,
+        payload: JSONObject,
+        configure: (HttpURLConnection) -> Unit,
+        parser: (String) -> FeatureSupportState,
+    ): FeatureSupportState {
+        val connection = openConnection(endpoint, "POST")
+        configure(connection)
+        return runCatching { executeJsonRequest(connection, payload, parser) }
+            .getOrElse { error ->
+                RuntimeLogRepository.append("Multimodal probe error: ${error.message ?: error.javaClass.simpleName}")
+                FeatureSupportState.UNSUPPORTED
+            }
+    }
+
+    private fun <T> executeJsonRequest(connection: HttpURLConnection, payload: JSONObject, parser: (String) -> T): T {
         return try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 30_000
-            connection.readTimeout = 60_000
             connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
             connection.outputStream.use { output ->
                 output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
             }
-
             val responseCode = connection.responseCode
             val body = readBody(connection, responseCode)
             if (responseCode !in 200..299) {
-                RuntimeLogRepository.append("Chat request failed: HTTP $responseCode")
                 throw IllegalStateException("HTTP $responseCode: $body")
             }
-
-            val json = JSONObject(body)
-            val choices = json.optJSONArray("choices")
-                ?: throw IllegalStateException("响应中缺少 choices 字段")
-            val first = choices.optJSONObject(0)
-                ?: throw IllegalStateException("模型响应为空")
-            val message = first.optJSONObject("message")
-                ?: throw IllegalStateException("响应中缺少 message 字段")
-            val content = message.optString("content").takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("模型返回了空内容")
-            RuntimeLogRepository.append("Chat response success: provider=${provider.name} chars=${content.length}")
-            content
-        } catch (error: Exception) {
-            RuntimeLogRepository.append(
-                "Chat request error: ${error.message ?: error.javaClass.simpleName}",
-            )
-            throw error
+            parser(body)
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun openConnection(endpoint: String, method: String): HttpURLConnection {
+        RuntimeLogRepository.append("HTTP request: method=$method endpoint=$endpoint")
+        return (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = 30_000
+            readTimeout = 60_000
+            setRequestProperty("Content-Type", "application/json")
         }
     }
 
     private fun readBody(connection: HttpURLConnection, responseCode: Int): String {
         val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
         if (stream == null) return ""
-        return BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).use { reader ->
-            reader.readText()
-        }
+        return BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).use { reader -> reader.readText() }
     }
 }

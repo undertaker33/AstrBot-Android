@@ -53,18 +53,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.R
 import com.astrbot.android.data.AppLanguage
 import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.ThemeMode
+import com.astrbot.android.ui.AppUiTransitionState
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
@@ -82,20 +89,20 @@ fun MeScreen(
     EntryListPage(
         entries = listOf(
             EntryCardState(
-                title = "QQ 账号",
-                subtitle = "扫码登录、快速登录、密码登录和验证码流程",
+                title = stringResource(R.string.me_card_qq_title),
+                subtitle = stringResource(R.string.me_card_qq_subtitle),
                 icon = Icons.Outlined.PersonOutline,
                 onClick = onOpenQqAccount,
             ),
             EntryCardState(
-                title = "设置",
-                subtitle = "运行设置、容器控制和应用配置",
+                title = stringResource(R.string.me_card_settings_title),
+                subtitle = stringResource(R.string.me_card_settings_subtitle),
                 icon = Icons.Outlined.Settings,
                 onClick = onOpenSettings,
             ),
             EntryCardState(
-                title = "日志",
-                subtitle = "查看运行日志和对话上下文预览",
+                title = stringResource(R.string.me_card_logs_title),
+                subtitle = stringResource(R.string.me_card_logs_subtitle),
                 icon = Icons.Outlined.Refresh,
                 onClick = onOpenLogs,
             ),
@@ -127,7 +134,7 @@ fun QQAccountScreen(
     }
 
     Scaffold(
-        topBar = { SubPageHeader(title = "QQ 账号", onBack = onBack) },
+        topBar = { SubPageHeader(title = stringResource(R.string.nav_qq_account), onBack = onBack) },
         contentWindowInsets = WindowInsets.safeDrawing,
         containerColor = MonochromeUi.pageBackground,
     ) { innerPadding ->
@@ -152,7 +159,7 @@ fun QQAccountScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text(
-                            "QQ 登录中心",
+                            stringResource(R.string.qq_account_center_title),
                             color = Color.White,
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
@@ -160,23 +167,26 @@ fun QQAccountScreen(
                         Text(loginState.statusText, color = Color.White.copy(alpha = 0.78f))
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                QuickActionChip("刷新状态", Icons.Outlined.Refresh) { qqLoginViewModel.refreshNow() }
-                                QuickActionChip("刷新二维码", Icons.Outlined.QrCode2) { qqLoginViewModel.refreshQrCode() }
+                                QuickActionChip(stringResource(R.string.qq_login_refresh_status), Icons.Outlined.Refresh) { qqLoginViewModel.refreshNow() }
+                                QuickActionChip(stringResource(R.string.qq_login_refresh_qr), Icons.Outlined.QrCode2) { qqLoginViewModel.refreshQrCode() }
                             }
                             if (loginState.quickLoginUin.isNotBlank() && !loginState.isLogin) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    QuickActionChip("快速登录", Icons.Outlined.Bolt) {
+                                    QuickActionChip(stringResource(R.string.qq_login_quick_login), Icons.Outlined.Bolt) {
                                         qqLoginViewModel.quickLoginSavedAccount()
                                     }
                                 }
                             }
                             if (loginState.isLogin) {
                                 Text(
-                                    "当前登录：${loginState.nick.ifBlank { loginState.uin.ifBlank { "未知账号" } }}",
+                                    stringResource(
+                                        R.string.qq_login_current_account,
+                                        loginState.nick.ifBlank { loginState.uin.ifBlank { stringResource(R.string.qq_login_unknown_account) } },
+                                    ),
                                     color = Color.White.copy(alpha = 0.78f),
                                 )
                                 Text(
-                                    "当前 NapCat 集成还没有接好真实登出接口。",
+                                    stringResource(R.string.qq_login_center_no_logout),
                                     color = Color.White.copy(alpha = 0.58f),
                                     style = MaterialTheme.typography.bodySmall,
                                 )
@@ -197,10 +207,10 @@ fun QQAccountScreen(
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Text("二维码登录", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.qq_login_qr_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         if (loginState.quickLoginUin.isNotBlank()) {
                             Text(
-                                "已保存快速登录账号：${loginState.quickLoginUin}",
+                                stringResource(R.string.qq_login_saved_account, loginState.quickLoginUin),
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
                             )
                             if (!loginState.isLogin) {
@@ -209,30 +219,35 @@ fun QQAccountScreen(
                                     enabled = loginState.quickLoginUin.isNotBlank(),
                                     colors = monochromeButtonColors(),
                                 ) {
-                                    Text("快速登录")
+                                    Text(stringResource(R.string.qq_login_quick_login))
                                 }
                             }
                         }
                         if (qrBitmap != null && !loginState.isLogin) {
                             Image(
                                 bitmap = qrBitmap.asImageBitmap(),
-                                contentDescription = "QQ 二维码",
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            contentDescription = stringResource(R.string.qq_login_qr_title),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                             Text(loginState.qrCodeUrl, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
                         } else if (loginState.isLogin) {
-                            Text("当前登录：${loginState.nick.ifBlank { loginState.uin.ifBlank { "未知账号" } }}")
+                            Text(
+                                stringResource(
+                                    R.string.qq_login_current_account,
+                                    loginState.nick.ifBlank { loginState.uin.ifBlank { stringResource(R.string.qq_login_unknown_account) } },
+                                ),
+                            )
                         } else {
-                            Text("NapCat WebUI 就绪后，这里会显示二维码。")
+                            Text(stringResource(R.string.qq_login_qr_waiting))
                         }
                         if (loginState.captchaUrl.isNotBlank()) {
                             OutlinedButton(onClick = { uriHandler.openUri(loginState.captchaUrl) }) {
-                                Text("打开验证码页面")
+                                Text(stringResource(R.string.qq_login_open_captcha))
                             }
                         }
                         if (loginState.newDeviceJumpUrl.isNotBlank()) {
                             OutlinedButton(onClick = { uriHandler.openUri(loginState.newDeviceJumpUrl) }) {
-                                Text("打开设备验证")
+                                Text(stringResource(R.string.qq_login_open_device_verify))
                             }
                         }
                     }
@@ -250,7 +265,7 @@ fun QQAccountScreen(
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text("账号密码登录", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.qq_login_password_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         OutlinedTextField(
                             value = uinInput,
                             onValueChange = { uinInput = it },
@@ -265,7 +280,7 @@ fun QQAccountScreen(
                                         }
                                     }
                                 },
-                            label = { Text("QQ 账号") },
+                            label = { Text(stringResource(R.string.qq_login_account_label)) },
                             singleLine = true,
                             colors = monochromeOutlinedTextFieldColors(),
                         )
@@ -283,7 +298,7 @@ fun QQAccountScreen(
                                         }
                                     }
                                 },
-                            label = { Text("QQ 密码") },
+                            label = { Text(stringResource(R.string.qq_login_password_label)) },
                             visualTransformation = PasswordVisualTransformation(),
                             singleLine = true,
                             colors = monochromeOutlinedTextFieldColors(),
@@ -294,13 +309,13 @@ fun QQAccountScreen(
                                 enabled = loginState.bridgeReady && uinInput.isNotBlank() && passwordInput.isNotBlank(),
                                 colors = monochromeButtonColors(),
                             ) {
-                                Text("密码登录")
+                                Text(stringResource(R.string.qq_login_password_action))
                             }
                             OutlinedButton(
                                 onClick = { qqLoginViewModel.saveQuickLoginAccount(uinInput) },
                                 enabled = loginState.bridgeReady && uinInput.isNotBlank(),
                             ) {
-                                Text("保存账号")
+                                Text(stringResource(R.string.qq_login_save_account))
                             }
                         }
                         if (loginState.needNewDevice) {
@@ -309,7 +324,7 @@ fun QQAccountScreen(
                                 enabled = loginState.bridgeReady && uinInput.isNotBlank() && passwordInput.isNotBlank(),
                                 colors = monochromeButtonColors(),
                             ) {
-                                Text("继续设备登录")
+                                Text(stringResource(R.string.qq_login_continue_device))
                             }
                         }
                         if (loginState.loginError.isNotBlank()) {
@@ -337,6 +352,7 @@ fun SettingsHubScreen(
     onOpenRuntime: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    LocalConfiguration.current
     val repository = remember(context) { AppPreferencesRepository(context.applicationContext) }
     val settings by repository.settings.collectAsState(
         initial = com.astrbot.android.data.AppSettings(
@@ -346,9 +362,10 @@ fun SettingsHubScreen(
         ),
     )
     val scope = rememberCoroutineScope()
+    val currentLanguage = currentApplicationLanguage()
 
     SubPageScaffold(
-        title = "设置",
+        title = stringResource(R.string.nav_settings),
         onBack = onBack,
     ) { innerPadding ->
         LazyColumn(
@@ -361,41 +378,48 @@ fun SettingsHubScreen(
         ) {
             item {
                 SettingSelectionCard(
-                    title = "语言选择",
-                    subtitle = "当前先提供中文 / English 切换入口。",
+                    title = stringResource(R.string.settings_language_title),
+                    subtitle = stringResource(R.string.settings_language_subtitle),
                     icon = Icons.Outlined.Language,
-                    selectedLabel = when (settings.language) {
-                        AppLanguage.CHINESE -> "中文"
-                        AppLanguage.ENGLISH -> "English"
+                    selectedLabel = when (currentLanguage) {
+                        AppLanguage.CHINESE -> stringResource(R.string.settings_language_zh)
+                        AppLanguage.ENGLISH -> stringResource(R.string.settings_language_en)
                     },
                     options = listOf(
-                        AppLanguage.CHINESE.value to "中文",
-                        AppLanguage.ENGLISH.value to "English",
+                        AppLanguage.CHINESE.value to stringResource(R.string.settings_language_zh),
+                        AppLanguage.ENGLISH.value to stringResource(R.string.settings_language_en),
                     ),
                     onSelect = { value ->
                         scope.launch {
-                            repository.setLanguage(AppLanguage.fromValue(value))
+                            AppUiTransitionState.requestTransition(MonochromeUi.pageBackground.toArgb())
+                            delay(50)
+                            val locales = LocaleListCompat.forLanguageTags(value)
+                            if (AppCompatDelegate.getApplicationLocales() != locales) {
+                                AppCompatDelegate.setApplicationLocales(locales)
+                            }
                         }
                     },
                 )
             }
             item {
                 SettingSelectionCard(
-                    title = "深色模式",
-                    subtitle = "支持白天 / 夜晚 / 跟随系统。",
+                    title = stringResource(R.string.settings_theme_title),
+                    subtitle = stringResource(R.string.settings_theme_subtitle),
                     icon = Icons.Outlined.Palette,
                     selectedLabel = when (settings.themeMode) {
-                        ThemeMode.LIGHT -> "白天"
-                        ThemeMode.DARK -> "夜晚"
-                        ThemeMode.SYSTEM -> "跟随系统"
+                        ThemeMode.LIGHT -> stringResource(R.string.settings_theme_light)
+                        ThemeMode.DARK -> stringResource(R.string.settings_theme_dark)
+                        ThemeMode.SYSTEM -> stringResource(R.string.settings_theme_system)
                     },
                     options = listOf(
-                        ThemeMode.LIGHT.value to "白天",
-                        ThemeMode.DARK.value to "夜晚",
-                        ThemeMode.SYSTEM.value to "跟随系统",
+                        ThemeMode.LIGHT.value to stringResource(R.string.settings_theme_light),
+                        ThemeMode.DARK.value to stringResource(R.string.settings_theme_dark),
+                        ThemeMode.SYSTEM.value to stringResource(R.string.settings_theme_system),
                     ),
                     onSelect = { value ->
                         scope.launch {
+                            AppUiTransitionState.requestTransition(MonochromeUi.pageBackground.toArgb())
+                            delay(50)
                             repository.setThemeMode(ThemeMode.fromValue(value))
                         }
                     },
@@ -403,8 +427,8 @@ fun SettingsHubScreen(
             }
             item {
                 EntryCardState(
-                    title = "运行设置",
-                    subtitle = "桥接地址、启动命令和自动启动控制",
+                    title = stringResource(R.string.settings_runtime_entry_title),
+                    subtitle = stringResource(R.string.settings_runtime_entry_subtitle),
                     icon = Icons.Outlined.Settings,
                     onClick = onOpenRuntime,
                 ).also { entry ->
@@ -459,7 +483,7 @@ internal fun SubPageHeader(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = "返回",
+                        contentDescription = stringResource(R.string.common_back),
                         tint = MonochromeUi.textPrimary,
                     )
                 }
@@ -647,8 +671,8 @@ private fun CaptchaCard(
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("验证码校验", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text("完成验证码页面后，把返回的参数粘贴到这里。")
+            Text(stringResource(R.string.qq_captcha_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.qq_captcha_subtitle))
             OutlinedTextField(
                 value = ticketInput,
                 onValueChange = { ticketInput = it },
@@ -667,7 +691,7 @@ private fun CaptchaCard(
                 value = sidInput,
                 onValueChange = { sidInput = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Sid（可选）") },
+                label = { Text(stringResource(R.string.qq_captcha_sid_optional)) },
                 colors = monochromeOutlinedTextFieldColors(),
             )
             Button(
@@ -675,7 +699,7 @@ private fun CaptchaCard(
                 enabled = ticketInput.isNotBlank() && randstrInput.isNotBlank(),
                 colors = monochromeButtonColors(),
             ) {
-                Text("提交验证码")
+                Text(stringResource(R.string.qq_captcha_submit))
             }
         }
     }
@@ -701,4 +725,13 @@ private fun buildAccountQrBitmap(content: String, sizePx: Int): Bitmap {
         }
     }
     return bitmap
+}
+
+private fun currentApplicationLanguage(): AppLanguage {
+    val currentTag = AppCompatDelegate.getApplicationLocales()[0]?.toLanguageTag().orEmpty()
+    return when {
+        currentTag.startsWith("en", ignoreCase = true) -> AppLanguage.ENGLISH
+        currentTag.startsWith("zh", ignoreCase = true) -> AppLanguage.CHINESE
+        else -> AppLanguage.CHINESE
+    }
 }

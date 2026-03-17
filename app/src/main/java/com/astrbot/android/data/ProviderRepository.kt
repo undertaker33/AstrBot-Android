@@ -1,10 +1,13 @@
-package com.astrbot.android.data
+﻿package com.astrbot.android.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
+import com.astrbot.android.model.defaultCapability
+import com.astrbot.android.model.inferMultimodalRuleSupport
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +47,8 @@ object ProviderRepository {
         apiKey: String,
         capabilities: Set<ProviderCapability>,
         enabled: Boolean = true,
+        multimodalRuleSupport: FeatureSupportState = inferMultimodalRuleSupport(providerType, model),
+        multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
     ): ProviderProfile {
         val resolvedId = id?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val profile = normalizeProvider(
@@ -56,6 +61,8 @@ object ProviderRepository {
                 apiKey = apiKey.trim(),
                 capabilities = capabilities,
                 enabled = enabled,
+                multimodalRuleSupport = multimodalRuleSupport,
+                multimodalProbeSupport = multimodalProbeSupport,
             ),
         )
         val exists = _providers.value.any { it.id == resolvedId }
@@ -104,25 +111,28 @@ object ProviderRepository {
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
+                    val providerType = runCatching {
+                        ProviderType.valueOf(item.optString("providerType"))
+                    }.getOrDefault(ProviderType.OPENAI_COMPATIBLE)
+                    val model = item.optString("model")
                     add(
                         ProviderProfile(
                             id = item.optString("id"),
                             name = item.optString("name"),
                             baseUrl = item.optString("baseUrl"),
-                            model = item.optString("model"),
-                            providerType = runCatching {
-                                ProviderType.valueOf(item.optString("providerType"))
-                            }.getOrDefault(ProviderType.OPENAI_COMPATIBLE),
+                            model = model,
+                            providerType = providerType,
                             apiKey = item.optString("apiKey"),
-                            capabilities = buildSet {
-                                val capabilityArray = item.optJSONArray("capabilities") ?: JSONArray()
-                                for (capabilityIndex in 0 until capabilityArray.length()) {
-                                    runCatching {
-                                        ProviderCapability.valueOf(capabilityArray.getString(capabilityIndex))
-                                    }.getOrNull()?.let(::add)
-                                }
-                            }.ifEmpty { setOf(ProviderCapability.CHAT) },
+                            capabilities = parseCapabilities(item.optJSONArray("capabilities"), providerType),
                             enabled = item.optBoolean("enabled", true),
+                            multimodalRuleSupport = parseFeatureSupportState(
+                                item.optString("multimodalRuleSupport"),
+                                inferMultimodalRuleSupport(providerType, model),
+                            ),
+                            multimodalProbeSupport = parseFeatureSupportState(
+                                item.optString("multimodalProbeSupport"),
+                                FeatureSupportState.UNKNOWN,
+                            ),
                         ),
                     )
                 }
@@ -144,6 +154,8 @@ object ProviderRepository {
                         put("providerType", provider.providerType.name)
                         put("apiKey", provider.apiKey)
                         put("enabled", provider.enabled)
+                        put("multimodalRuleSupport", provider.multimodalRuleSupport.name)
+                        put("multimodalProbeSupport", provider.multimodalProbeSupport.name)
                         put(
                             "capabilities",
                             JSONArray().apply {
@@ -160,15 +172,41 @@ object ProviderRepository {
     }
 
     private fun normalizeProvider(provider: ProviderProfile): ProviderProfile {
-        if (provider.id != "openai-chat") return provider
-
         val normalizedName = when {
-            provider.name.isBlank() -> "OpenAI \u5bf9\u8bdd"
-            provider.name.contains("瀵硅瘽") -> "OpenAI \u5bf9\u8bdd"
-            provider.name.contains("鐎电鐦") -> "OpenAI \u5bf9\u8bdd"
+            provider.id == "openai-chat" && provider.name.isBlank() -> "OpenAI Chat"
+            provider.id == "openai-chat" && provider.name.contains("鐎电鐦?") -> "OpenAI Chat"
+            provider.id == "openai-chat" && provider.name.contains("閻庣數顢婇惁") -> "OpenAI Chat"
             else -> provider.name
         }
-        return provider.copy(name = normalizedName)
+        val normalizedModel = provider.model.trim()
+        return provider.copy(
+            name = normalizedName,
+            model = normalizedModel,
+            capabilities = provider.capabilities.ifEmpty { setOf(provider.providerType.defaultCapability()) },
+            multimodalRuleSupport = inferMultimodalRuleSupport(provider.providerType, normalizedModel),
+        )
+    }
+
+    private fun parseCapabilities(
+        capabilityArray: JSONArray?,
+        providerType: ProviderType,
+    ): Set<ProviderCapability> {
+        val parsed = buildSet {
+            val source = capabilityArray ?: JSONArray()
+            for (index in 0 until source.length()) {
+                when (source.optString(index)) {
+                    "ASR" -> add(ProviderCapability.STT)
+                    else -> runCatching {
+                        ProviderCapability.valueOf(source.getString(index))
+                    }.getOrNull()?.let(::add)
+                }
+            }
+        }
+        return parsed.ifEmpty { setOf(providerType.defaultCapability()) }
+    }
+
+    private fun parseFeatureSupportState(raw: String, defaultValue: FeatureSupportState): FeatureSupportState {
+        return runCatching { FeatureSupportState.valueOf(raw) }.getOrDefault(defaultValue)
     }
 
     private fun maskState(apiKey: String): String {
@@ -178,12 +216,13 @@ object ProviderRepository {
     private fun defaultProviders() = listOf(
         ProviderProfile(
             id = "openai-chat",
-            name = "OpenAI \u5bf9\u8bdd",
+            name = "OpenAI Chat",
             baseUrl = "https://api.openai.com/v1",
             model = "gpt-4.1-mini",
             providerType = ProviderType.OPENAI_COMPATIBLE,
             apiKey = "",
             capabilities = setOf(ProviderCapability.CHAT),
+            multimodalRuleSupport = FeatureSupportState.SUPPORTED,
         ),
         ProviderProfile(
             id = "deepseek-chat",
@@ -193,6 +232,7 @@ object ProviderRepository {
             providerType = ProviderType.DEEPSEEK,
             apiKey = "",
             capabilities = setOf(ProviderCapability.CHAT),
+            multimodalRuleSupport = FeatureSupportState.UNSUPPORTED,
         ),
     )
 }

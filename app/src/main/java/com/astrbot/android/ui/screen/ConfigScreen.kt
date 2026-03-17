@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.screen
+﻿package com.astrbot.android.ui.screen
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -20,11 +20,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -43,12 +40,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.R
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.ui.MonochromeUi
@@ -68,12 +66,10 @@ fun ConfigScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var editingProfile by remember { mutableStateOf<ConfigProfile?>(null) }
+    val newConfigLabel = stringResource(R.string.config_new)
 
-    val modelOptions = providers
+    val chatProviderOptions = providers
         .filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
-        .map { it.id to it.name }
-    val allProviderOptions = providers
-        .filter { it.enabled }
         .map { it.id to it.name }
 
     val filteredProfiles = configProfiles.filter { profile ->
@@ -102,7 +98,7 @@ fun ConfigScreen(
                         .fillMaxWidth()
                         .height(54.dp),
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    placeholder = { Text("搜索配置") },
+                    placeholder = { Text(stringResource(R.string.config_search_placeholder)) },
                     shape = RoundedCornerShape(28.dp),
                     colors = monochromeOutlinedTextFieldColors(),
                     singleLine = true,
@@ -113,8 +109,7 @@ fun ConfigScreen(
                     profile = profile,
                     selected = profile.id == selectedConfigId,
                     assignedBotCount = bots.count { it.configProfileId == profile.id },
-                    defaultModelName = modelOptions.firstOrNull { it.first == profile.defaultChatProviderId }?.second.orEmpty(),
-                    onSelect = { configViewModel.select(profile.id) },
+                    defaultModelName = chatProviderOptions.firstOrNull { it.first == profile.defaultChatProviderId }?.second.orEmpty(),
                     onEdit = { editingProfile = profile },
                 )
             }
@@ -122,9 +117,7 @@ fun ConfigScreen(
 
         FloatingActionButton(
             onClick = {
-                editingProfile = ConfigProfile(
-                    name = "新配置",
-                )
+                editingProfile = ConfigProfile(name = newConfigLabel)
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -133,28 +126,26 @@ fun ConfigScreen(
             contentColor = MonochromeUi.fabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
-            Icon(Icons.Outlined.Add, contentDescription = "新增配置")
+            Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.provider_add))
         }
     }
 
     editingProfile?.let { profile ->
         ConfigProfileEditorDialog(
             initialProfile = profile,
-            chatModelOptions = modelOptions,
-            visionModelOptions = allProviderOptions,
+            chatModelOptions = chatProviderOptions,
+            visionModelOptions = chatProviderOptions,
             onDismiss = { editingProfile = null },
             onDelete = {
                 configViewModel.delete(profile.id)
-                Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.config_deleted), Toast.LENGTH_SHORT).show()
                 editingProfile = null
             },
             onSave = { nextProfile ->
-                val saved = nextProfile.copy(
-                    id = nextProfile.id.ifBlank { profile.id },
-                )
+                val saved = nextProfile.copy(id = nextProfile.id.ifBlank { profile.id })
                 configViewModel.save(saved)
                 configViewModel.select(saved.id)
-                Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 editingProfile = null
             },
         )
@@ -167,7 +158,6 @@ private fun ConfigProfileCard(
     selected: Boolean,
     assignedBotCount: Int,
     defaultModelName: String,
-    onSelect: () -> Unit,
     onEdit: () -> Unit,
 ) {
     Surface(
@@ -198,11 +188,11 @@ private fun ConfigProfileCard(
                 Text(profile.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     text = buildList {
-                        add("机器人 $assignedBotCount")
-                        add("对话模型 ${defaultModelName.ifBlank { "未设置" }}")
-                        if (profile.sttEnabled) add("语音转文字 开")
-                        if (profile.ttsEnabled) add("文字转语音 开")
-                        if (profile.realWorldTimeAwarenessEnabled) add("现实时间感知 开")
+                        add(stringResource(R.string.config_summary_bots, assignedBotCount))
+                        add(stringResource(R.string.config_summary_chat_model, defaultModelName.ifBlank { stringResource(R.string.bot_not_set) }))
+                        if (profile.sttEnabled) add(stringResource(R.string.config_summary_stt_on))
+                        if (profile.ttsEnabled) add(stringResource(R.string.config_summary_tts_on))
+                        if (profile.realWorldTimeAwarenessEnabled) add(stringResource(R.string.config_summary_time_on))
                     }.joinToString(" | "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
@@ -217,20 +207,6 @@ private fun ConfigProfileCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            AssistChip(
-                onClick = onSelect,
-                label = { Text(if (selected) "已选择" else "选择") },
-                leadingIcon = if (selected) {
-                    { Icon(Icons.Outlined.Check, contentDescription = null) }
-                } else {
-                    null
-                },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = if (selected) MonochromeUi.chipSelectedBackground else MonochromeUi.chipBackground,
-                    labelColor = if (selected) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
-                    leadingIconContentColor = MonochromeUi.textPrimary,
-                ),
-            )
         }
     }
 }
@@ -244,6 +220,7 @@ private fun ConfigProfileEditorDialog(
     onDelete: () -> Unit,
     onSave: (ConfigProfile) -> Unit,
 ) {
+    val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     var name by remember(initialProfile.id) { mutableStateOf(initialProfile.name) }
     var defaultChatProviderId by remember(initialProfile.id) { mutableStateOf(initialProfile.defaultChatProviderId) }
     var defaultVisionProviderId by remember(initialProfile.id) { mutableStateOf(initialProfile.defaultVisionProviderId) }
@@ -263,7 +240,7 @@ private fun ConfigProfileEditorDialog(
                 onClick = {
                     onSave(
                         initialProfile.copy(
-                            name = name.trim().ifBlank { initialProfile.name.ifBlank { "Unnamed Config" } },
+                            name = name.trim().ifBlank { initialProfile.name.ifBlank { unnamedConfigLabel } },
                             defaultChatProviderId = defaultChatProviderId,
                             defaultVisionProviderId = defaultVisionProviderId,
                             sttEnabled = sttEnabled,
@@ -274,7 +251,7 @@ private fun ConfigProfileEditorDialog(
                     )
                 },
             ) {
-                Text("保存")
+                Text(stringResource(R.string.common_save))
             }
         },
         dismissButton = {
@@ -284,18 +261,18 @@ private fun ConfigProfileEditorDialog(
                         onClick = onDelete,
                         colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
                     ) {
-                        Text("删除")
+                        Text(stringResource(R.string.common_delete))
                     }
                 }
                 TextButton(
                     onClick = onDismiss,
                     colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         },
-        title = { Text("配置文件") },
+        title = { Text(stringResource(R.string.config_title)) },
         text = {
             Column(
                 modifier = Modifier
@@ -307,44 +284,44 @@ private fun ConfigProfileEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("配置名称") },
+                    label = { Text(stringResource(R.string.config_name)) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = monochromeOutlinedTextFieldColors(),
                 )
                 SelectionField(
-                    title = "默认对话模型",
+                    title = stringResource(R.string.config_default_chat_model),
                     options = chatModelOptions,
                     selectedId = defaultChatProviderId,
                     onSelect = { defaultChatProviderId = it },
                 )
                 SelectionField(
-                    title = "默认图片转述模型",
+                    title = stringResource(R.string.config_default_caption_model),
                     options = visionModelOptions,
                     selectedId = defaultVisionProviderId,
                     onSelect = { defaultVisionProviderId = it },
                 )
                 ConfigSwitch(
-                    title = "启用语音转文本",
-                    subtitle = "占位开关，后续接入 STT 模型配置后生效。",
+                    title = stringResource(R.string.config_enable_stt),
+                    subtitle = stringResource(R.string.config_enable_stt_desc),
                     checked = sttEnabled,
                     onCheckedChange = { sttEnabled = it },
                 )
                 ConfigSwitch(
-                    title = "启用文本转语音",
-                    subtitle = "占位开关，后续接入 TTS 模型配置后生效。",
+                    title = stringResource(R.string.config_enable_tts),
+                    subtitle = stringResource(R.string.config_enable_tts_desc),
                     checked = ttsEnabled,
                     onCheckedChange = { ttsEnabled = it },
                 )
                 ConfigSwitch(
-                    title = "现实世界时间感知",
-                    subtitle = "开启后会将当前本地时间附加到 system prompt。",
+                    title = stringResource(R.string.config_time_awareness),
+                    subtitle = stringResource(R.string.config_time_awareness_desc),
                     checked = realWorldTimeAwarenessEnabled,
                     onCheckedChange = { realWorldTimeAwarenessEnabled = it },
                 )
                 OutlinedTextField(
                     value = imageCaptionPrompt,
                     onValueChange = { imageCaptionPrompt = it },
-                    label = { Text("图片转述提示词") },
+                    label = { Text(stringResource(R.string.config_caption_prompt)) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 4,
                     maxLines = 8,

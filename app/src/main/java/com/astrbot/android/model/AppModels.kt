@@ -1,17 +1,35 @@
-package com.astrbot.android.model
+﻿package com.astrbot.android.model
 
 enum class ProviderCapability {
     CHAT,
+    STT,
     TTS,
-    ASR,
+    AGENT_EXECUTOR,
 }
 
 enum class ProviderType {
     OPENAI_COMPATIBLE,
     DEEPSEEK,
     GEMINI,
+    OLLAMA,
+    QWEN,
+    ZHIPU,
+    XAI,
+    WHISPER_API,
+    XINFERENCE_STT,
+    OPENAI_TTS,
+    BAILIAN_TTS,
+    MINIMAX_TTS,
+    DIFY,
+    BAILIAN_APP,
     ANTHROPIC,
     CUSTOM,
+}
+
+enum class FeatureSupportState {
+    UNKNOWN,
+    SUPPORTED,
+    UNSUPPORTED,
 }
 
 data class ProviderProfile(
@@ -23,6 +41,8 @@ data class ProviderProfile(
     val apiKey: String,
     val capabilities: Set<ProviderCapability>,
     val enabled: Boolean = true,
+    val multimodalRuleSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+    val multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
 )
 
 data class PersonaProfile(
