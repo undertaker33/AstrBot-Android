@@ -1,6 +1,8 @@
 package com.astrbot.android.ui.screen
 
 import android.graphics.Bitmap
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,6 +48,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
@@ -72,8 +77,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.AppLanguage
 import com.astrbot.android.data.AppPreferencesRepository
+import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.ThemeMode
+import com.astrbot.android.data.TtsVoiceAssetRepository
+import com.astrbot.android.data.VoiceCloneService
 import com.astrbot.android.model.RuntimeAssetEntryState
+import com.astrbot.android.model.RuntimeAssetId
+import com.astrbot.android.model.ProviderType
 import com.astrbot.android.ui.AppUiTransitionState
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
@@ -516,9 +527,27 @@ fun AssetDetailScreen(
     assetViewModel: RuntimeAssetViewModel = viewModel(),
 ) {
     val assetState by assetViewModel.state.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val providerOptions by ProviderRepository.providers.collectAsState()
+    val voiceAssets by TtsVoiceAssetRepository.assets.collectAsState()
     val resolvedAsset = assetState.assets.firstOrNull { it.catalog.id.value == assetId }
         ?: assetState.assets.firstOrNull()
         ?: return
+    val ttsAssetState = remember(assetState.assets, assetId) {
+        if (resolvedAsset.catalog.id == RuntimeAssetId.ON_DEVICE_TTS) {
+            RuntimeAssetRepository.ttsAssetState(context)
+        } else {
+            null
+        }
+    }
+    val cloneProviders = providerOptions.filter { it.providerType == ProviderType.BAILIAN_TTS || it.providerType == ProviderType.MINIMAX_TTS }
+    var referenceName by remember { mutableStateOf("") }
+    var referenceLocalPath by remember { mutableStateOf("") }
+    var referenceRemoteUrl by remember { mutableStateOf("") }
+    var selectedReferenceAssetId by remember(voiceAssets) { mutableStateOf(voiceAssets.firstOrNull()?.id.orEmpty()) }
+    var selectedCloneProviderId by remember(cloneProviders) { mutableStateOf(cloneProviders.firstOrNull()?.id.orEmpty()) }
+    var cloneDisplayName by remember { mutableStateOf("") }
 
     SubPageScaffold(
         title = stringResource(resolvedAsset.catalog.titleRes),
@@ -582,53 +611,346 @@ fun AssetDetailScreen(
                     }
                 }
             }
-            item {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MonochromeUi.cardBackground,
-                    tonalElevation = 2.dp,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+            if (resolvedAsset.catalog.id == RuntimeAssetId.TTS_VOICE_ASSETS) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MonochromeUi.cardBackground,
+                        tonalElevation = 2.dp,
                     ) {
-                        Text(
-                            text = stringResource(R.string.asset_actions_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = stringResource(R.string.asset_manual_only_desc),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                        )
-                        Text(
-                            text = stringResource(R.string.asset_auto_detect_desc),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            Text(
+                                text = "Import Reference Audio",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            OutlinedTextField(
+                                value = referenceName,
+                                onValueChange = { referenceName = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Name") },
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                            OutlinedTextField(
+                                value = referenceLocalPath,
+                                onValueChange = { referenceLocalPath = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Local path (optional)") },
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                            OutlinedTextField(
+                                value = referenceRemoteUrl,
+                                onValueChange = { referenceRemoteUrl = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Remote URL (optional)") },
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
                             Button(
-                                onClick = { assetViewModel.downloadAsset(resolvedAsset.catalog.id.value) },
-                                modifier = Modifier.weight(1f),
-                                enabled = !resolvedAsset.busy,
+                                onClick = {
+                                    val asset = TtsVoiceAssetRepository.upsertReferenceAsset(
+                                        name = referenceName,
+                                        localPath = referenceLocalPath,
+                                        remoteUrl = referenceRemoteUrl,
+                                        source = if (referenceLocalPath.isNotBlank()) "local" else "remote",
+                                    )
+                                    selectedReferenceAssetId = asset.id
+                                    referenceName = ""
+                                    referenceLocalPath = ""
+                                    referenceRemoteUrl = ""
+                                },
+                                enabled = referenceName.isNotBlank() && (referenceLocalPath.isNotBlank() || referenceRemoteUrl.isNotBlank()),
                                 colors = monochromeButtonColors(),
                             ) {
-                                Text(stringResource(R.string.asset_download_action))
-                            }
-                            OutlinedButton(
-                                onClick = { assetViewModel.clearAsset(resolvedAsset.catalog.id.value) },
-                                modifier = Modifier.weight(1f),
-                                enabled = !resolvedAsset.busy,
-                            ) {
-                                Text(stringResource(R.string.asset_clear_action))
+                                Text("Save Reference Audio")
                             }
                         }
                     }
                 }
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MonochromeUi.cardBackground,
+                        tonalElevation = 2.dp,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = "Clone Voice",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            SelectionField(
+                                title = "Reference Audio",
+                                options = voiceAssets.map { it.id to it.name },
+                                selectedId = selectedReferenceAssetId,
+                                onSelect = { selectedReferenceAssetId = it },
+                            )
+                            SelectionField(
+                                title = "Provider Model",
+                                options = cloneProviders.map { it.id to "${it.name} (${it.model})" },
+                                selectedId = selectedCloneProviderId,
+                                onSelect = { selectedCloneProviderId = it },
+                            )
+                            OutlinedTextField(
+                                value = cloneDisplayName,
+                                onValueChange = { cloneDisplayName = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Cloned voice name") },
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                            Button(
+                                onClick = {
+                                    val asset = voiceAssets.firstOrNull { it.id == selectedReferenceAssetId }
+                                    val provider = cloneProviders.firstOrNull { it.id == selectedCloneProviderId }
+                                    if (asset == null || provider == null) {
+                                        Toast.makeText(context, "Select a reference audio and a provider model first.", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        scope.launch {
+                                            runCatching {
+                                                VoiceCloneService.cloneVoice(
+                                                    provider = provider,
+                                                    asset = asset,
+                                                    displayName = cloneDisplayName.ifBlank { asset.name },
+                                                )
+                                            }.onSuccess { voiceId ->
+                                                TtsVoiceAssetRepository.saveProviderBinding(
+                                                    assetId = asset.id,
+                                                    providerId = provider.id,
+                                                    providerType = provider.providerType,
+                                                    model = provider.model,
+                                                    voiceId = voiceId,
+                                                    displayName = cloneDisplayName.ifBlank { asset.name },
+                                                )
+                                                Toast.makeText(context, "Voice cloned successfully.", Toast.LENGTH_LONG).show()
+                                            }.onFailure { error ->
+                                                Toast.makeText(
+                                                    context,
+                                                    error.message ?: error.javaClass.simpleName,
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = voiceAssets.isNotEmpty() && cloneProviders.isNotEmpty() && cloneDisplayName.isNotBlank(),
+                                colors = monochromeButtonColors(),
+                            ) {
+                                Text("Start Voice Clone")
+                            }
+                            if (cloneProviders.isEmpty()) {
+                                Text(
+                                    text = "Add a Qwen or MiniMax TTS model first, then return here to clone voices.",
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
+                            }
+                        }
+                    }
+                }
+                items(items = voiceAssets, key = { asset -> asset.id }) { asset ->
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MonochromeUi.cardBackground,
+                        tonalElevation = 2.dp,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(asset.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            asset.localPath.takeIf { it.isNotBlank() }?.let {
+                                Text("Local: $it", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
+                            }
+                            asset.remoteUrl.takeIf { it.isNotBlank() }?.let {
+                                Text("Remote: $it", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
+                            }
+                            if (asset.providerBindings.isEmpty()) {
+                                Text("No cloned voices yet.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
+                            } else {
+                                asset.providerBindings.forEach { binding ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(binding.displayName, fontWeight = FontWeight.Medium)
+                                            Text(
+                                                "${binding.providerType.name} / ${binding.model} / ${binding.voiceId}",
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                            )
+                                        }
+                                        TextButton(onClick = { TtsVoiceAssetRepository.deleteBinding(asset.id, binding.id) }) {
+                                            Text("Delete")
+                                        }
+                                    }
+                                }
+                            }
+                            OutlinedButton(onClick = { TtsVoiceAssetRepository.deleteReferenceAsset(asset.id) }) {
+                                Text("Remove Reference Audio")
+                            }
+                        }
+                    }
+                }
+            }
+            if (resolvedAsset.catalog.id == RuntimeAssetId.ON_DEVICE_TTS && ttsAssetState != null) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MonochromeUi.cardBackground,
+                        tonalElevation = 2.dp,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.asset_actions_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = stringResource(R.string.asset_manual_only_desc),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            )
+                            TtsModelAssetSection(
+                                title = "kokoro",
+                                description = ttsAssetState.kokoro.details,
+                                installed = ttsAssetState.kokoro.installed,
+                                enabled = !resolvedAsset.busy && ttsAssetState.framework.installed,
+                                onDownload = { assetViewModel.downloadOnDeviceTtsModel("kokoro") },
+                                onClear = { assetViewModel.clearOnDeviceTtsModel("kokoro") },
+                            )
+                            TtsModelAssetSection(
+                                title = "matcha",
+                                description = ttsAssetState.matcha.details,
+                                installed = ttsAssetState.matcha.installed,
+                                enabled = !resolvedAsset.busy && ttsAssetState.framework.installed,
+                                onDownload = { assetViewModel.downloadOnDeviceTtsModel("matcha") },
+                                onClear = { assetViewModel.clearOnDeviceTtsModel("matcha") },
+                            )
+                            if (!ttsAssetState.framework.installed) {
+                                Text(
+                                    text = stringResource(R.string.asset_framework_required_hint),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (resolvedAsset.catalog.id != RuntimeAssetId.TTS_VOICE_ASSETS) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MonochromeUi.cardBackground,
+                        tonalElevation = 2.dp,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.asset_actions_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = stringResource(R.string.asset_manual_only_desc),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            )
+                            Text(
+                                text = stringResource(R.string.asset_auto_detect_desc),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            )
+                            if (!resolvedAsset.catalog.actionsEnabled) {
+                                Text(
+                                    text = stringResource(R.string.asset_actions_coming_next_step),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Button(
+                                    onClick = { assetViewModel.downloadAsset(resolvedAsset.catalog.id.value) },
+                                    modifier = Modifier.weight(1f),
+                                    enabled = !resolvedAsset.busy && resolvedAsset.catalog.actionsEnabled && !resolvedAsset.installed,
+                                    colors = monochromeButtonColors(),
+                                ) {
+                                    Text(stringResource(R.string.asset_download_action))
+                                }
+                                OutlinedButton(
+                                    onClick = { assetViewModel.clearAsset(resolvedAsset.catalog.id.value) },
+                                    modifier = Modifier.weight(1f),
+                                    enabled = !resolvedAsset.busy && resolvedAsset.catalog.actionsEnabled && resolvedAsset.installed,
+                                    border = BorderStroke(1.dp, monochromeClearButtonBorderColor()),
+                                    colors = monochromeClearButtonColors(),
+                                ) {
+                                    Text(stringResource(R.string.asset_clear_action))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TtsModelAssetSection(
+    title: String,
+    description: String,
+    installed: Boolean,
+    enabled: Boolean,
+    onDownload: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = description,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+        )
+        Text(
+            text = if (installed) stringResource(R.string.asset_status_ready) else stringResource(R.string.asset_status_not_ready),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Button(
+                onClick = onDownload,
+                modifier = Modifier.weight(1f),
+                enabled = enabled && !installed,
+                colors = monochromeButtonColors(),
+            ) {
+                Text(stringResource(R.string.asset_download_action))
+            }
+            OutlinedButton(
+                onClick = onClear,
+                modifier = Modifier.weight(1f),
+                enabled = enabled && installed,
+                border = BorderStroke(1.dp, monochromeClearButtonBorderColor()),
+                colors = monochromeClearButtonColors(),
+            ) {
+                Text(stringResource(R.string.asset_clear_action))
             }
         }
     }
@@ -846,6 +1168,17 @@ private fun monochromeButtonColors() = ButtonDefaults.buttonColors(
     disabledContainerColor = MonochromeUi.border,
     disabledContentColor = MonochromeUi.textSecondary,
 )
+
+@Composable
+private fun monochromeClearButtonColors() = ButtonDefaults.outlinedButtonColors(
+    contentColor = if (MonochromeUi.isDarkTheme) Color(0xFFE8EDF7) else MonochromeUi.textPrimary,
+    disabledContentColor = if (MonochromeUi.isDarkTheme) Color(0xFF5F6876) else MonochromeUi.textSecondary,
+)
+
+@Composable
+private fun monochromeClearButtonBorderColor(): Color {
+    return if (MonochromeUi.isDarkTheme) Color(0xFF546074) else MonochromeUi.border
+}
 
 @Composable
 private fun CaptchaCard(

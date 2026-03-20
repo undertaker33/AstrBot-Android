@@ -22,12 +22,38 @@ object RuntimeAssetRepository {
             subtitleRes = R.string.asset_tts_list_subtitle,
             descriptionRes = R.string.asset_tts_desc,
         ),
+        RuntimeAssetCatalogItem(
+            id = RuntimeAssetId.ON_DEVICE_FRAMEWORK,
+            titleRes = R.string.asset_on_device_framework_title,
+            subtitleRes = R.string.asset_on_device_framework_list_subtitle,
+            descriptionRes = R.string.asset_on_device_framework_desc,
+        ),
+        RuntimeAssetCatalogItem(
+            id = RuntimeAssetId.ON_DEVICE_STT,
+            titleRes = R.string.asset_on_device_stt_title,
+            subtitleRes = R.string.asset_on_device_stt_list_subtitle,
+            descriptionRes = R.string.asset_on_device_stt_desc,
+        ),
+        RuntimeAssetCatalogItem(
+            id = RuntimeAssetId.ON_DEVICE_TTS,
+            titleRes = R.string.asset_on_device_tts_title,
+            subtitleRes = R.string.asset_on_device_tts_list_subtitle,
+            descriptionRes = R.string.asset_on_device_tts_desc,
+        ),
+        RuntimeAssetCatalogItem(
+            id = RuntimeAssetId.TTS_VOICE_ASSETS,
+            titleRes = R.string.asset_tts_voice_assets_title,
+            subtitleRes = R.string.asset_tts_voice_assets_list_subtitle,
+            descriptionRes = R.string.asset_tts_voice_assets_desc,
+            actionsEnabled = false,
+        ),
     )
 
     private val _state = MutableStateFlow(RuntimeAssetState(assets = assetCatalog.map(::buildInitialEntry)))
     val state: StateFlow<RuntimeAssetState> = _state.asStateFlow()
 
     fun initialize(context: Context) {
+        appContext = context.applicationContext
         refresh(context.applicationContext)
     }
 
@@ -40,6 +66,11 @@ object RuntimeAssetRepository {
         val id = RuntimeAssetId.fromValue(assetId) ?: return
         when (id) {
             RuntimeAssetId.TTS -> downloadTtsAssets(context.applicationContext)
+            RuntimeAssetId.ON_DEVICE_FRAMEWORK -> downloadOnDeviceFramework(context.applicationContext)
+            RuntimeAssetId.ON_DEVICE_STT -> downloadOnDeviceStt(context.applicationContext)
+            RuntimeAssetId.ON_DEVICE_TTS,
+            RuntimeAssetId.TTS_VOICE_ASSETS,
+            -> Unit
         }
     }
 
@@ -47,7 +78,33 @@ object RuntimeAssetRepository {
         val id = RuntimeAssetId.fromValue(assetId) ?: return
         when (id) {
             RuntimeAssetId.TTS -> clearTtsAssets(context.applicationContext)
+            RuntimeAssetId.ON_DEVICE_FRAMEWORK -> clearOnDeviceFramework(context.applicationContext)
+            RuntimeAssetId.ON_DEVICE_STT -> clearOnDeviceStt(context.applicationContext)
+            RuntimeAssetId.ON_DEVICE_TTS,
+            RuntimeAssetId.TTS_VOICE_ASSETS,
+            -> Unit
         }
+    }
+
+    suspend fun downloadOnDeviceTtsModel(context: Context, modelId: String) {
+        val appContext = context.applicationContext
+        val normalized = modelId.trim().lowercase()
+        when (normalized) {
+            "kokoro" -> downloadKokoroAssets(appContext)
+            "matcha" -> downloadMatchaAssets(appContext)
+        }
+    }
+
+    suspend fun clearOnDeviceTtsModel(context: Context, modelId: String) {
+        val appContext = context.applicationContext
+        when (modelId.trim().lowercase()) {
+            "kokoro" -> clearKokoroAssets(appContext)
+            "matcha" -> clearMatchaAssets(appContext)
+        }
+    }
+
+    fun ttsAssetState(context: Context): SherpaOnnxAssetManager.TtsAssetState {
+        return SherpaOnnxAssetManager.ttsState(context.applicationContext)
     }
 
     fun refresh(context: Context) {
@@ -150,6 +207,178 @@ object RuntimeAssetRepository {
         }
     }
 
+    private suspend fun downloadOnDeviceFramework(context: Context) {
+        updateAsset(
+            RuntimeAssetId.ON_DEVICE_FRAMEWORK,
+            installed = false,
+            busy = true,
+            lastAction = "Downloading",
+            details = "Activating the bundled Sherpa ONNX Android runtime.",
+        )
+        try {
+            SherpaOnnxAssetManager.ensureFrameworkActivated(context)
+            refresh(context)
+            updateAsset(RuntimeAssetId.ON_DEVICE_FRAMEWORK, lastAction = "Downloaded")
+        } catch (error: Exception) {
+            updateAsset(
+                RuntimeAssetId.ON_DEVICE_FRAMEWORK,
+                busy = false,
+                lastAction = "Download failed",
+                details = error.message ?: error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private suspend fun clearOnDeviceFramework(context: Context) {
+        updateAsset(
+            RuntimeAssetId.ON_DEVICE_FRAMEWORK,
+            installed = true,
+            busy = true,
+            lastAction = "Clearing",
+            details = "Removing the Sherpa ONNX activation marker and local model assets.",
+        )
+        try {
+            SherpaOnnxAssetManager.clearFramework(context)
+            refresh(context)
+            updateAsset(RuntimeAssetId.ON_DEVICE_FRAMEWORK, lastAction = "Cleared")
+        } catch (error: Exception) {
+            updateAsset(
+                RuntimeAssetId.ON_DEVICE_FRAMEWORK,
+                busy = false,
+                lastAction = "Clear failed",
+                details = error.message ?: error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private suspend fun downloadOnDeviceStt(context: Context) {
+        updateAsset(
+            RuntimeAssetId.ON_DEVICE_STT,
+            installed = false,
+            busy = true,
+            lastAction = "Downloading",
+            details = "Downloading Sherpa ONNX STT assets.",
+        )
+        try {
+            SherpaOnnxAssetManager.downloadSttAssets(context)
+            refresh(context)
+            updateAsset(RuntimeAssetId.ON_DEVICE_STT, lastAction = "Downloaded")
+        } catch (error: Exception) {
+            updateAsset(
+                RuntimeAssetId.ON_DEVICE_STT,
+                busy = false,
+                lastAction = "Download failed",
+                details = error.message ?: error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private suspend fun clearOnDeviceStt(context: Context) {
+        updateAsset(
+            RuntimeAssetId.ON_DEVICE_STT,
+            installed = true,
+            busy = true,
+            lastAction = "Clearing",
+            details = "Removing Sherpa ONNX STT assets.",
+        )
+        try {
+            SherpaOnnxAssetManager.clearSttAssets(context)
+            refresh(context)
+            updateAsset(RuntimeAssetId.ON_DEVICE_STT, lastAction = "Cleared")
+        } catch (error: Exception) {
+            updateAsset(
+                RuntimeAssetId.ON_DEVICE_STT,
+                busy = false,
+                lastAction = "Clear failed",
+                details = error.message ?: error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private suspend fun downloadKokoroAssets(context: Context) {
+        updateAsset(
+            RuntimeAssetId.ON_DEVICE_TTS,
+            busy = true,
+            lastAction = "Downloading kokoro",
+            details = "Downloading kokoro local TTS assets.",
+        )
+        try {
+            SherpaOnnxAssetManager.downloadKokoroAssets(context)
+            refresh(context)
+            updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Downloaded kokoro")
+        } catch (error: Exception) {
+            updateAsset(
+                RuntimeAssetId.ON_DEVICE_TTS,
+                busy = false,
+                lastAction = "Download failed",
+                details = error.message ?: error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private suspend fun clearKokoroAssets(context: Context) {
+        updateAsset(
+            RuntimeAssetId.ON_DEVICE_TTS,
+            busy = true,
+            lastAction = "Clearing kokoro",
+            details = "Removing kokoro local TTS assets.",
+        )
+        try {
+            SherpaOnnxAssetManager.clearKokoroAssets(context)
+            refresh(context)
+            updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Cleared kokoro")
+        } catch (error: Exception) {
+            updateAsset(
+                RuntimeAssetId.ON_DEVICE_TTS,
+                busy = false,
+                lastAction = "Clear failed",
+                details = error.message ?: error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private suspend fun downloadMatchaAssets(context: Context) {
+        updateAsset(
+            RuntimeAssetId.ON_DEVICE_TTS,
+            busy = true,
+            lastAction = "Downloading matcha",
+            details = "Downloading matcha local TTS assets.",
+        )
+        try {
+            SherpaOnnxAssetManager.downloadMatchaAssets(context)
+            refresh(context)
+            updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Downloaded matcha")
+        } catch (error: Exception) {
+            updateAsset(
+                RuntimeAssetId.ON_DEVICE_TTS,
+                busy = false,
+                lastAction = "Download failed",
+                details = error.message ?: error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private suspend fun clearMatchaAssets(context: Context) {
+        updateAsset(
+            RuntimeAssetId.ON_DEVICE_TTS,
+            busy = true,
+            lastAction = "Clearing matcha",
+            details = "Removing matcha local TTS assets.",
+        )
+        try {
+            SherpaOnnxAssetManager.clearMatchaAssets(context)
+            refresh(context)
+            updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Cleared matcha")
+        } catch (error: Exception) {
+            updateAsset(
+                RuntimeAssetId.ON_DEVICE_TTS,
+                busy = false,
+                lastAction = "Clear failed",
+                details = error.message ?: error.javaClass.simpleName,
+            )
+        }
+    }
+
     private fun refresh(
         context: Context,
         detailsOverrides: Map<RuntimeAssetId, String>,
@@ -163,7 +392,7 @@ object RuntimeAssetRepository {
                 installed = installed,
                 busy = false,
                 lastAction = oldEntry?.lastAction.orEmpty(),
-                details = detailsOverrides[catalog.id] ?: defaultDetails(catalog.id, installed),
+                details = detailsOverrides[catalog.id] ?: defaultDetails(context, catalog.id, installed),
             )
         }
         _state.value = RuntimeAssetState(assets = refreshed)
@@ -171,19 +400,39 @@ object RuntimeAssetRepository {
 
     private fun isInstalled(context: Context, assetId: RuntimeAssetId): Boolean = when (assetId) {
         RuntimeAssetId.TTS -> ttsMarkerFile(context).exists()
+        RuntimeAssetId.ON_DEVICE_FRAMEWORK -> SherpaOnnxAssetManager.frameworkState(context).installed
+        RuntimeAssetId.ON_DEVICE_STT -> SherpaOnnxAssetManager.sttState(context).installed
+        RuntimeAssetId.ON_DEVICE_TTS -> SherpaOnnxAssetManager.ttsState(context).let { it.kokoro.installed || it.matcha.installed }
+        RuntimeAssetId.TTS_VOICE_ASSETS,
+        -> false
     }
 
-    private fun defaultDetails(assetId: RuntimeAssetId, installed: Boolean): String = when (assetId) {
+    private fun defaultDetails(
+        context: Context?,
+        assetId: RuntimeAssetId,
+        installed: Boolean,
+    ): String = when (assetId) {
         RuntimeAssetId.TTS -> if (installed) {
             "TTS conversion assets are ready."
         } else {
             "TTS conversion assets are not downloaded."
         }
+        RuntimeAssetId.ON_DEVICE_FRAMEWORK -> context?.let {
+            SherpaOnnxAssetManager.frameworkState(it).details
+        } ?: "Activate the bundled Sherpa ONNX Android runtime before downloading local STT or TTS model assets."
+        RuntimeAssetId.ON_DEVICE_STT -> context?.let {
+            SherpaOnnxAssetManager.sttState(it).details
+        } ?: "Offline Paraformer STT assets are not downloaded."
+        RuntimeAssetId.ON_DEVICE_TTS -> context?.let {
+            val state = SherpaOnnxAssetManager.ttsState(it)
+            "Framework: ${state.framework.details} Kokoro: ${state.kokoro.details} Matcha: ${state.matcha.details}"
+        } ?: "Framework, kokoro, and matcha asset status will appear after initialization."
+        RuntimeAssetId.TTS_VOICE_ASSETS -> "Cloud TTS voice asset entry is ready. Reference audio import and clone management will be connected in this iteration."
     }
 
     private fun buildInitialEntry(catalog: RuntimeAssetCatalogItem): RuntimeAssetEntryState = RuntimeAssetEntryState(
         catalog = catalog,
-        details = defaultDetails(catalog.id, installed = false),
+        details = defaultDetails(appContext, catalog.id, installed = false),
     )
 
     private fun updateAsset(
@@ -227,4 +476,7 @@ object RuntimeAssetRepository {
         if (summary.isBlank()) return null
         return "TTS conversion assets downloaded. $summary"
     }
+
+    private var appContext: Context? = null
+
 }

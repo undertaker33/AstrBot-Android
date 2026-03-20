@@ -270,7 +270,14 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                         onBack = { navController.popBackStack() },
                     )
                 }
-                composable(AppDestination.Models.route) { ProviderScreen(onBack = { navController.popBackStack() }) }
+                composable(AppDestination.Models.route) {
+                    ProviderScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenOnDeviceTtsAssets = {
+                            navController.navigate(AppDestination.AssetDetail.routeFor(com.astrbot.android.model.RuntimeAssetId.ON_DEVICE_TTS.value))
+                        },
+                    )
+                }
                 composable(AppDestination.Runtime.route) { SettingsScreen(onBack = { navController.popBackStack() }) }
             }
         }

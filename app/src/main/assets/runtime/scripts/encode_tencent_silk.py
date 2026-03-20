@@ -6,6 +6,8 @@ import sys
 import tempfile
 import wave
 
+SUPPORTED_PCM_RATES = {8000, 12000, 16000, 24000, 32000, 44100, 48000}
+
 
 def convert_to_pcm_wav(input_path: str) -> str:
     fd, wav_path = tempfile.mkstemp(prefix="astrbot_tts_", suffix=".wav")
@@ -37,8 +39,11 @@ def ensure_pcm_wav(input_path: str) -> tuple[str, bool]:
     if input_path.lower().endswith(".wav"):
         try:
             with wave.open(input_path, "rb") as wav_file:
-                wav_file.getframerate()
-            return input_path, False
+                rate = wav_file.getframerate()
+                channels = wav_file.getnchannels()
+                sample_width = wav_file.getsampwidth()
+            if rate in SUPPORTED_PCM_RATES and channels == 1 and sample_width == 2:
+                return input_path, False
         except wave.Error:
             pass
 

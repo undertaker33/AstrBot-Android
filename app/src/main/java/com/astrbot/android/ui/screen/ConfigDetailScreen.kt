@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.TtsVoiceCatalog
+import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
@@ -76,6 +77,7 @@ fun ConfigDetailScreen(
 ) {
     val profiles by configViewModel.configProfiles.collectAsState()
     val providers by configViewModel.providers.collectAsState()
+    val ttsVoiceAssets by configViewModel.ttsVoiceAssets.collectAsState()
     val profile = profiles.firstOrNull { it.id == profileId }
     val context = LocalContext.current
 
@@ -215,6 +217,7 @@ fun ConfigDetailScreen(
                 ttsModelOptions = ttsProviderOptions,
                 captionModelOptions = captionProviderOptions,
                 providers = providers,
+                ttsVoiceAssets = ttsVoiceAssets,
                 listState = listState,
                 modifier = Modifier.padding(innerPadding),
                 onSave = { updated ->
@@ -235,6 +238,7 @@ private fun ConfigDetailContent(
     ttsModelOptions: List<Pair<String, String>>,
     captionModelOptions: List<Pair<String, String>>,
     providers: List<ProviderProfile>,
+    ttsVoiceAssets: List<com.astrbot.android.model.TtsVoiceReferenceAsset>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     onSave: (ConfigProfile) -> Unit,
@@ -260,8 +264,20 @@ private fun ConfigDetailContent(
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     val defaultChatProvider = providers.firstOrNull { it.id == defaultChatProviderId }
     val defaultTtsProvider = providers.firstOrNull { it.id == defaultTtsProviderId }
-    val ttsVoiceOptions = remember(defaultTtsProvider?.id, defaultTtsProvider?.model) {
-        TtsVoiceCatalog.optionsFor(defaultTtsProvider)
+    val sttModelReady = defaultSttProviderId.isNotBlank()
+    val ttsModelReady = defaultTtsProviderId.isNotBlank()
+    val ttsVoiceOptions = remember(defaultTtsProvider?.id, defaultTtsProvider?.model, ttsVoiceAssets) {
+        val providerOptions = TtsVoiceCatalog.optionsFor(defaultTtsProvider)
+        val clonedOptions = TtsVoiceAssetRepository.listVoiceChoicesFor(defaultTtsProvider)
+        buildList {
+            addAll(providerOptions)
+            val existingIds = providerOptions.map { entry -> entry.first }.toMutableSet()
+            clonedOptions.forEach { option ->
+                if (existingIds.add(option.first)) {
+                    add(option)
+                }
+            }
+        }
     }
     var selectedTtsVoiceChoice by remember(profile.id) {
         mutableStateOf(TtsVoiceCatalog.resolveSelectedVoiceChoice(defaultTtsProvider, ttsVoiceId))
@@ -402,24 +418,38 @@ private fun ConfigDetailContent(
                                 title = stringResource(R.string.config_enable_stt),
                                 subtitle = stringResource(R.string.config_enable_stt_desc),
                                 checked = sttEnabled,
+                                enabled = sttModelReady,
                                 onCheckedChange = { sttEnabled = it },
                             )
+                            if (!sttModelReady) {
+                                InlineConfigNotice(
+                                    text = stringResource(R.string.config_stt_model_required_notice),
+                                )
+                            }
                             ConfigToggleRow(
                                 title = stringResource(R.string.config_enable_tts),
                                 subtitle = stringResource(R.string.config_enable_tts_desc),
                                 checked = ttsEnabled,
+                                enabled = ttsModelReady,
                                 onCheckedChange = { ttsEnabled = it },
                             )
+                            if (!ttsModelReady) {
+                                InlineConfigNotice(
+                                    text = stringResource(R.string.config_tts_model_required_notice),
+                                )
+                            }
                             ConfigToggleRow(
                                 title = stringResource(R.string.config_always_tts_title),
                                 subtitle = stringResource(R.string.config_always_tts_desc),
                                 checked = alwaysTtsEnabled,
+                                enabled = ttsModelReady,
                                 onCheckedChange = { alwaysTtsEnabled = it },
                             )
                             ConfigToggleRow(
                                 title = stringResource(R.string.config_tts_read_brackets_title),
                                 subtitle = stringResource(R.string.config_tts_read_brackets_desc),
                                 checked = ttsReadBracketedContent,
+                                enabled = ttsModelReady,
                                 onCheckedChange = { ttsReadBracketedContent = it },
                             )
                         }
@@ -524,10 +554,10 @@ private fun ConfigDetailContent(
                         defaultVisionProviderId = defaultVisionProviderId,
                         defaultSttProviderId = defaultSttProviderId,
                         defaultTtsProviderId = defaultTtsProviderId,
-                        sttEnabled = sttEnabled,
-                        ttsEnabled = ttsEnabled,
-                        alwaysTtsEnabled = alwaysTtsEnabled,
-                        ttsReadBracketedContent = ttsReadBracketedContent,
+                        sttEnabled = sttEnabled && sttModelReady,
+                        ttsEnabled = ttsEnabled && ttsModelReady,
+                        alwaysTtsEnabled = alwaysTtsEnabled && ttsModelReady,
+                        ttsReadBracketedContent = ttsReadBracketedContent && ttsModelReady,
                         textStreamingEnabled = textStreamingEnabled,
                         voiceStreamingEnabled = voiceStreamingEnabled,
                         streamingMessageIntervalMs = streamingMessageIntervalMs.toIntOrNull()?.coerceIn(0, 5000) ?: profile.streamingMessageIntervalMs,
@@ -648,6 +678,7 @@ private fun ConfigToggleRow(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
@@ -669,6 +700,7 @@ private fun ConfigToggleRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            enabled = enabled,
             colors = monochromeSwitchColors(),
         )
     }

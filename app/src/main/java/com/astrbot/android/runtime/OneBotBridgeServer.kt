@@ -502,7 +502,7 @@ object OneBotBridgeServer {
             attachments.forEach { attachment ->
                 when (attachment.type) {
                     "audio" -> {
-                        val fileValue = materializeAudioAttachmentForOneBot(attachment)
+            val fileValue = materializeAudioAttachmentForOneBot(attachment)
                             ?: attachment.remoteUrl
                         if (fileValue.isNotBlank()) {
                             put(
@@ -548,8 +548,10 @@ object OneBotBridgeServer {
             rawFile.writeBytes(Base64.getDecoder().decode(attachment.base64Data))
             RuntimeLogRepository.append("QQ TTS attachment materialized: ${rawFile.absolutePath}")
             val silkFile = TencentSilkEncoder.encode(rawFile)
+            val napCatBase64 = "base64://${Base64.getEncoder().encodeToString(silkFile.readBytes())}"
             RuntimeLogRepository.append("QQ TTS attachment converted to silk: ${silkFile.absolutePath}")
-            silkFile.absolutePath
+            RuntimeLogRepository.append("QQ TTS attachment mapped for OneBot: base64://${silkFile.name} bytes=${silkFile.length()}")
+            napCatBase64
         }.onFailure { error ->
             RuntimeLogRepository.append("QQ TTS attachment materialize failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrNull()

@@ -18,9 +18,11 @@ enum class ProviderType {
     WHISPER_API,
     XINFERENCE_STT,
     BAILIAN_STT,
+    SHERPA_ONNX_STT,
     OPENAI_TTS,
     BAILIAN_TTS,
     MINIMAX_TTS,
+    SHERPA_ONNX_TTS,
     DIFY,
     BAILIAN_APP,
     ANTHROPIC,
@@ -162,7 +164,11 @@ data class NapCatRuntimeState(
 )
 
 enum class RuntimeAssetId(val value: String) {
-    TTS("tts");
+    TTS("tts"),
+    ON_DEVICE_FRAMEWORK("on-device-framework"),
+    ON_DEVICE_STT("on-device-stt"),
+    ON_DEVICE_TTS("on-device-tts"),
+    TTS_VOICE_ASSETS("tts-voice-assets");
 
     companion object {
         fun fromValue(value: String): RuntimeAssetId? = entries.firstOrNull { it.value == value }
@@ -174,6 +180,7 @@ data class RuntimeAssetCatalogItem(
     val titleRes: Int,
     val subtitleRes: Int,
     val descriptionRes: Int,
+    val actionsEnabled: Boolean = true,
 )
 
 data class RuntimeAssetEntryState(
@@ -186,6 +193,30 @@ data class RuntimeAssetEntryState(
 
 data class RuntimeAssetState(
     val assets: List<RuntimeAssetEntryState> = emptyList(),
+)
+
+data class ClonedVoiceBinding(
+    val id: String,
+    val providerId: String,
+    val providerType: ProviderType,
+    val model: String,
+    val voiceId: String,
+    val displayName: String,
+    val createdAt: Long,
+    val lastVerifiedAt: Long = 0L,
+    val status: String = "ready",
+)
+
+data class TtsVoiceReferenceAsset(
+    val id: String,
+    val name: String,
+    val source: String = "",
+    val localPath: String = "",
+    val remoteUrl: String = "",
+    val durationMs: Long = 0L,
+    val sampleRateHz: Int = 0,
+    val providerBindings: List<ClonedVoiceBinding> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 data class SavedQqAccount(

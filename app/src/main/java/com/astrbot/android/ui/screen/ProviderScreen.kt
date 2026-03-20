@@ -1,5 +1,6 @@
 ﻿package com.astrbot.android.ui.screen
 
+import android.media.MediaPlayer
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -47,6 +48,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.TtsVoiceCatalog
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
@@ -76,6 +79,7 @@ import com.astrbot.android.model.displayLabel as providerTypeDisplayLabel
 import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.model.inferMultimodalRuleSupport
 import com.astrbot.android.model.isVisibleInCatalog
+import com.astrbot.android.model.isLocalOnDeviceProvider
 import com.astrbot.android.model.supportsMultimodalCheck
 import com.astrbot.android.model.supportsNativeStreamingCheck
 import com.astrbot.android.model.supportsPullModels
@@ -87,11 +91,14 @@ import com.astrbot.android.ui.viewmodel.ProviderViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.Base64
 
 @Composable
 fun ProviderScreen(
     providerViewModel: ProviderViewModel = viewModel(),
     onBack: (() -> Unit)? = null,
+    onOpenOnDeviceTtsAssets: (() -> Unit)? = null,
 ) {
     Box(
         modifier = Modifier
@@ -119,6 +126,7 @@ fun ProviderScreen(
             providerViewModel = providerViewModel,
             onSwitchToBots = {},
             showBack = false,
+            onOpenOnDeviceTtsAssets = onOpenOnDeviceTtsAssets,
         )
     }
 }
@@ -129,6 +137,7 @@ internal fun ProviderCatalogContent(
     onSwitchToBots: () -> Unit,
     showBack: Boolean,
     showHeader: Boolean = true,
+    onOpenOnDeviceTtsAssets: (() -> Unit)? = null,
 ) {
     val providers by providerViewModel.providers.collectAsState()
     val context = LocalContext.current
@@ -385,6 +394,7 @@ internal fun ProviderCatalogContent(
                 Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 editingProvider = null
             },
+            onOpenOnDeviceTtsAssets = onOpenOnDeviceTtsAssets,
         )
     }
 
@@ -570,7 +580,10 @@ private fun ProviderEditorDialog(
     onCheckStt: (ProviderProfile, (FeatureSupportState, String) -> Unit) -> Unit,
     onCheckTts: (ProviderProfile, (FeatureSupportState) -> Unit) -> Unit,
     onSave: (ProviderProfile) -> Unit,
+    onOpenOnDeviceTtsAssets: (() -> Unit)? = null,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showDeleteConfirm by remember(initialProvider.id) { mutableStateOf(false) }
     var name by remember(initialProvider.id) { mutableStateOf(initialProvider.name) }
     var baseUrl by remember(initialProvider.id) { mutableStateOf(initialProvider.baseUrl) }
@@ -586,6 +599,7 @@ private fun ProviderEditorDialog(
     var ttsProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.ttsProbeSupport) }
     var ttsVoiceOptionsText by remember(initialProvider.id) { mutableStateOf(initialProvider.ttsVoiceOptions.joinToString("\n")) }
     var sttProbePreview by remember(initialProvider.id) { mutableStateOf("") }
+    var isPreviewingVoice by remember(initialProvider.id) { mutableStateOf(false) }
     val initialProbeFingerprint = remember(initialProvider.id) { probeFingerprint(initialProvider) }
     var lastProbeFingerprint by remember(initialProvider.id) { mutableStateOf(initialProbeFingerprint) }
     val currentProbeFingerprint = remember(providerType, baseUrl, model, apiKey) {
@@ -621,7 +635,20 @@ private fun ProviderEditorDialog(
     } else {
         FeatureSupportState.UNKNOWN
     }
-    val suggestedTtsVoiceOptions = remember(providerType) {
+    val ttsAssetState = remember(providerType) {
+        if (providerType == ProviderType.SHERPA_ONNX_TTS) {
+            RuntimeAssetRepository.ttsAssetState(context)
+        } else {
+            null
+        }
+    }
+    val downloadedLocalTtsModelOptions = remember(ttsAssetState) {
+        buildList {
+            if (ttsAssetState?.kokoro?.installed == true) add("kokoro" to "kokoro（高性能设备）")
+            if (ttsAssetState?.matcha?.installed == true) add("matcha" to "matcha（中端设备）")
+        }
+    }
+    val suggestedTtsVoiceOptions = remember(providerType, model) {
         TtsVoiceCatalog.optionsFor(
             ProviderProfile(
                 id = initialProvider.id,
@@ -632,11 +659,30 @@ private fun ProviderEditorDialog(
                 apiKey = apiKey,
                 capabilities = setOf(providerType.defaultCapability()),
             ),
-        ).mapNotNull { option -> option.first.takeIf { it.isNotBlank() } }
+        ).filter { it.first.isNotBlank() }
     }
 
     val capability = providerType.defaultCapability()
     val providerOptions = visibleProviderTypesFor(capability).map { it.name to it.providerTypeDisplayLabel() }
+    val isLocalProvider = providerType.isLocalOnDeviceProvider()
+    val isLocalTtsProvider = providerType == ProviderType.SHERPA_ONNX_TTS
+    val isLocalSttProvider = providerType == ProviderType.SHERPA_ONNX_STT
+    val currentSelectedVoiceId = remember(ttsVoiceOptionsText) {
+        ttsVoiceOptionsText.lineSequence().map(String::trim).firstOrNull { it.isNotBlank() }.orEmpty()
+    }
+    val localModelOptions = when (providerType) {
+        ProviderType.SHERPA_ONNX_TTS -> downloadedLocalTtsModelOptions
+        ProviderType.SHERPA_ONNX_STT -> listOf(
+            "sherpa-stt" to "sherpa-onnx 端侧 STT",
+        )
+        else -> emptyList()
+    }
+    val localTtsModelMissing = isLocalTtsProvider && model !in localModelOptions.map { it.first }
+    LaunchedEffect(providerType, model, suggestedTtsVoiceOptions) {
+        if (isLocalTtsProvider && ttsVoiceOptionsText.isBlank()) {
+            ttsVoiceOptionsText = suggestedTtsVoiceOptions.firstOrNull()?.first.orEmpty()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -670,6 +716,19 @@ private fun ProviderEditorDialog(
                     TextButton(
                         colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
                         onClick = {
+                            val normalizedVoiceOptions = when {
+                                isLocalTtsProvider -> {
+                                    val selected = currentSelectedVoiceId.ifBlank {
+                                        suggestedTtsVoiceOptions.firstOrNull()?.first.orEmpty()
+                                    }
+                                    selected.takeIf { it.isNotBlank() }?.let(::listOf).orEmpty()
+                                }
+                                else -> ttsVoiceOptionsText
+                                    .lines()
+                                    .map(String::trim)
+                                    .filter(String::isNotBlank)
+                                    .distinct()
+                            }
                             onSave(
                                 initialProvider.copy(
                                     id = initialProvider.id.ifBlank { java.util.UUID.randomUUID().toString() },
@@ -686,11 +745,7 @@ private fun ProviderEditorDialog(
                                     nativeStreamingProbeSupport = displayedNativeStreamingProbeSupport,
                                     sttProbeSupport = displayedSttProbeSupport,
                                     ttsProbeSupport = displayedTtsProbeSupport,
-                                    ttsVoiceOptions = ttsVoiceOptionsText
-                                        .lines()
-                                        .map(String::trim)
-                                        .filter(String::isNotBlank)
-                                        .distinct(),
+                                    ttsVoiceOptions = normalizedVoiceOptions,
                                 ),
                             )
                         },
@@ -731,36 +786,101 @@ private fun ProviderEditorDialog(
                     selectedId = providerType.name,
                     onSelect = { selected ->
                         providerType = ProviderType.valueOf(selected)
+                        if (providerType == ProviderType.SHERPA_ONNX_TTS && model !in downloadedLocalTtsModelOptions.map { it.first }) {
+                            model = downloadedLocalTtsModelOptions.firstOrNull()?.first.orEmpty()
+                        }
                         multimodalRuleSupport = inferMultimodalRuleSupport(providerType, model)
                         nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(providerType, model)
                     },
                 )
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text(stringResource(R.string.provider_field_api_key)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = PasswordVisualTransformation(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                OutlinedTextField(
-                    value = baseUrl,
-                    onValueChange = { baseUrl = it },
-                    label = { Text(stringResource(R.string.provider_field_base_url)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                OutlinedTextField(
-                    value = model,
-                    onValueChange = {
-                        model = it
-                        multimodalRuleSupport = inferMultimodalRuleSupport(providerType, it)
-                        nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(providerType, it)
-                    },
-                    label = { Text(stringResource(R.string.provider_field_model)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
+                if (!isLocalProvider) {
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = { apiKey = it },
+                        label = { Text(stringResource(R.string.provider_field_api_key)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                    OutlinedTextField(
+                        value = baseUrl,
+                        onValueChange = { baseUrl = it },
+                        label = { Text(stringResource(R.string.provider_field_base_url)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                    OutlinedTextField(
+                        value = model,
+                        onValueChange = {
+                            model = it
+                            multimodalRuleSupport = inferMultimodalRuleSupport(providerType, it)
+                            nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(providerType, it)
+                        },
+                        label = { Text(stringResource(R.string.provider_field_model)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                } else {
+                    if (isLocalTtsProvider && localModelOptions.isEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MonochromeUi.inputBackground,
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.provider_field_model),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MonochromeUi.textPrimary,
+                                )
+                                Text(
+                                    text = stringResource(R.string.provider_local_tts_asset_required),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                                OutlinedButton(
+                                    onClick = { onOpenOnDeviceTtsAssets?.invoke() },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                                ) {
+                                    Text(stringResource(R.string.provider_open_on_device_tts_assets))
+                                }
+                            }
+                        }
+                    } else {
+                        SelectionField(
+                            title = stringResource(R.string.provider_field_model),
+                            options = localModelOptions,
+                            selectedId = model,
+                            onSelect = {
+                                model = it
+                                if (isLocalTtsProvider) {
+                                    val firstVoice = TtsVoiceCatalog.optionsFor(
+                                        initialProvider.copy(
+                                            model = it,
+                                            providerType = providerType,
+                                        ),
+                                    ).firstOrNull { option -> option.first.isNotBlank() }?.first.orEmpty()
+                                    ttsVoiceOptionsText = firstVoice
+                                }
+                            },
+                        )
+                        if (isLocalSttProvider) {
+                            Text(
+                                text = stringResource(R.string.provider_local_stt_model_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                        }
+                    }
+                }
                 if (providerType.supportsPullModels()) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -926,40 +1046,51 @@ private fun ProviderEditorDialog(
                                 fontWeight = FontWeight.SemiBold,
                                 color = MonochromeUi.textPrimary,
                             )
-                            OutlinedButton(
-                                onClick = {
-                                    onCheckStt(
-                                        initialProvider.copy(
-                                            baseUrl = baseUrl,
-                                            apiKey = apiKey,
-                                            model = model,
-                                            providerType = providerType,
-                                            capabilities = setOf(providerType.defaultCapability()),
-                                        ),
-                                    ) { probe, transcript ->
-                                        sttProbeSupport = probe
-                                        sttProbePreview = transcript
-                                        lastProbeFingerprint = currentProbeFingerprint
-                                        if (initialProvider.id.isNotBlank() && currentProbeFingerprint == initialProbeFingerprint) {
-                                            onPersistSttProbeSupport(initialProvider.id, probe)
+                            if (!isLocalProvider) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onCheckStt(
+                                            initialProvider.copy(
+                                                baseUrl = baseUrl,
+                                                apiKey = apiKey,
+                                                model = model,
+                                                providerType = providerType,
+                                                capabilities = setOf(providerType.defaultCapability()),
+                                            ),
+                                        ) { probe, transcript ->
+                                            sttProbeSupport = probe
+                                            sttProbePreview = transcript
+                                            lastProbeFingerprint = currentProbeFingerprint
+                                            if (initialProvider.id.isNotBlank() && currentProbeFingerprint == initialProbeFingerprint) {
+                                                onPersistSttProbeSupport(initialProvider.id, probe)
+                                            }
                                         }
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 48.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
-                            ) {
-                                Text(stringResource(R.string.provider_check_stt))
-                            }
-                            if (isCheckingStt) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
                                 ) {
-                                    CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                    Text(stringResource(R.string.provider_check_stt))
+                                }
+                                if (isCheckingStt) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                    ) {
+                                        CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                    }
                                 }
                             }
+                            Text(
+                                text = if (isLocalProvider) {
+                                    stringResource(R.string.provider_local_stt_ready_desc)
+                                } else {
+                                    stringResource(R.string.provider_placeholder_stt)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
                             SupportStatusRow(title = stringResource(R.string.provider_support_stt_probe), state = displayedSttProbeSupport)
                             if (displayedSttProbePreview.isNotBlank()) {
                                 Text(
@@ -982,92 +1113,176 @@ private fun ProviderEditorDialog(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(
-                                stringResource(R.string.provider_capability_check_title),
+                                stringResource(
+                                    if (isLocalTtsProvider) {
+                                        R.string.provider_voice_preview_title
+                                    } else {
+                                        R.string.provider_capability_check_title
+                                    },
+                                ),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MonochromeUi.textPrimary,
                             )
-                            OutlinedButton(
-                                onClick = {
-                                    onCheckTts(
-                                        initialProvider.copy(
-                                            baseUrl = baseUrl,
-                                            apiKey = apiKey,
-                                            model = model,
+                            if (!isLocalProvider) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onCheckTts(
+                                            initialProvider.copy(
+                                                baseUrl = baseUrl,
+                                                apiKey = apiKey,
+                                                model = model,
+                                                providerType = providerType,
+                                                capabilities = setOf(providerType.defaultCapability()),
+                                            ),
+                                        ) { probe ->
+                                            ttsProbeSupport = probe
+                                            lastProbeFingerprint = currentProbeFingerprint
+                                            if (initialProvider.id.isNotBlank() && currentProbeFingerprint == initialProbeFingerprint) {
+                                                onPersistTtsProbeSupport(initialProvider.id, probe)
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                                ) {
+                                    Text(stringResource(R.string.provider_check_tts))
+                                }
+                                if (isCheckingTts) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                    ) {
+                                        CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                    }
+                                }
+                            }
+                            if (isLocalProvider) {
+                                if (!localTtsModelMissing && suggestedTtsVoiceOptions.isNotEmpty()) {
+                                    SelectionField(
+                                        title = stringResource(R.string.provider_tts_voice_selection_field),
+                                        options = suggestedTtsVoiceOptions,
+                                        selectedId = currentSelectedVoiceId,
+                                        onSelect = { ttsVoiceOptionsText = it },
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.provider_voice_preview_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        val selectedVoiceId = currentSelectedVoiceId
+                                        val previewProvider = initialProvider.copy(
+                                            name = name.trim().ifBlank { providerType.providerTypeDisplayLabel() },
+                                            baseUrl = baseUrl.trim(),
+                                            model = model.trim(),
+                                            apiKey = apiKey.trim(),
                                             providerType = providerType,
                                             capabilities = setOf(providerType.defaultCapability()),
-                                        ),
-                                    ) { probe ->
-                                        ttsProbeSupport = probe
-                                        lastProbeFingerprint = currentProbeFingerprint
-                                        if (initialProvider.id.isNotBlank() && currentProbeFingerprint == initialProbeFingerprint) {
-                                            onPersistTtsProbeSupport(initialProvider.id, probe)
+                                            enabled = enabled,
+                                            ttsVoiceOptions = selectedVoiceId.takeIf { it.isNotBlank() }?.let(::listOf).orEmpty(),
+                                        )
+                                        scope.launch {
+                                            isPreviewingVoice = true
+                                            val result = runCatching {
+                                                withContext(Dispatchers.IO) {
+                                                    ChatCompletionService.synthesizeSpeech(
+                                                        provider = previewProvider,
+                                                        text = "你好世界",
+                                                        voiceId = selectedVoiceId,
+                                                        readBracketedContent = true,
+                                                    )
+                                                }
+                                            }
+                                            result.onSuccess { attachment ->
+                                                runCatching { playPreviewAttachment(context, attachment) }
+                                                    .onFailure { error ->
+                                                        Toast.makeText(
+                                                            context,
+                                                            error.message ?: error.javaClass.simpleName,
+                                                            Toast.LENGTH_LONG,
+                                                        ).show()
+                                                    }
+                                            }.onFailure { error ->
+                                                Toast.makeText(
+                                                    context,
+                                                    error.message ?: error.javaClass.simpleName,
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                            isPreviewingVoice = false
+                                        }
+                                    },
+                                    enabled = !isPreviewingVoice && !localTtsModelMissing && currentSelectedVoiceId.isNotBlank(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                                ) {
+                                    Text(stringResource(R.string.provider_voice_preview_action))
+                                }
+                                if (isPreviewingVoice) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                    ) {
+                                        CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = stringResource(R.string.provider_tts_voice_options_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                                SupportStatusRow(title = stringResource(R.string.provider_support_tts_probe), state = displayedTtsProbeSupport)
+                                Text(
+                                    text = stringResource(R.string.provider_tts_voice_options_title),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MonochromeUi.textPrimary,
+                                )
+                                if (suggestedTtsVoiceOptions.isNotEmpty()) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        suggestedTtsVoiceOptions.forEach { option ->
+                                            AssistChip(
+                                                onClick = {
+                                                    val current = ttsVoiceOptionsText
+                                                        .lines()
+                                                        .map(String::trim)
+                                                        .filter(String::isNotBlank)
+                                                        .toMutableList()
+                                                    if (option.first !in current) {
+                                                        current += option.first
+                                                        ttsVoiceOptionsText = current.joinToString("\n")
+                                                    }
+                                                },
+                                                label = { Text(option.second) },
+                                                colors = AssistChipDefaults.assistChipColors(
+                                                    containerColor = MonochromeUi.chipBackground,
+                                                    labelColor = MonochromeUi.textSecondary,
+                                                ),
+                                            )
                                         }
                                     }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 48.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
-                            ) {
-                                Text(stringResource(R.string.provider_check_tts))
-                            }
-                            if (isCheckingTts) {
-                                Row(
+                                }
+                                OutlinedTextField(
+                                    value = ttsVoiceOptionsText,
+                                    onValueChange = { ttsVoiceOptionsText = it },
+                                    label = { Text(stringResource(R.string.provider_tts_voice_options_field)) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
-                                ) {
-                                    CircularProgressIndicator(color = MonochromeUi.textPrimary)
-                                }
+                                    minLines = 3,
+                                    maxLines = 6,
+                                    colors = monochromeOutlinedTextFieldColors(),
+                                )
                             }
-                            SupportStatusRow(title = stringResource(R.string.provider_support_tts_probe), state = displayedTtsProbeSupport)
-                            Text(
-                                text = stringResource(R.string.provider_tts_voice_options_title),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MonochromeUi.textPrimary,
-                            )
-                            Text(
-                                text = stringResource(R.string.provider_tts_voice_options_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MonochromeUi.textSecondary,
-                            )
-                            if (suggestedTtsVoiceOptions.isNotEmpty()) {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    suggestedTtsVoiceOptions.forEach { option ->
-                                        AssistChip(
-                                            onClick = {
-                                                val current = ttsVoiceOptionsText
-                                                    .lines()
-                                                    .map(String::trim)
-                                                    .filter(String::isNotBlank)
-                                                    .toMutableList()
-                                                if (option !in current) {
-                                                    current += option
-                                                    ttsVoiceOptionsText = current.joinToString("\n")
-                                                }
-                                            },
-                                            label = { Text(option) },
-                                            colors = AssistChipDefaults.assistChipColors(
-                                                containerColor = MonochromeUi.chipBackground,
-                                                labelColor = MonochromeUi.textSecondary,
-                                            ),
-                                        )
-                                    }
-                                }
-                            }
-                            OutlinedTextField(
-                                value = ttsVoiceOptionsText,
-                                onValueChange = { ttsVoiceOptionsText = it },
-                                label = { Text(stringResource(R.string.provider_tts_voice_options_field)) },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 3,
-                                maxLines = 6,
-                                colors = monochromeOutlinedTextFieldColors(),
-                            )
                         }
                     }
                 } else {
@@ -1169,6 +1384,30 @@ private fun CapabilitySwitch(
     }
 }
 
+private fun playPreviewAttachment(
+    context: android.content.Context,
+    attachment: com.astrbot.android.model.ConversationAttachment,
+) {
+    val base64 = attachment.base64Data.takeIf { it.isNotBlank() }
+        ?: throw IllegalStateException("Preview audio is empty.")
+    val audioFile = File(context.cacheDir, "tts-preview-${System.currentTimeMillis()}.wav")
+    audioFile.writeBytes(Base64.getDecoder().decode(base64))
+    val player = MediaPlayer().apply {
+        setDataSource(audioFile.absolutePath)
+        prepare()
+    }
+    player.setOnCompletionListener {
+        it.release()
+        audioFile.delete()
+    }
+    player.setOnErrorListener { mp, _, _ ->
+        mp.release()
+        audioFile.delete()
+        false
+    }
+    player.start()
+}
+
 private fun createEmptyProvider(type: ProviderType): ProviderProfile {
     val defaultBaseUrl = when (type) {
         ProviderType.OPENAI_COMPATIBLE -> "https://api.openai.com/v1"
@@ -1181,9 +1420,11 @@ private fun createEmptyProvider(type: ProviderType): ProviderProfile {
         ProviderType.WHISPER_API -> "https://api.openai.com/v1"
         ProviderType.XINFERENCE_STT -> "http://127.0.0.1:9997/v1"
         ProviderType.BAILIAN_STT -> "https://dashscope.aliyuncs.com/api/v1"
+        ProviderType.SHERPA_ONNX_STT -> ""
         ProviderType.OPENAI_TTS -> "https://api.openai.com/v1"
         ProviderType.BAILIAN_TTS -> "https://dashscope.aliyuncs.com/api/v1"
         ProviderType.MINIMAX_TTS -> "https://api.minimax.chat/v1"
+        ProviderType.SHERPA_ONNX_TTS -> ""
         ProviderType.DIFY -> "https://api.dify.ai/v1"
         ProviderType.BAILIAN_APP -> "https://dashscope.aliyuncs.com/api/v1"
         ProviderType.ANTHROPIC,
@@ -1201,9 +1442,11 @@ private fun createEmptyProvider(type: ProviderType): ProviderProfile {
         ProviderType.WHISPER_API -> "whisper-1"
         ProviderType.XINFERENCE_STT -> "whisper-large-v3"
         ProviderType.BAILIAN_STT -> "qwen3-asr-flash"
+        ProviderType.SHERPA_ONNX_STT -> "sherpa-stt"
         ProviderType.OPENAI_TTS -> "gpt-4o-mini-tts"
         ProviderType.BAILIAN_TTS -> "cosyvoice-v1"
         ProviderType.MINIMAX_TTS -> "speech-01"
+        ProviderType.SHERPA_ONNX_TTS -> "kokoro"
         ProviderType.DIFY -> "chat-app"
         ProviderType.BAILIAN_APP -> "application-id"
         ProviderType.ANTHROPIC,

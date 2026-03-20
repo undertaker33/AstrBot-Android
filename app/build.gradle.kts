@@ -41,9 +41,13 @@ val excludedRuntimeAssets = listOf(
     "runtime/assets/launcher.cpp",
     "runtime/assets/offline-debs.tar",
     "runtime/assets/napcat-installer.sh",
+    "matcha-icefall-zh-baker/**",
+    "vocos-22khz-univ.onnx",
+    "sherpa-onnx/matcha-icefall-zh-baker/**",
+    "sherpa-onnx/vocos-22khz-univ.onnx",
 )
 
-val prepareFilteredAssets by tasks.registering(Copy::class) {
+val prepareFilteredAssets by tasks.registering(Sync::class) {
     from("src/main/assets")
     into(filteredAssetsDir)
     exclude(excludedRuntimeAssets)
@@ -57,8 +61,8 @@ android {
         applicationId = "com.astrbot.android"
         minSdk = 29
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.2.7"
+        versionCode = 8
+        versionName = "0.2.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -110,7 +114,7 @@ android {
     }
 
     androidResources {
-        noCompress += setOf("xz")
+        noCompress += setOf("xz", "onnx", "bin", "fst", "txt", "utf8")
     }
 }
 
@@ -156,6 +160,7 @@ dependencies {
     implementation("com.github.luben:zstd-jni:1.5.6-3")
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
+    implementation(files("libs/sherpa-onnx-1.12.31-static-jni-only.aar"))
 
     implementation(composeBom)
     androidTestImplementation(composeBom)

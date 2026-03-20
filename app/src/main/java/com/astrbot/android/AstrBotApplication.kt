@@ -10,6 +10,8 @@ import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.RuntimeAssetRepository
+import com.astrbot.android.data.SherpaOnnxBridge
+import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.runtime.ContainerRuntimeInstaller
 import com.astrbot.android.runtime.OneBotBridgeServer
 import com.astrbot.android.runtime.RuntimeLogRepository
@@ -30,6 +32,8 @@ class AstrBotApplication : Application() {
         NapCatBridgeRepository.initialize(this)
         NapCatLoginRepository.initialize(this)
         RuntimeAssetRepository.initialize(this)
+        SherpaOnnxBridge.initialize(this)
+        TtsVoiceAssetRepository.initialize(this)
         ProviderRepository.initialize(this)
         PersonaRepository.initialize(this)
         ConfigRepository.initialize(this)

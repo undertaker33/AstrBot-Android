@@ -21,9 +21,11 @@ fun ProviderType.displayLabel(): String {
         ProviderType.WHISPER_API -> "Whisper API"
         ProviderType.XINFERENCE_STT -> "Xinference STT"
         ProviderType.BAILIAN_STT -> "Alibaba Bailian STT"
+        ProviderType.SHERPA_ONNX_STT -> "Sherpa ONNX STT"
         ProviderType.OPENAI_TTS -> "OpenAI TTS"
         ProviderType.BAILIAN_TTS -> "Alibaba Bailian TTS"
         ProviderType.MINIMAX_TTS -> "MiniMax TTS"
+        ProviderType.SHERPA_ONNX_TTS -> "Sherpa ONNX TTS"
         ProviderType.DIFY -> "Dify"
         ProviderType.BAILIAN_APP -> "Alibaba Bailian App"
         ProviderType.ANTHROPIC -> "Anthropic"
@@ -36,11 +38,13 @@ fun ProviderType.defaultCapability(): ProviderCapability {
         ProviderType.WHISPER_API,
         ProviderType.XINFERENCE_STT,
         ProviderType.BAILIAN_STT,
+        ProviderType.SHERPA_ONNX_STT,
         -> ProviderCapability.STT
 
         ProviderType.OPENAI_TTS,
         ProviderType.BAILIAN_TTS,
         ProviderType.MINIMAX_TTS,
+        ProviderType.SHERPA_ONNX_TTS,
         -> ProviderCapability.TTS
 
         ProviderType.DIFY,
@@ -53,6 +57,10 @@ fun ProviderType.defaultCapability(): ProviderCapability {
 
 fun ProviderType.isVisibleInCatalog(): Boolean {
     return this != ProviderType.ANTHROPIC && this != ProviderType.CUSTOM
+}
+
+fun ProviderType.isLocalOnDeviceProvider(): Boolean {
+    return this == ProviderType.SHERPA_ONNX_STT || this == ProviderType.SHERPA_ONNX_TTS
 }
 
 fun ProviderType.supportsPullModels(): Boolean {

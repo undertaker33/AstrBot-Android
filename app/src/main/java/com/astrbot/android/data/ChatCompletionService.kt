@@ -18,6 +18,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URI
@@ -211,6 +212,7 @@ object ChatCompletionService {
             -> transcribeWithOpenAiStyle(provider, attachment)
 
             ProviderType.BAILIAN_STT -> transcribeWithBailianStt(provider, attachment)
+            ProviderType.SHERPA_ONNX_STT -> SherpaOnnxBridge.transcribeAudio(provider, attachment)
 
             else -> throw IllegalStateException("STT routing is not implemented for ${provider.providerType.name}.")
         }
@@ -234,6 +236,12 @@ object ChatCompletionService {
             ProviderType.OPENAI_TTS -> synthesizeWithOpenAiTts(provider, preparedInput, voiceId)
             ProviderType.BAILIAN_TTS -> synthesizeWithBailianTts(provider, preparedInput, voiceId)
             ProviderType.MINIMAX_TTS -> synthesizeWithMiniMaxTts(provider, preparedInput, voiceId)
+            ProviderType.SHERPA_ONNX_TTS -> SherpaOnnxBridge.synthesizeSpeech(
+                provider = provider,
+                text = text,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )
             else -> throw IllegalStateException("TTS routing is not implemented for ${provider.providerType.name}.")
         }
     }
@@ -925,17 +933,19 @@ object ChatCompletionService {
                 },
             )
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/chat/completions", "POST").apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-        }
-        return executeJsonRequest(connection, payload) { body ->
-            JSONObject(body)
-                .optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content")
-                ?.takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("Model response is empty.")
+        return executeOpenAiStyleChatWithRetry(
+            endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
+            apiKey = provider.apiKey,
+        ) { connection ->
+            executeJsonRequest(connection, payload) { body ->
+                JSONObject(body)
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("Model response is empty.")
+            }
         }
     }
 
@@ -1036,16 +1046,18 @@ object ChatCompletionService {
                 },
             )
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/chat/completions", "POST").apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-        }
-        return executeStreamingRequest(connection, payload, onDelta) { line ->
-            JSONObject(line)
-                .optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("delta")
-                ?.optString("content")
-                .orEmpty()
+        return executeOpenAiStyleChatWithRetry(
+            endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
+            apiKey = provider.apiKey,
+        ) { connection ->
+            executeStreamingRequest(connection, payload, onDelta) { line ->
+                JSONObject(line)
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("delta")
+                    ?.optString("content")
+                    .orEmpty()
+            }
         }
     }
 
@@ -1319,19 +1331,68 @@ object ChatCompletionService {
 
     private fun <T> executeJsonRequest(connection: HttpURLConnection, payload: JSONObject, parser: (String) -> T): T {
         return try {
+            RuntimeLogRepository.append("HTTP json request start: url=${connection.url}")
             connection.doOutput = true
+            val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
+            connection.setFixedLengthStreamingMode(payloadBytes.size)
             connection.outputStream.use { output ->
-                output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
+                output.write(payloadBytes)
             }
+            RuntimeLogRepository.append("HTTP json request body sent: bytes=${payloadBytes.size}")
             val responseCode = connection.responseCode
+            RuntimeLogRepository.append("HTTP json response code: code=$responseCode")
             val body = readBody(connection, responseCode)
             if (responseCode !in 200..299) {
                 throw IllegalStateException("HTTP $responseCode: $body")
             }
             parser(body)
+        } catch (error: Throwable) {
+            RuntimeLogRepository.append(
+                "HTTP json request failed: url=${connection.url} reason=${error.message ?: error.javaClass.simpleName}",
+            )
+            throw error
         } finally {
             connection.disconnect()
         }
+    }
+
+    private inline fun <T> executeOpenAiStyleChatWithRetry(
+        endpoint: String,
+        apiKey: String,
+        request: (HttpURLConnection) -> T,
+    ): T {
+        var lastError: Throwable? = null
+        repeat(2) { attempt ->
+            val connection = openConnection(endpoint, "POST").apply {
+                setRequestProperty("Authorization", "Bearer $apiKey")
+            }
+            try {
+                if (attempt > 0) {
+                    RuntimeLogRepository.append("HTTP chat retry: endpoint=$endpoint attempt=${attempt + 1}")
+                }
+                return request(connection)
+            } catch (error: Throwable) {
+                lastError = error
+                if (!shouldRetryChatRequest(error) || attempt > 0) {
+                    throw error
+                }
+                RuntimeLogRepository.append(
+                    "HTTP chat retry scheduled: reason=${error.message ?: error.javaClass.simpleName}",
+                )
+            } finally {
+                runCatching { connection.disconnect() }
+            }
+        }
+        throw lastError ?: IllegalStateException("OpenAI-style chat request failed.")
+    }
+
+    private fun shouldRetryChatRequest(error: Throwable): Boolean {
+        val message = error.message.orEmpty().lowercase(Locale.US)
+        return error is IOException ||
+            "connection closed" in message ||
+            "unexpected end of stream" in message ||
+            "stream was reset" in message ||
+            "software caused connection abort" in message
     }
 
     private fun openConnection(endpoint: String, method: String): HttpURLConnection {
@@ -1340,6 +1401,11 @@ object ChatCompletionService {
             requestMethod = method
             connectTimeout = 30_000
             readTimeout = 60_000
+            doInput = true
+            useCaches = false
+            instanceFollowRedirects = true
+            setRequestProperty("Connection", "close")
+            setRequestProperty("Accept", "application/json")
             setRequestProperty("Content-Type", "application/json")
         }
     }
@@ -1981,11 +2047,16 @@ object ChatCompletionService {
         chunkParser: (String) -> String,
     ): String {
         return try {
+            RuntimeLogRepository.append("HTTP streaming request start: url=${connection.url}")
             connection.doOutput = true
+            val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
+            connection.setFixedLengthStreamingMode(payloadBytes.size)
             connection.outputStream.use { output ->
-                output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
+                output.write(payloadBytes)
             }
+            RuntimeLogRepository.append("HTTP streaming request body sent: bytes=${payloadBytes.size}")
             val responseCode = connection.responseCode
+            RuntimeLogRepository.append("HTTP streaming response code: code=$responseCode")
             if (responseCode !in 200..299) {
                 val body = readBody(connection, responseCode)
                 throw IllegalStateException("HTTP $responseCode: $body")
@@ -2009,6 +2080,11 @@ object ChatCompletionService {
             chunks.joinToString("").trim().ifBlank {
                 throw IllegalStateException("Model response is empty.")
             }
+        } catch (error: Throwable) {
+            RuntimeLogRepository.append(
+                "HTTP streaming request failed: url=${connection.url} reason=${error.message ?: error.javaClass.simpleName}",
+            )
+            throw error
         } finally {
             connection.disconnect()
         }

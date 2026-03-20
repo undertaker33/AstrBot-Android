@@ -27,4 +27,16 @@ class RuntimeAssetViewModel(application: Application) : AndroidViewModel(applica
             RuntimeAssetRepository.clearAsset(getApplication(), assetId)
         }
     }
+
+    fun downloadOnDeviceTtsModel(modelId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            RuntimeAssetRepository.downloadOnDeviceTtsModel(getApplication(), modelId)
+        }
+    }
+
+    fun clearOnDeviceTtsModel(modelId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            RuntimeAssetRepository.clearOnDeviceTtsModel(getApplication(), modelId)
+        }
+    }
 }
