@@ -1,7 +1,10 @@
 package com.astrbot.android.ui.screen
 
 import android.graphics.Bitmap
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +44,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -78,13 +83,19 @@ import com.astrbot.android.R
 import com.astrbot.android.data.AppLanguage
 import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.data.RuntimeCacheRepository
 import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.data.VoiceCloneService
+import com.astrbot.android.model.displayLabel
+import com.astrbot.android.model.ClonedVoiceBinding
+import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.RuntimeAssetEntryState
 import com.astrbot.android.model.RuntimeAssetId
 import com.astrbot.android.model.ProviderType
+import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.model.hasVoiceCloningSupport
 import com.astrbot.android.ui.AppUiTransitionState
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
@@ -94,6 +105,8 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun MeScreen(
@@ -385,6 +398,8 @@ fun SettingsHubScreen(
     )
     val scope = rememberCoroutineScope()
     val currentLanguage = currentApplicationLanguage()
+    val cacheCleanupState by RuntimeCacheRepository.state.collectAsState()
+    var showCacheCleanupConfirm by remember { mutableStateOf(false) }
 
     SubPageScaffold(
         title = stringResource(R.string.nav_settings),
@@ -457,7 +472,57 @@ fun SettingsHubScreen(
                     AccountEntryCard(entry)
                 }
             }
+            item {
+                RuntimeCacheCleanupCard(
+                    state = cacheCleanupState,
+                    onClearClick = { showCacheCleanupConfirm = true },
+                )
+            }
         }
+    }
+
+    if (showCacheCleanupConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCacheCleanupConfirm = false },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.me_cache_cleanup_confirm_title)) },
+            text = { Text(stringResource(R.string.me_cache_cleanup_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCacheCleanupConfirm = false
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    RuntimeCacheRepository.clearSafeRuntimeCaches(context)
+                                }
+                            }.onSuccess { summary ->
+                                Toast.makeText(context, summary, Toast.LENGTH_LONG).show()
+                            }.onFailure { error ->
+                                Toast.makeText(
+                                    context,
+                                    error.message ?: error.javaClass.simpleName,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                ) {
+                    Text(stringResource(R.string.me_cache_cleanup_action))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showCacheCleanupConfirm = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
     }
 }
 
@@ -541,13 +606,67 @@ fun AssetDetailScreen(
             null
         }
     }
-    val cloneProviders = providerOptions.filter { it.providerType == ProviderType.BAILIAN_TTS || it.providerType == ProviderType.MINIMAX_TTS }
+    val cloneProviders = providerOptions.filter { it.enabled && it.hasVoiceCloningSupport() }
+    val referenceAssets = voiceAssets.filter { it.clips.isNotEmpty() || it.localPath.isNotBlank() }
+    val clonedVoiceItems = voiceAssets.flatMap { asset ->
+        asset.providerBindings.map { binding -> asset to binding }
+    }
+    val totalReferenceClipCount = referenceAssets.sumOf { asset -> asset.clips.size }
+    val totalReferenceDurationMs = referenceAssets.sumOf { asset -> asset.clips.sumOf { clip -> clip.durationMs } }
     var referenceName by remember { mutableStateOf("") }
-    var referenceLocalPath by remember { mutableStateOf("") }
-    var referenceRemoteUrl by remember { mutableStateOf("") }
-    var selectedReferenceAssetId by remember(voiceAssets) { mutableStateOf(voiceAssets.firstOrNull()?.id.orEmpty()) }
+    var selectedImportUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedImportFileName by remember { mutableStateOf("") }
+    var pendingImportAssetId by remember { mutableStateOf("") }
+    var selectedReferenceAssetId by remember(referenceAssets) { mutableStateOf(referenceAssets.firstOrNull()?.id.orEmpty()) }
     var selectedCloneProviderId by remember(cloneProviders) { mutableStateOf(cloneProviders.firstOrNull()?.id.orEmpty()) }
     var cloneDisplayName by remember { mutableStateOf("") }
+    var isImportingReferenceAudio by remember { mutableStateOf(false) }
+    var isCloningVoice by remember { mutableStateOf(false) }
+    var expandedReferenceAssetId by remember { mutableStateOf("") }
+    var voiceAssetFace by remember { mutableStateOf("overview") }
+    var renamingBindingId by remember { mutableStateOf("") }
+    var renamingBindingName by remember { mutableStateOf("") }
+    var lastVoiceCloneMessage by remember { mutableStateOf("") }
+    var showVoiceCloneMessageDialog by remember { mutableStateOf(false) }
+    val selectedReferenceAsset = referenceAssets.firstOrNull { it.id == selectedReferenceAssetId }
+    val selectedCloneProvider = cloneProviders.firstOrNull { it.id == selectedCloneProviderId }
+    val referenceAudioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val resolvedUri = uri ?: return@rememberLauncherForActivityResult
+        val fileName = resolvedUri.lastPathSegment?.substringAfterLast('/')?.ifBlank { "selected-audio" }.orEmpty()
+        if (pendingImportAssetId.isNotBlank()) {
+            val targetAssetId = pendingImportAssetId
+            pendingImportAssetId = ""
+            scope.launch {
+                isImportingReferenceAudio = true
+                val result = runCatching {
+                    withContext(Dispatchers.IO) {
+                        TtsVoiceAssetRepository.importReferenceAudio(
+                            context = context,
+                            sourceUri = resolvedUri,
+                            assetId = targetAssetId,
+                        )
+                    }
+                }
+                result.onSuccess { importResult ->
+                    selectedReferenceAssetId = importResult.asset.id
+                    Toast.makeText(context, context.getString(R.string.voice_asset_append_success), Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    Toast.makeText(
+                        context,
+                        error.message ?: error.javaClass.simpleName,
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                isImportingReferenceAudio = false
+            }
+        } else {
+            selectedImportUri = resolvedUri
+            selectedImportFileName = fileName
+            if (referenceName.isBlank()) {
+                referenceName = selectedImportFileName.substringBeforeLast('.')
+            }
+        }
+    }
 
     SubPageScaffold(
         title = stringResource(resolvedAsset.catalog.titleRes),
@@ -561,57 +680,139 @@ fun AssetDetailScreen(
             contentPadding = PaddingValues(vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MonochromeUi.cardBackground,
-                    tonalElevation = 2.dp,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = stringResource(resolvedAsset.catalog.titleRes),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = stringResource(resolvedAsset.catalog.descriptionRes),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                        )
-                        Text(
-                            text = assetStatusLabel(resolvedAsset),
-                            fontWeight = FontWeight.Medium,
-                        )
-                        if (resolvedAsset.lastAction.isNotBlank()) {
-                            Text(
-                                text = stringResource(R.string.asset_last_action, resolvedAsset.lastAction),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                            )
+            if (resolvedAsset.catalog.id == RuntimeAssetId.TTS_VOICE_ASSETS) {
+                voiceAssetManagementItems(
+                    referenceAssets = referenceAssets,
+                    cloneProviders = cloneProviders,
+                    clonedVoiceItems = clonedVoiceItems,
+                    totalReferenceClipCount = totalReferenceClipCount,
+                    totalReferenceDurationMs = totalReferenceDurationMs,
+                    selectedImportFileName = selectedImportFileName,
+                    referenceName = referenceName,
+                    onReferenceNameChange = { referenceName = it },
+                    selectedImportUri = selectedImportUri,
+                    onLaunchImport = { referenceAudioPicker.launch(arrayOf("audio/*")) },
+                    selectedReferenceAssetId = selectedReferenceAssetId,
+                    onSelectReferenceAsset = { selectedReferenceAssetId = it },
+                    selectedCloneProviderId = selectedCloneProviderId,
+                    onSelectCloneProvider = { selectedCloneProviderId = it },
+                    selectedReferenceAsset = selectedReferenceAsset,
+                    selectedCloneProvider = selectedCloneProvider,
+                    cloneDisplayName = cloneDisplayName,
+                    onCloneDisplayNameChange = { cloneDisplayName = it },
+                    isImportingReferenceAudio = isImportingReferenceAudio,
+                    isCloningVoice = isCloningVoice,
+                    expandedReferenceAssetId = expandedReferenceAssetId,
+                    onToggleExpandedReferenceAsset = { assetId ->
+                        expandedReferenceAssetId = if (expandedReferenceAssetId == assetId) "" else assetId
+                    },
+                    voiceAssetFace = voiceAssetFace,
+                    onVoiceAssetFaceChange = { voiceAssetFace = it },
+                    renamingBindingId = renamingBindingId,
+                    renamingBindingName = renamingBindingName,
+                    onRenamingBindingNameChange = { renamingBindingName = it },
+                    lastVoiceCloneMessage = lastVoiceCloneMessage,
+                    onImportReference = {
+                        val importUri = selectedImportUri ?: return@voiceAssetManagementItems
+                        scope.launch {
+                            isImportingReferenceAudio = true
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    TtsVoiceAssetRepository.importReferenceAudio(
+                                        context = context,
+                                        sourceUri = importUri,
+                                        name = referenceName,
+                                        assetId = null,
+                                    )
+                                }
+                            }
+                            result.onSuccess { importResult ->
+                                selectedReferenceAssetId = importResult.asset.id
+                                referenceName = ""
+                                selectedImportUri = null
+                                selectedImportFileName = ""
+                                lastVoiceCloneMessage = importResult.warning ?: context.getString(R.string.voice_asset_import_success)
+                                Toast.makeText(context, lastVoiceCloneMessage, Toast.LENGTH_LONG).show()
+                            }.onFailure { error ->
+                                lastVoiceCloneMessage = error.message ?: error.javaClass.simpleName
+                                showVoiceCloneMessageDialog = true
+                                Toast.makeText(
+                                    context,
+                                    error.message ?: error.javaClass.simpleName,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                            isImportingReferenceAudio = false
                         }
-                        Text(resolvedAsset.details, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
-                        if (resolvedAsset.busy) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.width(18.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                                Text(
-                                    text = stringResource(R.string.asset_busy_hint),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                                )
+                    },
+                    onCloneVoice = {
+                        val asset = selectedReferenceAsset
+                        val provider = selectedCloneProvider
+                        if (asset == null || provider == null) {
+                            Toast.makeText(context, context.getString(R.string.voice_asset_clone_missing_selection), Toast.LENGTH_LONG).show()
+                        } else {
+                            scope.launch {
+                                isCloningVoice = true
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        VoiceCloneService.cloneVoice(
+                                            provider = provider,
+                                            asset = asset,
+                                            displayName = cloneDisplayName.ifBlank { asset.name },
+                                        )
+                                    }
+                                }.onSuccess { voiceId ->
+                                    TtsVoiceAssetRepository.saveProviderBinding(
+                                        assetId = asset.id,
+                                        providerId = provider.id,
+                                        providerType = provider.providerType,
+                                        model = provider.model,
+                                        voiceId = voiceId,
+                                        displayName = cloneDisplayName.ifBlank { asset.name },
+                                    )
+                                    cloneDisplayName = ""
+                                    lastVoiceCloneMessage = context.getString(R.string.voice_asset_clone_success)
+                                    Toast.makeText(context, context.getString(R.string.voice_asset_clone_success), Toast.LENGTH_LONG).show()
+                                }.onFailure { error ->
+                                    lastVoiceCloneMessage = error.message ?: error.javaClass.simpleName
+                                    showVoiceCloneMessageDialog = true
+                                    Toast.makeText(
+                                        context,
+                                        error.message ?: error.javaClass.simpleName,
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                                isCloningVoice = false
                             }
                         }
-                    }
-                }
+                    },
+                    onAddClipToAsset = { assetId ->
+                        pendingImportAssetId = assetId
+                        referenceAudioPicker.launch(arrayOf("audio/*"))
+                    },
+                    onClearReferenceAudio = { assetId -> TtsVoiceAssetRepository.clearReferenceAudio(assetId) },
+                    onDeleteReferenceClip = { assetId, clipId -> TtsVoiceAssetRepository.deleteReferenceClip(assetId, clipId) },
+                    onStartRenameBinding = { bindingId, displayName ->
+                        renamingBindingId = bindingId
+                        renamingBindingName = displayName
+                    },
+                    onCancelRenameBinding = {
+                        renamingBindingId = ""
+                        renamingBindingName = ""
+                    },
+                    onSaveRenameBinding = { assetId, bindingId ->
+                        TtsVoiceAssetRepository.renameBinding(
+                            assetId = assetId,
+                            bindingId = bindingId,
+                            displayName = renamingBindingName,
+                        )
+                        renamingBindingId = ""
+                        renamingBindingName = ""
+                    },
+                    onDeleteBinding = { assetId, bindingId -> TtsVoiceAssetRepository.deleteBinding(assetId, bindingId) },
+                )
             }
-            if (resolvedAsset.catalog.id == RuntimeAssetId.TTS_VOICE_ASSETS) {
+            if (false && resolvedAsset.catalog.id == RuntimeAssetId.TTS_VOICE_ASSETS) {
                 item {
                     Surface(
                         shape = RoundedCornerShape(24.dp),
@@ -625,48 +826,84 @@ fun AssetDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(
-                                text = "Import Reference Audio",
+                                text = stringResource(R.string.voice_asset_import_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
+                            Text(
+                                text = stringResource(R.string.voice_asset_import_desc),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            )
+                            OutlinedButton(
+                                onClick = { referenceAudioPicker.launch(arrayOf("audio/*")) },
+                                enabled = !isImportingReferenceAudio,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                            ) {
+                                Text(stringResource(R.string.voice_asset_pick_audio_action))
+                            }
+                            if (selectedImportFileName.isNotBlank()) {
+                                Text(
+                                    text = stringResource(R.string.voice_asset_selected_audio, selectedImportFileName),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
+                            }
                             OutlinedTextField(
                                 value = referenceName,
                                 onValueChange = { referenceName = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Name") },
-                                colors = monochromeOutlinedTextFieldColors(),
-                            )
-                            OutlinedTextField(
-                                value = referenceLocalPath,
-                                onValueChange = { referenceLocalPath = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Local path (optional)") },
-                                colors = monochromeOutlinedTextFieldColors(),
-                            )
-                            OutlinedTextField(
-                                value = referenceRemoteUrl,
-                                onValueChange = { referenceRemoteUrl = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Remote URL (optional)") },
+                                label = { Text(stringResource(R.string.voice_asset_name_field)) },
                                 colors = monochromeOutlinedTextFieldColors(),
                             )
                             Button(
                                 onClick = {
-                                    val asset = TtsVoiceAssetRepository.upsertReferenceAsset(
-                                        name = referenceName,
-                                        localPath = referenceLocalPath,
-                                        remoteUrl = referenceRemoteUrl,
-                                        source = if (referenceLocalPath.isNotBlank()) "local" else "remote",
-                                    )
-                                    selectedReferenceAssetId = asset.id
-                                    referenceName = ""
-                                    referenceLocalPath = ""
-                                    referenceRemoteUrl = ""
+                                    val importUri = selectedImportUri ?: return@Button
+                                    scope.launch {
+                                        isImportingReferenceAudio = true
+                                        val result = runCatching {
+                                            withContext(Dispatchers.IO) {
+                                                TtsVoiceAssetRepository.importReferenceAudio(
+                                                    context = context,
+                                                    sourceUri = importUri,
+                                                    name = referenceName,
+                                                    assetId = null,
+                                                )
+                                            }
+                                        }
+                                        result.onSuccess { importResult ->
+                                            selectedReferenceAssetId = importResult.asset.id
+                                            referenceName = ""
+                                            selectedImportUri = null
+                                            selectedImportFileName = ""
+                                            lastVoiceCloneMessage = ""
+                                            Toast.makeText(
+                                                context,
+                                                importResult.warning ?: context.getString(R.string.voice_asset_import_success),
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }.onFailure { error ->
+                                            lastVoiceCloneMessage = error.message ?: error.javaClass.simpleName
+                                            showVoiceCloneMessageDialog = true
+                                            Toast.makeText(
+                                                context,
+                                                error.message ?: error.javaClass.simpleName,
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }
+                                        isImportingReferenceAudio = false
+                                    }
                                 },
-                                enabled = referenceName.isNotBlank() && (referenceLocalPath.isNotBlank() || referenceRemoteUrl.isNotBlank()),
+                                enabled = !isImportingReferenceAudio && selectedImportUri != null,
                                 colors = monochromeButtonColors(),
                             ) {
-                                Text("Save Reference Audio")
+                                Text(stringResource(R.string.voice_asset_import_action))
+                            }
+                            if (isImportingReferenceAudio) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                }
                             }
                         }
                     }
@@ -684,18 +921,22 @@ fun AssetDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(
-                                text = "Clone Voice",
+                                text = stringResource(R.string.voice_asset_clone_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
+                            Text(
+                                text = stringResource(R.string.voice_asset_clone_desc),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            )
                             SelectionField(
-                                title = "Reference Audio",
-                                options = voiceAssets.map { it.id to it.name },
+                                title = stringResource(R.string.voice_asset_reference_audio_field),
+                                options = referenceAssets.map { it.id to it.name },
                                 selectedId = selectedReferenceAssetId,
                                 onSelect = { selectedReferenceAssetId = it },
                             )
                             SelectionField(
-                                title = "Provider Model",
+                                title = stringResource(R.string.voice_asset_provider_model_field),
                                 options = cloneProviders.map { it.id to "${it.name} (${it.model})" },
                                 selectedId = selectedCloneProviderId,
                                 onSelect = { selectedCloneProviderId = it },
@@ -704,23 +945,26 @@ fun AssetDetailScreen(
                                 value = cloneDisplayName,
                                 onValueChange = { cloneDisplayName = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Cloned voice name") },
+                                label = { Text(stringResource(R.string.voice_asset_clone_name_field)) },
                                 colors = monochromeOutlinedTextFieldColors(),
                             )
                             Button(
                                 onClick = {
-                                    val asset = voiceAssets.firstOrNull { it.id == selectedReferenceAssetId }
+                                    val asset = referenceAssets.firstOrNull { it.id == selectedReferenceAssetId }
                                     val provider = cloneProviders.firstOrNull { it.id == selectedCloneProviderId }
                                     if (asset == null || provider == null) {
-                                        Toast.makeText(context, "Select a reference audio and a provider model first.", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, context.getString(R.string.voice_asset_clone_missing_selection), Toast.LENGTH_LONG).show()
                                     } else {
                                         scope.launch {
+                                            isCloningVoice = true
                                             runCatching {
-                                                VoiceCloneService.cloneVoice(
-                                                    provider = provider,
-                                                    asset = asset,
-                                                    displayName = cloneDisplayName.ifBlank { asset.name },
-                                                )
+                                                withContext(Dispatchers.IO) {
+                                                    VoiceCloneService.cloneVoice(
+                                                        provider = provider,
+                                                        asset = asset,
+                                                        displayName = cloneDisplayName.ifBlank { asset.name },
+                                                    )
+                                                }
                                             }.onSuccess { voiceId ->
                                                 TtsVoiceAssetRepository.saveProviderBinding(
                                                     assetId = asset.id,
@@ -730,27 +974,64 @@ fun AssetDetailScreen(
                                                     voiceId = voiceId,
                                                     displayName = cloneDisplayName.ifBlank { asset.name },
                                                 )
-                                                Toast.makeText(context, "Voice cloned successfully.", Toast.LENGTH_LONG).show()
+                                                cloneDisplayName = ""
+                                                lastVoiceCloneMessage = context.getString(R.string.voice_asset_clone_success)
+                                                Toast.makeText(context, context.getString(R.string.voice_asset_clone_success), Toast.LENGTH_LONG).show()
                                             }.onFailure { error ->
+                                                lastVoiceCloneMessage = error.message ?: error.javaClass.simpleName
+                                                showVoiceCloneMessageDialog = true
                                                 Toast.makeText(
                                                     context,
                                                     error.message ?: error.javaClass.simpleName,
                                                     Toast.LENGTH_LONG,
                                                 ).show()
                                             }
+                                            isCloningVoice = false
                                         }
                                     }
                                 },
-                                enabled = voiceAssets.isNotEmpty() && cloneProviders.isNotEmpty() && cloneDisplayName.isNotBlank(),
+                                enabled = !isCloningVoice &&
+                                    referenceAssets.isNotEmpty() &&
+                                    cloneProviders.isNotEmpty() &&
+                                    cloneDisplayName.isNotBlank(),
                                 colors = monochromeButtonColors(),
                             ) {
-                                Text("Start Voice Clone")
+                                Text(stringResource(R.string.voice_asset_clone_action))
                             }
                             if (cloneProviders.isEmpty()) {
                                 Text(
-                                    text = "Add a Qwen or MiniMax TTS model first, then return here to clone voices.",
+                                    text = stringResource(R.string.voice_asset_clone_provider_hint),
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
                                 )
+                            }
+                            if (referenceAssets.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.voice_asset_clone_reference_hint),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
+                            }
+                            if (isCloningVoice) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                }
+                            }
+                            if (lastVoiceCloneMessage.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = MonochromeUi.inputBackground,
+                                ) {
+                                    Text(
+                                        text = lastVoiceCloneMessage,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        color = MonochromeUi.textSecondary,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
                             }
                         }
                     }
@@ -768,42 +1049,145 @@ fun AssetDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(asset.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            asset.localPath.takeIf { it.isNotBlank() }?.let {
-                                Text("Local: $it", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
+                            Text(
+                                text = stringResource(R.string.voice_asset_clip_count_value, asset.clips.size),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            )
+                            if (asset.clips.isEmpty() && asset.localPath.isBlank()) {
+                                Text(
+                                    text = stringResource(R.string.voice_asset_reference_removed),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
+                            } else if (asset.clips.isEmpty()) {
+                                Text(
+                                    stringResource(R.string.voice_asset_local_path_value, asset.localPath),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
                             }
-                            asset.remoteUrl.takeIf { it.isNotBlank() }?.let {
-                                Text("Remote: $it", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
+                            asset.clips.forEachIndexed { index, clip ->
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.voice_asset_clip_title, index + 1),
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    Text(
+                                        stringResource(R.string.voice_asset_local_path_value, clip.localPath),
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                    )
+                                    if (clip.durationMs > 0L) {
+                                        Text(
+                                            stringResource(R.string.voice_asset_duration_value, formatDuration(clip.durationMs)),
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                        )
+                                    }
+                                    if (clip.sampleRateHz > 0) {
+                                        Text(
+                                            stringResource(R.string.voice_asset_sample_rate_value, clip.sampleRateHz),
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                        )
+                                    }
+                                    TextButton(onClick = { TtsVoiceAssetRepository.deleteReferenceClip(asset.id, clip.id) }) {
+                                        Text(stringResource(R.string.voice_asset_remove_clip_action))
+                                    }
+                                }
                             }
                             if (asset.providerBindings.isEmpty()) {
-                                Text("No cloned voices yet.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
+                                Text(
+                                    stringResource(R.string.voice_asset_no_cloned_voices),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
                             } else {
                                 asset.providerBindings.forEach { binding ->
-                                    Row(
+                                    Column(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(binding.displayName, fontWeight = FontWeight.Medium)
-                                            Text(
-                                                "${binding.providerType.name} / ${binding.model} / ${binding.voiceId}",
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                        if (renamingBindingId == binding.id) {
+                                            OutlinedTextField(
+                                                value = renamingBindingName,
+                                                onValueChange = { renamingBindingName = it },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                label = { Text(stringResource(R.string.voice_asset_clone_name_field)) },
+                                                colors = monochromeOutlinedTextFieldColors(),
                                             )
-                                        }
-                                        TextButton(onClick = { TtsVoiceAssetRepository.deleteBinding(asset.id, binding.id) }) {
-                                            Text("Delete")
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                Button(
+                                                    onClick = {
+                                                        TtsVoiceAssetRepository.renameBinding(
+                                                            assetId = asset.id,
+                                                            bindingId = binding.id,
+                                                            displayName = renamingBindingName,
+                                                        )
+                                                        renamingBindingId = ""
+                                                        renamingBindingName = ""
+                                                    },
+                                                    colors = monochromeButtonColors(),
+                                                ) {
+                                                    Text(stringResource(R.string.common_save))
+                                                }
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        renamingBindingId = ""
+                                                        renamingBindingName = ""
+                                                    },
+                                                ) {
+                                                    Text(stringResource(R.string.common_cancel))
+                                                }
+                                            }
+                                        } else {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(binding.displayName, fontWeight = FontWeight.Medium)
+                                                    Text(
+                                                        "${binding.providerType.displayLabel()} / ${binding.model}",
+                                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                                    )
+                                                }
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    TextButton(
+                                                        onClick = {
+                                                            renamingBindingId = binding.id
+                                                            renamingBindingName = binding.displayName
+                                                        },
+                                                    ) {
+                                                        Text(stringResource(R.string.voice_asset_rename_action))
+                                                    }
+                                                    TextButton(onClick = { TtsVoiceAssetRepository.deleteBinding(asset.id, binding.id) }) {
+                                                        Text(stringResource(R.string.common_delete))
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                            OutlinedButton(onClick = { TtsVoiceAssetRepository.deleteReferenceAsset(asset.id) }) {
-                                Text("Remove Reference Audio")
+                            OutlinedButton(
+                                onClick = {
+                                    pendingImportAssetId = asset.id
+                                    referenceAudioPicker.launch(arrayOf("audio/*"))
+                                },
+                                enabled = !isImportingReferenceAudio,
+                            ) {
+                                Text(stringResource(R.string.voice_asset_add_clip_action))
+                            }
+                            OutlinedButton(onClick = { TtsVoiceAssetRepository.clearReferenceAudio(asset.id) }) {
+                                Text(stringResource(R.string.voice_asset_clear_reference_action))
                             }
                         }
                     }
                 }
             }
             if (resolvedAsset.catalog.id == RuntimeAssetId.ON_DEVICE_TTS && ttsAssetState != null) {
+                item {
+                    AssetDetailSummaryCard(resolvedAsset = resolvedAsset)
+                }
                 item {
                     Surface(
                         shape = RoundedCornerShape(24.dp),
@@ -816,15 +1200,18 @@ fun AssetDetailScreen(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
+                            val manualOnlyDesc = stringResource(R.string.asset_manual_only_desc)
                             Text(
                                 text = stringResource(R.string.asset_actions_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Text(
-                                text = stringResource(R.string.asset_manual_only_desc),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                            )
+                            if (manualOnlyDesc.isNotBlank()) {
+                                Text(
+                                    text = manualOnlyDesc,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
+                            }
                             TtsModelAssetSection(
                                 title = "kokoro",
                                 description = ttsAssetState.kokoro.details,
@@ -832,14 +1219,6 @@ fun AssetDetailScreen(
                                 enabled = !resolvedAsset.busy && ttsAssetState.framework.installed,
                                 onDownload = { assetViewModel.downloadOnDeviceTtsModel("kokoro") },
                                 onClear = { assetViewModel.clearOnDeviceTtsModel("kokoro") },
-                            )
-                            TtsModelAssetSection(
-                                title = "matcha",
-                                description = ttsAssetState.matcha.details,
-                                installed = ttsAssetState.matcha.installed,
-                                enabled = !resolvedAsset.busy && ttsAssetState.framework.installed,
-                                onDownload = { assetViewModel.downloadOnDeviceTtsModel("matcha") },
-                                onClear = { assetViewModel.clearOnDeviceTtsModel("matcha") },
                             )
                             if (!ttsAssetState.framework.installed) {
                                 Text(
@@ -852,6 +1231,9 @@ fun AssetDetailScreen(
                 }
             } else if (resolvedAsset.catalog.id != RuntimeAssetId.TTS_VOICE_ASSETS) {
                 item {
+                    AssetDetailSummaryCard(resolvedAsset = resolvedAsset)
+                }
+                item {
                     Surface(
                         shape = RoundedCornerShape(24.dp),
                         color = MonochromeUi.cardBackground,
@@ -863,15 +1245,18 @@ fun AssetDetailScreen(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            val manualOnlyDesc = stringResource(R.string.asset_manual_only_desc)
                             Text(
                                 text = stringResource(R.string.asset_actions_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Text(
-                                text = stringResource(R.string.asset_manual_only_desc),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                            )
+                            if (manualOnlyDesc.isNotBlank()) {
+                                Text(
+                                    text = manualOnlyDesc,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
+                            }
                             Text(
                                 text = stringResource(R.string.asset_auto_detect_desc),
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
@@ -906,6 +1291,215 @@ fun AssetDetailScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+    if (showVoiceCloneMessageDialog && lastVoiceCloneMessage.isNotBlank()) {
+        AlertDialog(
+            onDismissRequest = { showVoiceCloneMessageDialog = false },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textPrimary,
+            confirmButton = {
+                TextButton(onClick = { showVoiceCloneMessageDialog = false }) {
+                    Text(stringResource(R.string.common_close))
+                }
+            },
+            title = { Text(stringResource(R.string.voice_asset_error_dialog_title)) },
+            text = {
+                Text(
+                    text = lastVoiceCloneMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+        )
+    }
+}
+
+private fun LazyListScope.voiceAssetManagementItems(
+    referenceAssets: List<TtsVoiceReferenceAsset>,
+    cloneProviders: List<ProviderProfile>,
+    clonedVoiceItems: List<Pair<TtsVoiceReferenceAsset, ClonedVoiceBinding>>,
+    totalReferenceClipCount: Int,
+    totalReferenceDurationMs: Long,
+    selectedImportFileName: String,
+    referenceName: String,
+    onReferenceNameChange: (String) -> Unit,
+    selectedImportUri: Uri?,
+    onLaunchImport: () -> Unit,
+    selectedReferenceAssetId: String,
+    onSelectReferenceAsset: (String) -> Unit,
+    selectedCloneProviderId: String,
+    onSelectCloneProvider: (String) -> Unit,
+    selectedReferenceAsset: TtsVoiceReferenceAsset?,
+    selectedCloneProvider: ProviderProfile?,
+    cloneDisplayName: String,
+    onCloneDisplayNameChange: (String) -> Unit,
+    isImportingReferenceAudio: Boolean,
+    isCloningVoice: Boolean,
+    expandedReferenceAssetId: String,
+    onToggleExpandedReferenceAsset: (String) -> Unit,
+    voiceAssetFace: String,
+    onVoiceAssetFaceChange: (String) -> Unit,
+    renamingBindingId: String,
+    renamingBindingName: String,
+    onRenamingBindingNameChange: (String) -> Unit,
+    lastVoiceCloneMessage: String,
+    onImportReference: () -> Unit,
+    onCloneVoice: () -> Unit,
+    onAddClipToAsset: (String) -> Unit,
+    onClearReferenceAudio: (String) -> Unit,
+    onDeleteReferenceClip: (String, String) -> Unit,
+    onStartRenameBinding: (String, String) -> Unit,
+    onCancelRenameBinding: () -> Unit,
+    onSaveRenameBinding: (String, String) -> Unit,
+    onDeleteBinding: (String, String) -> Unit,
+) {
+    item {
+        VoiceAssetFaceSwitcherCard(
+            currentFace = voiceAssetFace,
+            onFaceChange = onVoiceAssetFaceChange,
+        )
+    }
+    if (voiceAssetFace == "overview") item {
+        VoiceAssetOverviewCard(
+            referenceAssetCount = referenceAssets.size,
+            totalReferenceClipCount = totalReferenceClipCount,
+            clonedVoiceCount = clonedVoiceItems.size,
+            totalReferenceDurationMs = totalReferenceDurationMs,
+            lastVoiceCloneMessage = lastVoiceCloneMessage,
+        )
+    }
+    if (voiceAssetFace == "import") item {
+        VoiceAssetImportCard(
+            selectedImportFileName = selectedImportFileName,
+            referenceName = referenceName,
+            onReferenceNameChange = onReferenceNameChange,
+            canImport = !isImportingReferenceAudio && selectedImportUri != null,
+            isImportingReferenceAudio = isImportingReferenceAudio,
+            onLaunchImport = onLaunchImport,
+            onImportReference = onImportReference,
+        )
+    }
+    if (voiceAssetFace == "clone") item {
+        VoiceAssetCloneCard(
+            selectedReferenceAsset = selectedReferenceAsset,
+            selectedCloneProvider = selectedCloneProvider,
+            referenceOptions = referenceAssets.map { it.id to it.name },
+            selectedReferenceAssetId = selectedReferenceAssetId,
+            onSelectReferenceAsset = onSelectReferenceAsset,
+            providerOptions = cloneProviders.map { it.id to "${it.name} (${it.model})" },
+            selectedCloneProviderId = selectedCloneProviderId,
+            onSelectCloneProvider = onSelectCloneProvider,
+            cloneDisplayName = cloneDisplayName,
+            onCloneDisplayNameChange = onCloneDisplayNameChange,
+            canClone = !isCloningVoice &&
+                referenceAssets.isNotEmpty() &&
+                cloneProviders.isNotEmpty() &&
+                cloneDisplayName.isNotBlank(),
+            isCloningVoice = isCloningVoice,
+            onCloneVoice = onCloneVoice,
+        )
+    }
+    if (voiceAssetFace == "manage") item {
+        VoiceAssetReferenceLibraryHeader()
+    }
+    if (voiceAssetFace == "manage" && referenceAssets.isEmpty()) {
+        item {
+            VoiceAssetEmptyCard(
+                title = stringResource(R.string.voice_asset_empty_reference_title),
+                description = stringResource(R.string.voice_asset_empty_reference_desc),
+            )
+        }
+    } else if (voiceAssetFace == "manage") {
+        items(items = referenceAssets, key = { asset -> asset.id }) { asset ->
+            VoiceAssetReferenceAssetCard(
+                asset = asset,
+                expanded = expandedReferenceAssetId == asset.id,
+                isImportingReferenceAudio = isImportingReferenceAudio,
+                onToggleExpanded = { onToggleExpandedReferenceAsset(asset.id) },
+                onAddClip = { onAddClipToAsset(asset.id) },
+                onClearReferenceAudio = { onClearReferenceAudio(asset.id) },
+                onDeleteReferenceClip = { clipId -> onDeleteReferenceClip(asset.id, clipId) },
+            )
+        }
+    }
+    item {
+        VoiceAssetClonedVoicesHeader()
+    }
+    if (clonedVoiceItems.isEmpty()) {
+        item {
+            VoiceAssetEmptyCard(
+                title = stringResource(R.string.voice_asset_empty_binding_title),
+                description = stringResource(R.string.voice_asset_empty_binding_desc),
+            )
+        }
+    } else {
+        items(items = clonedVoiceItems, key = { (asset, binding) -> "${asset.id}-${binding.id}" }) { (asset, binding) ->
+            VoiceAssetBindingCard(
+                asset = asset,
+                binding = binding,
+                renamingBindingId = renamingBindingId,
+                renamingBindingName = renamingBindingName,
+                onRenamingBindingNameChange = onRenamingBindingNameChange,
+                onStartRename = { onStartRenameBinding(binding.id, binding.displayName) },
+                onCancelRename = onCancelRenameBinding,
+                onSaveRename = { onSaveRenameBinding(asset.id, binding.id) },
+                onDelete = { onDeleteBinding(asset.id, binding.id) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssetDetailSummaryCard(
+    resolvedAsset: RuntimeAssetEntryState,
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MonochromeUi.cardBackground,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(resolvedAsset.catalog.titleRes),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(resolvedAsset.catalog.descriptionRes),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+            )
+            Text(
+                text = assetStatusLabel(resolvedAsset),
+                fontWeight = FontWeight.Medium,
+            )
+            if (resolvedAsset.lastAction.isNotBlank()) {
+                Text(
+                    text = stringResource(R.string.asset_last_action, resolvedAsset.lastAction),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                )
+            }
+            Text(resolvedAsset.details, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
+            if (resolvedAsset.busy) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.width(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Text(
+                        text = stringResource(R.string.asset_busy_hint),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                    )
                 }
             }
         }
@@ -1306,6 +1900,13 @@ private fun assetStatusLabel(item: RuntimeAssetEntryState): String {
     } else {
         stringResource(R.string.asset_status_not_ready)
     }
+}
+
+internal fun formatDuration(durationMs: Long): String {
+    val totalSeconds = (durationMs / 1000L).coerceAtLeast(0L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return "%d:%02d".format(minutes, seconds)
 }
 
 private fun buildAccountQrBitmap(content: String, sizePx: Int): Bitmap {

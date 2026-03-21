@@ -67,7 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.RuntimeAssetRepository
+import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.data.TtsVoiceCatalog
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
@@ -76,6 +78,7 @@ import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.defaultCapability
 import com.astrbot.android.model.displayLabel
 import com.astrbot.android.model.displayLabel as providerTypeDisplayLabel
+import com.astrbot.android.model.inferVoiceCloningRuleSupport
 import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.model.inferMultimodalRuleSupport
 import com.astrbot.android.model.isVisibleInCatalog
@@ -584,6 +587,8 @@ private fun ProviderEditorDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val configProfiles by ConfigRepository.profiles.collectAsState()
+    val selectedConfigId by ConfigRepository.selectedProfileId.collectAsState()
     var showDeleteConfirm by remember(initialProvider.id) { mutableStateOf(false) }
     var name by remember(initialProvider.id) { mutableStateOf(initialProvider.name) }
     var baseUrl by remember(initialProvider.id) { mutableStateOf(initialProvider.baseUrl) }
@@ -644,8 +649,7 @@ private fun ProviderEditorDialog(
     }
     val downloadedLocalTtsModelOptions = remember(ttsAssetState) {
         buildList {
-            if (ttsAssetState?.kokoro?.installed == true) add("kokoro" to "kokoro（高性能设备）")
-            if (ttsAssetState?.matcha?.installed == true) add("matcha" to "matcha（中端设备）")
+            if (ttsAssetState?.kokoro?.installed == true) add("kokoro" to "kokoro")
         }
     }
     val suggestedTtsVoiceOptions = remember(providerType, model) {
@@ -667,8 +671,54 @@ private fun ProviderEditorDialog(
     val isLocalProvider = providerType.isLocalOnDeviceProvider()
     val isLocalTtsProvider = providerType == ProviderType.SHERPA_ONNX_TTS
     val isLocalSttProvider = providerType == ProviderType.SHERPA_ONNX_STT
-    val currentSelectedVoiceId = remember(ttsVoiceOptionsText) {
-        ttsVoiceOptionsText.lineSequence().map(String::trim).firstOrNull { it.isNotBlank() }.orEmpty()
+    val selectedConfig = remember(configProfiles, selectedConfigId) {
+        configProfiles.firstOrNull { it.id == selectedConfigId }
+    }
+    val currentProviderProjection = remember(
+        initialProvider.id,
+        name,
+        baseUrl,
+        model,
+        providerType,
+        apiKey,
+        enabled,
+    ) {
+        initialProvider.copy(
+            id = initialProvider.id,
+            name = name.trim().ifBlank { providerType.providerTypeDisplayLabel() },
+            baseUrl = baseUrl.trim(),
+            model = model.trim(),
+            providerType = providerType,
+            apiKey = apiKey.trim(),
+            capabilities = setOf(providerType.defaultCapability()),
+            enabled = enabled,
+        )
+    }
+    val cloudVoiceOptions = remember(currentProviderProjection, selectedConfig?.id) {
+        TtsVoiceAssetRepository.listVoiceChoicesFor(currentProviderProjection)
+    }
+    val allTtsVoiceOptions = remember(currentProviderProjection, cloudVoiceOptions) {
+        buildList<Pair<String, String>> {
+            addAll(TtsVoiceCatalog.optionsFor(currentProviderProjection))
+            val seen = mutableSetOf<String>().apply {
+                this@buildList.forEach { (voiceId, _) -> add(voiceId) }
+            }
+            cloudVoiceOptions.forEach { option ->
+                if (seen.add(option.first)) add(option)
+            }
+        }
+    }
+    val canSyncTtsVoice = capability == ProviderCapability.TTS &&
+        initialProvider.id.isNotBlank() &&
+        selectedConfig != null
+    val projectedVoiceId = remember(selectedConfig?.id, selectedConfig?.ttsVoiceId, allTtsVoiceOptions) {
+        val configVoice = selectedConfig?.ttsVoiceId.orEmpty()
+        when {
+            !canSyncTtsVoice -> allTtsVoiceOptions.firstOrNull()?.first.orEmpty()
+            configVoice.isBlank() -> allTtsVoiceOptions.firstOrNull()?.first.orEmpty()
+            allTtsVoiceOptions.any { it.first == configVoice } -> configVoice
+            else -> allTtsVoiceOptions.firstOrNull()?.first.orEmpty()
+        }
     }
     val localModelOptions = when (providerType) {
         ProviderType.SHERPA_ONNX_TTS -> downloadedLocalTtsModelOptions
@@ -678,6 +728,9 @@ private fun ProviderEditorDialog(
         else -> emptyList()
     }
     val localTtsModelMissing = isLocalTtsProvider && model !in localModelOptions.map { it.first }
+    val displayedVoiceCloneRuleSupport = remember(providerType, model) {
+        inferVoiceCloningRuleSupport(providerType, model)
+    }
     LaunchedEffect(providerType, model, suggestedTtsVoiceOptions) {
         if (isLocalTtsProvider && ttsVoiceOptionsText.isBlank()) {
             ttsVoiceOptionsText = suggestedTtsVoiceOptions.firstOrNull()?.first.orEmpty()
@@ -716,19 +769,6 @@ private fun ProviderEditorDialog(
                     TextButton(
                         colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
                         onClick = {
-                            val normalizedVoiceOptions = when {
-                                isLocalTtsProvider -> {
-                                    val selected = currentSelectedVoiceId.ifBlank {
-                                        suggestedTtsVoiceOptions.firstOrNull()?.first.orEmpty()
-                                    }
-                                    selected.takeIf { it.isNotBlank() }?.let(::listOf).orEmpty()
-                                }
-                                else -> ttsVoiceOptionsText
-                                    .lines()
-                                    .map(String::trim)
-                                    .filter(String::isNotBlank)
-                                    .distinct()
-                            }
                             onSave(
                                 initialProvider.copy(
                                     id = initialProvider.id.ifBlank { java.util.UUID.randomUUID().toString() },
@@ -745,7 +785,7 @@ private fun ProviderEditorDialog(
                                     nativeStreamingProbeSupport = displayedNativeStreamingProbeSupport,
                                     sttProbeSupport = displayedSttProbeSupport,
                                     ttsProbeSupport = displayedTtsProbeSupport,
-                                    ttsVoiceOptions = normalizedVoiceOptions,
+                                    ttsVoiceOptions = emptyList(),
                                 ),
                             )
                         },
@@ -1160,12 +1200,33 @@ private fun ProviderEditorDialog(
                                 }
                             }
                             if (isLocalProvider) {
-                                if (!localTtsModelMissing && suggestedTtsVoiceOptions.isNotEmpty()) {
-                                    SelectionField(
-                                        title = stringResource(R.string.provider_tts_voice_selection_field),
-                                        options = suggestedTtsVoiceOptions,
-                                        selectedId = currentSelectedVoiceId,
-                                        onSelect = { ttsVoiceOptionsText = it },
+                                if (!localTtsModelMissing && allTtsVoiceOptions.isNotEmpty()) {
+                                    if (canSyncTtsVoice) {
+                                        SelectionField(
+                                            title = stringResource(R.string.provider_tts_voice_selection_field),
+                                            options = allTtsVoiceOptions,
+                                            selectedId = projectedVoiceId,
+                                            onSelect = { selection ->
+                                                val config = selectedConfig ?: return@SelectionField
+                                                ConfigRepository.save(
+                                                    config.copy(
+                                                        defaultTtsProviderId = initialProvider.id,
+                                                        ttsVoiceId = selection,
+                                                    ),
+                                                )
+                                            },
+                                        )
+                                    } else {
+                                        ReadOnlySelectionField(
+                                            title = stringResource(R.string.provider_tts_voice_selection_field),
+                                            options = allTtsVoiceOptions,
+                                            selectedId = projectedVoiceId,
+                                        )
+                                    }
+                                }
+                                if (isLocalTtsProvider && !canSyncTtsVoice) {
+                                    InlineProviderNotice(
+                                        text = stringResource(R.string.provider_local_tts_voice_projection_notice),
                                     )
                                 }
                                 Text(
@@ -1175,7 +1236,7 @@ private fun ProviderEditorDialog(
                                 )
                                 OutlinedButton(
                                     onClick = {
-                                        val selectedVoiceId = currentSelectedVoiceId
+                                        val selectedVoiceId = projectedVoiceId
                                         val previewProvider = initialProvider.copy(
                                             name = name.trim().ifBlank { providerType.providerTypeDisplayLabel() },
                                             baseUrl = baseUrl.trim(),
@@ -1217,7 +1278,7 @@ private fun ProviderEditorDialog(
                                             isPreviewingVoice = false
                                         }
                                     },
-                                    enabled = !isPreviewingVoice && !localTtsModelMissing && currentSelectedVoiceId.isNotBlank(),
+                                    enabled = !isPreviewingVoice && !localTtsModelMissing && projectedVoiceId.isNotBlank(),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .heightIn(min = 48.dp),
@@ -1234,53 +1295,48 @@ private fun ProviderEditorDialog(
                                     }
                                 }
                             } else {
-                                Text(
-                                    text = stringResource(R.string.provider_tts_voice_options_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MonochromeUi.textSecondary,
-                                )
                                 SupportStatusRow(title = stringResource(R.string.provider_support_tts_probe), state = displayedTtsProbeSupport)
-                                Text(
-                                    text = stringResource(R.string.provider_tts_voice_options_title),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MonochromeUi.textPrimary,
+                                SupportStatusRow(
+                                    title = stringResource(R.string.provider_support_voice_clone_rule),
+                                    state = displayedVoiceCloneRuleSupport,
                                 )
-                                if (suggestedTtsVoiceOptions.isNotEmpty()) {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        suggestedTtsVoiceOptions.forEach { option ->
-                                            AssistChip(
-                                                onClick = {
-                                                    val current = ttsVoiceOptionsText
-                                                        .lines()
-                                                        .map(String::trim)
-                                                        .filter(String::isNotBlank)
-                                                        .toMutableList()
-                                                    if (option.first !in current) {
-                                                        current += option.first
-                                                        ttsVoiceOptionsText = current.joinToString("\n")
-                                                    }
-                                                },
-                                                label = { Text(option.second) },
-                                                colors = AssistChipDefaults.assistChipColors(
-                                                    containerColor = MonochromeUi.chipBackground,
-                                                    labelColor = MonochromeUi.textSecondary,
-                                                ),
-                                            )
-                                        }
+                                if (allTtsVoiceOptions.isNotEmpty()) {
+                                    if (canSyncTtsVoice) {
+                                        SelectionField(
+                                            title = stringResource(R.string.provider_tts_voice_selection_field),
+                                            options = allTtsVoiceOptions,
+                                            selectedId = projectedVoiceId,
+                                            onSelect = { selection ->
+                                                val config = selectedConfig ?: return@SelectionField
+                                                ConfigRepository.save(
+                                                    config.copy(
+                                                        defaultTtsProviderId = initialProvider.id,
+                                                        ttsVoiceId = selection,
+                                                    ),
+                                                )
+                                            },
+                                        )
+                                    } else {
+                                        ReadOnlySelectionField(
+                                            title = stringResource(R.string.provider_tts_voice_selection_field),
+                                            options = allTtsVoiceOptions,
+                                            selectedId = projectedVoiceId,
+                                        )
                                     }
                                 }
-                                OutlinedTextField(
-                                    value = ttsVoiceOptionsText,
-                                    onValueChange = { ttsVoiceOptionsText = it },
-                                    label = { Text(stringResource(R.string.provider_tts_voice_options_field)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    minLines = 3,
-                                    maxLines = 6,
-                                    colors = monochromeOutlinedTextFieldColors(),
+                                if (!canSyncTtsVoice) {
+                                    InlineProviderNotice(
+                                        text = stringResource(R.string.provider_cloud_tts_voice_projection_notice),
+                                    )
+                                }
+                                Text(
+                                    text = if (displayedVoiceCloneRuleSupport == FeatureSupportState.SUPPORTED) {
+                                        stringResource(R.string.provider_tts_voice_clone_supported_desc)
+                                    } else {
+                                        stringResource(R.string.provider_tts_voice_clone_unsupported_desc)
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MonochromeUi.textSecondary,
                                 )
                             }
                         }
@@ -1384,7 +1440,64 @@ private fun CapabilitySwitch(
     }
 }
 
-private fun playPreviewAttachment(
+@Composable
+private fun InlineProviderNotice(
+    text: String,
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MonochromeUi.inputBackground,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MonochromeUi.textSecondary,
+        )
+    }
+}
+
+@Composable
+private fun ReadOnlySelectionField(
+    title: String,
+    options: List<Pair<String, String>>,
+    selectedId: String,
+) {
+    val selectedLabel = options.firstOrNull { it.first == selectedId }?.second
+        ?: options.firstOrNull()?.second
+        ?: stringResource(R.string.common_not_selected)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = MaterialTheme.typography.labelSmall)
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MonochromeUi.inputBackground,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = selectedLabel,
+                    color = MonochromeUi.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = MonochromeUi.textSecondary,
+                )
+            }
+        }
+    }
+}
+
+internal fun playPreviewAttachment(
     context: android.content.Context,
     attachment: com.astrbot.android.model.ConversationAttachment,
 ) {

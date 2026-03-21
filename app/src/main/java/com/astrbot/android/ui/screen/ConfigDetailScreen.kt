@@ -31,6 +31,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
+import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.TtsVoiceCatalog
 import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.model.ConfigProfile
@@ -68,6 +71,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.Switch
 import androidx.compose.foundation.text.KeyboardOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ConfigDetailScreen(
@@ -243,6 +248,8 @@ private fun ConfigDetailContent(
     modifier: Modifier = Modifier,
     onSave: (ConfigProfile) -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var name by remember(profile.id) { mutableStateOf(profile.name) }
     var defaultChatProviderId by remember(profile.id) { mutableStateOf(profile.defaultChatProviderId) }
     var defaultVisionProviderId by remember(profile.id) { mutableStateOf(profile.defaultVisionProviderId) }
@@ -260,6 +267,7 @@ private fun ConfigDetailContent(
     var webSearchEnabled by remember(profile.id) { mutableStateOf(profile.webSearchEnabled) }
     var proactiveEnabled by remember(profile.id) { mutableStateOf(profile.proactiveEnabled) }
     var ttsVoiceId by remember(profile.id) { mutableStateOf(profile.ttsVoiceId) }
+    var isPreviewingVoice by remember(profile.id) { mutableStateOf(false) }
     var imageCaptionPrompt by remember(profile.id) { mutableStateOf(profile.imageCaptionPrompt) }
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     val defaultChatProvider = providers.firstOrNull { it.id == defaultChatProviderId }
@@ -279,15 +287,18 @@ private fun ConfigDetailContent(
             }
         }
     }
-    var selectedTtsVoiceChoice by remember(profile.id) {
-        mutableStateOf(TtsVoiceCatalog.resolveSelectedVoiceChoice(defaultTtsProvider, ttsVoiceId))
-    }
     val chatModelSupportsImages = defaultChatProvider?.hasMultimodalSupport() == true
     val needsCaptionModel = imageCaptionTextEnabled && !chatModelSupportsImages
     val missingCaptionModel = needsCaptionModel && defaultVisionProviderId.isBlank()
 
-    LaunchedEffect(defaultTtsProvider?.id, ttsVoiceId) {
-        selectedTtsVoiceChoice = TtsVoiceCatalog.resolveSelectedVoiceChoice(defaultTtsProvider, ttsVoiceId)
+    LaunchedEffect(defaultTtsProvider?.id, ttsVoiceOptions) {
+        if (defaultTtsProvider == null) {
+            ttsVoiceId = ""
+        } else if (ttsVoiceOptions.any { it.first == ttsVoiceId }) {
+            Unit
+        } else {
+            ttsVoiceId = ttsVoiceOptions.firstOrNull()?.first.orEmpty()
+        }
     }
 
     Box(
@@ -376,37 +387,6 @@ private fun ConfigDetailContent(
                                 maxLines = 8,
                                 colors = monochromeOutlinedTextFieldColors(),
                             )
-                            SelectionField(
-                                title = stringResource(R.string.config_tts_voice_title),
-                                options = ttsVoiceOptions + (TtsVoiceCatalog.CUSTOM_VOICE_ID to stringResource(R.string.config_tts_voice_custom)),
-                                selectedId = selectedTtsVoiceChoice,
-                                onSelect = { selection ->
-                                    selectedTtsVoiceChoice = selection
-                                    ttsVoiceId = when (selection) {
-                                        TtsVoiceCatalog.DEFAULT_VOICE_ID -> ""
-                                        TtsVoiceCatalog.CUSTOM_VOICE_ID -> ttsVoiceId
-                                        else -> selection
-                                    }
-                                },
-                            )
-                            Text(
-                                text = when {
-                                    defaultTtsProvider == null -> stringResource(R.string.config_tts_voice_no_provider)
-                                    ttsVoiceOptions.size <= 1 -> stringResource(R.string.config_tts_voice_manual_hint)
-                                    else -> stringResource(R.string.config_tts_voice_hint)
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MonochromeUi.textSecondary,
-                            )
-                            if (selectedTtsVoiceChoice == TtsVoiceCatalog.CUSTOM_VOICE_ID || ttsVoiceOptions.size <= 1) {
-                                OutlinedTextField(
-                                    value = ttsVoiceId,
-                                    onValueChange = { ttsVoiceId = it },
-                                    label = { Text(stringResource(R.string.config_tts_voice_custom_value)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = monochromeOutlinedTextFieldColors(),
-                                )
-                            }
                         }
                     }
                     ConfigSectionCard(
@@ -452,6 +432,68 @@ private fun ConfigDetailContent(
                                 enabled = ttsModelReady,
                                 onCheckedChange = { ttsReadBracketedContent = it },
                             )
+                            SelectionField(
+                                title = stringResource(R.string.config_tts_voice_title),
+                                options = ttsVoiceOptions,
+                                selectedId = ttsVoiceId,
+                                onSelect = { ttsVoiceId = it },
+                            )
+                            Text(
+                                text = when {
+                                    defaultTtsProvider == null -> stringResource(R.string.config_tts_voice_no_provider)
+                                    ttsVoiceOptions.isEmpty() -> stringResource(R.string.config_tts_voice_no_options)
+                                    else -> stringResource(R.string.config_tts_voice_hint)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    val previewProvider = defaultTtsProvider ?: return@OutlinedButton
+                                    scope.launch {
+                                        isPreviewingVoice = true
+                                        val result = runCatching {
+                                            withContext(Dispatchers.IO) {
+                                                ChatCompletionService.synthesizeSpeech(
+                                                    provider = previewProvider,
+                                                    text = "你好世界",
+                                                    voiceId = ttsVoiceId,
+                                                    readBracketedContent = true,
+                                                )
+                                            }
+                                        }
+                                        result.onSuccess { attachment ->
+                                            runCatching { playPreviewAttachment(context, attachment) }
+                                                .onFailure { error ->
+                                                    Toast.makeText(
+                                                        context,
+                                                        error.message ?: error.javaClass.simpleName,
+                                                        Toast.LENGTH_LONG,
+                                                    ).show()
+                                                }
+                                        }.onFailure { error ->
+                                            Toast.makeText(
+                                                context,
+                                                error.message ?: error.javaClass.simpleName,
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }
+                                        isPreviewingVoice = false
+                                    }
+                                },
+                                enabled = !isPreviewingVoice && ttsModelReady && ttsVoiceId.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(stringResource(R.string.provider_voice_preview_action))
+                            }
+                            if (isPreviewingVoice) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                }
+                            }
                         }
                     }
                     ConfigSectionCard(
@@ -691,11 +733,13 @@ private fun ConfigToggleRow(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(title, fontWeight = FontWeight.SemiBold, color = MonochromeUi.textPrimary)
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MonochromeUi.textSecondary,
-            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MonochromeUi.textSecondary,
+                )
+            }
         }
         Switch(
             checked = checked,

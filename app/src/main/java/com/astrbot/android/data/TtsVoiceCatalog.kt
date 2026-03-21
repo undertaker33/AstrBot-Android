@@ -6,8 +6,6 @@ import com.astrbot.android.model.ProviderType
 object TtsVoiceCatalog {
     const val DEFAULT_VOICE_ID = ""
     const val CUSTOM_VOICE_ID = "__custom__"
-    const val MATCHA_FEMALE_VOICE_ID = "female"
-    const val MATCHA_MALE_VOICE_ID = "male"
 
     fun optionsFor(provider: ProviderProfile?): List<Pair<String, String>> {
         if (provider == null) return emptyList()

@@ -2,9 +2,13 @@ package com.astrbot.android.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.provider.OpenableColumns
 import com.astrbot.android.model.ClonedVoiceBinding
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
+import com.astrbot.android.model.TtsVoiceReferenceClip
 import com.astrbot.android.model.TtsVoiceReferenceAsset
 import com.astrbot.android.runtime.RuntimeLogRepository
 import java.util.UUID
@@ -13,6 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 
 object TtsVoiceAssetRepository {
     private const val PREFS_NAME = "tts_voice_assets"
@@ -43,6 +49,74 @@ object TtsVoiceAssetRepository {
                 }
             }
             .distinctBy { it.first }
+    }
+
+    fun importReferenceAudio(
+        context: Context,
+        sourceUri: Uri,
+        name: String = "",
+        assetId: String? = null,
+    ): ImportReferenceAudioResult {
+        val appContext = context.applicationContext
+        val resolver = appContext.contentResolver
+        val sourceDisplayName = queryDisplayName(appContext, sourceUri)
+        val fileExtension = inferSupportedExtension(
+            sourceDisplayName = sourceDisplayName,
+            mimeType = resolver.getType(sourceUri),
+        )
+        val resolvedId = assetId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
+        val outputDirectory = File(appContext.filesDir, "assets/tts-reference-audio").apply { mkdirs() }
+        val clipId = UUID.randomUUID().toString()
+        val destinationFile = File(outputDirectory, "$clipId.$fileExtension")
+        resolver.openInputStream(sourceUri)?.use { input ->
+            FileOutputStream(destinationFile).use { output -> input.copyTo(output) }
+        } ?: throw IllegalStateException("Unable to read the selected reference audio file.")
+
+        val metadata = readAudioMetadata(appContext, sourceUri)
+        val clip = TtsVoiceReferenceClip(
+            id = clipId,
+            localPath = destinationFile.absolutePath,
+            durationMs = metadata.durationMs,
+            sampleRateHz = metadata.sampleRateHz,
+        )
+        val current = _assets.value.firstOrNull { it.id == resolvedId }
+        val resolvedName = when {
+            current != null -> current.name
+            else -> name.trim().ifBlank { sourceDisplayName.substringBeforeLast('.').ifBlank { "Reference Audio" } }
+        }
+        val existingClips = current?.clips.orEmpty().ifEmpty {
+            current?.localPath
+                ?.takeIf { it.isNotBlank() }
+                ?.let {
+                    listOf(
+                        TtsVoiceReferenceClip(
+                            id = "${current.id}-legacy",
+                            localPath = it,
+                            durationMs = current.durationMs,
+                            sampleRateHz = current.sampleRateHz,
+                            createdAt = current.createdAt,
+                        ),
+                    )
+                }
+                .orEmpty()
+        }
+        val allClips = (existingClips + clip).sortedByDescending { it.createdAt }
+        val primaryClip = allClips.maxByOrNull { it.durationMs }
+        val asset = upsertReferenceAsset(
+            id = resolvedId,
+            name = resolvedName,
+            source = "imported",
+            localPath = primaryClip?.localPath.orEmpty(),
+            durationMs = primaryClip?.durationMs ?: 0L,
+            sampleRateHz = primaryClip?.sampleRateHz ?: 0,
+        ).copy(clips = allClips)
+        _assets.value = _assets.value.filterNot { it.id == asset.id } + asset
+        _assets.value = _assets.value.sortedByDescending { it.createdAt }
+        persist()
+        RuntimeLogRepository.append(
+            "Reference audio clip imported: name=${asset.name} clips=${asset.clips.size} durationMs=${clip.durationMs}",
+        )
+        return ImportReferenceAudioResult(asset = asset, warning = null)
     }
 
     fun upsertReferenceAsset(
@@ -127,6 +201,56 @@ object TtsVoiceAssetRepository {
         persist()
     }
 
+    fun clearReferenceAudio(assetId: String) {
+        _assets.value = _assets.value.map { asset ->
+            if (asset.id != assetId) {
+                asset
+            } else {
+                asset.clips.forEach { clip ->
+                    runCatching { File(clip.localPath).takeIf(File::exists)?.delete() }
+                }
+                asset.localPath.takeIf { it.isNotBlank() }?.let { path ->
+                    runCatching { File(path).takeIf(File::exists)?.delete() }
+                }
+                asset.copy(
+                    source = "cleared",
+                    localPath = "",
+                    remoteUrl = "",
+                    durationMs = 0L,
+                    sampleRateHz = 0,
+                    clips = emptyList(),
+                )
+            }
+        }
+        persist()
+    }
+
+    fun deleteReferenceClip(assetId: String, clipId: String) {
+        _assets.value = _assets.value.map { asset ->
+            if (asset.id != assetId) {
+                asset
+            } else {
+                val remainingClips = asset.clips.filterNot { clip ->
+                    if (clip.id == clipId) {
+                        runCatching { File(clip.localPath).takeIf(File::exists)?.delete() }
+                        true
+                    } else {
+                        false
+                    }
+                }
+                val primaryClip = remainingClips.maxByOrNull { it.durationMs }
+                asset.copy(
+                    localPath = primaryClip?.localPath.orEmpty(),
+                    durationMs = primaryClip?.durationMs ?: 0L,
+                    sampleRateHz = primaryClip?.sampleRateHz ?: 0,
+                    clips = remainingClips,
+                    source = if (remainingClips.isEmpty()) "cleared" else asset.source,
+                )
+            }
+        }
+        persist()
+    }
+
     fun deleteBinding(assetId: String, bindingId: String) {
         _assets.value = _assets.value.map { asset ->
             if (asset.id != assetId) {
@@ -155,6 +279,33 @@ object TtsVoiceAssetRepository {
                             durationMs = item.optLong("durationMs"),
                             sampleRateHz = item.optInt("sampleRateHz"),
                             createdAt = item.optLong("createdAt"),
+                            clips = buildList {
+                                val clipsArray = item.optJSONArray("clips")
+                                if (clipsArray != null && clipsArray.length() > 0) {
+                                    for (clipIndex in 0 until clipsArray.length()) {
+                                        val clip = clipsArray.optJSONObject(clipIndex) ?: continue
+                                        add(
+                                            TtsVoiceReferenceClip(
+                                                id = clip.optString("id"),
+                                                localPath = clip.optString("localPath"),
+                                                durationMs = clip.optLong("durationMs"),
+                                                sampleRateHz = clip.optInt("sampleRateHz"),
+                                                createdAt = clip.optLong("createdAt"),
+                                            ),
+                                        )
+                                    }
+                                } else if (item.optString("localPath").isNotBlank()) {
+                                    add(
+                                        TtsVoiceReferenceClip(
+                                            id = "${item.optString("id")}-legacy",
+                                            localPath = item.optString("localPath"),
+                                            durationMs = item.optLong("durationMs"),
+                                            sampleRateHz = item.optInt("sampleRateHz"),
+                                            createdAt = item.optLong("createdAt"),
+                                        ),
+                                    )
+                                }
+                            },
                             providerBindings = buildList {
                                 val bindings = item.optJSONArray("providerBindings") ?: JSONArray()
                                 for (bindingIndex in 0 until bindings.length()) {
@@ -200,6 +351,22 @@ object TtsVoiceAssetRepository {
                         put("sampleRateHz", asset.sampleRateHz)
                         put("createdAt", asset.createdAt)
                         put(
+                            "clips",
+                            JSONArray().apply {
+                                asset.clips.forEach { clip ->
+                                    put(
+                                        JSONObject().apply {
+                                            put("id", clip.id)
+                                            put("localPath", clip.localPath)
+                                            put("durationMs", clip.durationMs)
+                                            put("sampleRateHz", clip.sampleRateHz)
+                                            put("createdAt", clip.createdAt)
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                        put(
                             "providerBindings",
                             JSONArray().apply {
                                 asset.providerBindings.forEach { binding ->
@@ -225,4 +392,68 @@ object TtsVoiceAssetRepository {
         }
         preferences?.edit()?.putString(KEY_ASSETS_JSON, json.toString())?.apply()
     }
+
+    private fun queryDisplayName(context: Context, uri: Uri): String {
+        val fallback = uri.lastPathSegment?.substringAfterLast('/') ?: "reference-audio"
+        return runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)?.takeIf { it.isNotBlank() }
+                } else {
+                    null
+                }
+            }
+        }.getOrNull().orEmpty().ifBlank { fallback }
+    }
+
+    private fun inferSupportedExtension(sourceDisplayName: String, mimeType: String?): String {
+        val normalizedMime = mimeType.orEmpty().lowercase()
+        val fromMime = when (normalizedMime) {
+            "audio/wav", "audio/x-wav", "audio/wave" -> "wav"
+            "audio/mpeg", "audio/mp3" -> "mp3"
+            "audio/mp4", "audio/x-m4a" -> "m4a"
+            "audio/aac" -> "aac"
+            else -> ""
+        }
+        val fromName = sourceDisplayName.substringAfterLast('.', "").lowercase()
+        val resolved = when {
+            fromMime.isNotBlank() -> fromMime
+            fromName in setOf("wav", "mp3", "m4a", "aac") -> fromName
+            else -> ""
+        }
+        return resolved.ifBlank {
+            throw IllegalStateException("Unsupported audio format. Import WAV, MP3, M4A, or AAC reference audio.")
+        }
+    }
+
+    private fun readAudioMetadata(context: Context, uri: Uri): ReferenceAudioMetadata {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()
+                ?.coerceAtLeast(0L)
+                ?: 0L
+            val sampleRateHz = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)
+                ?.toIntOrNull()
+                ?.coerceAtLeast(0)
+                ?: 0
+            ReferenceAudioMetadata(
+                durationMs = durationMs,
+                sampleRateHz = sampleRateHz,
+            )
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    data class ImportReferenceAudioResult(
+        val asset: TtsVoiceReferenceAsset,
+        val warning: String?,
+    )
+
+    private data class ReferenceAudioMetadata(
+        val durationMs: Long,
+        val sampleRateHz: Int,
+    )
 }

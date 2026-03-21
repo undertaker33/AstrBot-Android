@@ -19,11 +19,6 @@ object SherpaOnnxAssetManager {
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2"
     private const val KOKORO_URL =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2"
-    private const val MATCHA_URL =
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-baker.tar.bz2"
-    private const val MATCHA_VOCODER_URL =
-        "https://huggingface.co/k2-fsa/sherpa-onnx-models/resolve/main/vocoder-models/vocos-22khz-univ.onnx?download=true"
-
     data class SubAssetState(
         val installed: Boolean,
         val details: String,
@@ -32,7 +27,6 @@ object SherpaOnnxAssetManager {
     data class TtsAssetState(
         val framework: SubAssetState,
         val kokoro: SubAssetState,
-        val matcha: SubAssetState,
     )
 
     fun frameworkState(context: Context): SubAssetState {
@@ -71,16 +65,6 @@ object SherpaOnnxAssetManager {
             File(kokoroDir(context), "date-zh.fst"),
             File(kokoroDir(context), "number-zh.fst"),
         ).all { it.exists() }
-        val matchaReady = listOf(
-            matchaModelFile(context),
-            matchaTokensFile(context),
-            matchaVocoderFile(context),
-            File(matchaDir(context), "lexicon.txt"),
-            File(matchaDir(context), "dict"),
-            File(matchaDir(context), "phone.fst"),
-            File(matchaDir(context), "date.fst"),
-            File(matchaDir(context), "number.fst"),
-        ).all { it.exists() }
         return TtsAssetState(
             framework = frameworkState(context),
             kokoro = SubAssetState(
@@ -89,14 +73,6 @@ object SherpaOnnxAssetManager {
                     "Kokoro local TTS assets are ready."
                 } else {
                     "Kokoro local TTS assets are missing or incomplete."
-                },
-            ),
-            matcha = SubAssetState(
-                installed = matchaReady,
-                details = if (matchaReady) {
-                    "Matcha local TTS assets are ready."
-                } else {
-                    "Matcha local TTS assets are missing or incomplete."
                 },
             ),
         )
@@ -108,7 +84,10 @@ object SherpaOnnxAssetManager {
 
     fun kokoroDir(context: Context): File = File(frameworkDir(context), "tts/kokoro")
 
-    fun matchaDir(context: Context): File = File(frameworkDir(context), "tts/matcha")
+    fun legacyMeloDir(context: Context): File = File(frameworkDir(context), "tts/melo")
+    fun legacyFanchenDir(context: Context): File = File(frameworkDir(context), "tts/fanchen-c")
+    fun legacyZhLlDir(context: Context): File = File(frameworkDir(context), "tts/zh-ll")
+    fun legacyMatchaDir(context: Context): File = File(frameworkDir(context), "tts/matcha")
 
     fun ensureFrameworkActivated(context: Context) {
         val frameworkDir = frameworkDir(context)
@@ -116,6 +95,7 @@ object SherpaOnnxAssetManager {
             frameworkDir.mkdirs()
         }
         frameworkMarkerFile(context).writeText(FRAMEWORK_VERSION)
+        clearDeprecatedTtsAssets(context)
         RuntimeLogRepository.append("Sherpa ONNX framework activated: version=$FRAMEWORK_VERSION")
     }
 
@@ -158,25 +138,19 @@ object SherpaOnnxAssetManager {
         RuntimeLogRepository.append("Sherpa ONNX kokoro assets cleared")
     }
 
-    fun downloadMatchaAssets(context: Context) {
-        require(frameworkState(context).installed) {
-            "Download the Sherpa ONNX framework asset first."
+    fun clearDeprecatedTtsAssets(context: Context) {
+        val deprecatedDirs = listOf(
+            legacyMatchaDir(context),
+            legacyMeloDir(context),
+            legacyFanchenDir(context),
+            legacyZhLlDir(context),
+        )
+        deprecatedDirs.forEach { dir ->
+            if (dir.exists()) {
+                dir.deleteRecursively()
+                RuntimeLogRepository.append("Sherpa ONNX deprecated TTS assets cleared: ${dir.absolutePath}")
+            }
         }
-        downloadAndExtract(
-            context = context,
-            url = MATCHA_URL,
-            tempName = "matcha-icefall-zh-baker.tar.bz2",
-            targetDir = matchaDir(context),
-        )
-        downloadFile(
-            url = MATCHA_VOCODER_URL,
-            outputFile = matchaVocoderFile(context),
-        )
-    }
-
-    fun clearMatchaAssets(context: Context) {
-        matchaDir(context).deleteRecursively()
-        RuntimeLogRepository.append("Sherpa ONNX matcha assets cleared")
     }
 
     private fun frameworkMarkerFile(context: Context): File = File(frameworkDir(context), FRAMEWORK_MARKER)
@@ -188,12 +162,6 @@ object SherpaOnnxAssetManager {
     private fun kokoroModelFile(context: Context): File = File(kokoroDir(context), "model.int8.onnx")
 
     private fun kokoroVoicesFile(context: Context): File = File(kokoroDir(context), "voices.bin")
-
-    private fun matchaModelFile(context: Context): File = File(matchaDir(context), "model-steps-3.onnx")
-
-    private fun matchaTokensFile(context: Context): File = File(matchaDir(context), "tokens.txt")
-
-    private fun matchaVocoderFile(context: Context): File = File(matchaDir(context), "vocos-22khz-univ.onnx")
 
     private fun downloadAndExtract(
         context: Context,

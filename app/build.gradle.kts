@@ -45,6 +45,12 @@ val excludedRuntimeAssets = listOf(
     "vocos-22khz-univ.onnx",
     "sherpa-onnx/matcha-icefall-zh-baker/**",
     "sherpa-onnx/vocos-22khz-univ.onnx",
+    "sherpa-onnx-vits-zh-ll/**",
+    "vits-zh-hf-fanchen-C/**",
+    "vits-melo-tts-zh_en/**",
+    "sherpa-onnx/sherpa-onnx-vits-zh-ll/**",
+    "sherpa-onnx/vits-zh-hf-fanchen-C/**",
+    "sherpa-onnx/vits-melo-tts-zh_en/**",
 )
 
 val prepareFilteredAssets by tasks.registering(Sync::class) {
@@ -61,8 +67,8 @@ android {
         applicationId = "com.astrbot.android"
         minSdk = 29
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.2.8"
+        versionCode = 9
+        versionName = "0.2.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

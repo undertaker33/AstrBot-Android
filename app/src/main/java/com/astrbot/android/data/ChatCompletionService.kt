@@ -607,6 +607,7 @@ object ChatCompletionService {
         val connection = openConnection(endpoint, "POST").apply {
             setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
             setRequestProperty("X-DashScope-SSE", "enable")
+            setRequestProperty("Accept", "text/event-stream")
         }
         return try {
             synthesizeWithDashScopeSse(connection, payload)

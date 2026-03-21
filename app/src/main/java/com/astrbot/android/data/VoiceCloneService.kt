@@ -36,15 +36,22 @@ object VoiceCloneService {
             "Qwen voice cloning requires a qwen3-tts-vc-* model."
         }
         val referenceAudio = resolveReferenceAudio(asset)
+        val resolvedTargetModel = normalizeQwenVoiceCloneTargetModel(provider.model)
         val payload = JSONObject().apply {
             put("model", "qwen-voice-enrollment")
             put(
                 "input",
                 JSONObject().apply {
-                    put("target_model", provider.model.trim())
-                    put("voice_name", sanitizeVoiceId(displayName, asset.id))
-                    put("prefix", displayName.trim().ifBlank { asset.name })
-                    put("url", "data:${referenceAudio.mimeType};base64,${Base64.getEncoder().encodeToString(referenceAudio.bytes)}")
+                    put("action", "create")
+                    put("target_model", resolvedTargetModel)
+                    put("preferred_name", sanitizeQwenPreferredName(displayName, asset.id))
+                    put(
+                        "audio",
+                        JSONObject().apply {
+                            put("data", "data:${referenceAudio.mimeType};base64,${Base64.getEncoder().encodeToString(referenceAudio.bytes)}")
+                        },
+                    )
+                    inferReferenceLanguage(referenceAudio.fileName)?.let { put("language", it) }
                 },
             )
         }
@@ -145,12 +152,17 @@ object VoiceCloneService {
     }
 
     private fun resolveReferenceAudio(asset: TtsVoiceReferenceAsset): ReferenceAudioData {
+        val preferredLocalPath = asset.clips
+            .filter { it.localPath.isNotBlank() }
+            .maxByOrNull { it.durationMs }
+            ?.localPath
+            ?: asset.localPath.takeIf { it.isNotBlank() }
         val bytes = when {
-            asset.localPath.isNotBlank() -> resolveLocalBytes(asset.localPath)
+            preferredLocalPath != null -> resolveLocalBytes(preferredLocalPath)
             asset.remoteUrl.isNotBlank() -> downloadBytes(asset.remoteUrl)
             else -> throw IllegalStateException("Reference audio is missing.")
         }
-        val fileName = asset.localPath.takeIf { it.isNotBlank() }?.let { File(it).name }
+        val fileName = preferredLocalPath?.let { File(it).name }
             ?: asset.remoteUrl.substringAfterLast('/').substringBefore('?').ifBlank { "${asset.name}.wav" }
         val mimeType = inferAudioMimeType(fileName)
         return ReferenceAudioData(
@@ -207,6 +219,33 @@ object VoiceCloneService {
         return if (base.length <= 48) base else base.take(48)
     }
 
+    private fun sanitizeQwenPreferredName(
+        displayName: String,
+        assetId: String,
+    ): String {
+        val base = displayName.trim().ifBlank { assetId }
+            .replace(Regex("[^A-Za-z0-9_]+"), "_")
+            .trim('_')
+            .ifBlank { "voice_${UUID.randomUUID().toString().take(8)}" }
+        return if (base.length <= 16) base else base.take(16)
+    }
+
+    private fun normalizeQwenVoiceCloneTargetModel(model: String): String {
+        return when (model.trim()) {
+            "qwen3-tts-vc" -> "qwen3-tts-vc-2026-01-22"
+            "qwen3-tts-vc-realtime" -> "qwen3-tts-vc-realtime-2026-01-15"
+            else -> model.trim()
+        }
+    }
+
+    private fun inferReferenceLanguage(fileName: String): String? {
+        val normalized = fileName.lowercase()
+        return when {
+            normalized.endsWith(".wav") || normalized.endsWith(".mp3") || normalized.endsWith(".m4a") || normalized.endsWith(".aac") -> "zh"
+            else -> null
+        }
+    }
+
     private fun normalizeMiniMaxApiBase(baseUrl: String): String {
         val normalized = baseUrl.trimEnd('/')
         return if (normalized.endsWith("/v1")) normalized else normalized.substringBefore("/t2a_v2").trimEnd('/') + "/v1"
@@ -239,6 +278,9 @@ object VoiceCloneService {
             ?.use { it.readText() }
             .orEmpty()
         if (responseCode !in 200..299) {
+            RuntimeLogRepository.append(
+                "Voice clone HTTP error: code=$responseCode body=${body.ifBlank { "-" }}",
+            )
             throw IllegalStateException("HTTP $responseCode: $body")
         }
         return parser(body)

@@ -92,6 +92,10 @@ fun ProviderType.supportsNativeStreamingCheck(): Boolean {
     return defaultCapability() == ProviderCapability.CHAT
 }
 
+fun ProviderType.supportsVoiceCloningRuleCheck(): Boolean {
+    return this == ProviderType.BAILIAN_TTS || this == ProviderType.MINIMAX_TTS
+}
+
 fun visibleProviderTypesFor(capability: ProviderCapability): List<ProviderType> {
     return ProviderType.entries.filter { it.isVisibleInCatalog() && it.defaultCapability() == capability }
 }
@@ -147,8 +151,33 @@ fun inferMultimodalRuleSupport(providerType: ProviderType, model: String): Featu
     }
 }
 
+fun inferVoiceCloningRuleSupport(providerType: ProviderType, model: String): FeatureSupportState {
+    val normalizedModel = model.trim().lowercase()
+    if (!providerType.supportsVoiceCloningRuleCheck()) return FeatureSupportState.UNSUPPORTED
+
+    return when (providerType) {
+        ProviderType.BAILIAN_TTS -> {
+            when {
+                normalizedModel.isBlank() -> FeatureSupportState.UNKNOWN
+                normalizedModel.startsWith("qwen3-tts-vc") -> FeatureSupportState.SUPPORTED
+                else -> FeatureSupportState.UNSUPPORTED
+            }
+        }
+
+        ProviderType.MINIMAX_TTS -> {
+            if (normalizedModel.isBlank()) FeatureSupportState.UNKNOWN else FeatureSupportState.SUPPORTED
+        }
+
+        else -> FeatureSupportState.UNSUPPORTED
+    }
+}
+
 fun ProviderProfile.hasNativeStreamingSupport(): Boolean {
     return nativeStreamingProbeSupport == FeatureSupportState.SUPPORTED ||
         nativeStreamingRuleSupport == FeatureSupportState.SUPPORTED ||
         inferNativeStreamingRuleSupport(providerType, model) == FeatureSupportState.SUPPORTED
+}
+
+fun ProviderProfile.hasVoiceCloningSupport(): Boolean {
+    return inferVoiceCloningRuleSupport(providerType, model) == FeatureSupportState.SUPPORTED
 }

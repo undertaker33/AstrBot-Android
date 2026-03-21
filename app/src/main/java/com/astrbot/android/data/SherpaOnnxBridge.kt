@@ -36,8 +36,6 @@ object SherpaOnnxBridge {
     private const val TTS_LEADING_SILENCE_MS = 1200
     private const val TTS_FADE_IN_MS = 10
     private const val TTS_FADE_OUT_MS = 14
-    private const val MATCHA_MALE_PITCH_SCALE = 0.84f
-    private const val MATCHA_FEMALE_PITCH_SCALE = 1.08f
 
     private val recognizerCache = ConcurrentHashMap<String, OfflineRecognizer>()
     private val ttsCache = ConcurrentHashMap<String, OfflineTts>()
@@ -57,7 +55,7 @@ object SherpaOnnxBridge {
     }
 
     fun transcribeAudio(
-        provider: ProviderProfile,
+        @Suppress("UNUSED_PARAMETER") provider: ProviderProfile,
         attachment: ConversationAttachment,
     ): String {
         ensureInitialized()
@@ -127,7 +125,6 @@ object SherpaOnnxBridge {
         val state = SherpaOnnxAssetManager.ttsState(context)
         return when (model.trim().lowercase()) {
             "kokoro" -> state.kokoro.installed
-            "matcha" -> state.matcha.installed
             else -> false
         }
     }
@@ -159,10 +156,6 @@ object SherpaOnnxBridge {
         return when (model) {
             "kokoro" -> TtsRuntimeConfig(
                 config = buildKokoroConfig(context),
-                assetManager = null,
-            )
-            "matcha" -> TtsRuntimeConfig(
-                config = buildMatchaConfig(context),
                 assetManager = null,
             )
             else -> throw IllegalStateException("Unsupported Sherpa ONNX TTS model: $model")
@@ -202,28 +195,6 @@ object SherpaOnnxBridge {
                 File(kokoroDir, "phone-zh.fst").absolutePath,
                 File(kokoroDir, "date-zh.fst").absolutePath,
                 File(kokoroDir, "number-zh.fst").absolutePath,
-            ).joinToString(","),
-            ruleFars = "",
-            numThreads = 2,
-            isKitten = false,
-        )
-    }
-
-    private fun buildMatchaConfig(context: Context): OfflineTtsConfig {
-        val matchaDir = SherpaOnnxAssetManager.matchaDir(context)
-        return getOfflineTtsConfig(
-            modelDir = matchaDir.absolutePath,
-            modelName = "",
-            acousticModelName = "model-steps-3.onnx",
-            vocoder = File(matchaDir, "vocos-22khz-univ.onnx").absolutePath,
-            voices = "",
-            lexicon = File(matchaDir, "lexicon.txt").absolutePath,
-            dataDir = "",
-            dictDir = File(matchaDir, "dict").absolutePath,
-            ruleFsts = listOf(
-                File(matchaDir, "phone.fst").absolutePath,
-                File(matchaDir, "date.fst").absolutePath,
-                File(matchaDir, "number.fst").absolutePath,
             ).joinToString(","),
             ruleFars = "",
             numThreads = 2,
@@ -303,87 +274,12 @@ object SherpaOnnxBridge {
     }
 
     private fun applyVoiceProfile(
-        model: String,
-        voiceId: String,
-        sampleRate: Int,
+        @Suppress("UNUSED_PARAMETER") model: String,
+        @Suppress("UNUSED_PARAMETER") voiceId: String,
+        @Suppress("UNUSED_PARAMETER") sampleRate: Int,
         pcmBytes: ByteArray,
     ): ByteArray {
-        if (model != "matcha") return pcmBytes
-        val pitchScale = when (voiceId.trim()) {
-            TtsVoiceCatalog.MATCHA_MALE_VOICE_ID -> MATCHA_MALE_PITCH_SCALE
-            TtsVoiceCatalog.MATCHA_FEMALE_VOICE_ID,
-            "",
-            -> MATCHA_FEMALE_PITCH_SCALE
-            else -> MATCHA_FEMALE_PITCH_SCALE
-        }
-        return shiftMonoPcmPitch(
-            pcmBytes = pcmBytes,
-            sampleRate = sampleRate,
-            pitchScale = pitchScale,
-        )
-    }
-
-    private fun shiftMonoPcmPitch(
-        pcmBytes: ByteArray,
-        sampleRate: Int,
-        pitchScale: Float,
-    ): ByteArray {
-        if (pcmBytes.size < 4 || pitchScale <= 0f || pitchScale == 1f) return pcmBytes
-        val source = ShortArray(pcmBytes.size / 2)
-        ByteBuffer.wrap(pcmBytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(source)
-        val pitchedLength = (source.size / pitchScale).toInt().coerceAtLeast(1)
-        val pitched = ShortArray(pitchedLength)
-        for (index in pitched.indices) {
-            pitched[index] = interpolateSample(source, index * pitchScale)
-        }
-        val restored = ShortArray(source.size)
-        val restoreRatio = if (restored.size <= 1) 1f else (pitched.size - 1).toFloat() / (restored.size - 1).toFloat()
-        for (index in restored.indices) {
-            restored[index] = interpolateSample(pitched, index * restoreRatio)
-        }
-        val adjusted = if (pitchScale < 1f) {
-            applyLowShelf(restored, sampleRate)
-        } else {
-            restored
-        }
-        return shortArrayToPcmBytes(adjusted)
-    }
-
-    private fun interpolateSample(
-        samples: ShortArray,
-        position: Float,
-    ): Short {
-        if (samples.isEmpty()) return 0
-        val safePosition = position.coerceIn(0f, (samples.lastIndex).toFloat())
-        val leftIndex = safePosition.toInt()
-        val rightIndex = (leftIndex + 1).coerceAtMost(samples.lastIndex)
-        if (leftIndex == rightIndex) return samples[leftIndex]
-        val fraction = safePosition - leftIndex
-        val interpolated = samples[leftIndex] * (1f - fraction) + samples[rightIndex] * fraction
-        return interpolated.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-    }
-
-    private fun applyLowShelf(
-        samples: ShortArray,
-        sampleRate: Int,
-    ): ShortArray {
-        if (samples.isEmpty()) return samples
-        val blend = (140f / sampleRate.coerceAtLeast(1)).coerceIn(0.03f, 0.18f)
-        var previous = samples.first().toFloat()
-        return ShortArray(samples.size) { index ->
-            previous += (samples[index] - previous) * blend
-            previous.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-        }
-    }
-
-    private fun shortArrayToPcmBytes(samples: ShortArray): ByteArray {
-        val bytes = ByteArray(samples.size * 2)
-        for (index in samples.indices) {
-            val sample = samples[index]
-            bytes[index * 2] = sample.toInt().toByte()
-            bytes[index * 2 + 1] = (sample.toInt() shr 8).toByte()
-        }
-        return bytes
+        return pcmBytes
     }
 
     private fun floatArrayToPcmBytes(samples: FloatArray): ByteArray {
@@ -823,7 +719,6 @@ object SherpaOnnxBridge {
         check(isTtsReady(normalized)) {
             when (normalized) {
                 "kokoro" -> "Kokoro on-device TTS assets are missing. Open Asset Management and download kokoro first."
-                "matcha" -> "Matcha on-device TTS assets are missing or incomplete. Re-download matcha assets first."
                 else -> "Unknown local TTS model: $model"
             }
         }

@@ -207,6 +207,14 @@ data class ClonedVoiceBinding(
     val status: String = "ready",
 )
 
+data class TtsVoiceReferenceClip(
+    val id: String,
+    val localPath: String,
+    val durationMs: Long = 0L,
+    val sampleRateHz: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
 data class TtsVoiceReferenceAsset(
     val id: String,
     val name: String,
@@ -215,6 +223,7 @@ data class TtsVoiceReferenceAsset(
     val remoteUrl: String = "",
     val durationMs: Long = 0L,
     val sampleRateHz: Int = 0,
+    val clips: List<TtsVoiceReferenceClip> = emptyList(),
     val providerBindings: List<ClonedVoiceBinding> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
 )

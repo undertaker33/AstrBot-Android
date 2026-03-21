@@ -54,6 +54,7 @@ object RuntimeAssetRepository {
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
+        SherpaOnnxAssetManager.clearDeprecatedTtsAssets(context.applicationContext)
         refresh(context.applicationContext)
     }
 
@@ -91,7 +92,6 @@ object RuntimeAssetRepository {
         val normalized = modelId.trim().lowercase()
         when (normalized) {
             "kokoro" -> downloadKokoroAssets(appContext)
-            "matcha" -> downloadMatchaAssets(appContext)
         }
     }
 
@@ -99,7 +99,6 @@ object RuntimeAssetRepository {
         val appContext = context.applicationContext
         when (modelId.trim().lowercase()) {
             "kokoro" -> clearKokoroAssets(appContext)
-            "matcha" -> clearMatchaAssets(appContext)
         }
     }
 
@@ -304,9 +303,13 @@ object RuntimeAssetRepository {
         )
         try {
             SherpaOnnxAssetManager.downloadKokoroAssets(context)
+            check(SherpaOnnxAssetManager.ttsState(context).kokoro.installed) {
+                "Kokoro assets are still missing after download."
+            }
             refresh(context)
             updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Downloaded kokoro")
         } catch (error: Exception) {
+            runCatching { SherpaOnnxAssetManager.clearKokoroAssets(context) }
             updateAsset(
                 RuntimeAssetId.ON_DEVICE_TTS,
                 busy = false,
@@ -327,48 +330,6 @@ object RuntimeAssetRepository {
             SherpaOnnxAssetManager.clearKokoroAssets(context)
             refresh(context)
             updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Cleared kokoro")
-        } catch (error: Exception) {
-            updateAsset(
-                RuntimeAssetId.ON_DEVICE_TTS,
-                busy = false,
-                lastAction = "Clear failed",
-                details = error.message ?: error.javaClass.simpleName,
-            )
-        }
-    }
-
-    private suspend fun downloadMatchaAssets(context: Context) {
-        updateAsset(
-            RuntimeAssetId.ON_DEVICE_TTS,
-            busy = true,
-            lastAction = "Downloading matcha",
-            details = "Downloading matcha local TTS assets.",
-        )
-        try {
-            SherpaOnnxAssetManager.downloadMatchaAssets(context)
-            refresh(context)
-            updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Downloaded matcha")
-        } catch (error: Exception) {
-            updateAsset(
-                RuntimeAssetId.ON_DEVICE_TTS,
-                busy = false,
-                lastAction = "Download failed",
-                details = error.message ?: error.javaClass.simpleName,
-            )
-        }
-    }
-
-    private suspend fun clearMatchaAssets(context: Context) {
-        updateAsset(
-            RuntimeAssetId.ON_DEVICE_TTS,
-            busy = true,
-            lastAction = "Clearing matcha",
-            details = "Removing matcha local TTS assets.",
-        )
-        try {
-            SherpaOnnxAssetManager.clearMatchaAssets(context)
-            refresh(context)
-            updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Cleared matcha")
         } catch (error: Exception) {
             updateAsset(
                 RuntimeAssetId.ON_DEVICE_TTS,
@@ -402,7 +363,7 @@ object RuntimeAssetRepository {
         RuntimeAssetId.TTS -> ttsMarkerFile(context).exists()
         RuntimeAssetId.ON_DEVICE_FRAMEWORK -> SherpaOnnxAssetManager.frameworkState(context).installed
         RuntimeAssetId.ON_DEVICE_STT -> SherpaOnnxAssetManager.sttState(context).installed
-        RuntimeAssetId.ON_DEVICE_TTS -> SherpaOnnxAssetManager.ttsState(context).let { it.kokoro.installed || it.matcha.installed }
+        RuntimeAssetId.ON_DEVICE_TTS -> SherpaOnnxAssetManager.ttsState(context).kokoro.installed
         RuntimeAssetId.TTS_VOICE_ASSETS,
         -> false
     }
@@ -425,8 +386,8 @@ object RuntimeAssetRepository {
         } ?: "Offline Paraformer STT assets are not downloaded."
         RuntimeAssetId.ON_DEVICE_TTS -> context?.let {
             val state = SherpaOnnxAssetManager.ttsState(it)
-            "Framework: ${state.framework.details} Kokoro: ${state.kokoro.details} Matcha: ${state.matcha.details}"
-        } ?: "Framework, kokoro, and matcha asset status will appear after initialization."
+            "Framework: ${state.framework.details} Kokoro: ${state.kokoro.details}"
+        } ?: "Framework and kokoro asset status will appear after initialization."
         RuntimeAssetId.TTS_VOICE_ASSETS -> "Cloud TTS voice asset entry is ready. Reference audio import and clone management will be connected in this iteration."
     }
 
