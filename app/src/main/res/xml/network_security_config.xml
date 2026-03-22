@@ -4,4 +4,7 @@
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">localhost</domain>
     </domain-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">dashscope-result-bj.oss-cn-beijing.aliyuncs.com</domain>
+    </domain-config>
 </network-security-config>

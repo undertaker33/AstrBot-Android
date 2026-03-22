@@ -584,9 +584,18 @@ object ChatCompletionService {
         if (request.stylePrompt.isNotBlank() && !supportsInstructions) {
             RuntimeLogRepository.append("TTS style prompt skipped: DashScope model $modelName needs qwen3-tts-instruct-flash")
         }
+        val clonedVoiceChoices = TtsVoiceAssetRepository.listVoiceChoicesFor(provider)
+        val effectiveVoiceId = voiceId.ifBlank {
+            clonedVoiceChoices.firstOrNull()?.first.orEmpty()
+        }
+        val requiresClonedVoice = modelName.lowercase(Locale.US).contains("-vc")
+        if (requiresClonedVoice && effectiveVoiceId.isBlank()) {
+            throw IllegalStateException("This Qwen voice-clone model needs a cloned voice. Select a cloned voice in config or the TTS model card first.")
+        }
+        val useStreaming = !requiresClonedVoice
         val payload = JSONObject().apply {
             put("model", modelName)
-            put("stream", true)
+            put("stream", useStreaming)
             request.styleHints.dashScopeInstruction
                 .takeIf { it.isNotBlank() }
                 .takeIf { supportsInstructions }
@@ -598,7 +607,7 @@ object ChatCompletionService {
                 "input",
                 JSONObject().apply {
                     put("text", request.spokenText)
-                    put("voice", voiceId.ifBlank { "Cherry" })
+                    put("voice", effectiveVoiceId.ifBlank { "Cherry" })
                     put("language_type", inferDashScopeLanguageType(request.spokenText))
                 },
             )
@@ -606,11 +615,21 @@ object ChatCompletionService {
         val endpoint = provider.baseUrl.trimEnd('/') + "/services/aigc/multimodal-generation/generation"
         val connection = openConnection(endpoint, "POST").apply {
             setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-            setRequestProperty("X-DashScope-SSE", "enable")
-            setRequestProperty("Accept", "text/event-stream")
+            if (useStreaming) {
+                setRequestProperty("X-DashScope-SSE", "enable")
+                setRequestProperty("Accept", "text/event-stream")
+            } else {
+                setRequestProperty("Accept", "application/json")
+            }
         }
         return try {
-            synthesizeWithDashScopeSse(connection, payload)
+            if (useStreaming) {
+                synthesizeWithDashScopeSse(connection, payload)
+            } else {
+                executeJsonRequest(connection, payload) { body ->
+                    parseDashScopeTtsAttachment(body)
+                }
+            }
         } finally {
             connection.disconnect()
         }
@@ -1507,11 +1526,23 @@ object ChatCompletionService {
 
     private fun downloadBytes(url: String): ByteArray {
         val resolvedUrl = normalizeBinaryDownloadUrl(url)
-        val connection = openConnection(resolvedUrl, "GET")
+        RuntimeLogRepository.append("HTTP binary download start: url=$resolvedUrl")
+        val connection = (URL(resolvedUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 30_000
+            readTimeout = 60_000
+            doInput = true
+            useCaches = false
+            instanceFollowRedirects = true
+            setRequestProperty("Connection", "close")
+        }
         return try {
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) {
-                throw IllegalStateException("HTTP $responseCode while downloading binary content.")
+                val body = readBody(connection, responseCode)
+                throw IllegalStateException(
+                    "HTTP $responseCode while downloading binary content.${body.takeIf { it.isNotBlank() }?.let { " $it" } ?: ""}",
+                )
             }
             connection.inputStream.use { it.readBytes() }
         } finally {
@@ -1520,24 +1551,7 @@ object ChatCompletionService {
     }
 
     private fun normalizeBinaryDownloadUrl(url: String): String {
-        return try {
-            val parsed = URL(url)
-            val host = parsed.host.orEmpty()
-            val shouldUpgradeToHttps = parsed.protocol.equals("http", ignoreCase = true) &&
-                host.isNotBlank() &&
-                host != "127.0.0.1" &&
-                host != "localhost" &&
-                !host.endsWith(".local", ignoreCase = true)
-            if (!shouldUpgradeToHttps) {
-                url
-            } else {
-                val upgraded = URL("https", parsed.host, parsed.port, parsed.file).toString()
-                RuntimeLogRepository.append("Binary download upgraded to HTTPS: $upgraded")
-                upgraded
-            }
-        } catch (_: Exception) {
-            url
-        }
+        return url
     }
 
     private fun buildBailianSttAudioInput(attachment: ConversationAttachment): String {
@@ -1664,14 +1678,16 @@ object ChatCompletionService {
                     return@forEach
                 }
                 val json = runCatching { JSONObject(payloadLine) }.getOrNull() ?: return@forEach
-                val audio = json.optJSONObject("output")?.optJSONObject("audio") ?: return@forEach
-                val chunk = audio.optString("data")
+                val chunk = extractDashScopeAudioData(json)
                 if (chunk.isNotBlank()) {
-                    audioBytes.write(Base64.getDecoder().decode(chunk))
+                    audioBytes.write(decodeDashScopeAudioData(chunk))
                 }
-                val url = audio.optString("url")
+                val url = extractDashScopeAudioUrl(json)
                 if (url.isNotBlank()) {
                     finalAudioUrl = url
+                }
+                if (chunk.isBlank() && url.isBlank()) {
+                    RuntimeLogRepository.append("DashScope TTS SSE chunk without audio payload: ${payloadLine.take(240)}")
                 }
             }
         }
@@ -1694,6 +1710,71 @@ object ChatCompletionService {
             mimeType = "audio/wav",
             fileExtension = "wav",
         )
+    }
+
+    private fun parseDashScopeTtsAttachment(body: String): ConversationAttachment {
+        val json = JSONObject(body)
+        val audioData = extractDashScopeAudioData(json)
+        val audioUrl = extractDashScopeAudioUrl(json)
+        val resolvedBytes = when {
+            audioData.isNotBlank() -> wrapPcm16MonoAsWav(
+                pcmBytes = decodeDashScopeAudioData(audioData),
+                sampleRate = 24_000,
+            )
+            audioUrl.isNotBlank() -> downloadBytes(audioUrl)
+            else -> {
+                RuntimeLogRepository.append("DashScope TTS JSON body without audio payload: ${body.take(400)}")
+                throw IllegalStateException("DashScope TTS response did not return audio data.")
+            }
+        }
+        return createAudioAttachment(
+            bytes = resolvedBytes,
+            mimeType = "audio/wav",
+            fileExtension = "wav",
+        )
+    }
+
+    private fun extractDashScopeAudioData(json: JSONObject): String {
+        return sequenceOf(
+            json.optJSONObject("output")?.optJSONObject("audio")?.optString("data").orEmpty(),
+            json.optJSONObject("output")
+                ?.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optJSONObject("audio")
+                ?.optString("data")
+                .orEmpty(),
+            json.optJSONObject("output")
+                ?.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("audio")
+                ?.optString("data")
+                .orEmpty(),
+        ).firstOrNull { it.isNotBlank() }.orEmpty()
+    }
+
+    private fun extractDashScopeAudioUrl(json: JSONObject): String {
+        return sequenceOf(
+            json.optJSONObject("output")?.optJSONObject("audio")?.optString("url").orEmpty(),
+            json.optJSONObject("output")
+                ?.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optJSONObject("audio")
+                ?.optString("url")
+                .orEmpty(),
+            json.optJSONObject("output")
+                ?.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("audio")
+                ?.optString("url")
+                .orEmpty(),
+        ).firstOrNull { it.isNotBlank() }.orEmpty()
+    }
+
+    private fun decodeDashScopeAudioData(audioData: String): ByteArray {
+        val normalized = audioData.substringAfter("base64,", audioData)
+        return Base64.getDecoder().decode(normalized)
     }
 
     private fun inferDashScopeLanguageType(text: String): String {
