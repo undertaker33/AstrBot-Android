@@ -2,6 +2,8 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.astrbot.android.AppStrings
+import com.astrbot.android.R
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
@@ -16,6 +18,7 @@ import com.astrbot.android.model.ConversationSession
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.hasNativeStreamingSupport
+import com.astrbot.android.runtime.ConversationSessionLockManager
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -46,6 +49,7 @@ class ChatViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+    private var hasAppliedInitialSessionRestore = false
 
     init {
         val firstBot = BotRepository.botProfiles.value.firstOrNull()
@@ -62,23 +66,60 @@ class ChatViewModel : ViewModel() {
         syncSessionBindings(_uiState.value.selectedSessionId, providerId)
 
         viewModelScope.launch {
-            BotRepository.selectedBotId.collectLatest { botId ->
-                val bot = bots.value.firstOrNull { it.id == botId } ?: return@collectLatest
-                val provider = resolveProviderId(
-                    preferredProviderId = currentSession()?.providerId,
-                    fallbackBot = bot,
-                )
-                _uiState.value = _uiState.value.copy(
-                    selectedBotId = bot.id,
-                    selectedProviderId = provider,
-                )
-                syncSessionBindings(_uiState.value.selectedSessionId, provider)
+            sessions.collectLatest { allSessions ->
+                if (allSessions.isEmpty()) return@collectLatest
+
+                val currentId = _uiState.value.selectedSessionId
+                val currentSession = allSessions.firstOrNull { it.id == currentId }
+
+                if (!hasAppliedInitialSessionRestore) {
+                    val preferredSession = when {
+                        currentSession == null -> allSessions.firstOrNull()
+                        currentSession.id != ConversationRepository.DEFAULT_SESSION_ID -> currentSession
+                        else -> allSessions.firstOrNull { it.id != ConversationRepository.DEFAULT_SESSION_ID }
+                            ?: currentSession
+                    } ?: return@collectLatest
+
+                    hasAppliedInitialSessionRestore = true
+                    if (preferredSession.id != currentId) {
+                        val restoredProviderId = resolveProviderId(
+                            preferredProviderId = preferredSession.providerId,
+                            fallbackBot = bots.value.firstOrNull { it.id == preferredSession.botId } ?: selectedBot(),
+                        )
+                        _uiState.value = _uiState.value.copy(
+                            selectedSessionId = preferredSession.id,
+                            selectedBotId = preferredSession.botId,
+                            selectedProviderId = restoredProviderId,
+                            error = "",
+                        )
+                        RuntimeLogRepository.append("Chat session restored on launch: ${preferredSession.id}")
+                        syncSessionBindings(preferredSession.id, restoredProviderId)
+                        return@collectLatest
+                    }
+                }
+
+                currentSession?.let { session ->
+                    val syncedProviderId = resolveProviderId(
+                        preferredProviderId = session.providerId,
+                        fallbackBot = bots.value.firstOrNull { it.id == session.botId } ?: selectedBot(),
+                    )
+                    val shouldSyncBot = _uiState.value.selectedBotId != session.botId
+                    val shouldSyncProvider = session.providerId.isNotBlank() && _uiState.value.selectedProviderId != syncedProviderId
+                    if (shouldSyncBot || shouldSyncProvider) {
+                        _uiState.value = _uiState.value.copy(
+                            selectedBotId = session.botId,
+                            selectedProviderId = syncedProviderId,
+                        )
+                        RuntimeLogRepository.append(
+                            "Chat session context synced: session=${session.id} bot=${session.botId} provider=${syncedProviderId.ifBlank { "none" }}",
+                        )
+                    }
+                }
             }
         }
     }
 
     fun selectBot(botId: String) {
-        BotRepository.select(botId)
         val bot = bots.value.firstOrNull { it.id == botId }
         val providerId = resolveProviderId(
             preferredProviderId = bot?.defaultProviderId?.ifBlank { currentSession()?.providerId },
@@ -103,12 +144,14 @@ class ChatViewModel : ViewModel() {
 
     fun selectSession(sessionId: String) {
         val session = ConversationRepository.session(sessionId)
+        val sessionBot = bots.value.firstOrNull { it.id == session.botId }
         val providerId = resolveProviderId(
             preferredProviderId = session.providerId,
-            fallbackBot = selectedBot(),
+            fallbackBot = sessionBot ?: selectedBot(),
         )
         _uiState.value = _uiState.value.copy(
             selectedSessionId = session.id,
+            selectedBotId = session.botId,
             selectedProviderId = providerId,
             error = "",
         )
@@ -137,6 +180,35 @@ class ChatViewModel : ViewModel() {
         }
     }
 
+    fun deleteSession(sessionId: String) {
+        val deletingCurrent = sessionId == _uiState.value.selectedSessionId
+        ConversationRepository.deleteSession(sessionId)
+        if (deletingCurrent) {
+            val nextSession = sessions.value.firstOrNull()
+            if (nextSession != null) {
+                selectSession(nextSession.id)
+            } else {
+                createSession()
+            }
+        }
+    }
+
+    fun toggleSessionStt() {
+        val sessionId = _uiState.value.selectedSessionId
+        val session = ConversationRepository.session(sessionId)
+        val next = !session.sessionSttEnabled
+        ConversationRepository.updateSessionServiceFlags(sessionId, sessionSttEnabled = next)
+        RuntimeLogRepository.append("Chat session STT toggled: session=$sessionId enabled=$next")
+    }
+
+    fun toggleSessionTts() {
+        val sessionId = _uiState.value.selectedSessionId
+        val session = ConversationRepository.session(sessionId)
+        val next = !session.sessionTtsEnabled
+        ConversationRepository.updateSessionServiceFlags(sessionId, sessionTtsEnabled = next)
+        RuntimeLogRepository.append("Chat session TTS toggled: session=$sessionId enabled=$next")
+    }
+
     fun toggleStreaming() {
         _uiState.value = _uiState.value.copy(streamingEnabled = !_uiState.value.streamingEnabled)
         RuntimeLogRepository.append("Chat streaming toggled: enabled=${_uiState.value.streamingEnabled}")
@@ -153,145 +225,177 @@ class ChatViewModel : ViewModel() {
 
         val provider = selectedProvider()
         if (provider == null) {
-            _uiState.value = _uiState.value.copy(error = "未选择对话模型")
+            _uiState.value = _uiState.value.copy(error = AppStrings.get(R.string.chat_no_provider_selected))
             RuntimeLogRepository.append("Chat send blocked: no available provider")
             return
         }
 
-        val persona = selectedPersona()
-        val config = selectedBot()?.configProfileId?.let(ConfigRepository::resolve)
-        val session = ConversationRepository.session(sessionId)
-        val ttsSuffixMatched = content.endsWith("~")
-        val alwaysTtsEnabled = config?.alwaysTtsEnabled == true
-        val wantsTts = config?.ttsEnabled == true &&
-            session.sessionTtsEnabled &&
-            (alwaysTtsEnabled || ttsSuffixMatched)
-        val cleanedContent = content.removeSuffix("~").trim()
-        val normalizedInput = cleanedContent.ifBlank { content }
+        val botSnapshot = selectedBot()
+        val botIdSnapshot = botSnapshot?.id ?: BotRepository.selectedBotId.value
+        val personaSnapshot = currentPersona()
+        val personaIdSnapshot = resolveSessionPersonaId(sessionId)
+        val configSnapshot = botSnapshot?.configProfileId?.let(ConfigRepository::resolve)
         val audioAttachments = attachments.filter { it.type == "audio" }
         val nonAudioAttachments = attachments.filterNot { it.type == "audio" }
-        val sttProvider = config
-            ?.defaultSttProviderId
-            ?.takeIf { config.sttEnabled && session.sessionSttEnabled }
-            ?.let(::resolveSttProvider)
-        val ttsProvider = config
-            ?.defaultTtsProviderId
-            ?.takeIf { config.ttsEnabled && session.sessionTtsEnabled }
-            ?.let(::resolveTtsProvider)
-        when {
-            config?.ttsEnabled != true -> RuntimeLogRepository.append("Chat TTS skipped: config TTS is disabled")
-            !session.sessionTtsEnabled -> RuntimeLogRepository.append("Chat TTS skipped: session TTS is disabled")
-            ttsProvider == null -> RuntimeLogRepository.append(
-                "Chat TTS skipped: no usable TTS provider configured (selected=${config.defaultTtsProviderId.ifBlank { "-" }})",
-            )
-            alwaysTtsEnabled -> RuntimeLogRepository.append("Chat TTS trigger matched: provider=${ttsProvider.name} mode=always-on")
-            !ttsSuffixMatched -> RuntimeLogRepository.append("Chat TTS skipped: latest input has no ~ suffix")
-            else -> RuntimeLogRepository.append("Chat TTS trigger matched: provider=${ttsProvider.name}")
-        }
-        val transcribedAudioText = if (audioAttachments.isNotEmpty() && sttProvider != null) {
-            runCatching {
-                audioAttachments.joinToString("\n") { attachment ->
-                    ChatCompletionService.transcribeAudio(sttProvider, attachment)
-                }
-            }.onFailure { error ->
-                RuntimeLogRepository.append("Chat STT failed: ${error.message ?: error.javaClass.simpleName}")
-            }.getOrNull()
-        } else {
-            null
-        }
-        val finalUserContent = buildString {
-            if (normalizedInput.isNotBlank()) {
-                append(normalizedInput)
-            }
-            transcribedAudioText?.takeIf { it.isNotBlank() }?.let { sttText ->
-                if (isNotBlank()) append("\n\n")
-                append(sttText)
-            }
-        }.trim()
-        syncSessionBindings(sessionId, provider.id)
-        ConversationRepository.appendMessage(
-            sessionId = sessionId,
-            role = "user",
-            content = finalUserContent,
-            attachments = nonAudioAttachments + audioAttachments,
-        )
-        maybeAutoRenameSession(sessionId, finalUserContent.ifBlank { attachments.firstOrNull()?.fileName ?: "Image" })
+
         _uiState.value = _uiState.value.copy(isSending = true, error = "")
 
         viewModelScope.launch {
+            var assistantMessageId: String? = null
             try {
-                val currentSession = ConversationRepository.session(sessionId)
-                val assistantMessageId = ConversationRepository.appendMessage(
-                    sessionId = sessionId,
-                    role = "assistant",
-                    content = "",
-                )
-                val response = if (config?.textStreamingEnabled == true && provider.hasNativeStreamingSupport()) {
-                    emitNativeStreamingResponse(
+                ConversationSessionLockManager.withLock(sessionId) {
+                    val session = ConversationRepository.session(sessionId)
+                    val config = configSnapshot
+                    val ttsSuffixMatched = content.endsWith("~")
+                    val alwaysTtsEnabled = config?.alwaysTtsEnabled == true
+                    val wantsTts = config?.ttsEnabled == true &&
+                        session.sessionTtsEnabled &&
+                        (alwaysTtsEnabled || ttsSuffixMatched)
+                    val cleanedContent = content.removeSuffix("~").trim()
+                    val normalizedInput = cleanedContent.ifBlank { content }
+                    val sttProvider = config
+                        ?.defaultSttProviderId
+                        ?.takeIf { config.sttEnabled && session.sessionSttEnabled }
+                        ?.let(::resolveSttProvider)
+                    val ttsProvider = config
+                        ?.defaultTtsProviderId
+                        ?.takeIf { config.ttsEnabled && session.sessionTtsEnabled }
+                        ?.let(::resolveTtsProvider)
+
+                    when {
+                        config?.ttsEnabled != true -> RuntimeLogRepository.append("Chat TTS skipped: config TTS is disabled")
+                        !session.sessionTtsEnabled -> RuntimeLogRepository.append("Chat TTS skipped: session TTS is disabled")
+                        ttsProvider == null -> RuntimeLogRepository.append(
+                            "Chat TTS skipped: no usable TTS provider configured (selected=${config.defaultTtsProviderId.ifBlank { "-" }})",
+                        )
+                        alwaysTtsEnabled -> RuntimeLogRepository.append("Chat TTS trigger matched: provider=${ttsProvider.name} mode=always-on")
+                        !ttsSuffixMatched -> RuntimeLogRepository.append("Chat TTS skipped: latest input has no ~ suffix")
+                        else -> RuntimeLogRepository.append("Chat TTS trigger matched: provider=${ttsProvider.name}")
+                    }
+
+                    val transcribedAudioText = if (audioAttachments.isNotEmpty() && sttProvider != null) {
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                audioAttachments.joinToString("\n") { attachment ->
+                                    ChatCompletionService.transcribeAudio(sttProvider, attachment)
+                                }
+                            }.onFailure { error ->
+                                RuntimeLogRepository.append("Chat STT failed: ${error.message ?: error.javaClass.simpleName}")
+                            }.getOrNull()
+                        }
+                    } else {
+                        null
+                    }
+
+                    val finalUserContent = buildString {
+                        if (normalizedInput.isNotBlank()) {
+                            append(normalizedInput)
+                        }
+                        transcribedAudioText?.takeIf { it.isNotBlank() }?.let { sttText ->
+                            if (isNotBlank()) append("\n\n")
+                            append(sttText)
+                        }
+                    }.trim()
+
+                    ConversationRepository.updateSessionBindings(
                         sessionId = sessionId,
-                        messageId = assistantMessageId,
-                        provider = provider,
-                        currentSession = currentSession,
-                        systemPrompt = buildSystemPrompt(persona?.systemPrompt),
-                        config = config,
+                        providerId = provider.id,
+                        personaId = personaIdSnapshot,
+                        botId = botIdSnapshot,
                     )
-                } else {
-                    val fullResponse = withContext(Dispatchers.IO) {
-                        ChatCompletionService.sendConfiguredChat(
-                            provider = provider,
-                            messages = currentSession.messages.takeLast(currentSession.maxContextMessages),
-                            systemPrompt = buildSystemPrompt(persona?.systemPrompt),
-                            config = config,
-                            availableProviders = providers.value,
-                        )
-                    }
-                    if (config?.textStreamingEnabled == true) {
-                        emitPseudoStreamingResponse(sessionId, assistantMessageId, fullResponse)
-                    } else {
-                        ConversationRepository.updateMessage(sessionId, assistantMessageId, content = fullResponse)
-                    }
-                    fullResponse
-                }
-                if (wantsTts && ttsProvider != null) {
-                    if (config.voiceStreamingEnabled) {
-                        emitVoiceStreamingAttachments(
+                    ConversationRepository.appendMessage(
+                        sessionId = sessionId,
+                        role = "user",
+                        content = finalUserContent,
+                        attachments = nonAudioAttachments + audioAttachments,
+                    )
+                    maybeAutoRenameSession(
+                        sessionId,
+                        finalUserContent.ifBlank { attachments.firstOrNull()?.fileName ?: "Image" },
+                    )
+
+                    val currentSession = ConversationRepository.session(sessionId)
+                    val contextWindow = personaSnapshot?.maxContextMessages ?: currentSession.maxContextMessages
+                    val scopedSession = currentSession.copy(maxContextMessages = contextWindow)
+                    assistantMessageId = ConversationRepository.appendMessage(
+                        sessionId = sessionId,
+                        role = "assistant",
+                        content = "",
+                    )
+                    val resolvedAssistantMessageId = assistantMessageId ?: return@withLock
+                    val response = if (config?.textStreamingEnabled == true && provider.hasNativeStreamingSupport()) {
+                        emitNativeStreamingResponse(
                             sessionId = sessionId,
-                            messageId = assistantMessageId,
-                            response = response,
-                            provider = ttsProvider,
-                            voiceId = config.ttsVoiceId,
-                            readBracketedContent = config.ttsReadBracketedContent,
+                            messageId = resolvedAssistantMessageId,
+                            provider = provider,
+                            currentSession = scopedSession,
+                            systemPrompt = buildSystemPrompt(personaSnapshot?.systemPrompt),
+                            config = config,
                         )
                     } else {
-                        synthesizeSingleVoiceReply(
-                            provider = ttsProvider,
-                            text = response,
-                            voiceId = config.ttsVoiceId,
-                            readBracketedContent = config.ttsReadBracketedContent,
-                        )?.let { attachment ->
-                            ConversationRepository.updateMessage(
-                                sessionId = sessionId,
-                                messageId = assistantMessageId,
-                                attachments = listOf(attachment),
+                        val fullResponse = withContext(Dispatchers.IO) {
+                            ChatCompletionService.sendConfiguredChat(
+                                provider = provider,
+                                messages = scopedSession.messages.takeLast(scopedSession.maxContextMessages),
+                                systemPrompt = buildSystemPrompt(personaSnapshot?.systemPrompt),
+                                config = config,
+                                availableProviders = providers.value,
                             )
+                        }
+                        if (config?.textStreamingEnabled == true) {
+                            emitPseudoStreamingResponse(sessionId, resolvedAssistantMessageId, fullResponse)
+                        } else {
+                            ConversationRepository.updateMessage(sessionId, resolvedAssistantMessageId, content = fullResponse)
+                        }
+                        fullResponse
+                    }
+
+                    if (wantsTts && ttsProvider != null) {
+                        if (config.voiceStreamingEnabled) {
+                            emitVoiceStreamingAttachments(
+                                sessionId = sessionId,
+                                messageId = resolvedAssistantMessageId,
+                                response = response,
+                                provider = ttsProvider,
+                                voiceId = config.ttsVoiceId,
+                                readBracketedContent = config.ttsReadBracketedContent,
+                            )
+                        } else {
+                            synthesizeSingleVoiceReply(
+                                provider = ttsProvider,
+                                text = response,
+                                voiceId = config.ttsVoiceId,
+                                readBracketedContent = config.ttsReadBracketedContent,
+                            )?.let { attachment ->
+                                ConversationRepository.updateMessage(
+                                    sessionId = sessionId,
+                                    messageId = resolvedAssistantMessageId,
+                                    attachments = listOf(attachment),
+                                )
+                            }
                         }
                     }
                 }
-                _uiState.value = _uiState.value.copy(isSending = false)
             } catch (error: Exception) {
                 val message = error.message ?: error.javaClass.simpleName
-                ConversationRepository.appendMessage(
+                assistantMessageId?.let { messageId ->
+                    ConversationRepository.updateMessage(
+                        sessionId = sessionId,
+                        messageId = messageId,
+                        content = AppStrings.get(R.string.chat_request_failed_prefix, message),
+                    )
+                } ?: ConversationRepository.appendMessage(
                     sessionId = sessionId,
                     role = "assistant",
-                    content = "请求失败：$message",
+                    content = AppStrings.get(R.string.chat_request_failed_prefix, message),
                 )
-                _uiState.value = _uiState.value.copy(
-                    isSending = false,
-                    error = message,
-                )
+                _uiState.value = _uiState.value.copy(error = message)
+            } finally {
+                _uiState.value = _uiState.value.copy(isSending = false)
             }
         }
     }
+
 
     fun sessionMessages(sessionId: String = _uiState.value.selectedSessionId): List<ConversationMessage> {
         return ConversationRepository.session(sessionId).messages
@@ -300,6 +404,23 @@ class ChatViewModel : ViewModel() {
     fun currentSession(): ConversationSession? {
         return sessions.value.firstOrNull { it.id == _uiState.value.selectedSessionId }
             ?: sessions.value.firstOrNull()
+    }
+
+    fun currentPersona() = personas.value.firstOrNull {
+        it.enabled && it.id == resolveSessionPersonaId(_uiState.value.selectedSessionId)
+    } ?: selectedPersona()
+
+    fun selectPersona(personaId: String) {
+        val persona = personas.value.firstOrNull { it.id == personaId && it.enabled } ?: return
+        val sessionId = _uiState.value.selectedSessionId
+        val providerId = _uiState.value.selectedProviderId
+        ConversationRepository.updateSessionBindings(
+            sessionId = sessionId,
+            providerId = providerId,
+            personaId = persona.id,
+            botId = selectedBot()?.id ?: BotRepository.selectedBotId.value,
+        )
+        RuntimeLogRepository.append("Chat persona selected: session=$sessionId persona=${persona.id}")
     }
 
     fun selectedBot(): BotProfile? {
@@ -337,13 +458,24 @@ class ChatViewModel : ViewModel() {
     }
 
     private fun syncSessionBindings(sessionId: String, providerId: String) {
-        val personaId = selectedPersona()?.id.orEmpty()
+        val personaId = resolveSessionPersonaId(sessionId)
         ConversationRepository.updateSessionBindings(
             sessionId = sessionId,
             providerId = providerId,
             personaId = personaId,
             botId = selectedBot()?.id ?: BotRepository.selectedBotId.value,
         )
+    }
+
+    private fun resolveSessionPersonaId(sessionId: String): String {
+        val sessionPersonaId = sessions.value
+            .firstOrNull { it.id == sessionId }
+            ?.personaId
+            ?.takeIf { it.isNotBlank() && it != "default" }
+        if (sessionPersonaId != null) {
+            return sessionPersonaId
+        }
+        return selectedPersona()?.id.orEmpty()
     }
 
     private fun selectedPersona() = personas.value.firstOrNull {

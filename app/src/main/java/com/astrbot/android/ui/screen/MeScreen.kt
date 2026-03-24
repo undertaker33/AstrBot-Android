@@ -114,6 +114,7 @@ fun MeScreen(
     onOpenSettings: () -> Unit,
     onOpenLogs: () -> Unit,
     onOpenAssets: () -> Unit,
+    onOpenBackup: () -> Unit,
 ) {
     EntryListPage(
         entries = listOf(
@@ -140,6 +141,12 @@ fun MeScreen(
                 subtitle = stringResource(R.string.me_card_assets_subtitle),
                 icon = Icons.Outlined.CloudDownload,
                 onClick = onOpenAssets,
+            ),
+            EntryCardState(
+                title = stringResource(R.string.me_card_backup_title),
+                subtitle = stringResource(R.string.me_card_backup_subtitle),
+                icon = Icons.Outlined.CloudDownload,
+                onClick = onOpenBackup,
             ),
         ),
     )
@@ -1200,18 +1207,11 @@ fun AssetDetailScreen(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
-                            val manualOnlyDesc = stringResource(R.string.asset_manual_only_desc)
                             Text(
                                 text = stringResource(R.string.asset_actions_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            if (manualOnlyDesc.isNotBlank()) {
-                                Text(
-                                    text = manualOnlyDesc,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                                )
-                            }
                             TtsModelAssetSection(
                                 title = "kokoro",
                                 description = ttsAssetState.kokoro.details,
@@ -1245,18 +1245,11 @@ fun AssetDetailScreen(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            val manualOnlyDesc = stringResource(R.string.asset_manual_only_desc)
                             Text(
                                 text = stringResource(R.string.asset_actions_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            if (manualOnlyDesc.isNotBlank()) {
-                                Text(
-                                    text = manualOnlyDesc,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                                )
-                            }
                             Text(
                                 text = stringResource(R.string.asset_auto_detect_desc),
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),

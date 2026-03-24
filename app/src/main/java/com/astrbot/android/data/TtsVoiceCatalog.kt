@@ -4,7 +4,6 @@ import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 
 object TtsVoiceCatalog {
-    const val DEFAULT_VOICE_ID = ""
     const val CUSTOM_VOICE_ID = "__custom__"
 
     fun optionsFor(provider: ProviderProfile?): List<Pair<String, String>> {
@@ -19,7 +18,11 @@ object TtsVoiceCatalog {
                 "shimmer",
             )
 
-            ProviderType.BAILIAN_TTS -> listOf("Cherry")
+            ProviderType.BAILIAN_TTS -> if (provider.model.trim().lowercase().contains("-vc")) {
+                emptyList()
+            } else {
+                listOf("Cherry")
+            }
 
             ProviderType.MINIMAX_TTS -> listOf("Chinese (Mandarin)_Warm_Girl")
 
@@ -28,7 +31,6 @@ object TtsVoiceCatalog {
             else -> emptyList()
         }
         return buildList {
-            add(DEFAULT_VOICE_ID to "Provider default")
             if (provider.providerType == ProviderType.SHERPA_ONNX_TTS) {
                 addAll(OnDeviceTtsCatalog.voicesFor(provider.model).map { it.id to it.label })
             } else {
@@ -45,11 +47,12 @@ object TtsVoiceCatalog {
         provider: ProviderProfile?,
         voiceId: String,
     ): String {
+        val options = optionsFor(provider)
         val normalized = voiceId.trim()
         if (normalized.isBlank()) {
-            return DEFAULT_VOICE_ID
+            return options.firstOrNull()?.first.orEmpty()
         }
-        val availableIds = optionsFor(provider).map { it.first }.toSet()
+        val availableIds = options.map { it.first }.toSet()
         return if (normalized in availableIds) normalized else CUSTOM_VOICE_ID
     }
 }

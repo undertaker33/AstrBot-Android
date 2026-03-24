@@ -19,6 +19,8 @@ object SherpaOnnxAssetManager {
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2"
     private const val KOKORO_URL =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2"
+    private val deprecatedTtsDirNames = listOf("matcha", "melo", "fanchen-c", "zh-ll")
+
     data class SubAssetState(
         val installed: Boolean,
         val details: String,
@@ -84,11 +86,6 @@ object SherpaOnnxAssetManager {
 
     fun kokoroDir(context: Context): File = File(frameworkDir(context), "tts/kokoro")
 
-    fun legacyMeloDir(context: Context): File = File(frameworkDir(context), "tts/melo")
-    fun legacyFanchenDir(context: Context): File = File(frameworkDir(context), "tts/fanchen-c")
-    fun legacyZhLlDir(context: Context): File = File(frameworkDir(context), "tts/zh-ll")
-    fun legacyMatchaDir(context: Context): File = File(frameworkDir(context), "tts/matcha")
-
     fun ensureFrameworkActivated(context: Context) {
         val frameworkDir = frameworkDir(context)
         if (!frameworkDir.exists()) {
@@ -139,12 +136,9 @@ object SherpaOnnxAssetManager {
     }
 
     fun clearDeprecatedTtsAssets(context: Context) {
-        val deprecatedDirs = listOf(
-            legacyMatchaDir(context),
-            legacyMeloDir(context),
-            legacyFanchenDir(context),
-            legacyZhLlDir(context),
-        )
+        val deprecatedDirs = deprecatedTtsDirNames.map { dirName ->
+            File(frameworkDir(context), "tts/$dirName")
+        }
         deprecatedDirs.forEach { dir ->
             if (dir.exists()) {
                 dir.deleteRecursively()

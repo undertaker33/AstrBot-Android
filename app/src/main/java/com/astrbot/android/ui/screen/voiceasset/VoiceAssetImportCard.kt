@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,13 +51,14 @@ internal fun VoiceAssetImportCard(
             )
             Text(
                 text = stringResource(R.string.voice_asset_import_desc),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                color = MonochromeUi.textSecondary,
             )
             OutlinedButton(
                 onClick = onLaunchImport,
                 enabled = !isImportingReferenceAudio,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                colors = voiceAssetOutlinedButtonColors(),
+                border = BorderStroke(1.dp, MonochromeUi.border),
             ) {
                 Text(stringResource(R.string.voice_asset_pick_audio_action))
             }
@@ -74,7 +76,7 @@ internal fun VoiceAssetImportCard(
                         Text(
                             text = stringResource(R.string.voice_asset_selected_audio_label),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            color = MonochromeUi.textSecondary,
                         )
                         Text(
                             text = selectedImportFileName,

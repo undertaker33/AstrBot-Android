@@ -285,7 +285,9 @@ object ChatCompletionService {
         config: ConfigProfile?,
         availableProviders: List<ProviderProfile>,
     ): List<ConversationMessage> {
-        val normalizedMessages = retainOnlyLatestUserAttachments(messages)
+        val normalizedMessages = sanitizeConversationMessages(
+            retainOnlyLatestUserAttachments(messages),
+        )
         val latestUserHasImages = normalizedMessages
             .lastOrNull { it.role == "user" }
             ?.attachments
@@ -332,6 +334,19 @@ object ChatCompletionService {
                 message
             } else {
                 message.copy(attachments = emptyList())
+            }
+        }
+    }
+
+    private fun sanitizeConversationMessages(messages: List<ConversationMessage>): List<ConversationMessage> {
+        val lastUserMessageIndex = messages.indexOfLast { it.role == "user" }
+        return messages.mapIndexedNotNull { index, message ->
+            val hasPayload = message.content.isNotBlank() || message.attachments.isNotEmpty()
+            when {
+                hasPayload -> message
+                message.role == "assistant" -> null
+                index != lastUserMessageIndex -> null
+                else -> message
             }
         }
     }
@@ -530,13 +545,14 @@ object ChatCompletionService {
     ): ConversationAttachment {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         val supportsInstructions = supportsOpenAiSpeechInstructions(provider.model)
+        val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId)
         if (request.stylePrompt.isNotBlank() && !supportsInstructions) {
             RuntimeLogRepository.append("TTS style prompt skipped: OpenAI model ${provider.model} has no instruction channel")
         }
         val payload = JSONObject().apply {
             put("model", provider.model)
             put("input", request.spokenText)
-            put("voice", voiceId.ifBlank { "alloy" })
+            put("voice", effectiveVoiceId)
             put("format", "mp3")
             request.styleHints.openAiInstruction
                 .takeIf { it.isNotBlank() }
@@ -584,10 +600,7 @@ object ChatCompletionService {
         if (request.stylePrompt.isNotBlank() && !supportsInstructions) {
             RuntimeLogRepository.append("TTS style prompt skipped: DashScope model $modelName needs qwen3-tts-instruct-flash")
         }
-        val clonedVoiceChoices = TtsVoiceAssetRepository.listVoiceChoicesFor(provider)
-        val effectiveVoiceId = voiceId.ifBlank {
-            clonedVoiceChoices.firstOrNull()?.first.orEmpty()
-        }
+        val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId)
         val requiresClonedVoice = modelName.lowercase(Locale.US).contains("-vc")
         if (requiresClonedVoice && effectiveVoiceId.isBlank()) {
             throw IllegalStateException("This Qwen voice-clone model needs a cloned voice. Select a cloned voice in config or the TTS model card first.")
@@ -642,6 +655,7 @@ object ChatCompletionService {
     ): ConversationAttachment {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         require(provider.model.isNotBlank()) { "TTS model is empty." }
+        val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId)
         val minimaxTags = request.styleHints
             .takeIf { supportsMiniMaxExpressiveTag(provider.model) }
             ?.miniMaxTags
@@ -663,7 +677,7 @@ object ChatCompletionService {
             put(
                 "voice_setting",
                 JSONObject().apply {
-                    put("voice_id", voiceId.ifBlank { "Chinese (Mandarin)_Warm_Girl" })
+                    put("voice_id", effectiveVoiceId)
                     put("speed", 1.0)
                     put("vol", 1.0)
                     put("pitch", 0)
@@ -2026,6 +2040,25 @@ object ChatCompletionService {
     private fun supportsMiniMaxExpressiveTag(model: String): Boolean {
         val normalized = model.trim().lowercase(Locale.US)
         return normalized.startsWith("speech-2.6") || normalized.startsWith("speech-2.8")
+    }
+
+    private fun resolveEffectiveTtsVoiceId(
+        provider: ProviderProfile,
+        requestedVoiceId: String,
+    ): String {
+        val normalized = requestedVoiceId.trim()
+        if (normalized.isNotBlank()) {
+            return normalized
+        }
+        val clonedVoiceChoices = TtsVoiceAssetRepository.listVoiceChoicesFor(provider)
+        if (
+            (provider.providerType == ProviderType.BAILIAN_TTS &&
+                provider.model.trim().lowercase(Locale.US).contains("-vc")) ||
+            provider.providerType == ProviderType.MINIMAX_TTS
+        ) {
+            return clonedVoiceChoices.firstOrNull()?.first.orEmpty()
+        }
+        return TtsVoiceCatalog.optionsFor(provider).firstOrNull()?.first.orEmpty()
     }
 
     private fun buildMiniMaxSpokenText(

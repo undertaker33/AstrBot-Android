@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap
 object SherpaOnnxBridge {
     private const val TARGET_STT_SAMPLE_RATE = 16_000
     private const val TARGET_STT_FEATURE_DIM = 80
-    private const val TTS_LEADING_SILENCE_MS = 1200
+    private const val TTS_LEADING_SILENCE_MS = 200
     private const val TTS_FADE_IN_MS = 10
     private const val TTS_FADE_OUT_MS = 14
 

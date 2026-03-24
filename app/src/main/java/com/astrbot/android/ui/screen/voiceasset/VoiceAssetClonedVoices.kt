@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -76,6 +77,8 @@ internal fun VoiceAssetBindingCard(
                     OutlinedButton(
                         onClick = onCancelRename,
                         modifier = Modifier.weight(1f),
+                        colors = voiceAssetOutlinedButtonColors(),
+                        border = BorderStroke(1.dp, MonochromeUi.border),
                     ) {
                         Text(stringResource(R.string.common_cancel))
                     }
@@ -84,11 +87,11 @@ internal fun VoiceAssetBindingCard(
                 Text(binding.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     text = "${binding.providerType.displayLabel()} / ${binding.model}",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                    color = MonochromeUi.textSecondary,
                 )
                 Text(
                     text = stringResource(R.string.voice_asset_origin_value, asset.name),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                    color = MonochromeUi.textSecondary,
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -97,12 +100,16 @@ internal fun VoiceAssetBindingCard(
                     OutlinedButton(
                         onClick = onStartRename,
                         modifier = Modifier.weight(1f),
+                        colors = voiceAssetOutlinedButtonColors(),
+                        border = BorderStroke(1.dp, MonochromeUi.border),
                     ) {
                         Text(stringResource(R.string.voice_asset_rename_action))
                     }
                     OutlinedButton(
                         onClick = onDelete,
                         modifier = Modifier.weight(1f),
+                        colors = voiceAssetOutlinedButtonColors(),
+                        border = BorderStroke(1.dp, MonochromeUi.border),
                     ) {
                         Text(stringResource(R.string.common_delete))
                     }

@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -61,16 +62,16 @@ internal fun VoiceAssetReferenceAssetCard(
                     Text(asset.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
                         text = stringResource(R.string.voice_asset_clip_count_value, asset.clips.size),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                        color = MonochromeUi.textSecondary,
                     )
                     if (asset.providerBindings.isNotEmpty()) {
                         Text(
                             text = stringResource(R.string.voice_asset_binding_count_value, asset.providerBindings.size),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            color = MonochromeUi.textSecondary,
                         )
                     }
                 }
-                TextButton(onClick = onToggleExpanded) {
+                TextButton(onClick = onToggleExpanded, colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary)) {
                     Text(
                         stringResource(
                             if (expanded) R.string.voice_asset_hide_details_action else R.string.voice_asset_show_details_action,
@@ -81,7 +82,7 @@ internal fun VoiceAssetReferenceAssetCard(
             if (asset.clips.isEmpty() && asset.localPath.isBlank()) {
                 Text(
                     text = stringResource(R.string.voice_asset_reference_removed),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                    color = MonochromeUi.textSecondary,
                 )
             } else {
                 val previewClip = asset.clips.firstOrNull()
@@ -99,7 +100,7 @@ internal fun VoiceAssetReferenceAssetCard(
                             Text(
                                 text = stringResource(R.string.voice_asset_latest_clip_title),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                color = MonochromeUi.textSecondary,
                             )
                             if (previewClip.durationMs > 0L) {
                                 Text(
@@ -107,13 +108,13 @@ internal fun VoiceAssetReferenceAssetCard(
                                         R.string.voice_asset_duration_value,
                                         formatDuration(previewClip.durationMs),
                                     ),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                    color = MonochromeUi.textSecondary,
                                 )
                             }
                             if (previewClip.sampleRateHz > 0) {
                                 Text(
                                     text = stringResource(R.string.voice_asset_sample_rate_value, previewClip.sampleRateHz),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                    color = MonochromeUi.textSecondary,
                                 )
                             }
                         }
@@ -138,21 +139,24 @@ internal fun VoiceAssetReferenceAssetCard(
                             )
                             Text(
                                 stringResource(R.string.voice_asset_local_path_value, clip.localPath),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                color = MonochromeUi.textSecondary,
                             )
                             if (clip.durationMs > 0L) {
                                 Text(
                                     stringResource(R.string.voice_asset_duration_value, formatDuration(clip.durationMs)),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                    color = MonochromeUi.textSecondary,
                                 )
                             }
                             if (clip.sampleRateHz > 0) {
                                 Text(
                                     stringResource(R.string.voice_asset_sample_rate_value, clip.sampleRateHz),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                    color = MonochromeUi.textSecondary,
                                 )
                             }
-                            TextButton(onClick = { onDeleteReferenceClip(clip.id) }) {
+                            TextButton(
+                                onClick = { onDeleteReferenceClip(clip.id) },
+                                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                            ) {
                                 Text(stringResource(R.string.voice_asset_remove_clip_action))
                             }
                         }
@@ -163,12 +167,16 @@ internal fun VoiceAssetReferenceAssetCard(
                 onClick = onAddClip,
                 enabled = !isImportingReferenceAudio,
                 modifier = Modifier.fillMaxWidth(),
+                colors = voiceAssetOutlinedButtonColors(),
+                border = BorderStroke(1.dp, MonochromeUi.border),
             ) {
                 Text(stringResource(R.string.voice_asset_add_clip_action))
             }
             OutlinedButton(
                 onClick = onClearReferenceAudio,
                 modifier = Modifier.fillMaxWidth(),
+                colors = voiceAssetOutlinedButtonColors(),
+                border = BorderStroke(1.dp, MonochromeUi.border),
             ) {
                 Text(stringResource(R.string.voice_asset_clear_reference_action))
             }

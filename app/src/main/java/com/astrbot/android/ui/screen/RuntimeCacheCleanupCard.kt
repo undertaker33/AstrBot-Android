@@ -73,11 +73,6 @@ internal fun RuntimeCacheCleanupCard(
                     )
                 }
             }
-            Text(
-                text = stringResource(R.string.me_cache_cleanup_desc),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MonochromeUi.textSecondary,
-            )
             if (state.lastSummary.isNotBlank()) {
                 Text(
                     text = stringResource(R.string.me_cache_cleanup_last_result, state.lastSummary),
