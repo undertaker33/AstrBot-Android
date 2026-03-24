@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Face
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Settings
@@ -50,6 +49,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
 import com.astrbot.android.data.ConversationBackupItem
@@ -275,10 +275,8 @@ fun ConversationBackupScreen(
                                 onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
                                 modifier = Modifier.wrapContentWidth(),
                             ) {
-                                Icon(Icons.Outlined.CloudDownload, contentDescription = null)
                                 Text(
                                     text = stringResource(R.string.backup_import_file_action),
-                                    modifier = Modifier.padding(start = 6.dp),
                                 )
                             }
                         }
@@ -539,10 +537,13 @@ private fun ConversationBackupCard(
                 text = stringResource(R.string.backup_conversation_stats, item.sessionCount, item.messageCount),
                 color = MonochromeUi.textSecondary,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Button(
                     onClick = onRestore,
-                    modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MonochromeUi.strong,
                         contentColor = MonochromeUi.strongText,
@@ -552,19 +553,20 @@ private fun ConversationBackupCard(
                 }
                 OutlinedButton(
                     onClick = onExport,
-                    modifier = Modifier.weight(1f),
                 ) {
-                    Icon(Icons.Outlined.CloudDownload, contentDescription = null)
                     Text(
                         text = stringResource(R.string.backup_export_action),
-                        modifier = Modifier.padding(start = 6.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                OutlinedButton(
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    TextButton(
                     onClick = onDelete,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(stringResource(R.string.common_delete))
+                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFC43C35)),
+                    ) {
+                        Text(stringResource(R.string.common_delete))
+                    }
                 }
             }
         }
