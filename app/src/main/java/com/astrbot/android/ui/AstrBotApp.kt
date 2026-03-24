@@ -84,6 +84,8 @@ import com.astrbot.android.ui.screen.PersonaScreen
 import com.astrbot.android.ui.screen.ProviderScreen
 import com.astrbot.android.ui.screen.QQAccountCenterScreen
 import com.astrbot.android.ui.screen.QQLoginScreen
+import com.astrbot.android.ui.screen.DataBackupHubScreen
+import com.astrbot.android.ui.screen.ConversationBackupScreen
 import com.astrbot.android.ui.screen.SettingsHubScreen
 import com.astrbot.android.ui.screen.SettingsScreen
 import com.astrbot.android.ui.screen.SubPageScaffold
@@ -240,6 +242,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                         onOpenSettings = { navController.navigate(AppDestination.SettingsHub.route) },
                         onOpenLogs = { navController.navigate(AppDestination.Logs.route) },
                         onOpenAssets = { navController.navigate(AppDestination.Assets.route) },
+                        onOpenBackup = { navController.navigate(AppDestination.BackupHub.route) },
                     )
                 }
                 composable(AppDestination.QQAccount.route) {
@@ -279,6 +282,15 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                     )
                 }
                 composable(AppDestination.Runtime.route) { SettingsScreen(onBack = { navController.popBackStack() }) }
+                composable(AppDestination.BackupHub.route) {
+                    DataBackupHubScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenConversationBackup = { navController.navigate(AppDestination.ConversationBackup.route) },
+                    )
+                }
+                composable(AppDestination.ConversationBackup.route) {
+                    ConversationBackupScreen(onBack = { navController.popBackStack() })
+                }
             }
         }
 
@@ -609,6 +621,8 @@ private sealed class AppDestination(
     data object AssetDetail : AppDestination("asset-management/{assetId}", Icons.Outlined.Memory) {
         fun routeFor(assetId: String): String = "asset-management/$assetId"
     }
+    data object BackupHub : AppDestination("backup-hub", Icons.Outlined.Memory)
+    data object ConversationBackup : AppDestination("backup/conversations", Icons.Outlined.ChatBubbleOutline)
     data object Models : AppDestination("models", Icons.Outlined.Memory)
     data object Runtime : AppDestination("runtime", Icons.Outlined.Settings)
 }

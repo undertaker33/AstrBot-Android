@@ -42,7 +42,7 @@ internal fun VoiceAssetOverviewCard(
             )
             Text(
                 text = stringResource(R.string.voice_asset_overview_desc),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                color = MonochromeUi.textSecondary,
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -70,7 +70,7 @@ internal fun VoiceAssetOverviewCard(
                         R.string.voice_asset_total_duration_value,
                         formatDuration(totalReferenceDurationMs),
                     ),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                    color = MonochromeUi.textSecondary,
                 )
             }
             if (lastVoiceCloneMessage.isNotBlank()) {

@@ -278,9 +278,13 @@ private fun ConfigDetailContent(
         val providerOptions = TtsVoiceCatalog.optionsFor(defaultTtsProvider)
         val clonedOptions = TtsVoiceAssetRepository.listVoiceChoicesFor(defaultTtsProvider)
         buildList {
-            addAll(providerOptions)
-            val existingIds = providerOptions.map { entry -> entry.first }.toMutableSet()
-            clonedOptions.forEach { option ->
+            val preferClonedVoicesFirst = defaultTtsProvider?.providerType == com.astrbot.android.model.ProviderType.BAILIAN_TTS &&
+                defaultTtsProvider.model.trim().lowercase().contains("-vc")
+            val primaryOptions = if (preferClonedVoicesFirst) clonedOptions else providerOptions
+            val secondaryOptions = if (preferClonedVoicesFirst) providerOptions else clonedOptions
+            addAll(primaryOptions)
+            val existingIds = primaryOptions.map { entry -> entry.first }.toMutableSet()
+            secondaryOptions.forEach { option ->
                 if (existingIds.add(option.first)) {
                     add(option)
                 }
@@ -420,7 +424,7 @@ private fun ConfigDetailContent(
                             }
                             ConfigToggleRow(
                                 title = stringResource(R.string.config_always_tts_title),
-                                subtitle = stringResource(R.string.config_always_tts_desc),
+                                subtitle = "",
                                 checked = alwaysTtsEnabled,
                                 enabled = ttsModelReady,
                                 onCheckedChange = { alwaysTtsEnabled = it },

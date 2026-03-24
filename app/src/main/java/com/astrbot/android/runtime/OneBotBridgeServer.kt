@@ -24,8 +24,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -45,7 +43,6 @@ object OneBotBridgeServer {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
-    private val conversationLocks = ConcurrentHashMap<String, Mutex>()
     private val recentMessageIds = object : LinkedHashMap<String, Unit>(MAX_RECENT_MESSAGE_IDS, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?): Boolean {
             return size > MAX_RECENT_MESSAGE_IDS
@@ -171,22 +168,20 @@ object OneBotBridgeServer {
 
         val sessionId = buildSessionId(bot, event)
         val sessionTitle = buildSessionTitle(event)
-        val conversationLock = conversationLocks.getOrPut(sessionId) { Mutex() }
-
-        conversationLock.withLock {
+        ConversationSessionLockManager.withLock(sessionId) lock@{
             val session = ConversationRepository.session(sessionId)
             if (session.title != sessionTitle) {
                 ConversationRepository.renameSession(sessionId, sessionTitle)
             }
             val persona = resolvePersona(bot, session.personaId)
             if (handleBotCommand(event, bot, sessionId, session, persona)) {
-                return@withLock
+                return@lock
             }
             val provider = resolveProvider(bot)
             if (provider == null) {
                 RuntimeLogRepository.append("Auto reply skipped: no enabled chat provider configured")
                 sendFailureNoticeIfNeeded(event, "No chat model is configured for this bot.")
-                return@withLock
+                return@lock
             }
             ConversationRepository.updateSessionBindings(
                 sessionId = sessionId,
@@ -291,7 +286,7 @@ object OneBotBridgeServer {
                 val details = error.message ?: error.javaClass.simpleName
                 RuntimeLogRepository.append("Auto reply failed: $details")
                 sendFailureNoticeIfNeeded(event, "Auto reply failed: $details")
-                return
+                return@lock
             }
 
             val assistantAttachments = if (wantsTts && ttsProvider != null) {

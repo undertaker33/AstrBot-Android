@@ -5,6 +5,7 @@ import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
+import com.astrbot.android.data.ConversationBackupRepository
 import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.PersonaRepository
@@ -26,6 +27,7 @@ class AstrBotApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AppStrings.initialize(this)
         ChatCompletionService.initialize(this)
         OneBotBridgeServer.initialize(this)
         TencentSilkEncoder.initialize(this)
@@ -38,6 +40,7 @@ class AstrBotApplication : Application() {
         PersonaRepository.initialize(this)
         ConfigRepository.initialize(this)
         ConversationRepository.initialize(this)
+        ConversationBackupRepository.initialize(this)
         OneBotBridgeServer.start()
         appScope.launch(Dispatchers.IO) {
             BotRepository.initialize(this@AstrBotApplication)

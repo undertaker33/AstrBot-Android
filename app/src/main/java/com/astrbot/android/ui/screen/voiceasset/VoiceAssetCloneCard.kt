@@ -56,7 +56,7 @@ internal fun VoiceAssetCloneCard(
             )
             Text(
                 text = stringResource(R.string.voice_asset_clone_desc),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                color = MonochromeUi.textSecondary,
             )
             Surface(
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
@@ -77,13 +77,13 @@ internal fun VoiceAssetCloneCard(
                         text = selectedReferenceAsset?.let {
                             stringResource(R.string.voice_asset_clone_ready_reference, it.name, it.clips.size)
                         } ?: stringResource(R.string.voice_asset_clone_reference_hint),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                        color = MonochromeUi.textSecondary,
                     )
                     Text(
                         text = selectedCloneProvider?.let {
                             stringResource(R.string.voice_asset_clone_ready_provider, it.name, it.model)
                         } ?: stringResource(R.string.voice_asset_clone_provider_hint),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                        color = MonochromeUi.textSecondary,
                     )
                 }
             }
