@@ -8,6 +8,8 @@ local.properties
 .externalNativeBuild/
 captures/
 artifacts/
+__pycache__/
+*.pyc
 app/src/main/assets/runtime/assets/offline-rootfs-overlay.tar.xz
 app/src/main/assets/runtime/assets/NapCat.Shell.zip
 app/src/main/assets/runtime/assets/QQ.deb
