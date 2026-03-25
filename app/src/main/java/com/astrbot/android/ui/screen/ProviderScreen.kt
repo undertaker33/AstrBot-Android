@@ -88,6 +88,7 @@ import com.astrbot.android.model.supportsMultimodalCheck
 import com.astrbot.android.model.supportsNativeStreamingCheck
 import com.astrbot.android.model.supportsPullModels
 import com.astrbot.android.model.visibleProviderTypesFor
+import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.monochromeSwitchColors
@@ -227,7 +228,7 @@ internal fun ProviderCatalogContent(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 24.dp),
+                .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.End,
         ) {

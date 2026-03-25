@@ -52,6 +52,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
+import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.viewmodel.ConfigViewModel
@@ -148,7 +149,7 @@ fun ConfigScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
+                    .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding),
                 containerColor = MonochromeUi.fabBackground,
                 contentColor = MonochromeUi.fabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
@@ -164,7 +165,7 @@ fun ConfigScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
+                    .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding),
                 containerColor = MonochromeUi.fabBackground,
                 contentColor = MonochromeUi.fabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
