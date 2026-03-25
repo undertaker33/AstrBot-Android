@@ -5,11 +5,6 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.text.format.DateFormat
 import android.util.Base64
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
@@ -57,8 +52,7 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -103,8 +97,12 @@ import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
 import com.astrbot.android.model.ProviderCapability
+import com.astrbot.android.ui.AppMotionTokens
 import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.animateToItemWithAppMotion
 import com.astrbot.android.ui.monochromeSwitchColors
+import com.astrbot.android.ui.rememberPulsingAlpha
+import com.astrbot.android.ui.rememberPulsingScale
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -115,20 +113,18 @@ import java.util.UUID
 @Composable
 fun ChatScreen(
     chatViewModel: ChatViewModel = viewModel(),
+    drawerState: DrawerState? = null,
 ) {
     val context = LocalContext.current
-    val bots by chatViewModel.bots.collectAsState()
-    val personas by chatViewModel.personas.collectAsState()
     val providers by chatViewModel.providers.collectAsState()
     val sessions by chatViewModel.sessions.collectAsState()
     val uiState by chatViewModel.uiState.collectAsState()
 
-    val drawerState = rememberDrawerState(initialValue = androidx.compose.material3.DrawerValue.Closed)
+    val resolvedDrawerState = drawerState ?: rememberDrawerState(initialValue = androidx.compose.material3.DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
     val currentBot = chatViewModel.selectedBot()
-    val currentPersona = chatViewModel.currentPersona()
     val messages = chatViewModel.sessionMessages(uiState.selectedSessionId)
     val latestMessageScrollKey = messages.lastOrNull()?.let { message ->
         "${message.id}:${message.content.length}:${message.attachments.size}"
@@ -140,9 +136,6 @@ fun ChatScreen(
 
     var input by remember(uiState.selectedSessionId) { mutableStateOf("") }
     var pendingAttachments by remember(uiState.selectedSessionId) { mutableStateOf(emptyList<ConversationAttachment>()) }
-    var selectorExpanded by remember(uiState.selectedSessionId, uiState.selectedBotId, uiState.selectedProviderId) {
-        mutableStateOf(false)
-    }
     var selectedSessionIds by remember { mutableStateOf(emptySet<String>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val selectionMode = selectedSessionIds.isNotEmpty()
@@ -156,7 +149,7 @@ fun ChatScreen(
 
     LaunchedEffect(messages.size, latestMessageScrollKey) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+            listState.animateToItemWithAppMotion(messages.lastIndex)
         }
     }
 
@@ -196,7 +189,7 @@ fun ChatScreen(
     }
 
     ModalNavigationDrawer(
-        drawerState = drawerState,
+        drawerState = resolvedDrawerState,
         drawerContent = {
             Box(
                 modifier = Modifier
@@ -222,7 +215,7 @@ fun ChatScreen(
                             onCreateConversation = {
                                 if (!selectionMode) {
                                     chatViewModel.createSession()
-                                    scope.launch { drawerState.close() }
+                                    scope.launch { resolvedDrawerState.close() }
                                 }
                             },
                         )
@@ -245,7 +238,7 @@ fun ChatScreen(
                                             selectedSessionIds = selectedSessionIds.toggle(session.id)
                                         } else {
                                             chatViewModel.selectSession(session.id)
-                                            scope.launch { drawerState.close() }
+                                            scope.launch { resolvedDrawerState.close() }
                                         }
                                     },
                                     onLongPress = {
@@ -282,88 +275,6 @@ fun ChatScreen(
                 .background(MonochromeUi.pageBackground),
             containerColor = MonochromeUi.pageBackground,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            topBar = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                ) {
-                    ChatScreenTopBar(
-                        selectedBotName = currentBot?.displayName ?: stringResource(R.string.chat_selector_bots),
-                        onOpenHistory = { scope.launch { drawerState.open() } },
-                        onOpenBotSelector = { selectorExpanded = true },
-                        botSelectorDropdown = {
-                            DropdownMenu(
-                                expanded = selectorExpanded,
-                                onDismissRequest = { selectorExpanded = false },
-                                modifier = Modifier.align(Alignment.TopEnd),
-                                containerColor = MonochromeUi.cardBackground,
-                                tonalElevation = 0.dp,
-                                shadowElevation = 12.dp,
-                            ) {
-                                Text(
-                                    stringResource(R.string.chat_selector_bots),
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MonochromeUi.textSecondary,
-                                )
-                                bots.forEach { bot ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = bot.displayName,
-                                                color = MonochromeUi.textPrimary,
-                                            )
-                                        },
-                                        onClick = {
-                                            chatViewModel.selectBot(bot.id)
-                                            selectorExpanded = false
-                                        },
-                                    )
-                                }
-                                Spacer(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 8.dp)
-                                        .height(1.dp)
-                                        .background(MonochromeUi.border.copy(alpha = 0.45f)),
-                                )
-                                Text(
-                                    stringResource(R.string.chat_selector_personas),
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MonochromeUi.textSecondary,
-                                )
-                                personas
-                                    .filter { it.enabled }
-                                    .forEach { persona ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = persona.name,
-                                                    color = MonochromeUi.textPrimary,
-                                                )
-                                            },
-                                            trailingIcon = {
-                                                if (persona.id == currentPersona?.id) {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.Check,
-                                                        contentDescription = null,
-                                                        tint = MonochromeUi.textPrimary,
-                                                    )
-                                                }
-                                            },
-                                            onClick = {
-                                                chatViewModel.selectPersona(persona.id)
-                                                selectorExpanded = false
-                                            },
-                                        )
-                                    }
-                            }
-                        },
-                    )
-                }
-            },
             bottomBar = {
                 ChatInputBar(
                     input = input,
@@ -408,96 +319,6 @@ fun ChatScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ChatScreenTopBar(
-    selectedBotName: String,
-    onOpenHistory: () -> Unit,
-    onOpenBotSelector: () -> Unit,
-    botSelectorDropdown: @Composable (BoxScope.() -> Unit) = {},
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Surface(
-                onClick = onOpenHistory,
-                shape = CircleShape,
-                color = MonochromeUi.elevatedSurface,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(50.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    androidx.compose.material3.Icon(
-                        imageVector = Icons.Outlined.Menu,
-                        contentDescription = stringResource(R.string.chat_history),
-                        tint = MonochromeUi.textPrimary,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = MonochromeUi.strong,
-            ) {
-                Text(
-                    text = stringResource(R.string.chat_title),
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
-                    color = MonochromeUi.strongText,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.CenterEnd,
-        ) {
-            Surface(
-                onClick = onOpenBotSelector,
-                shape = RoundedCornerShape(18.dp),
-                color = MonochromeUi.elevatedSurface,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 20.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = selectedBotName,
-                        color = MonochromeUi.textPrimary,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    androidx.compose.material3.Icon(
-                        imageVector = Icons.Outlined.ArrowDropDown,
-                        contentDescription = null,
-                        tint = MonochromeUi.textPrimary,
-                    )
-                }
-            }
-            botSelectorDropdown()
         }
     }
 }
@@ -1052,14 +873,8 @@ private fun ChatPromptField(
 private fun VoiceRecordingIndicator(
     durationMs: Long,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "recording")
-    val pulse by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900),
-            repeatMode = RepeatMode.Reverse,
-        ),
+    val pulse = rememberPulsingAlpha(
+        durationMillis = AppMotionTokens.recordingPulseMillis,
         label = "recordingPulse",
     )
 
@@ -1109,23 +924,14 @@ private fun VoiceRecordButton(
     size: androidx.compose.ui.unit.Dp = 56.dp,
     onPressAndHold: suspend androidx.compose.foundation.gestures.PressGestureScope.(Offset) -> Unit,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "voiceButton")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.14f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 620),
-            repeatMode = RepeatMode.Reverse,
-        ),
+    val pulseScale = rememberPulsingScale(
+        durationMillis = AppMotionTokens.voiceButtonPulseMillis,
         label = "voiceButtonScale",
     )
-    val haloAlpha by infiniteTransition.animateFloat(
+    val haloAlpha = rememberPulsingAlpha(
         initialValue = 0.12f,
         targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 620),
-            repeatMode = RepeatMode.Reverse,
-        ),
+        durationMillis = AppMotionTokens.voiceButtonPulseMillis,
         label = "voiceButtonHalo",
     )
 

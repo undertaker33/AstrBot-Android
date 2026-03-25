@@ -63,6 +63,7 @@ import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
+import com.astrbot.android.ui.animateToItemWithAppMotion
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.monochromeSwitchColors
@@ -145,7 +146,7 @@ fun ConfigDetailScreen(
                     Surface(
                         onClick = {
                             scope.launch {
-                                listState.animateScrollToItem(section.ordinal)
+                                listState.animateToItemWithAppMotion(section.ordinal)
                                 drawerState.close()
                             }
                         },
