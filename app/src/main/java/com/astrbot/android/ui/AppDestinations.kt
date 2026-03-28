@@ -33,7 +33,13 @@ internal sealed class AppDestination(
     }
 
     data object BackupHub : AppDestination("backup-hub", Icons.Outlined.Memory)
+    data object BotBackup : AppDestination("backup/bots", Icons.Outlined.SmartToy)
+    data object ModelBackup : AppDestination("backup/models", Icons.Outlined.Memory)
+    data object PersonaBackup : AppDestination("backup/personas", Icons.Outlined.Face)
     data object ConversationBackup : AppDestination("backup/conversations", Icons.Outlined.ChatBubbleOutline)
+    data object ConfigBackup : AppDestination("backup/configs", Icons.Outlined.Settings)
+    data object TtsBackup : AppDestination("backup/tts", Icons.Outlined.Memory)
+    data object FullBackup : AppDestination("backup/full", Icons.Outlined.Memory)
     data object Models : AppDestination("models", Icons.Outlined.Memory)
     data object Runtime : AppDestination("runtime", Icons.Outlined.Settings)
 }

@@ -238,4 +238,132 @@ class QqReplyPolicyEvaluatorTest {
         assertEquals(QqReplyDecisionReason.WHITELIST_BLOCKED, result.reason)
         assertEquals("Permission denied by whitelist.", result.permissionDeniedNotice)
     }
+
+    @Test
+    fun ignores_at_all_events_when_switch_is_enabled() {
+        val result = QqReplyPolicyEvaluator.evaluate(
+            QqReplyPolicyInput(
+                messageType = "group",
+                text = "@all astrbot",
+                userId = "10001",
+                groupId = "20001",
+                isCommand = false,
+                mentionsSelf = false,
+                mentionsAll = true,
+                isSelfMessage = false,
+                ignoreSelfMessageEnabled = true,
+                ignoreAtAllEventEnabled = true,
+                isAdmin = false,
+                whitelistEnabled = false,
+                whitelistEntries = emptyList(),
+                logOnWhitelistMiss = false,
+                adminGroupBypassWhitelistEnabled = true,
+                adminPrivateBypassWhitelistEnabled = true,
+                replyWhenPermissionDenied = false,
+                replyOnAtOnlyEnabled = true,
+                wakeWords = listOf("astrbot"),
+                wakeWordsAdminOnlyEnabled = false,
+                privateChatRequiresWakeWord = false,
+                hasExplicitAtTrigger = true,
+            ),
+        )
+
+        assertFalse(result.shouldReply)
+        assertEquals(QqReplyDecisionReason.AT_ALL_IGNORED, result.reason)
+    }
+
+    @Test
+    fun at_all_events_can_trigger_reply_when_ignore_switch_is_disabled() {
+        val result = QqReplyPolicyEvaluator.evaluate(
+            QqReplyPolicyInput(
+                messageType = "group",
+                text = "@all hello",
+                userId = "10001",
+                groupId = "20001",
+                isCommand = false,
+                mentionsSelf = false,
+                mentionsAll = true,
+                isSelfMessage = false,
+                ignoreSelfMessageEnabled = true,
+                ignoreAtAllEventEnabled = false,
+                isAdmin = false,
+                whitelistEnabled = false,
+                whitelistEntries = emptyList(),
+                logOnWhitelistMiss = false,
+                adminGroupBypassWhitelistEnabled = true,
+                adminPrivateBypassWhitelistEnabled = true,
+                replyWhenPermissionDenied = false,
+                replyOnAtOnlyEnabled = true,
+                wakeWords = emptyList(),
+                wakeWordsAdminOnlyEnabled = false,
+                privateChatRequiresWakeWord = false,
+                hasExplicitAtTrigger = true,
+            ),
+        )
+
+        assertTrue(result.shouldReply)
+        assertEquals(QqReplyDecisionReason.AT_MENTION, result.reason)
+    }
+
+    @Test
+    fun bare_bot_mention_replies_only_when_at_only_switch_is_enabled() {
+        val enabledResult = QqReplyPolicyEvaluator.evaluate(
+            QqReplyPolicyInput(
+                messageType = "group",
+                text = "",
+                userId = "10001",
+                groupId = "20001",
+                isCommand = false,
+                mentionsSelf = true,
+                mentionsAll = false,
+                isSelfMessage = false,
+                ignoreSelfMessageEnabled = true,
+                ignoreAtAllEventEnabled = true,
+                isAdmin = false,
+                whitelistEnabled = false,
+                whitelistEntries = emptyList(),
+                logOnWhitelistMiss = false,
+                adminGroupBypassWhitelistEnabled = true,
+                adminPrivateBypassWhitelistEnabled = true,
+                replyWhenPermissionDenied = false,
+                replyOnAtOnlyEnabled = true,
+                wakeWords = emptyList(),
+                wakeWordsAdminOnlyEnabled = false,
+                privateChatRequiresWakeWord = false,
+                hasExplicitAtTrigger = true,
+            ),
+        )
+
+        val disabledResult = QqReplyPolicyEvaluator.evaluate(
+            QqReplyPolicyInput(
+                messageType = "group",
+                text = "",
+                userId = "10001",
+                groupId = "20001",
+                isCommand = false,
+                mentionsSelf = true,
+                mentionsAll = false,
+                isSelfMessage = false,
+                ignoreSelfMessageEnabled = true,
+                ignoreAtAllEventEnabled = true,
+                isAdmin = false,
+                whitelistEnabled = false,
+                whitelistEntries = emptyList(),
+                logOnWhitelistMiss = false,
+                adminGroupBypassWhitelistEnabled = true,
+                adminPrivateBypassWhitelistEnabled = true,
+                replyWhenPermissionDenied = false,
+                replyOnAtOnlyEnabled = false,
+                wakeWords = emptyList(),
+                wakeWordsAdminOnlyEnabled = false,
+                privateChatRequiresWakeWord = false,
+                hasExplicitAtTrigger = true,
+            ),
+        )
+
+        assertTrue(enabledResult.shouldReply)
+        assertEquals(QqReplyDecisionReason.AT_MENTION, enabledResult.reason)
+        assertFalse(disabledResult.shouldReply)
+        assertEquals(QqReplyDecisionReason.NO_TRIGGER, disabledResult.reason)
+    }
 }

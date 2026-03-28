@@ -47,6 +47,7 @@ object OneBotBridgeServer {
     private const val PATH = "/ws"
     private const val AUTH_TOKEN = "astrbot_android_bridge"
     private const val MAX_RECENT_MESSAGE_IDS = 512
+    internal const val KEYWORD_BLOCK_NOTICE = "你的消息或者大模型的响应中包含不适当的内容，已被屏蔽。"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
@@ -173,9 +174,7 @@ object OneBotBridgeServer {
         }
         if (config.keywordDetectionEnabled && QqKeywordDetector(config.keywordPatterns).matches(event.text)) {
             RuntimeLogRepository.append("QQ inbound keyword blocked: user=${event.userId} group=${event.groupId.ifBlank { "-" }}")
-            if (config.replyWhenPermissionDenied) {
-                sendReply(event, "Blocked by keyword policy.")
-            }
+            sendReply(event, KEYWORD_BLOCK_NOTICE)
             return
         }
         val rateLimitResult = rateLimiter.tryAcquire(
@@ -354,7 +353,7 @@ object OneBotBridgeServer {
             val outboundBlocked = config.keywordDetectionEnabled && QqKeywordDetector(config.keywordPatterns).matches(response)
             val outboundText = if (outboundBlocked) {
                 RuntimeLogRepository.append("QQ outbound keyword blocked: session=$sessionId")
-                "Blocked by keyword policy."
+                KEYWORD_BLOCK_NOTICE
             } else {
                 response
             }
@@ -414,7 +413,7 @@ object OneBotBridgeServer {
             wakeWords = (bot.triggerWords + config.wakeWords).distinct(),
             wakeWordsAdminOnlyEnabled = config.wakeWordsAdminOnlyEnabled,
             privateChatRequiresWakeWord = config.privateChatRequiresWakeWord,
-            hasExplicitAtTrigger = true,
+            hasExplicitAtTrigger = event.mentionsSelf || event.mentionsAll,
         ),
     )
 

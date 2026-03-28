@@ -2,6 +2,7 @@ package com.astrbot.android
 
 import android.app.Application
 import com.astrbot.android.data.BotRepository
+import com.astrbot.android.data.AppBackupRepository
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
@@ -41,6 +42,7 @@ class AstrBotApplication : Application() {
         ConfigRepository.initialize(this)
         ConversationRepository.initialize(this)
         ConversationBackupRepository.initialize(this)
+        AppBackupRepository.initialize(this)
         OneBotBridgeServer.start()
         appScope.launch(Dispatchers.IO) {
             BotRepository.initialize(this@AstrBotApplication)

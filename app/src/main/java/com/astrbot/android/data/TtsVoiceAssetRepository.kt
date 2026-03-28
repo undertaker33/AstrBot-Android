@@ -262,6 +262,40 @@ object TtsVoiceAssetRepository {
         persist()
     }
 
+    fun snapshotAssets(): List<TtsVoiceReferenceAsset> {
+        return _assets.value.map { asset ->
+            asset.copy(
+                clips = asset.clips.map { clip -> clip.copy() },
+                providerBindings = asset.providerBindings.map { binding -> binding.copy() },
+            )
+        }
+    }
+
+    fun restoreAssets(assets: List<TtsVoiceReferenceAsset>) {
+        val restored = assets
+            .map { asset ->
+                asset.copy(
+                    name = asset.name.trim().ifBlank { "Unnamed voice asset" },
+                    source = asset.source.trim(),
+                    localPath = asset.localPath.trim(),
+                    remoteUrl = asset.remoteUrl.trim(),
+                    clips = asset.clips.map { clip -> clip.copy(localPath = clip.localPath.trim()) },
+                    providerBindings = asset.providerBindings.map { binding ->
+                        binding.copy(
+                            model = binding.model.trim(),
+                            voiceId = binding.voiceId.trim(),
+                            displayName = binding.displayName.trim().ifBlank { binding.voiceId.trim() },
+                        )
+                    },
+                )
+            }
+            .distinctBy { it.id }
+            .sortedByDescending { it.createdAt }
+        _assets.value = restored
+        persist()
+        RuntimeLogRepository.append("TTS voice assets restored: count=${restored.size}")
+    }
+
     private fun loadAssets(): List<TtsVoiceReferenceAsset>? {
         val raw = preferences?.getString(KEY_ASSETS_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
         return runCatching {

@@ -341,6 +341,35 @@ object NapCatLoginRepository {
         )
     }
 
+    fun restoreSavedLoginState(
+        quickLoginUin: String,
+        savedAccounts: List<SavedQqAccount>,
+    ) {
+        val normalizedAccounts = savedAccounts
+            .mapNotNull { account ->
+                val uin = account.uin.trim()
+                if (uin.isBlank()) {
+                    null
+                } else {
+                    SavedQqAccount(
+                        uin = uin,
+                        nickName = account.nickName.trim(),
+                        avatarUrl = account.avatarUrl.trim(),
+                    )
+                }
+            }
+            .distinctBy { it.uin }
+        val resolvedQuickLoginUin = quickLoginUin.trim().ifBlank { normalizedAccounts.firstOrNull()?.uin.orEmpty() }
+        saveQuickLoginUinLocally(resolvedQuickLoginUin)
+        persistSavedAccounts(normalizedAccounts)
+        _loginState.value = _loginState.value.copy(
+            quickLoginUin = resolvedQuickLoginUin,
+            savedAccounts = normalizedAccounts,
+            lastUpdated = System.currentTimeMillis(),
+        )
+        RuntimeLogRepository.append("QQ login backup restored: accounts=${normalizedAccounts.size} quick=${resolvedQuickLoginUin.ifBlank { "-" }}")
+    }
+
     private fun performLoginAction(
         actionLabel: String,
         uin: String,

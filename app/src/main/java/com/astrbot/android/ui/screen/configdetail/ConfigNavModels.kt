@@ -5,11 +5,12 @@ import com.astrbot.android.R
 
 internal enum class ConfigSection(@StringRes val titleRes: Int) {
     ModelSettings(R.string.config_section_model_settings),
+    SpeechSettings(R.string.config_section_speech_settings),
+    StreamingSettings(R.string.config_section_streaming_settings),
+    RuntimeHelpers(R.string.config_section_runtime_helpers),
     KnowledgeBase(R.string.config_section_knowledge_base),
     ContextStrategy(R.string.config_section_context_strategy),
-    Search(R.string.config_section_search),
     Automation(R.string.config_section_automation),
-    Advanced(R.string.config_section_advanced),
     Admin(R.string.config_section_admin),
     Session(R.string.config_section_session),
     Wake(R.string.config_section_wake),

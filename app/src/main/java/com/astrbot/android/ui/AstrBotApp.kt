@@ -53,11 +53,14 @@ import com.astrbot.android.ui.screen.QQAccountCenterScreen
 import com.astrbot.android.ui.screen.QQLoginScreen
 import com.astrbot.android.ui.screen.DataBackupHubScreen
 import com.astrbot.android.ui.screen.ConversationBackupScreen
+import com.astrbot.android.ui.screen.FullBackupScreen
+import com.astrbot.android.ui.screen.ModuleBackupScreen
 import com.astrbot.android.ui.screen.SettingsHubScreen
 import com.astrbot.android.ui.screen.SettingsScreen
 import com.astrbot.android.ui.screen.SubPageScaffold
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
+import com.astrbot.android.data.backup.AppBackupModuleKind
 import kotlinx.coroutines.launch
 
 @Composable
@@ -304,11 +307,60 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                 composable(AppDestination.BackupHub.route) {
                     DataBackupHubScreen(
                         onBack = { AppNavigator.back(navController) },
+                        onOpenBotBackup = { AppNavigator.open(navController, AppDestination.BotBackup.route) },
+                        onOpenModelBackup = { AppNavigator.open(navController, AppDestination.ModelBackup.route) },
+                        onOpenPersonaBackup = { AppNavigator.open(navController, AppDestination.PersonaBackup.route) },
                         onOpenConversationBackup = { AppNavigator.open(navController, AppDestination.ConversationBackup.route) },
+                        onOpenConfigBackup = { AppNavigator.open(navController, AppDestination.ConfigBackup.route) },
+                        onOpenTtsBackup = { AppNavigator.open(navController, AppDestination.TtsBackup.route) },
+                        onOpenFullBackup = { AppNavigator.open(navController, AppDestination.FullBackup.route) },
+                    )
+                }
+                composable(AppDestination.BotBackup.route) {
+                    ModuleBackupScreen(
+                        module = AppBackupModuleKind.BOTS,
+                        title = stringResource(R.string.backup_module_bots_title),
+                        description = stringResource(R.string.backup_module_bots_desc),
+                        onBack = { AppNavigator.back(navController) },
+                    )
+                }
+                composable(AppDestination.ModelBackup.route) {
+                    ModuleBackupScreen(
+                        module = AppBackupModuleKind.PROVIDERS,
+                        title = stringResource(R.string.backup_module_models_title),
+                        description = stringResource(R.string.backup_module_models_desc),
+                        onBack = { AppNavigator.back(navController) },
+                    )
+                }
+                composable(AppDestination.PersonaBackup.route) {
+                    ModuleBackupScreen(
+                        module = AppBackupModuleKind.PERSONAS,
+                        title = stringResource(R.string.backup_module_personas_title),
+                        description = stringResource(R.string.backup_module_personas_desc),
+                        onBack = { AppNavigator.back(navController) },
                     )
                 }
                 composable(AppDestination.ConversationBackup.route) {
                     ConversationBackupScreen(onBack = { AppNavigator.back(navController) })
+                }
+                composable(AppDestination.ConfigBackup.route) {
+                    ModuleBackupScreen(
+                        module = AppBackupModuleKind.CONFIGS,
+                        title = stringResource(R.string.backup_module_configs_title),
+                        description = stringResource(R.string.backup_module_configs_desc),
+                        onBack = { AppNavigator.back(navController) },
+                    )
+                }
+                composable(AppDestination.TtsBackup.route) {
+                    ModuleBackupScreen(
+                        module = AppBackupModuleKind.TTS_ASSETS,
+                        title = stringResource(R.string.backup_module_tts_title),
+                        description = stringResource(R.string.backup_module_tts_desc),
+                        onBack = { AppNavigator.back(navController) },
+                    )
+                }
+                composable(AppDestination.FullBackup.route) {
+                    FullBackupScreen(onBack = { AppNavigator.back(navController) })
                 }
             }
         }

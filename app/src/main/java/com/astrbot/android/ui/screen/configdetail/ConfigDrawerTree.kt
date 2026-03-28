@@ -8,11 +8,12 @@ internal fun configDrawerGroups(): List<ConfigNavGroup> {
             titleRes = R.string.config_nav_group_model,
             children = listOf(
                 ConfigSection.ModelSettings,
+                ConfigSection.SpeechSettings,
+                ConfigSection.StreamingSettings,
+                ConfigSection.RuntimeHelpers,
                 ConfigSection.KnowledgeBase,
                 ConfigSection.ContextStrategy,
-                ConfigSection.Search,
                 ConfigSection.Automation,
-                ConfigSection.Advanced,
             ),
         ),
         ConfigNavGroup(

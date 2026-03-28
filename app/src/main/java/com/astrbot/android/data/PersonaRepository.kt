@@ -83,6 +83,29 @@ object PersonaRepository {
         }
     }
 
+    fun snapshotProfiles(): List<PersonaProfile> {
+        return _personas.value.map { persona ->
+            persona.copy(enabledTools = persona.enabledTools.toSet())
+        }
+    }
+
+    fun restoreProfiles(profiles: List<PersonaProfile>) {
+        val restored = profiles
+            .map { persona ->
+                persona.copy(
+                    name = persona.name.trim(),
+                    tag = persona.tag.trim(),
+                    systemPrompt = persona.systemPrompt,
+                    enabledTools = persona.enabledTools.map(String::trim).filter(String::isNotBlank).toSet(),
+                )
+            }
+            .distinctBy { it.id }
+            .ifEmpty { defaultPersonas() }
+        _personas.value = restored
+        persistPersonas()
+        RuntimeLogRepository.append("Persona profiles restored: count=${restored.size}")
+    }
+
     private fun loadSavedPersonas(): List<PersonaProfile>? {
         val raw = preferences?.getString(KEY_PERSONAS_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
         return runCatching {

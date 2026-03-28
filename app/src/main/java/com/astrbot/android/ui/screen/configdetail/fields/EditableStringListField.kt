@@ -1,5 +1,7 @@
 package com.astrbot.android.ui.screen
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +28,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
 import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.monochromeOutlinedButtonBorder
+import com.astrbot.android.ui.monochromeOutlinedButtonColors
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 
 @Composable
@@ -86,7 +90,11 @@ internal fun StringListManagerField(
                 },
                 color = MonochromeUi.textSecondary,
             )
-            OutlinedButton(onClick = { showDialog = true }) {
+            OutlinedButton(
+                onClick = { showDialog = true },
+                colors = monochromeOutlinedButtonColors(),
+                border = monochromeOutlinedButtonBorder(),
+            ) {
                 Text(stringResource(R.string.common_manage))
             }
         }
@@ -118,12 +126,16 @@ internal fun StringListEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textSecondary,
         title = { Text(title) },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 360.dp),
+                    .heightIn(max = stringListEditorDialogScrollableMaxHeightDp().dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 EditableStringListEditor(
@@ -138,12 +150,18 @@ internal fun StringListEditorDialog(
                 onClick = {
                     onSave(draftValues.map { it.trim() }.filter { it.isNotBlank() })
                 },
+                colors = monochromeOutlinedButtonColors(),
+                border = monochromeOutlinedButtonBorder(),
             ) {
                 Text(stringResource(R.string.common_save))
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
+            OutlinedButton(
+                onClick = onDismiss,
+                colors = monochromeOutlinedButtonColors(),
+                border = monochromeOutlinedButtonBorder(),
+            ) {
                 Text(stringResource(R.string.common_cancel))
             }
         },
@@ -186,6 +204,8 @@ internal fun EditableStringListEditor(
         }
         OutlinedButton(
             onClick = { onValuesChange(values + "") },
+            colors = monochromeOutlinedButtonColors(),
+            border = monochromeOutlinedButtonBorder(),
         ) {
             Icon(Icons.Outlined.Add, contentDescription = null)
             Text(
@@ -195,3 +215,7 @@ internal fun EditableStringListEditor(
         }
     }
 }
+
+internal fun stringListEditorDialogScrollableMaxHeightDp(): Int = 360
+
+internal fun stringListManagerUsesMonochromeManageButton(): Boolean = true

@@ -115,6 +115,25 @@ object ProviderRepository {
         }
     }
 
+    fun snapshotProfiles(): List<ProviderProfile> {
+        return _providers.value.map { provider ->
+            provider.copy(
+                capabilities = provider.capabilities.toSet(),
+                ttsVoiceOptions = provider.ttsVoiceOptions.toList(),
+            )
+        }
+    }
+
+    fun restoreProfiles(profiles: List<ProviderProfile>) {
+        val normalized = profiles
+            .map(::normalizeProvider)
+            .distinctBy { it.id }
+            .ifEmpty { defaultProviders() }
+        _providers.value = normalized
+        persistProviders()
+        RuntimeLogRepository.append("Provider profiles restored: count=${normalized.size}")
+    }
+
     fun updateMultimodalProbeSupport(id: String, probeSupport: FeatureSupportState) {
         updateProbeSupport(id, probeSupport) { item, state -> item.copy(multimodalProbeSupport = state) }
     }

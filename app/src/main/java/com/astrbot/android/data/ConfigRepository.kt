@@ -102,6 +102,31 @@ object ConfigRepository {
         }
     }
 
+    fun snapshotProfiles(): List<ConfigProfile> {
+        return _profiles.value.map { profile ->
+            profile.copy(
+                adminUids = profile.adminUids.toList(),
+                wakeWords = profile.wakeWords.toList(),
+                whitelistEntries = profile.whitelistEntries.toList(),
+                keywordPatterns = profile.keywordPatterns.toList(),
+            )
+        }
+    }
+
+    fun restoreProfiles(
+        profiles: List<ConfigProfile>,
+        selectedProfileId: String?,
+    ) {
+        val restored = profiles
+            .map(::normalizeProfile)
+            .distinctBy { it.id }
+            .ifEmpty { defaultProfiles() }
+        _profiles.value = restored
+        _selectedProfileId.value = restored.firstOrNull { it.id == selectedProfileId }?.id ?: restored.first().id
+        persist()
+        RuntimeLogRepository.append("Config profiles restored: count=${restored.size} selected=${_selectedProfileId.value}")
+    }
+
     private fun loadSavedProfiles(): List<ConfigProfile>? {
         val raw = preferences?.getString(KEY_PROFILES_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
         return runCatching {

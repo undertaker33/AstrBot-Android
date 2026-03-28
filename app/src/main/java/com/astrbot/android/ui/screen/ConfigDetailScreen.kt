@@ -107,26 +107,16 @@ fun ConfigDetailScreen(
     val listState = rememberLazyListState()
     val groups = remember { configDrawerGroups() }
     val sections = remember(groups) { groups.flatMap { it.children } }
-    var expandedGroupTitles by remember {
-        mutableStateOf(
-            setOf(
-                R.string.config_nav_group_model,
-                R.string.config_nav_group_platform,
-            ),
-        )
-    }
+    var expandedGroupTitles by remember { mutableStateOf(emptySet<Int>()) }
     val currentSection by remember(listState, sections) {
         derivedStateOf {
-            val visibleSectionKeys = listState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
-                val key = item.key as? String ?: return@mapNotNull null
-                val section = sections.firstOrNull { it.name == key } ?: return@mapNotNull null
-                section to item.offset
-            }
-
-            visibleSectionKeys
-                .minByOrNull { (_, offset) -> kotlin.math.abs(offset) }
-                ?.first
-                ?: sections.first()
+            currentSectionFor(
+                visibleSectionOffsets = listState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
+                    val key = item.key as? String ?: return@mapNotNull null
+                    key to item.offset
+                },
+                sections = sections,
+            )
         }
     }
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
@@ -134,131 +124,32 @@ fun ConfigDetailScreen(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet(
-                modifier = Modifier.widthIn(max = screenWidth * 0.5f),
-                drawerContainerColor = MonochromeUi.drawerSurface,
-                drawerContentColor = MonochromeUi.textPrimary,
-            ) {
-                Text(
-                    text = stringResource(R.string.config_detail_nav_title),
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MonochromeUi.textPrimary,
-                )
-                groups.forEach { group ->
-                    val groupExpanded = expandedGroupTitles.contains(group.titleRes)
-                    val groupSelected = currentSection in group.children
-                    Surface(
-                        onClick = {
-                            if (group.children.isNotEmpty()) {
-                                expandedGroupTitles = expandedGroupTitles.toMutableSet().apply {
-                                    if (!add(group.titleRes)) {
-                                        remove(group.titleRes)
-                                    }
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (groupSelected) MonochromeUi.cardAltBackground else MonochromeUi.drawerSurface,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = stringResource(group.titleRes),
-                                color = if (groupSelected) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
-                                fontWeight = if (groupSelected) FontWeight.SemiBold else FontWeight.Medium,
-                            )
-                            Text(
-                                text = if (group.children.isEmpty()) "" else if (groupExpanded) "-" else "+",
-                                color = MonochromeUi.textSecondary,
-                            )
-                        }
+            ConfigDetailDrawerContent(
+                screenWidth = screenWidth,
+                groups = groups,
+                currentSection = currentSection,
+                expandedGroupTitles = expandedGroupTitles,
+                onToggleGroup = { titleRes ->
+                    expandedGroupTitles = toggleExpandedGroup(expandedGroupTitles, titleRes)
+                },
+                onSelectSection = { section ->
+                    scope.launch {
+                        listState.animateToItemWithAppMotion(sections.indexOf(section))
+                        drawerState.close()
                     }
-                    if (groupExpanded) {
-                        group.children.forEach { section ->
-                            val selected = section == currentSection
-                            Surface(
-                                onClick = {
-                                    scope.launch {
-                                        listState.animateToItemWithAppMotion(sections.indexOf(section))
-                                        drawerState.close()
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 24.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                color = if (selected) MonochromeUi.cardAltBackground else MonochromeUi.drawerSurface,
-                            ) {
-                                Text(
-                                    text = stringResource(section.titleRes),
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    color = if (selected) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+                },
+            )
         },
     ) {
         Scaffold(
             containerColor = MonochromeUi.pageBackground,
             topBar = {
-                Surface(color = MonochromeUi.pageBackground) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = stringResource(R.string.common_back),
-                                tint = MonochromeUi.textPrimary,
-                            )
-                        }
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(
-                                Icons.Outlined.Menu,
-                                contentDescription = stringResource(R.string.config_detail_open_sections),
-                                tint = MonochromeUi.textPrimary,
-                            )
-                        }
-                        Text(
-                            text = profile.name,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(start = 6.dp, end = 12.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MonochromeUi.textPrimary,
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MonochromeUi.inputBackground,
-                        ) {
-                            Text(
-                                text = stringResource(currentSection.titleRes),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MonochromeUi.textSecondary,
-                            )
-                        }
-                    }
-                }
+                ConfigDetailTopBar(
+                    profileName = profile.name,
+                    currentSection = currentSection,
+                    onBack = onBack,
+                    onOpenSections = { scope.launch { drawerState.open() } },
+                )
             },
         ) { innerPadding ->
             ConfigDetailContent(
@@ -385,10 +276,7 @@ private fun ConfigDetailContent(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item(key = ConfigSection.ModelSettings.name) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    ConfigSectionCard(
+                ConfigSectionCard(
                         title = stringResource(R.string.config_section_model_settings),
                         subtitle = stringResource(R.string.config_section_model_settings_desc),
                     ) {
@@ -461,7 +349,9 @@ private fun ConfigDetailContent(
                             )
                         }
                     }
-                    ConfigSectionCard(
+            }
+            item(key = ConfigSection.SpeechSettings.name) {
+                ConfigSectionCard(
                         title = stringResource(R.string.config_section_speech_settings),
                         subtitle = stringResource(R.string.config_section_speech_settings_desc),
                     ) {
@@ -568,7 +458,9 @@ private fun ConfigDetailContent(
                             }
                         }
                     }
-                    ConfigSectionCard(
+            }
+            item(key = ConfigSection.StreamingSettings.name) {
+                ConfigSectionCard(
                         title = stringResource(R.string.config_section_streaming_settings),
                         subtitle = stringResource(R.string.config_section_streaming_settings_desc),
                     ) {
@@ -600,7 +492,9 @@ private fun ConfigDetailContent(
                             )
                         }
                     }
-                    ConfigSectionCard(
+            }
+            item(key = ConfigSection.RuntimeHelpers.name) {
+                ConfigSectionCard(
                         title = stringResource(R.string.config_section_runtime_helpers),
                         subtitle = stringResource(R.string.config_section_runtime_helpers_desc),
                     ) {
@@ -625,7 +519,6 @@ private fun ConfigDetailContent(
                             )
                         }
                     }
-                }
             }
             item(key = ConfigSection.KnowledgeBase.name) {
                 PlaceholderSectionCard(
@@ -639,22 +532,10 @@ private fun ConfigDetailContent(
                     subtitle = stringResource(R.string.config_placeholder_round_four),
                 )
             }
-            item(key = ConfigSection.Search.name) {
-                PlaceholderSectionCard(
-                    title = stringResource(R.string.config_section_search),
-                    subtitle = stringResource(R.string.config_placeholder_search),
-                )
-            }
             item(key = ConfigSection.Automation.name) {
                 PlaceholderSectionCard(
                     title = stringResource(R.string.config_section_automation),
                     subtitle = stringResource(R.string.config_placeholder_automation),
-                )
-            }
-            item(key = ConfigSection.Advanced.name) {
-                PlaceholderSectionCard(
-                    title = stringResource(R.string.config_section_advanced),
-                    subtitle = stringResource(R.string.config_placeholder_advanced),
                 )
             }
             item(key = ConfigSection.Admin.name) {

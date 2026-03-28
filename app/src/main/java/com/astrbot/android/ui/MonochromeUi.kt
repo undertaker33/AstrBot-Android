@@ -1,6 +1,8 @@
 package com.astrbot.android.ui
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
@@ -66,3 +68,12 @@ fun monochromeSwitchColors() = SwitchDefaults.colors(
     uncheckedTrackColor = if (MonochromeUi.isDarkTheme) Color(0xFF4B5565) else Color(0xFFD4D4D0),
     uncheckedBorderColor = if (MonochromeUi.isDarkTheme) Color(0xFF4B5565) else Color(0xFFD4D4D0),
 )
+
+@Composable
+fun monochromeOutlinedButtonColors() = ButtonDefaults.outlinedButtonColors(
+    containerColor = MonochromeUi.elevatedSurface,
+    contentColor = MonochromeUi.textPrimary,
+)
+
+@Composable
+fun monochromeOutlinedButtonBorder() = BorderStroke(1.dp, MonochromeUi.border)

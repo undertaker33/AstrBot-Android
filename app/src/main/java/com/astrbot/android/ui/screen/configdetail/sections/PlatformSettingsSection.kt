@@ -283,7 +283,7 @@ internal fun KeywordSettingsSection(
                 checked = keywordDetectionEnabled,
                 onCheckedChange = onKeywordDetectionEnabledChange,
             )
-            EditableStringListField(
+            StringListManagerField(
                 title = stringResource(R.string.config_keyword_patterns_title),
                 values = keywordPatterns,
                 itemLabel = stringResource(R.string.config_keyword_pattern_item_label),

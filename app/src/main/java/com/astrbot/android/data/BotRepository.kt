@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -92,14 +93,7 @@ object BotRepository {
 
     fun save(profile: BotProfile) {
         repositoryScope.launch {
-            val resolvedConfigId = ConfigRepository.resolveExistingId(profile.configProfileId)
-            val configDefaultProviderId = ConfigRepository.resolve(resolvedConfigId).defaultChatProviderId
-            val normalized = profile.copy(
-                accountHint = profile.boundQqUins.joinToString(", ").ifBlank { "QQ account not linked" },
-                configProfileId = resolvedConfigId,
-                boundQqUins = profile.boundQqUins.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
-                defaultProviderId = configDefaultProviderId,
-            )
+            val normalized = normalizeProfile(profile)
             persistBinding(
                 normalized.id,
                 BotBindingState(
@@ -139,6 +133,48 @@ object BotRepository {
             select(created.id)
         }
         return created
+    }
+
+    fun snapshotProfiles(): List<BotProfile> {
+        return _botProfiles.value.map { profile ->
+            profile.copy(
+                boundQqUins = profile.boundQqUins.toList(),
+                triggerWords = profile.triggerWords.toList(),
+            )
+        }
+    }
+
+    suspend fun restoreProfiles(
+        profiles: List<BotProfile>,
+        selectedBotId: String?,
+    ) = withContext(Dispatchers.IO) {
+        val normalized = profiles
+            .map(::normalizeProfile)
+            .distinctBy { it.id }
+            .ifEmpty { listOf(defaultBot) }
+
+        botBindings = normalized.associate { profile ->
+            profile.id to BotBindingState(
+                configProfileId = profile.configProfileId,
+                boundQqUins = profile.boundQqUins,
+                persistConversationLocally = profile.persistConversationLocally,
+            )
+        }
+        persistBindings()
+
+        val currentIds = _botProfiles.value.map { it.id }.toSet()
+        normalized.forEach { profile ->
+            botDao.upsert(profile.toEntity())
+        }
+        currentIds
+            .filterNot { currentId -> normalized.any { it.id == currentId } }
+            .forEach { botId -> botDao.deleteById(botId) }
+
+        val resolvedSelected = normalized.firstOrNull { it.id == selectedBotId }?.id ?: normalized.first().id
+        _botProfiles.value = normalized
+        _selectedBotId.value = resolvedSelected
+        _botProfile.value = normalized.first { it.id == resolvedSelected }
+        RuntimeLogRepository.append("Bot profiles restored: count=${normalized.size} selected=$resolvedSelected")
     }
 
     fun delete(botId: String) {
@@ -264,6 +300,18 @@ object BotRepository {
             )
         }
         bindingsPreferences?.edit()?.putString(KEY_BOT_BINDINGS_JSON, json.toString())?.apply()
+    }
+
+    private fun normalizeProfile(profile: BotProfile): BotProfile {
+        val resolvedConfigId = ConfigRepository.resolveExistingId(profile.configProfileId)
+        val configDefaultProviderId = ConfigRepository.resolve(resolvedConfigId).defaultChatProviderId
+        return profile.copy(
+            accountHint = profile.boundQqUins.joinToString(", ").ifBlank { "QQ account not linked" },
+            configProfileId = resolvedConfigId,
+            boundQqUins = profile.boundQqUins.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
+            defaultProviderId = configDefaultProviderId,
+            triggerWords = profile.triggerWords.map(String::trim).filter(String::isNotBlank).distinct(),
+        )
     }
 }
 

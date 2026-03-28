@@ -91,6 +91,11 @@ object QqReplyPolicyEvaluator {
             adminOnlyEnabled = input.wakeWordsAdminOnlyEnabled,
             isAdmin = input.isAdmin,
         )
+        val hasMentionContentTrigger = input.mentionsSelf && input.text.isNotBlank()
+        val hasBareMentionTrigger = input.replyOnAtOnlyEnabled &&
+            input.hasExplicitAtTrigger &&
+            input.mentionsSelf
+        val hasAtAllTrigger = input.hasExplicitAtTrigger && input.mentionsAll
 
         return when (input.messageType) {
             "private" -> {
@@ -116,7 +121,7 @@ object QqReplyPolicyEvaluator {
             }
 
             "group" -> when {
-                input.hasExplicitAtTrigger && input.mentionsSelf -> QqReplyPolicyResult(
+                hasMentionContentTrigger || hasBareMentionTrigger || hasAtAllTrigger -> QqReplyPolicyResult(
                     shouldReply = true,
                     reason = QqReplyDecisionReason.AT_MENTION,
                 )

@@ -52,11 +52,13 @@ internal fun ConfigSectionCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MonochromeUi.textPrimary)
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MonochromeUi.textSecondary,
-            )
+            if (shouldRenderConfigDescription(subtitle)) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MonochromeUi.textSecondary,
+                )
+            }
             content()
         }
     }
@@ -78,11 +80,13 @@ internal fun PlaceholderSectionCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MonochromeUi.textPrimary)
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MonochromeUi.textSecondary,
-            )
+            if (shouldRenderConfigDescription(subtitle)) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MonochromeUi.textSecondary,
+                )
+            }
         }
     }
 }
@@ -122,7 +126,7 @@ internal fun LabeledField(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(title, fontWeight = FontWeight.SemiBold, color = MonochromeUi.textPrimary)
-            if (subtitle.isNotBlank()) {
+            if (shouldRenderConfigDescription(subtitle)) {
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -133,3 +137,5 @@ internal fun LabeledField(
         }
     }
 }
+
+internal fun shouldRenderConfigDescription(text: String): Boolean = text.isNotBlank()
