@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.qq
 
+import com.astrbot.android.model.chat.MessageType
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -7,7 +8,7 @@ class QqConversationTitleResolverTest {
     @Test
     fun group_title_uses_qqg_group_id_and_sender_name() {
         val title = QqConversationTitleResolver.build(
-            messageType = "group",
+            messageType = MessageType.GroupMessage,
             groupId = "1091021328",
             userId = "10001",
             senderName = "赤",
@@ -19,7 +20,7 @@ class QqConversationTitleResolverTest {
     @Test
     fun private_title_uses_qqp_and_sender_name() {
         val title = QqConversationTitleResolver.build(
-            messageType = "private",
+            messageType = MessageType.FriendMessage,
             groupId = "",
             userId = "10001",
             senderName = "赤",
@@ -31,7 +32,7 @@ class QqConversationTitleResolverTest {
     @Test
     fun missing_sender_name_falls_back_to_user_id() {
         val title = QqConversationTitleResolver.build(
-            messageType = "private",
+            messageType = MessageType.FriendMessage,
             groupId = "",
             userId = "10001",
             senderName = "",

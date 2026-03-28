@@ -1539,7 +1539,7 @@ private fun ReadOnlySelectionField(
 
 internal fun playPreviewAttachment(
     context: android.content.Context,
-    attachment: com.astrbot.android.model.ConversationAttachment,
+    attachment: com.astrbot.android.model.chat.ConversationAttachment,
 ) {
     val base64 = attachment.base64Data.takeIf { it.isNotBlank() }
         ?: throw IllegalStateException("Preview audio is empty.")

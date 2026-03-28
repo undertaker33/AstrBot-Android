@@ -1,6 +1,6 @@
 package com.astrbot.android.data
 
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -181,7 +181,7 @@ class ConversationRepositoryTest {
             titleCustomized = false,
             messages = if (latestTimestamp > 0L) {
                 listOf(
-                    com.astrbot.android.model.ConversationMessage(
+                    com.astrbot.android.model.chat.ConversationMessage(
                         id = "$id-message",
                         role = "assistant",
                         content = "seed",

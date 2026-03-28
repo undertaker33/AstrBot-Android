@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.qq
 
+import com.astrbot.android.model.chat.MessageType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -8,7 +9,7 @@ class QqReplyFormatterTest {
     @Test
     fun builds_group_reply_decorations_in_expected_order() {
         val result = QqReplyFormatter.buildDecoration(
-            messageType = "group",
+            messageType = MessageType.GroupMessage,
             messageId = "30001",
             senderUserId = "10001",
             replyTextPrefix = "[Bot] ",
@@ -24,7 +25,7 @@ class QqReplyFormatterTest {
     @Test
     fun private_reply_does_not_force_quote_or_mention() {
         val result = QqReplyFormatter.buildDecoration(
-            messageType = "private",
+            messageType = MessageType.FriendMessage,
             messageId = "30001",
             senderUserId = "10001",
             replyTextPrefix = "",

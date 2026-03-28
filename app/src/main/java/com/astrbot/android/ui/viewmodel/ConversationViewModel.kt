@@ -2,8 +2,8 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import com.astrbot.android.data.ConversationRepository
-import com.astrbot.android.model.ConversationMessage
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationSession
 import kotlinx.coroutines.flow.StateFlow
 
 class ConversationViewModel : ViewModel() {

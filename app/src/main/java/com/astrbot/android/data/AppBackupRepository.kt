@@ -40,7 +40,7 @@ import com.astrbot.android.data.backup.toTtsAsset
 import com.astrbot.android.data.backup.writeAppBackupZip
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.SavedQqAccount

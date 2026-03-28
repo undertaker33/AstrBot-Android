@@ -7,7 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import com.astrbot.android.model.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.runtime.RuntimeLogRepository
 import java.io.File
 import java.util.Base64

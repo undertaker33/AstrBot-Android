@@ -1,14 +1,18 @@
 package com.astrbot.android.data
 
 import android.content.Context
+import com.astrbot.android.data.chat.applySystemSessionTitle
+import com.astrbot.android.data.chat.toConversationEntity
+import com.astrbot.android.data.chat.toConversationSession
 import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.data.db.ConversationDao
 import com.astrbot.android.data.db.ConversationEntity
-import com.astrbot.android.model.ConversationAttachment
-import com.astrbot.android.model.ConversationMessage
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.chat.defaultSessionRefFor
+import com.astrbot.android.model.chat.importDedupKey
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +26,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -69,11 +72,15 @@ object ConversationRepository {
             runCatching {
                 val importedLegacy = importLegacySessionsIfNeeded()
                 if (conversationDao.count() == 0 && !importedLegacy) {
-                    conversationDao.upsertAll(defaultSessions().map { it.toEntity() })
+                    conversationDao.upsertAll(defaultSessions().map { it.toConversationEntity() })
                 }
                 val entities = conversationDao.listConversations()
                 val sessionsFromDb = entities.mapNotNull { entity ->
-                    runCatching { entity.toSession() }
+                    runCatching {
+                        entity.toConversationSession { sessionId ->
+                            RuntimeLogRepository.append("Conversation messages reset for session=$sessionId because JSON was invalid")
+                        }
+                    }
                         .onFailure { error ->
                             RuntimeLogRepository.append(
                                 "Conversation row skipped: id=${entity.id} reason=${error.message ?: error.javaClass.simpleName}",
@@ -161,13 +168,21 @@ object ConversationRepository {
     }
 
     fun syncSystemSessionTitle(sessionId: String, title: String) {
-        val cleaned = title.trim().ifBlank { DEFAULT_SESSION_TITLE }
         var updated = false
         _sessions.update { current ->
             current.map { item ->
-                if (item.id == sessionId && !item.titleCustomized && item.title != cleaned) {
+                val synced = if (item.id == sessionId) {
+                    applySystemSessionTitle(
+                        session = item,
+                        incomingTitle = title,
+                        defaultTitle = DEFAULT_SESSION_TITLE,
+                    )
+                } else {
+                    null
+                }
+                if (synced != null) {
                     updated = true
-                    item.copy(title = cleaned, titleCustomized = false)
+                    synced
                 } else {
                     item
                 }
@@ -175,7 +190,9 @@ object ConversationRepository {
         }
         if (updated) {
             persistSessions()
-            RuntimeLogRepository.append("Conversation system title synced: session=$sessionId title=$cleaned")
+            RuntimeLogRepository.append(
+                "Conversation system title synced: session=$sessionId title=${title.trim().ifBlank { DEFAULT_SESSION_TITLE }}",
+            )
         }
     }
 
@@ -472,7 +489,7 @@ object ConversationRepository {
             persistenceMutex.withLock {
                 runCatching {
                     val snapshot = _sessions.value
-                    val entities = snapshot.map { it.toEntity() }
+                    val entities = snapshot.map { it.toConversationEntity() }
                     if (entities.isEmpty()) {
                         conversationDao.clearAll()
                     } else {
@@ -494,10 +511,10 @@ object ConversationRepository {
         val legacySessions = loadLegacySessions(file)
         if (legacySessions.isEmpty()) return false
         val existingSessions = conversationDao.listConversations().mapNotNull { entity ->
-            runCatching { entity.toSession() }.getOrNull()
+            runCatching { entity.toConversationSession() }.getOrNull()
         }
         val mergedSessions = mergeSessions(existingSessions, legacySessions)
-        conversationDao.upsertAll(mergedSessions.map { it.toEntity() })
+        conversationDao.upsertAll(mergedSessions.map { it.toConversationEntity() })
         RuntimeLogRepository.append(
             "Conversation legacy JSON imported into database: legacy=${legacySessions.size} merged=${mergedSessions.size}",
         )
@@ -509,7 +526,11 @@ object ConversationRepository {
             val array = JSONArray(file.readText(Charsets.UTF_8))
             buildList {
                 for (index in 0 until array.length()) {
-                    add(array.optJSONObject(index)?.toSession() ?: continue)
+                    add(
+                        array.optJSONObject(index)?.toConversationSession(
+                            defaultTitle = DEFAULT_SESSION_TITLE,
+                        ) ?: continue,
+                    )
                 }
             }
         }.onFailure { error ->
@@ -583,134 +604,6 @@ private fun sortSessions(sessions: List<ConversationSession>): List<Conversation
     )
 }
 
-private fun ConversationSession.toEntity(): ConversationEntity {
-    return ConversationEntity(
-        id = id,
-        title = title,
-        botId = botId,
-        personaId = personaId,
-        providerId = providerId,
-        platformId = platformId,
-        messageType = messageType.wireValue,
-        originSessionId = originSessionId,
-        maxContextMessages = maxContextMessages,
-        sessionSttEnabled = sessionSttEnabled,
-        sessionTtsEnabled = sessionTtsEnabled,
-        pinned = pinned,
-        titleCustomized = titleCustomized,
-        messagesJson = JSONArray().apply {
-            messages.forEach { message ->
-                put(
-                    JSONObject().apply {
-                        put("id", message.id)
-                        put("role", message.role)
-                        put("content", message.content)
-                        put("timestamp", message.timestamp)
-                        put(
-                            "attachments",
-                            JSONArray().apply {
-                                message.attachments.forEach { attachment ->
-                                    put(
-                                        JSONObject().apply {
-                                            put("id", attachment.id)
-                                            put("type", attachment.type)
-                                            put("mimeType", attachment.mimeType)
-                                            put("fileName", attachment.fileName)
-                                            put("base64Data", attachment.base64Data)
-                                            put("remoteUrl", attachment.remoteUrl)
-                                        },
-                                    )
-                                }
-                            },
-                        )
-                    },
-                )
-            }
-        }.toString(),
-        updatedAt = messages.maxOfOrNull { it.timestamp } ?: System.currentTimeMillis(),
-    )
-}
-
-private fun ConversationEntity.toSession(): ConversationSession {
-    val messagesArray = runCatching { JSONArray(messagesJson.ifBlank { "[]" }) }
-        .getOrElse {
-            RuntimeLogRepository.append("Conversation messages reset for session=$id because JSON was invalid")
-            JSONArray()
-        }
-    val defaultRef = defaultSessionRefFor(id)
-    return ConversationSession(
-        id = id,
-        title = title,
-        botId = botId,
-        personaId = personaId,
-        providerId = providerId,
-        platformId = platformId.ifBlank { defaultRef.platformId },
-        messageType = MessageType.fromWireValue(messageType) ?: defaultRef.messageType,
-        originSessionId = originSessionId.ifBlank { defaultRef.originSessionId },
-        maxContextMessages = maxContextMessages,
-        sessionSttEnabled = sessionSttEnabled,
-        sessionTtsEnabled = sessionTtsEnabled,
-        pinned = pinned,
-        titleCustomized = titleCustomized,
-        messages = buildList {
-            for (index in 0 until messagesArray.length()) {
-                add(messagesArray.optJSONObject(index)?.toMessage() ?: continue)
-            }
-        },
-    )
-}
-
-private fun JSONObject.toSession(): ConversationSession {
-    val messagesArray = optJSONArray("messages") ?: JSONArray()
-    val id = optString("id").ifBlank { UUID.randomUUID().toString() }
-    val defaultRef = defaultSessionRefFor(id)
-    return ConversationSession(
-        id = id,
-        title = optString("title").ifBlank { ConversationRepository.DEFAULT_SESSION_TITLE },
-        botId = optString("botId").ifBlank { "qq-main" },
-        personaId = optString("personaId").takeUnless { it.isBlank() || it == "default" }.orEmpty(),
-        providerId = optString("providerId"),
-        platformId = optString("platformId").ifBlank { defaultRef.platformId },
-        messageType = MessageType.fromWireValue(optString("messageType")) ?: defaultRef.messageType,
-        originSessionId = optString("originSessionId").ifBlank { defaultRef.originSessionId },
-        maxContextMessages = optInt("maxContextMessages", 12),
-        sessionSttEnabled = optBoolean("sessionSttEnabled", true),
-        sessionTtsEnabled = optBoolean("sessionTtsEnabled", true),
-        pinned = optBoolean("pinned", false),
-        titleCustomized = optBoolean("titleCustomized", false),
-        messages = buildList {
-            for (index in 0 until messagesArray.length()) {
-                add(messagesArray.optJSONObject(index)?.toMessage() ?: continue)
-            }
-        },
-    )
-}
-
-private fun JSONObject.toMessage(): ConversationMessage {
-    val attachmentsArray = optJSONArray("attachments") ?: JSONArray()
-    return ConversationMessage(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
-        role = optString("role"),
-        content = optString("content"),
-        timestamp = optLong("timestamp", System.currentTimeMillis()),
-        attachments = buildList {
-            for (index in 0 until attachmentsArray.length()) {
-                val attachment = attachmentsArray.optJSONObject(index) ?: continue
-                add(
-                    ConversationAttachment(
-                        id = attachment.optString("id").ifBlank { UUID.randomUUID().toString() },
-                        type = attachment.optString("type").ifBlank { "image" },
-                        mimeType = attachment.optString("mimeType").ifBlank { "image/jpeg" },
-                        fileName = attachment.optString("fileName"),
-                        base64Data = attachment.optString("base64Data"),
-                        remoteUrl = attachment.optString("remoteUrl"),
-                    ),
-                )
-            }
-        },
-    )
-}
-
 private object ConversationDatabaseHolder {
     val placeholder = object : ConversationDao {
         override fun observeConversations() = flowOf(emptyList<ConversationEntity>())
@@ -724,12 +617,3 @@ private object ConversationDatabaseHolder {
     }
 }
 
-private fun ConversationSession.importDedupKey(): String {
-    if (platformId != "qq") return "app:$id"
-    val peerType = when (messageType) {
-        MessageType.FriendMessage -> "friend"
-        MessageType.GroupMessage -> "group"
-        MessageType.OtherMessage -> "other"
-    }
-    return "qq:$botId:$peerType:$originSessionId"
-}

@@ -6,7 +6,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Base64
-import com.astrbot.android.model.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.k2fsa.sherpa.onnx.FeatureConfig

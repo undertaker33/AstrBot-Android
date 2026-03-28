@@ -11,10 +11,10 @@ import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.StreamingResponseSegmenter
-import com.astrbot.android.model.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.BotProfile
-import com.astrbot.android.model.ConversationMessage
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.hasNativeStreamingSupport

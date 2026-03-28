@@ -1,5 +1,7 @@
 package com.astrbot.android.runtime.qq
 
+import com.astrbot.android.model.chat.MessageType
+
 data class QqReplyDecoration(
     val textPrefix: String,
     val quoteMessageId: String?,
@@ -8,14 +10,14 @@ data class QqReplyDecoration(
 
 object QqReplyFormatter {
     fun buildDecoration(
-        messageType: String,
+        messageType: MessageType,
         messageId: String,
         senderUserId: String,
         replyTextPrefix: String,
         quoteSenderMessageEnabled: Boolean,
         mentionSenderEnabled: Boolean,
     ): QqReplyDecoration {
-        if (messageType != "group") {
+        if (messageType != MessageType.GroupMessage) {
             return QqReplyDecoration(
                 textPrefix = replyTextPrefix,
                 quoteMessageId = null,

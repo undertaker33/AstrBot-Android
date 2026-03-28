@@ -9,11 +9,12 @@ import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.StreamingResponseSegmenter
 import com.astrbot.android.model.BotProfile
-import com.astrbot.android.model.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.runtime.qq.QqKeywordDetector
 import com.astrbot.android.runtime.qq.QqConversationTitleResolver
@@ -418,7 +419,7 @@ object OneBotBridgeServer {
     )
 
     private fun buildRateLimitSourceKey(bot: BotProfile, event: IncomingMessageEvent): String {
-        return listOf(bot.id, event.messageType, event.groupId, event.userId)
+        return listOf(bot.id, event.messageType.wireValue, event.groupId, event.userId)
             .filter { it.isNotBlank() }
             .joinToString(":")
     }
@@ -520,7 +521,7 @@ object OneBotBridgeServer {
     ): String? {
         val basePrompt = persona?.systemPrompt?.trim().orEmpty()
         val config = ConfigRepository.resolve(bot.configProfileId)
-        val channelPrompt = if (event.messageType == "group") {
+        val channelPrompt = if (event.messageType == MessageType.GroupMessage) {
             "You are replying inside a QQ group chat. Keep the answer concise and natural, and focus on the latest message."
         } else {
             "You are replying inside a QQ private chat. Keep the answer concise and natural."
@@ -576,7 +577,7 @@ object OneBotBridgeServer {
             }
         }.trim()
         return when (event.messageType) {
-            "group" -> "${event.senderName.ifBlank { event.userId }}: $textContent".trim()
+            MessageType.GroupMessage -> "${event.senderName.ifBlank { event.userId }}: $textContent".trim()
             else -> textContent
         }
     }
@@ -606,12 +607,12 @@ object OneBotBridgeServer {
             put("message", messagePayload)
             put("auto_escape", false)
             when (event.messageType) {
-                "group" -> put("group_id", event.groupId)
+                MessageType.GroupMessage -> put("group_id", event.groupId)
                 else -> put("user_id", event.userId)
             }
         }
         val action = JSONObject().apply {
-            put("action", if (event.messageType == "group") "send_group_msg" else "send_private_msg")
+            put("action", if (event.messageType == MessageType.GroupMessage) "send_group_msg" else "send_private_msg")
             put("params", params)
             put("echo", "astrbot-${System.currentTimeMillis()}")
         }
@@ -862,7 +863,7 @@ object OneBotBridgeServer {
     }
 
     private fun sendFailureNoticeIfNeeded(event: IncomingMessageEvent, message: String) {
-        if (event.messageType == "private") {
+        if (event.messageType == MessageType.FriendMessage) {
             sendReply(event, message)
         }
     }
@@ -990,10 +991,11 @@ object OneBotBridgeServer {
     }
 
     private fun parseMessageEvent(json: JSONObject): IncomingMessageEvent? {
-        val messageType = json.optString("message_type")
-        if (messageType != "private" && messageType != "group") {
-            return null
-        }
+        val messageType = when (json.optString("message_type")) {
+            "private" -> MessageType.FriendMessage
+            "group" -> MessageType.GroupMessage
+            else -> null
+        } ?: return null
 
         val selfId = jsonValueAsString(json, "self_id")
         val userId = jsonValueAsString(json, "user_id")
@@ -1018,7 +1020,7 @@ object OneBotBridgeServer {
             messageType = messageType,
             text = parsedMessage.text,
             promptContent = when (messageType) {
-                "group" -> "${senderName.ifBlank { userId }}: ${parsedMessage.text}"
+                MessageType.GroupMessage -> "${senderName.ifBlank { userId }}: ${parsedMessage.text}"
                 else -> parsedMessage.text
             },
             mentionsSelf = parsedMessage.mentionsSelf,
@@ -1171,7 +1173,7 @@ object OneBotBridgeServer {
         val userId: String,
         val groupId: String,
         val messageId: String,
-        val messageType: String,
+        val messageType: MessageType,
         val text: String,
         val promptContent: String,
         val mentionsSelf: Boolean,
@@ -1180,6 +1182,6 @@ object OneBotBridgeServer {
         val senderName: String,
     ) {
         val targetId: String
-            get() = if (messageType == "group") groupId else userId
+            get() = if (messageType == MessageType.GroupMessage) groupId else userId
     }
 }

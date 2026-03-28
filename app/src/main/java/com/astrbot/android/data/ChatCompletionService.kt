@@ -2,8 +2,8 @@ package com.astrbot.android.data
 
 import android.content.Context
 import com.astrbot.android.model.ConfigProfile
-import com.astrbot.android.model.ConversationAttachment
-import com.astrbot.android.model.ConversationMessage
+import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile

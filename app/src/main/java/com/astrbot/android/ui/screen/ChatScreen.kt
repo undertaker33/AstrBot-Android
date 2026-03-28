@@ -99,11 +99,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.ConversationRepository
-import com.astrbot.android.model.ConversationAttachment
-import com.astrbot.android.model.ConversationMessage
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.ProviderCapability
-import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.ui.AppMotionTokens
 import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.MonochromeUi
@@ -111,6 +110,9 @@ import com.astrbot.android.ui.animateToItemWithAppMotion
 import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.rememberPulsingAlpha
 import com.astrbot.android.ui.rememberPulsingScale
+import com.astrbot.android.ui.chat.canDeleteConversation
+import com.astrbot.android.ui.chat.canRenameConversation
+import com.astrbot.android.ui.chat.isQqConversation
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -329,7 +331,7 @@ fun ChatScreen(
                                         }
                                     },
                                     onLongPress = {
-                                        if (session.canDelete()) {
+                                        if (session.canDeleteConversation()) {
                                             selectedSessionIds = selectedSessionIds.toggle(session.id)
                                         }
                                     },
@@ -520,8 +522,8 @@ private fun SessionDrawerItem(
 
     val actionCount = buildList {
         add("pin")
-        if (session.canRename()) add("rename")
-        if (session.canDelete()) add("delete")
+        if (session.canRenameConversation()) add("rename")
+        if (session.canDeleteConversation()) add("delete")
     }.size
     val revealWidth = SessionSwipeSizing.revealWidthDp(actionCount).dp
     val density = LocalDensity.current
@@ -578,7 +580,7 @@ private fun SessionDrawerItem(
                     onTogglePinned()
                 },
             )
-            if (session.canRename()) {
+            if (session.canRenameConversation()) {
                 SessionSwipeAction(
                     label = stringResource(R.string.chat_rename_action),
                     destructive = false,
@@ -588,7 +590,7 @@ private fun SessionDrawerItem(
                     },
                 )
             }
-            if (session.canDelete()) {
+            if (session.canDeleteConversation()) {
                 SessionSwipeAction(
                     label = stringResource(R.string.common_delete),
                     destructive = true,
@@ -687,7 +689,7 @@ private fun SessionDrawerCard(
                 )
             }
 
-            if (selectionMode && session.canDelete()) {
+            if (selectionMode && session.canDeleteConversation()) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1375,22 +1377,6 @@ private fun SessionPill(
             overflow = TextOverflow.Ellipsis,
         )
     }
-}
-
-private fun ConversationSession.isQqConversation(): Boolean {
-    return platformId == "qq"
-}
-
-private fun ConversationSession.isQqPrivateConversation(): Boolean {
-    return platformId == "qq" && messageType == MessageType.FriendMessage
-}
-
-private fun ConversationSession.canRename(): Boolean {
-    return isQqPrivateConversation()
-}
-
-private fun ConversationSession.canDelete(): Boolean {
-    return id != ConversationRepository.DEFAULT_SESSION_ID
 }
 
 private fun Set<String>.toggle(id: String): Set<String> {

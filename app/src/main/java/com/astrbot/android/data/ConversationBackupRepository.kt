@@ -2,11 +2,9 @@ package com.astrbot.android.data
 
 import android.content.Context
 import android.net.Uri
-import com.astrbot.android.model.ConversationAttachment
-import com.astrbot.android.model.ConversationMessage
-import com.astrbot.android.model.ConversationSession
-import com.astrbot.android.model.chat.MessageType
-import com.astrbot.android.model.chat.defaultSessionRefFor
+import com.astrbot.android.data.chat.toConversationJson
+import com.astrbot.android.data.chat.toConversationSession
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -110,7 +108,7 @@ object ConversationBackupRepository {
                     .put("createdAt", now)
                     .put("trigger", trigger)
                     .put("sessions", JSONArray().apply {
-                        sessions.forEach { put(it.toJson()) }
+                        sessions.forEach { put(it.toConversationJson()) }
                     })
                     .toString(2),
                 Charsets.UTF_8,
@@ -315,101 +313,13 @@ object ConversationBackupRepository {
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
-                add(item.toConversationSession())
-            }
-        }
-    }
-}
-
-private fun ConversationSession.toJson(): JSONObject {
-    return JSONObject()
-        .put("id", id)
-        .put("title", title)
-        .put("botId", botId)
-        .put("personaId", personaId)
-        .put("providerId", providerId)
-        .put("platformId", platformId)
-        .put("messageType", messageType.wireValue)
-        .put("originSessionId", originSessionId)
-        .put("maxContextMessages", maxContextMessages)
-        .put("sessionSttEnabled", sessionSttEnabled)
-        .put("sessionTtsEnabled", sessionTtsEnabled)
-        .put("pinned", pinned)
-        .put("titleCustomized", titleCustomized)
-        .put("messages", JSONArray().apply {
-            messages.forEach { put(it.toJson()) }
-        })
-}
-
-private fun ConversationMessage.toJson(): JSONObject {
-    return JSONObject()
-        .put("id", id)
-        .put("role", role)
-        .put("content", content)
-        .put("timestamp", timestamp)
-        .put("attachments", JSONArray().apply {
-            attachments.forEach { put(it.toJson()) }
-        })
-}
-
-private fun ConversationAttachment.toJson(): JSONObject {
-    return JSONObject()
-        .put("id", id)
-        .put("type", type)
-        .put("mimeType", mimeType)
-        .put("fileName", fileName)
-        .put("base64Data", base64Data)
-        .put("remoteUrl", remoteUrl)
-}
-
-private fun JSONObject.toConversationSession(): ConversationSession {
-    val messagesArray = optJSONArray("messages") ?: JSONArray()
-    val id = optString("id").ifBlank { UUID.randomUUID().toString() }
-    val defaultRef = defaultSessionRefFor(id)
-    return ConversationSession(
-        id = id,
-        title = optString("title").ifBlank { ConversationRepository.DEFAULT_SESSION_TITLE },
-        botId = optString("botId").ifBlank { BotRepository.selectedBotId.value },
-        personaId = optString("personaId").takeUnless { it.isBlank() || it == "default" }.orEmpty(),
-        providerId = optString("providerId"),
-        platformId = optString("platformId").ifBlank { defaultRef.platformId },
-        messageType = MessageType.fromWireValue(optString("messageType")) ?: defaultRef.messageType,
-        originSessionId = optString("originSessionId").ifBlank { defaultRef.originSessionId },
-        maxContextMessages = optInt("maxContextMessages", 12),
-        sessionSttEnabled = optBoolean("sessionSttEnabled", true),
-        sessionTtsEnabled = optBoolean("sessionTtsEnabled", true),
-        pinned = optBoolean("pinned", false),
-        titleCustomized = optBoolean("titleCustomized", false),
-        messages = buildList {
-            for (index in 0 until messagesArray.length()) {
-                val messageObject = messagesArray.optJSONObject(index) ?: continue
-                add(messageObject.toConversationMessage())
-            }
-        },
-    )
-}
-
-private fun JSONObject.toConversationMessage(): ConversationMessage {
-    val attachmentsArray = optJSONArray("attachments") ?: JSONArray()
-    return ConversationMessage(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
-        role = optString("role"),
-        content = optString("content"),
-        timestamp = optLong("timestamp", System.currentTimeMillis()),
-        attachments = buildList {
-            for (index in 0 until attachmentsArray.length()) {
-                val attachmentObject = attachmentsArray.optJSONObject(index) ?: continue
                 add(
-                    ConversationAttachment(
-                        id = attachmentObject.optString("id").ifBlank { UUID.randomUUID().toString() },
-                        type = attachmentObject.optString("type").ifBlank { "image" },
-                        mimeType = attachmentObject.optString("mimeType").ifBlank { "image/jpeg" },
-                        fileName = attachmentObject.optString("fileName"),
-                        base64Data = attachmentObject.optString("base64Data"),
-                        remoteUrl = attachmentObject.optString("remoteUrl"),
+                    item.toConversationSession(
+                        defaultTitle = ConversationRepository.DEFAULT_SESSION_TITLE,
+                        defaultBotId = BotRepository.selectedBotId.value,
                     ),
                 )
             }
-        },
-    )
+        }
+    }
 }

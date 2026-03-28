@@ -1,7 +1,9 @@
 package com.astrbot.android.runtime.qq
 
+import com.astrbot.android.model.chat.MessageType
+
 data class QqReplyPolicyInput(
-    val messageType: String,
+    val messageType: MessageType,
     val text: String,
     val userId: String,
     val groupId: String?,
@@ -98,7 +100,7 @@ object QqReplyPolicyEvaluator {
         val hasAtAllTrigger = input.hasExplicitAtTrigger && input.mentionsAll
 
         return when (input.messageType) {
-            "private" -> {
+            MessageType.FriendMessage -> {
                 if (input.privateChatRequiresWakeWord && !wakeMatched) {
                     QqReplyPolicyResult(
                         shouldReply = false,
@@ -120,7 +122,7 @@ object QqReplyPolicyEvaluator {
                 }
             }
 
-            "group" -> when {
+            MessageType.GroupMessage -> when {
                 hasMentionContentTrigger || hasBareMentionTrigger || hasAtAllTrigger -> QqReplyPolicyResult(
                     shouldReply = true,
                     reason = QqReplyDecisionReason.AT_MENTION,
@@ -137,7 +139,7 @@ object QqReplyPolicyEvaluator {
                 )
             }
 
-            else -> QqReplyPolicyResult(
+            MessageType.OtherMessage -> QqReplyPolicyResult(
                 shouldReply = false,
                 reason = QqReplyDecisionReason.NO_TRIGGER,
             )
@@ -147,9 +149,9 @@ object QqReplyPolicyEvaluator {
     private fun isWhitelistBypassed(input: QqReplyPolicyInput): Boolean {
         if (!input.isAdmin) return false
         return when (input.messageType) {
-            "group" -> input.adminGroupBypassWhitelistEnabled
-            "private" -> input.adminPrivateBypassWhitelistEnabled
-            else -> false
+            MessageType.GroupMessage -> input.adminGroupBypassWhitelistEnabled
+            MessageType.FriendMessage -> input.adminPrivateBypassWhitelistEnabled
+            MessageType.OtherMessage -> false
         }
     }
 }

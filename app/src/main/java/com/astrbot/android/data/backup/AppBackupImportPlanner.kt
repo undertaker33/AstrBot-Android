@@ -2,12 +2,12 @@ package com.astrbot.android.data.backup
 
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.model.TtsVoiceReferenceAsset
-import com.astrbot.android.model.chat.MessageType
+import com.astrbot.android.model.chat.importDedupKey
 
 enum class AppBackupModuleKind {
     BOTS,
@@ -296,12 +296,3 @@ internal fun moduleConflictFor(
     }
 }
 
-private fun ConversationSession.importDedupKey(): String {
-    if (platformId != "qq") return "app:$id"
-    val peerType = when (messageType) {
-        MessageType.FriendMessage -> "friend"
-        MessageType.GroupMessage -> "group"
-        MessageType.OtherMessage -> "other"
-    }
-    return "qq:$botId:$peerType:$originSessionId"
-}

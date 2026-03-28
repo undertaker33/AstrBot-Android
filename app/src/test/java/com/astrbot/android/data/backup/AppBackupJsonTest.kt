@@ -1,7 +1,7 @@
 package com.astrbot.android.data.backup
 
-import com.astrbot.android.model.ConversationMessage
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 import org.json.JSONObject
 import org.junit.Assert.assertEquals

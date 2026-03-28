@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.qq
 
+import com.astrbot.android.model.chat.MessageType
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -8,14 +9,14 @@ class QqSessionKeyFactoryTest {
     fun group_session_key_changes_when_isolation_enabled() {
         val normal = QqSessionKeyFactory.build(
             botId = "qq-main",
-            messageType = "group",
+            messageType = MessageType.GroupMessage,
             groupId = "20001",
             userId = "10001",
             isolated = false,
         )
         val isolated = QqSessionKeyFactory.build(
             botId = "qq-main",
-            messageType = "group",
+            messageType = MessageType.GroupMessage,
             groupId = "20001",
             userId = "10001",
             isolated = true,
@@ -29,7 +30,7 @@ class QqSessionKeyFactoryTest {
     fun private_session_key_ignores_group_and_isolation_flag() {
         val sessionId = QqSessionKeyFactory.build(
             botId = "qq-main",
-            messageType = "private",
+            messageType = MessageType.FriendMessage,
             groupId = "20001",
             userId = "10001",
             isolated = true,
@@ -42,14 +43,14 @@ class QqSessionKeyFactoryTest {
     fun isolated_group_session_keys_differ_per_user_so_persona_state_can_be_independent() {
         val userA = QqSessionKeyFactory.build(
             botId = "qq-main",
-            messageType = "group",
+            messageType = MessageType.GroupMessage,
             groupId = "20001",
             userId = "10001",
             isolated = true,
         )
         val userB = QqSessionKeyFactory.build(
             botId = "qq-main",
-            messageType = "group",
+            messageType = MessageType.GroupMessage,
             groupId = "20001",
             userId = "10002",
             isolated = true,

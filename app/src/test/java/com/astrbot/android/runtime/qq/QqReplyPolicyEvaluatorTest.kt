@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.qq
 
+import com.astrbot.android.model.chat.MessageType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,7 +11,7 @@ class QqReplyPolicyEvaluatorTest {
     fun allows_group_reply_when_bot_is_mentioned() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "hello",
                 userId = "10001",
                 groupId = "20001",
@@ -43,7 +44,7 @@ class QqReplyPolicyEvaluatorTest {
     fun blocks_whitelist_miss_and_requests_info_log() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "astrbot",
                 userId = "10001",
                 groupId = "20001",
@@ -77,7 +78,7 @@ class QqReplyPolicyEvaluatorTest {
     fun blocks_private_chat_when_wake_word_is_required_but_missing() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "private",
+                messageType = MessageType.FriendMessage,
                 text = "hello",
                 userId = "10001",
                 groupId = null,
@@ -110,7 +111,7 @@ class QqReplyPolicyEvaluatorTest {
     fun group_plain_text_is_blocked_when_at_only_is_enabled_and_no_other_trigger_matches() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "hello everyone",
                 userId = "10001",
                 groupId = "20001",
@@ -143,7 +144,7 @@ class QqReplyPolicyEvaluatorTest {
     fun admin_can_bypass_group_whitelist_but_still_needs_valid_trigger() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "astrbot help",
                 userId = "10001",
                 groupId = "20001",
@@ -176,7 +177,7 @@ class QqReplyPolicyEvaluatorTest {
     fun wake_word_admin_only_does_not_block_commands() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "/reset",
                 userId = "10001",
                 groupId = "20001",
@@ -209,7 +210,7 @@ class QqReplyPolicyEvaluatorTest {
     fun non_admin_private_chat_can_be_whitelist_blocked_without_bypass() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "private",
+                messageType = MessageType.FriendMessage,
                 text = "astrbot",
                 userId = "10001",
                 groupId = null,
@@ -243,7 +244,7 @@ class QqReplyPolicyEvaluatorTest {
     fun ignores_at_all_events_when_switch_is_enabled() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "@all astrbot",
                 userId = "10001",
                 groupId = "20001",
@@ -276,7 +277,7 @@ class QqReplyPolicyEvaluatorTest {
     fun at_all_events_can_trigger_reply_when_ignore_switch_is_disabled() {
         val result = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "@all hello",
                 userId = "10001",
                 groupId = "20001",
@@ -309,7 +310,7 @@ class QqReplyPolicyEvaluatorTest {
     fun bare_bot_mention_replies_only_when_at_only_switch_is_enabled() {
         val enabledResult = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "",
                 userId = "10001",
                 groupId = "20001",
@@ -336,7 +337,7 @@ class QqReplyPolicyEvaluatorTest {
 
         val disabledResult = QqReplyPolicyEvaluator.evaluate(
             QqReplyPolicyInput(
-                messageType = "group",
+                messageType = MessageType.GroupMessage,
                 text = "",
                 userId = "10001",
                 groupId = "20001",
