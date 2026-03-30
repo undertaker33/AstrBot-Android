@@ -11,16 +11,45 @@ fun parseLegacyNapCatBridgeConfig(
     defaults: NapCatBridgeConfig = NapCatBridgeConfig(),
     values: Map<String, Any?>,
 ): NapCatBridgeConfig {
+    return mergeNapCatBridgeConfig(defaults, values)
+}
+
+internal fun mergeNapCatBridgeConfig(
+    defaults: NapCatBridgeConfig = NapCatBridgeConfig(),
+    values: Map<String, Any?>,
+): NapCatBridgeConfig {
     return defaults.copy(
         runtimeMode = values["runtime_mode"]?.toString().orEmpty().ifBlank { defaults.runtimeMode },
         endpoint = values["endpoint"]?.toString().orEmpty().ifBlank { defaults.endpoint },
         healthUrl = values["health_url"]?.toString().orEmpty().ifBlank { defaults.healthUrl },
         autoStart = (values["auto_start"] as? Boolean) ?: defaults.autoStart,
-        startCommand = values["start_command"]?.toString().orEmpty().ifBlank { defaults.startCommand },
-        stopCommand = values["stop_command"]?.toString().orEmpty().ifBlank { defaults.stopCommand },
-        statusCommand = values["status_command"]?.toString().orEmpty().ifBlank { defaults.statusCommand },
-        commandPreview = values["command_preview"]?.toString().orEmpty().ifBlank { defaults.commandPreview },
+        startCommand = sanitizeBridgeCommand(
+            candidate = values["start_command"]?.toString(),
+            fallback = defaults.startCommand,
+        ),
+        stopCommand = sanitizeBridgeCommand(
+            candidate = values["stop_command"]?.toString(),
+            fallback = defaults.stopCommand,
+        ),
+        statusCommand = sanitizeBridgeCommand(
+            candidate = values["status_command"]?.toString(),
+            fallback = defaults.statusCommand,
+        ),
+        commandPreview = sanitizeBridgeCommand(
+            candidate = values["command_preview"]?.toString(),
+            fallback = defaults.commandPreview,
+        ),
     )
+}
+
+private fun sanitizeBridgeCommand(candidate: String?, fallback: String): String {
+    val value = candidate.orEmpty().trim()
+    if (value.isBlank()) return fallback
+    return if (value.contains("/data/local/tmp/napcat/", ignoreCase = true)) {
+        fallback
+    } else {
+        value
+    }
 }
 
 fun parseLegacyTtsVoiceAssets(raw: String?): List<TtsVoiceReferenceAsset> {

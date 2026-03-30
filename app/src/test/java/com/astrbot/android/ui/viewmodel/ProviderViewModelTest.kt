@@ -10,7 +10,9 @@ import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.chat.ConversationAttachment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,7 +47,7 @@ class ProviderViewModelTest {
     }
 
     @Test
-    fun probe_stt_support_wraps_dependency_result() {
+    fun probe_stt_support_wraps_dependency_result() = runTest {
         val deps = FakeProviderDependencies(
             sttProbeResult = ChatCompletionService.SttProbeResult(
                 state = FeatureSupportState.SUPPORTED,
@@ -61,11 +63,87 @@ class ProviderViewModelTest {
         assertTrue(deps.probedProviders.contains("provider-1"))
     }
 
+    @Test
+    fun fetch_models_dispatches_off_calling_thread() = runTest {
+        val callingThreadId = Thread.currentThread().id
+        val deps = FakeProviderDependencies(
+            fetchModelsResult = listOf("deepseek-chat"),
+            onFetchModels = {
+                assertNotEquals(callingThreadId, Thread.currentThread().id)
+            },
+        )
+        val viewModel = ProviderViewModel(deps)
+
+        val result = viewModel.fetchModels(fakeProvider())
+
+        assertEquals(listOf("deepseek-chat"), result)
+    }
+
+    @Test
+    fun probe_stt_support_dispatches_off_calling_thread() = runTest {
+        val callingThreadId = Thread.currentThread().id
+        val deps = FakeProviderDependencies(
+            sttProbeResult = ChatCompletionService.SttProbeResult(
+                state = FeatureSupportState.SUPPORTED,
+                transcript = "hello",
+            ),
+            onProbeStt = {
+                assertNotEquals(callingThreadId, Thread.currentThread().id)
+            },
+        )
+        val viewModel = ProviderViewModel(deps)
+
+        val result = viewModel.probeSttSupport(fakeProvider())
+
+        assertEquals(FeatureSupportState.SUPPORTED, result.state)
+        assertEquals("hello", result.transcript)
+    }
+
+    @Test
+    fun synthesize_speech_dispatches_off_calling_thread() = runTest {
+        val callingThreadId = Thread.currentThread().id
+        val attachment = ConversationAttachment(
+            id = "audio-1",
+            type = "audio",
+            fileName = "preview.wav",
+            mimeType = "audio/wav",
+            base64Data = "ZmFrZQ==",
+        )
+        val deps = FakeProviderDependencies(
+            synthesizedAttachment = attachment,
+            onSynthesizeSpeech = {
+                assertNotEquals(callingThreadId, Thread.currentThread().id)
+            },
+        )
+        val viewModel = ProviderViewModel(deps)
+
+        val result = viewModel.synthesizeSpeech(
+            provider = fakeProvider(),
+            text = "hello",
+            voiceId = "voice-1",
+            readBracketedContent = true,
+        )
+
+        assertEquals("audio-1", result.id)
+        assertEquals("preview.wav", result.fileName)
+    }
+
     private class FakeProviderDependencies(
         private val sttProbeResult: ChatCompletionService.SttProbeResult = ChatCompletionService.SttProbeResult(
             state = FeatureSupportState.UNKNOWN,
             transcript = "",
         ),
+        private val fetchModelsResult: List<String> = emptyList(),
+        private val synthesizedAttachment: ConversationAttachment = ConversationAttachment(
+            id = "audio-default",
+            type = "audio",
+            fileName = "default.wav",
+            mimeType = "audio/wav",
+            base64Data = "",
+        ),
+        private val onFetchModels: () -> Unit = {},
+        private val onProbeStt: () -> Unit = {},
+        private val onSynthesizeSpeech: () -> Unit = {},
     ) : ProviderViewModelDependencies {
         override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(emptyList())
         override val configProfiles: StateFlow<List<ConfigProfile>> = MutableStateFlow(emptyList())
@@ -92,7 +170,10 @@ class ProviderViewModelTest {
 
         override fun updateTtsProbeSupport(id: String, support: FeatureSupportState) = Unit
 
-        override fun fetchModels(provider: ProviderProfile): List<String> = emptyList()
+        override fun fetchModels(provider: ProviderProfile): List<String> {
+            onFetchModels()
+            return fetchModelsResult
+        }
 
         override fun detectMultimodalRule(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
 
@@ -103,6 +184,7 @@ class ProviderViewModelTest {
         override fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
 
         override fun probeSttSupport(provider: ProviderProfile): ChatCompletionService.SttProbeResult {
+            onProbeStt()
             probedProviders += provider.id
             return sttProbeResult
         }
@@ -125,7 +207,8 @@ class ProviderViewModelTest {
             voiceId: String,
             readBracketedContent: Boolean,
         ): ConversationAttachment {
-            error("Not needed in test")
+            onSynthesizeSpeech()
+            return synthesizedAttachment
         }
     }
 

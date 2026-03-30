@@ -1,5 +1,6 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.ProviderType
 import org.json.JSONArray
 import org.json.JSONObject
@@ -10,7 +11,7 @@ import org.junit.Test
 class LegacyRuntimeStateImportTest {
     @Test
     fun `legacy bridge prefs parser keeps manual commands and endpoint`() {
-        val imported = parseLegacyNapCatBridgeConfig(
+        val imported = mergeNapCatBridgeConfig(
             values = mapOf(
                 "runtime_mode" to "manual",
                 "endpoint" to "ws://10.0.2.2:7000/ws",
@@ -29,6 +30,31 @@ class LegacyRuntimeStateImportTest {
         assertTrue(imported.autoStart)
         assertEquals("start.sh", imported.startCommand)
         assertEquals("Start runtime", imported.commandPreview)
+    }
+
+    @Test
+    fun `bridge config merge replaces legacy tmp commands with runtime defaults`() {
+        val defaults = NapCatBridgeConfig(
+            startCommand = "/system/bin/sh /data/user/0/com.astrbot.android/files/runtime/scripts/start_napcat.sh",
+            stopCommand = "/system/bin/sh /data/user/0/com.astrbot.android/files/runtime/scripts/stop_napcat.sh",
+            statusCommand = "/system/bin/sh /data/user/0/com.astrbot.android/files/runtime/scripts/status_napcat.sh",
+            commandPreview = "/system/bin/sh /data/user/0/com.astrbot.android/files/runtime/scripts/start_napcat.sh",
+        )
+
+        val imported = mergeNapCatBridgeConfig(
+            defaults = defaults,
+            values = mapOf(
+                "start_command" to "sh /data/local/tmp/napcat/start.sh",
+                "stop_command" to "sh /data/local/tmp/napcat/stop.sh",
+                "status_command" to "sh /data/local/tmp/napcat/status.sh",
+                "command_preview" to "sh /data/local/tmp/napcat/start.sh",
+            ),
+        )
+
+        assertEquals(defaults.startCommand, imported.startCommand)
+        assertEquals(defaults.stopCommand, imported.stopCommand)
+        assertEquals(defaults.statusCommand, imported.statusCommand)
+        assertEquals(defaults.commandPreview, imported.commandPreview)
     }
 
     @Test

@@ -178,16 +178,32 @@ object NapCatBridgeRepository {
     }
 
     private suspend fun loadConfig(defaults: NapCatBridgeConfig): NapCatBridgeConfig {
-        return defaults.copy(
-            runtimeMode = appPreferenceDao.getValue(KEY_RUNTIME_MODE).orEmpty().ifBlank { defaults.runtimeMode },
-            endpoint = appPreferenceDao.getValue(KEY_ENDPOINT).orEmpty().ifBlank { defaults.endpoint },
-            healthUrl = appPreferenceDao.getValue(KEY_HEALTH_URL).orEmpty().ifBlank { defaults.healthUrl },
-            autoStart = appPreferenceDao.getValue(KEY_AUTO_START)?.toBooleanStrictOrNull() ?: defaults.autoStart,
-            startCommand = appPreferenceDao.getValue(KEY_START_COMMAND).orEmpty().ifBlank { defaults.startCommand },
-            stopCommand = appPreferenceDao.getValue(KEY_STOP_COMMAND).orEmpty().ifBlank { defaults.stopCommand },
-            statusCommand = appPreferenceDao.getValue(KEY_STATUS_COMMAND).orEmpty().ifBlank { defaults.statusCommand },
-            commandPreview = appPreferenceDao.getValue(KEY_COMMAND_PREVIEW).orEmpty().ifBlank { defaults.commandPreview },
+        val rawValues = mapOf(
+            KEY_RUNTIME_MODE to appPreferenceDao.getValue(KEY_RUNTIME_MODE),
+            KEY_ENDPOINT to appPreferenceDao.getValue(KEY_ENDPOINT),
+            KEY_HEALTH_URL to appPreferenceDao.getValue(KEY_HEALTH_URL),
+            KEY_AUTO_START to appPreferenceDao.getValue(KEY_AUTO_START)?.toBooleanStrictOrNull(),
+            KEY_START_COMMAND to appPreferenceDao.getValue(KEY_START_COMMAND),
+            KEY_STOP_COMMAND to appPreferenceDao.getValue(KEY_STOP_COMMAND),
+            KEY_STATUS_COMMAND to appPreferenceDao.getValue(KEY_STATUS_COMMAND),
+            KEY_COMMAND_PREVIEW to appPreferenceDao.getValue(KEY_COMMAND_PREVIEW),
         )
+        val merged = mergeNapCatBridgeConfig(defaults, rawValues)
+
+        if (rawValues[KEY_START_COMMAND]?.toString()?.contains("/data/local/tmp/napcat/") == true) {
+            persistPreference(KEY_START_COMMAND, merged.startCommand)
+        }
+        if (rawValues[KEY_STOP_COMMAND]?.toString()?.contains("/data/local/tmp/napcat/") == true) {
+            persistPreference(KEY_STOP_COMMAND, merged.stopCommand)
+        }
+        if (rawValues[KEY_STATUS_COMMAND]?.toString()?.contains("/data/local/tmp/napcat/") == true) {
+            persistPreference(KEY_STATUS_COMMAND, merged.statusCommand)
+        }
+        if (rawValues[KEY_COMMAND_PREVIEW]?.toString()?.contains("/data/local/tmp/napcat/") == true) {
+            persistPreference(KEY_COMMAND_PREVIEW, merged.commandPreview)
+        }
+
+        return merged
     }
 
     private fun persistConfig(config: NapCatBridgeConfig) {

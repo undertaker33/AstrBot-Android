@@ -10,7 +10,9 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.chat.ConversationAttachment
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 
 class ProviderViewModel(
     private val dependencies: ProviderViewModelDependencies = DefaultProviderViewModelDependencies,
@@ -90,36 +92,46 @@ class ProviderViewModel(
         dependencies.saveConfig(profile)
     }
 
-    fun fetchModels(provider: ProviderProfile): List<String> {
-        return dependencies.fetchModels(provider)
+    suspend fun fetchModels(provider: ProviderProfile): List<String> {
+        return withContext(Dispatchers.IO) {
+            dependencies.fetchModels(provider)
+        }
     }
 
     fun detectMultimodalRule(provider: ProviderProfile): FeatureSupportState {
         return dependencies.detectMultimodalRule(provider)
     }
 
-    fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
-        return dependencies.probeMultimodalSupport(provider)
+    suspend fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
+        return withContext(Dispatchers.IO) {
+            dependencies.probeMultimodalSupport(provider)
+        }
     }
 
     fun detectNativeStreamingRule(provider: ProviderProfile): FeatureSupportState {
         return dependencies.detectNativeStreamingRule(provider)
     }
 
-    fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState {
-        return dependencies.probeNativeStreamingSupport(provider)
+    suspend fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState {
+        return withContext(Dispatchers.IO) {
+            dependencies.probeNativeStreamingSupport(provider)
+        }
     }
 
-    fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
-        val result = dependencies.probeSttSupport(provider)
+    suspend fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
+        val result = withContext(Dispatchers.IO) {
+            dependencies.probeSttSupport(provider)
+        }
         return SttProbeResult(
             state = result.state,
             transcript = result.transcript,
         )
     }
 
-    fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState {
-        return dependencies.probeTtsSupport(provider)
+    suspend fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState {
+        return withContext(Dispatchers.IO) {
+            dependencies.probeTtsSupport(provider)
+        }
     }
 
     fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>> {
@@ -138,12 +150,14 @@ class ProviderViewModel(
         return dependencies.isSherpaSttReady()
     }
 
-    fun synthesizeSpeech(
+    suspend fun synthesizeSpeech(
         provider: ProviderProfile,
         text: String,
         voiceId: String,
         readBracketedContent: Boolean,
     ): ConversationAttachment {
-        return dependencies.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
+        return withContext(Dispatchers.IO) {
+            dependencies.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
+        }
     }
 }
