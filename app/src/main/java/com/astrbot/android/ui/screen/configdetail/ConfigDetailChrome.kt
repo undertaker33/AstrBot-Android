@@ -119,7 +119,7 @@ internal fun ConfigDetailDrawerContent(
 @Composable
 internal fun ConfigDetailTopBar(
     profileName: String,
-    currentSection: ConfigSection,
+    currentSectionTitle: String,
     onBack: () -> Unit,
     onOpenSections: () -> Unit,
 ) {
@@ -160,7 +160,7 @@ internal fun ConfigDetailTopBar(
                 color = MonochromeUi.inputBackground,
             ) {
                 Text(
-                    text = stringResource(currentSection.titleRes),
+                    text = currentSectionTitle,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MonochromeUi.textSecondary,

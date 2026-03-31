@@ -68,7 +68,7 @@ class FloatingBottomNavBarTest {
 
     @Test
     fun `secondary pages do not inherit top level content padding`() {
-        assertEquals(82.dp, navGraphContentTopPadding(AppDestination.Chat.route, 24.dp))
+        assertEquals(0.dp, navGraphContentTopPadding(AppDestination.Chat.route, 24.dp))
         assertEquals(0.dp, navGraphContentTopPadding(null, 24.dp))
     }
 
@@ -76,5 +76,99 @@ class FloatingBottomNavBarTest {
     fun `secondary page headers use the same total top height as main top bars`() {
         assertEquals(82.dp, secondaryPageHeaderTotalHeight(24.dp))
         assertEquals(topLevelContentTopPadding(24.dp), secondaryPageHeaderTotalHeight(24.dp))
+    }
+
+    @Test
+    fun `global top bar resolution prefers main bars then secondary bars`() {
+        assertEquals(GlobalTopBarLayer.MAIN, resolveGlobalTopBarLayer(AppDestination.Config.route, hasSecondaryTopBar = true))
+        assertEquals(GlobalTopBarLayer.SECONDARY, resolveGlobalTopBarLayer(null, hasSecondaryTopBar = true))
+        assertEquals(GlobalTopBarLayer.NONE, resolveGlobalTopBarLayer(null, hasSecondaryTopBar = false))
+    }
+
+    @Test
+    fun `uses registered secondary top bar only for the matching route`() {
+        val fallback = SecondaryTopBarSpec.SubPage(title = "Fallback", onBack = {})
+        val registered = RegisteredSecondaryTopBar(
+            route = AppDestination.Runtime.route,
+            spec = SecondaryTopBarSpec.SubPage(title = "Runtime", onBack = {}),
+        )
+
+        assertEquals(
+            registered.spec,
+            resolveEffectiveSecondaryTopBarSpec(
+                currentRoute = AppDestination.Runtime.route,
+                registered = registered,
+                fallback = fallback,
+            ),
+        )
+        assertEquals(
+            fallback,
+            resolveEffectiveSecondaryTopBarSpec(
+                currentRoute = AppDestination.SettingsHub.route,
+                registered = registered,
+                fallback = fallback,
+            ),
+        )
+    }
+
+    @Test
+    fun `config detail route keeps parent owned top bar spec even when child registers updates`() {
+        val fallback = SecondaryTopBarSpec.ConfigDetail(
+            profileName = "Airi",
+            currentSectionTitle = "Model Settings",
+            onBack = {},
+            onOpenSections = {},
+        )
+        val registered = RegisteredSecondaryTopBar(
+            route = AppDestination.ConfigDetail.route,
+            spec = SecondaryTopBarSpec.ConfigDetail(
+                profileName = "Airi",
+                currentSectionTitle = "Speech Settings",
+                onBack = {},
+                onOpenSections = {},
+            ),
+        )
+
+        assertEquals(
+            fallback,
+            resolveEffectiveSecondaryTopBarSpec(
+                currentRoute = AppDestination.ConfigDetail.route,
+                registered = registered,
+                fallback = fallback,
+            ),
+        )
+    }
+
+    @Test
+    fun `maps fallback secondary top bars by route family`() {
+        val strings = SecondaryTopBarStrings(
+            config = "Config",
+            logs = "Logs",
+            qqAccount = "QQ Account",
+            qqLogin = "QQ Login",
+            settings = "Settings",
+            assetManagement = "Assets",
+            models = "Models",
+            runtime = "Runtime",
+            dataBackup = "Backup",
+            configDetailDefaultSection = "Model Settings",
+        )
+
+        val configDetailSpec = fallbackSecondaryTopBarSpecForRoute(
+            route = AppDestination.ConfigDetail.route,
+            strings = strings,
+            configDetailProfileName = "Airi",
+            configDetailCurrentSectionTitle = "Speech Settings",
+        ) as SecondaryTopBarSpec.ConfigDetail
+        assertEquals("Airi", configDetailSpec.profileName)
+        assertEquals("Speech Settings", configDetailSpec.currentSectionTitle)
+        assertEquals(
+            "Assets",
+            (fallbackSecondaryTopBarSpecForRoute(AppDestination.AssetDetail.route, strings) as SecondaryTopBarSpec.SubPage).title,
+        )
+        assertEquals(
+            "Backup",
+            (fallbackSecondaryTopBarSpecForRoute(AppDestination.FullBackup.route, strings) as SecondaryTopBarSpec.SubPage).title,
+        )
     }
 }

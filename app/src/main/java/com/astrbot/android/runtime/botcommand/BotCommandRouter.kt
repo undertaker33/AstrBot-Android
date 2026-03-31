@@ -9,14 +9,22 @@ object BotCommandRouter {
         return when (command.name) {
             "help" -> handled(BotCommandResources.help(context.languageTag))
             "sid" -> handled(BotCommandResources.sid(context))
-            "agent" -> handled(BotCommandResources.emptyAgentList(context.languageTag))
+            "agent" -> handled(
+                BotCommandResources.agentSummary(
+                    bots = context.availableBots,
+                    currentBot = context.bot,
+                    languageTag = context.languageTag,
+                ),
+            )
+            "stop" -> handleStop(command, context)
+            "start" -> handleStart(command, context)
             "switch" -> handleSwitch(command, context)
             "new" -> handleNew(context)
             "del" -> handleDelete(context)
             "rename" -> handleRename(command, context)
             "provider" -> handleProvider(command, context)
             "model" -> handleModel(command, context)
-            "key" -> handleKey(command, context)
+            "llm" -> handleLlm(context)
             "op" -> handledConfigArgument(command.rawArguments, context) { uid, config ->
                 context.updateConfig(config.copy(adminUids = (config.adminUids + uid).distinct()))
                 BotCommandResources.adminGranted(uid, context.languageTag)
@@ -122,6 +130,30 @@ object BotCommandRouter {
         return handled(BotCommandResources.sessionSwitched(targetSession.id, context.languageTag))
     }
 
+    private fun handleStop(
+        command: ParsedBotCommand,
+        context: BotCommandContext,
+    ): BotCommandResult {
+        val target = if (command.rawArguments.isBlank()) {
+            context.bot
+        } else {
+            findBotByName(command.rawArguments, context)
+                ?: return handled(BotCommandResources.unsupportedCommand(command.name, context.languageTag))
+        }
+        context.updateBot(target.copy(autoReplyEnabled = false))
+        return handled(BotCommandResources.agentStopped(target.displayName, context.languageTag))
+    }
+
+    private fun handleStart(
+        command: ParsedBotCommand,
+        context: BotCommandContext,
+    ): BotCommandResult {
+        val target = findBotByName(command.rawArguments, context)
+            ?: return handled(BotCommandResources.unsupportedCommand(command.name, context.languageTag))
+        context.updateBot(target.copy(autoReplyEnabled = true))
+        return handled(BotCommandResources.agentStarted(target.displayName, context.languageTag))
+    }
+
     private fun handleNew(context: BotCommandContext): BotCommandResult {
         val createSession = context.createSession
             ?: return handled(BotCommandResources.unsupportedCommand("new", context.languageTag))
@@ -193,23 +225,22 @@ object BotCommandRouter {
         return handled(BotCommandResources.modelUpdated(currentProvider.name, model, context.languageTag))
     }
 
-    private fun handleKey(
-        command: ParsedBotCommand,
-        context: BotCommandContext,
-    ): BotCommandResult {
-        val currentProvider = currentProvider(context)
-            ?: return handled(BotCommandResources.noActiveProvider(context.languageTag))
-        val apiKey = command.rawArguments.trim()
-        if (apiKey.isBlank()) {
-            return handled(BotCommandResources.unsupportedCommand(command.name, context.languageTag))
-        }
-        context.updateProvider(currentProvider.copy(apiKey = apiKey))
-        return handled(BotCommandResources.apiKeyUpdated(currentProvider.name, context.languageTag))
+    private fun handleLlm(context: BotCommandContext): BotCommandResult {
+        val next = !context.bot.autoReplyEnabled
+        context.updateBot(context.bot.copy(autoReplyEnabled = next))
+        return handled(BotCommandResources.llmToggled(next, context.languageTag))
     }
 
     private fun currentProvider(context: BotCommandContext) = context.availableProviders.firstOrNull { provider ->
         provider.id == context.activeProviderId ||
             (context.activeProviderId.isBlank() && provider.id == context.session.providerId)
+    }
+
+    private fun findBotByName(
+        targetName: String,
+        context: BotCommandContext,
+    ) = context.availableBots.firstOrNull {
+        it.displayName.equals(targetName.trim(), ignoreCase = true)
     }
 
     private fun handled(replyText: String): BotCommandResult {

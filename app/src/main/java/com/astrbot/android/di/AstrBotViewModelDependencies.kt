@@ -555,6 +555,8 @@ interface ChatViewModelDependencies {
 
     fun saveConfig(profile: ConfigProfile)
 
+    fun saveBot(profile: BotProfile)
+
     fun saveProvider(profile: ProviderProfile)
 
     suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String
@@ -658,6 +660,10 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
 
     override fun saveConfig(profile: ConfigProfile) {
         ConfigRepository.save(profile)
+    }
+
+    override fun saveBot(profile: BotProfile) {
+        BotRepository.save(profile)
     }
 
     override fun saveProvider(profile: ProviderProfile) {

@@ -2,8 +2,10 @@ package com.astrbot.android.ui.navigation
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -31,6 +33,7 @@ import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.SelectionModeTopBar
 import com.astrbot.android.ui.TopBarSegmentedToggle
 import com.astrbot.android.ui.TopBarTitleAlignment
+import com.astrbot.android.ui.topLevelContentTopPadding
 import com.astrbot.android.ui.screen.AssetDetailScreen
 import com.astrbot.android.ui.screen.AssetManagementScreen
 import com.astrbot.android.ui.screen.BotScreen
@@ -413,55 +416,60 @@ private fun MainTopLevelRail(
     onConfigSelectedIdsChange: (Set<String>) -> Unit,
     qqLoginViewModel: QQLoginViewModel,
 ) {
-    MainSwipeRail(
-        currentPage = currentMainSwipePage,
-        onPageSettled = onMainSwipePageSettled,
-        swipeEnabled = mainSwipeEnabledForPage(currentMainSwipePage),
-        pages = mapOf(
-            MainSwipePage.BOTS to {
-                BotScreen(
-                    workspaceTab = BotWorkspaceTab.BOTS,
-                    onWorkspaceTabChange = onBotWorkspaceTabChange,
-                )
-            },
-            MainSwipePage.MODELS to {
-                BotScreen(
-                    workspaceTab = BotWorkspaceTab.MODELS,
-                    onWorkspaceTabChange = onBotWorkspaceTabChange,
-                )
-            },
-            MainSwipePage.PERSONAS to {
-                BotScreen(
-                    workspaceTab = BotWorkspaceTab.PERSONAS,
-                    onWorkspaceTabChange = onBotWorkspaceTabChange,
-                )
-            },
-            MainSwipePage.PLUGINS to { PluginScreen() },
-            MainSwipePage.CHAT to {
-                ChatScreen(
-                    chatViewModel = chatViewModel,
-                    floatingBottomNavPadding = floatingBottomNavPadding,
-                    showDrawer = false,
-                )
-            },
-            MainSwipePage.CONFIG to {
-                ConfigScreen(
-                    selectedConfigIds = configSelectedIds,
-                    onSelectedConfigIdsChange = onConfigSelectedIdsChange,
-                    onOpenProfile = { profileId ->
-                        AppNavigator.open(navController, AppDestination.ConfigDetail.routeFor(profileId))
-                    },
-                )
-            },
-            MainSwipePage.ME to {
-                MeScreen(
-                    onOpenQqAccount = { AppNavigator.open(navController, AppDestination.QQAccount.route) },
-                    onOpenSettings = { AppNavigator.open(navController, AppDestination.SettingsHub.route) },
-                    onOpenLogs = { AppNavigator.open(navController, AppDestination.Logs.route) },
-                    onOpenAssets = { AppNavigator.open(navController, AppDestination.Assets.route) },
-                    onOpenBackup = { AppNavigator.open(navController, AppDestination.BackupHub.route) },
-                )
-            },
-        ),
-    )
+    val safeDrawingTopPadding = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
+    Box(
+        modifier = Modifier.padding(top = topLevelContentTopPadding(safeDrawingTopPadding)),
+    ) {
+        MainSwipeRail(
+            currentPage = currentMainSwipePage,
+            onPageSettled = onMainSwipePageSettled,
+            swipeEnabled = mainSwipeEnabledForPage(currentMainSwipePage),
+            pages = mapOf(
+                MainSwipePage.BOTS to {
+                    BotScreen(
+                        workspaceTab = BotWorkspaceTab.BOTS,
+                        onWorkspaceTabChange = onBotWorkspaceTabChange,
+                    )
+                },
+                MainSwipePage.MODELS to {
+                    BotScreen(
+                        workspaceTab = BotWorkspaceTab.MODELS,
+                        onWorkspaceTabChange = onBotWorkspaceTabChange,
+                    )
+                },
+                MainSwipePage.PERSONAS to {
+                    BotScreen(
+                        workspaceTab = BotWorkspaceTab.PERSONAS,
+                        onWorkspaceTabChange = onBotWorkspaceTabChange,
+                    )
+                },
+                MainSwipePage.PLUGINS to { PluginScreen() },
+                MainSwipePage.CHAT to {
+                    ChatScreen(
+                        chatViewModel = chatViewModel,
+                        floatingBottomNavPadding = floatingBottomNavPadding,
+                        showDrawer = false,
+                    )
+                },
+                MainSwipePage.CONFIG to {
+                    ConfigScreen(
+                        selectedConfigIds = configSelectedIds,
+                        onSelectedConfigIdsChange = onConfigSelectedIdsChange,
+                        onOpenProfile = { profileId ->
+                            AppNavigator.open(navController, AppDestination.ConfigDetail.routeFor(profileId))
+                        },
+                    )
+                },
+                MainSwipePage.ME to {
+                    MeScreen(
+                        onOpenQqAccount = { AppNavigator.open(navController, AppDestination.QQAccount.route) },
+                        onOpenSettings = { AppNavigator.open(navController, AppDestination.SettingsHub.route) },
+                        onOpenLogs = { AppNavigator.open(navController, AppDestination.Logs.route) },
+                        onOpenAssets = { AppNavigator.open(navController, AppDestination.Assets.route) },
+                        onOpenBackup = { AppNavigator.open(navController, AppDestination.BackupHub.route) },
+                    )
+                },
+            ),
+        )
+    }
 }

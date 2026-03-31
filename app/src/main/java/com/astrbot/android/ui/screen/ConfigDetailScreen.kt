@@ -63,7 +63,10 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.ui.animateToItemWithAppMotion
 import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.ConfigDetailChromeBinding
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
+import com.astrbot.android.ui.RegisterConfigDetailChromeBinding
+import com.astrbot.android.ui.SecondaryTopBarPlaceholder
 import com.astrbot.android.ui.viewmodel.ConfigViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -121,6 +124,13 @@ fun ConfigDetailScreen(
     }
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
 
+    RegisterConfigDetailChromeBinding(
+        ConfigDetailChromeBinding(
+            currentSectionTitle = context.getString(currentSection.titleRes),
+            onOpenSections = { scope.launch { drawerState.open() } },
+        ),
+    )
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -143,14 +153,7 @@ fun ConfigDetailScreen(
     ) {
         Scaffold(
             containerColor = MonochromeUi.pageBackground,
-            topBar = {
-                ConfigDetailTopBar(
-                    profileName = profile.name,
-                    currentSection = currentSection,
-                    onBack = onBack,
-                    onOpenSections = { scope.launch { drawerState.open() } },
-                )
-            },
+            topBar = { SecondaryTopBarPlaceholder() },
         ) { innerPadding ->
             ConfigDetailContent(
                 profile = profile,

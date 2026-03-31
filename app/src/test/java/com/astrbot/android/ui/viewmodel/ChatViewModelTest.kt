@@ -145,6 +145,8 @@ class ChatViewModelTest {
 
         override fun saveConfig(profile: ConfigProfile) = Unit
 
+        override fun saveBot(profile: BotProfile) = Unit
+
         override fun saveProvider(profile: ProviderProfile) = Unit
 
         override suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String {
