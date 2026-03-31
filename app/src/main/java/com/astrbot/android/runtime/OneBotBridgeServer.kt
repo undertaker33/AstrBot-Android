@@ -825,6 +825,7 @@ object OneBotBridgeServer {
                 session = session,
                 sessions = ConversationRepository.sessions.value,
                 bot = bot,
+                availableBots = BotRepository.botProfiles.value,
                 config = config,
                 activeProviderId = resolveProvider(bot)?.id ?: session.providerId,
                 availableProviders = ProviderRepository.providers.value.filter { it.enabled && ProviderCapability.CHAT in it.capabilities },
@@ -842,6 +843,9 @@ object OneBotBridgeServer {
                 },
                 updateConfig = { updatedConfig ->
                     ConfigRepository.save(updatedConfig)
+                },
+                updateBot = { updatedBot ->
+                    BotRepository.save(updatedBot)
                 },
                 updateProvider = { updatedProvider ->
                     ProviderRepository.save(

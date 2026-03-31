@@ -33,6 +33,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.RegisterSecondaryTopBar
+import com.astrbot.android.ui.SecondaryTopBarPlaceholder
+import com.astrbot.android.ui.SecondaryTopBarSpec
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.qqlogin.LoginModeToggle
 import com.astrbot.android.ui.qqlogin.QQCaptchaCard
@@ -58,9 +61,10 @@ fun QQAccountCenterScreen(
         qqLoginViewModel.onScreenVisible("qq-account", versionMarker)
         onDispose { qqLoginViewModel.onScreenHidden("qq-account") }
     }
+    RegisterSecondaryTopBar(SecondaryTopBarSpec.SubPage(title = "QQ 账号", onBack = onBack))
 
     Scaffold(
-        topBar = { SubPageHeader(title = "QQ 账号", onBack = onBack) },
+        topBar = { SecondaryTopBarPlaceholder() },
         containerColor = MonochromeUi.pageBackground,
     ) { innerPadding ->
         Column(
@@ -158,9 +162,10 @@ fun QQLoginScreen(
             uinInput = loginState.quickLoginUin.ifBlank { loginState.uin }
         }
     }
+    RegisterSecondaryTopBar(SecondaryTopBarSpec.SubPage(title = "去登录", onBack = onBack))
 
     Scaffold(
-        topBar = { SubPageHeader(title = "去登录", onBack = onBack) },
+        topBar = { SecondaryTopBarPlaceholder() },
         containerColor = MonochromeUi.pageBackground,
     ) { innerPadding ->
         LazyColumn(

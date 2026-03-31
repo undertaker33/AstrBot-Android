@@ -5,12 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -28,16 +28,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.astrbot.android.R
 import com.astrbot.android.ui.MonochromeUi
-import com.astrbot.android.ui.secondaryPageHeaderTotalHeight
+import com.astrbot.android.ui.RegisterSecondaryTopBar
+import com.astrbot.android.ui.SecondaryTopBarPlaceholder
+import com.astrbot.android.ui.SecondaryTopBarSpec
 
 @Composable
 internal fun SubPageScaffold(
+    route: String = "",
     title: String,
     onBack: () -> Unit,
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    RegisterSecondaryTopBar(
+        route = route,
+        spec = SecondaryTopBarSpec.SubPage(
+            title = title,
+            onBack = onBack,
+        ),
+    )
     Scaffold(
-        topBar = { SubPageHeader(title = title, onBack = onBack) },
+        topBar = { SecondaryTopBarPlaceholder() },
         contentWindowInsets = WindowInsets.safeDrawing,
         containerColor = MonochromeUi.pageBackground,
         content = content,
@@ -49,7 +59,6 @@ internal fun SubPageHeader(
     title: String,
     onBack: () -> Unit,
 ) {
-    val safeDrawingTopPadding = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
     Surface(
         color = MonochromeUi.pageBackground,
         shadowElevation = 0.dp,
@@ -57,8 +66,9 @@ internal fun SubPageHeader(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(secondaryPageHeaderTotalHeight(safeDrawingTopPadding))
-                .padding(top = safeDrawingTopPadding, start = 12.dp, end = 12.dp),
+                .statusBarsPadding()
+                .height(com.astrbot.android.ui.AppTopBarHeight)
+                .padding(start = 12.dp, end = 12.dp),
         ) {
             Surface(
                 onClick = onBack,

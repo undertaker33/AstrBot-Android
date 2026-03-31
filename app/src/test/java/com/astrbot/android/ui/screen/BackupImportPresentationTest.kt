@@ -35,6 +35,34 @@ class BackupImportPresentationTest {
     }
 
     @Test
+    fun `backup hub display list applies card ordering before rendering`() {
+        val displayed = backupModuleCardsForDisplay(
+            listOf(
+                backupModuleCardStateForTest("TTS Voice Backup"),
+                backupModuleCardStateForTest("Config Backup"),
+                backupModuleCardStateForTest("Persona Backup"),
+                backupModuleCardStateForTest("Bot Backup"),
+                backupModuleCardStateForTest("Conversation Backup"),
+                backupModuleCardStateForTest("Model Backup"),
+                backupModuleCardStateForTest("Full Backup"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "Full Backup",
+                "Conversation Backup",
+                "Bot Backup",
+                "Model Backup",
+                "Persona Backup",
+                "Config Backup",
+                "TTS Voice Backup",
+            ),
+            displayed.map { it.title },
+        )
+    }
+
+    @Test
     fun `backup import file picker accepts zip and json`() {
         assertEquals(
             listOf("application/zip", "application/json"),

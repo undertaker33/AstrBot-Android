@@ -13,6 +13,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,8 +37,10 @@ import com.astrbot.android.ui.navigation.AstrBotAppTopBar
 import com.astrbot.android.ui.navigation.activeMainDestination
 import com.astrbot.android.ui.screen.BotWorkspaceTab
 import com.astrbot.android.ui.screen.ChatDrawerContent
+import com.astrbot.android.ui.screen.ConfigSection
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
 import com.astrbot.android.ui.viewmodel.ChatViewModel
+import com.astrbot.android.ui.viewmodel.ConfigViewModel
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import kotlinx.coroutines.launch
 
@@ -46,11 +49,14 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val chatViewModel: ChatViewModel = astrBotViewModel()
+    val configViewModel: ConfigViewModel = astrBotViewModel()
     val qqLoginViewModel: QQLoginViewModel = astrBotViewModel()
     val chatDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var botWorkspaceTab by remember { mutableStateOf(BotWorkspaceTab.BOTS) }
     var configSelectedIds by remember { mutableStateOf(setOf<String>()) }
+    var registeredSecondaryTopBar by remember { mutableStateOf<RegisteredSecondaryTopBar?>(null) }
+    var configDetailChromeBinding by remember { mutableStateOf<ConfigDetailChromeBinding?>(null) }
     val destinations = mainNavigationDestinations(
         botsLabel = stringResource(R.string.nav_bots),
         pluginsLabel = stringResource(R.string.nav_plugins),
@@ -61,6 +67,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val runtimeState by bridgeViewModel.runtimeState.collectAsState()
+    val configProfiles by configViewModel.configProfiles.collectAsState()
     val chatBots by chatViewModel.bots.collectAsState()
     val chatPersonas by chatViewModel.personas.collectAsState()
     val chatUiState by chatViewModel.uiState.collectAsState()
@@ -74,8 +81,58 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
     val density = LocalDensity.current
     val safeDrawingPadding = WindowInsets.safeDrawing.asPaddingValues()
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    val currentConfigId = navBackStackEntry?.arguments?.getString("configId")
+    val currentConfigProfile = remember(currentConfigId, configProfiles) {
+        configProfiles.firstOrNull { it.id == currentConfigId }
+    }
     val activeMainDestination = activeMainDestination(currentDestination, destinations)
     val activeMainRoute = activeMainDestination?.first?.route
+    val fallbackTopBarStrings = remember(context) {
+        SecondaryTopBarStrings(
+            config = context.getString(R.string.nav_config),
+            logs = context.getString(R.string.nav_logs),
+            qqAccount = context.getString(R.string.nav_qq_account),
+            qqLogin = context.getString(R.string.me_card_qq_title),
+            settings = context.getString(R.string.nav_settings),
+            assetManagement = context.getString(R.string.nav_asset_management),
+            models = context.getString(R.string.nav_models),
+            runtime = context.getString(R.string.settings_runtime_title),
+            dataBackup = context.getString(R.string.backup_data_title),
+            configDetailDefaultSection = context.getString(ConfigSection.ModelSettings.titleRes),
+        )
+    }
+    val fallbackSecondaryTopBarSpec = remember(
+        currentDestination?.route,
+        activeMainRoute,
+        fallbackTopBarStrings,
+        currentConfigProfile?.name,
+    ) {
+        if (activeMainRoute != null) {
+            null
+        } else {
+            fallbackSecondaryTopBarSpecForRoute(
+                route = currentDestination?.route,
+                strings = fallbackTopBarStrings,
+                configDetailProfileName = currentConfigProfile?.name,
+                configDetailCurrentSectionTitle = configDetailChromeBinding?.currentSectionTitle,
+                configDetailOnOpenSections = { configDetailChromeBinding?.onOpenSections?.invoke() },
+            )?.let { spec ->
+                when (spec) {
+                    is SecondaryTopBarSpec.SubPage -> spec.copy(onBack = { AppNavigator.back(navController) })
+                    is SecondaryTopBarSpec.ConfigDetail -> spec.copy(
+                        onBack = { AppNavigator.back(navController) },
+                        onOpenSections = { configDetailChromeBinding?.onOpenSections?.invoke() },
+                    )
+                }
+            }
+        }
+    }
+    val effectiveSecondaryTopBarSpec = resolveEffectiveSecondaryTopBarSpec(
+        currentRoute = currentDestination?.route,
+        registered = registeredSecondaryTopBar,
+        fallback = fallbackSecondaryTopBarSpec,
+    )
+    val globalTopBarLayer = resolveGlobalTopBarLayer(activeMainRoute, effectiveSecondaryTopBarSpec != null)
     val contentTopPadding = navGraphContentTopPadding(
         activeMainRoute = activeMainRoute,
         safeDrawingTopPadding = safeDrawingPadding.calculateTopPadding(),
@@ -123,43 +180,57 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
                 androidx.compose.material3.Scaffold(
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 ) { innerPadding ->
-                    AstrBotAppNavGraph(
-                        navController = navController,
-                        modifier = Modifier
-                            .padding(innerPadding)
-                            .padding(top = contentTopPadding)
-                            .padding(
-                                bottom = floatingBottomNavContentPadding(
-                                    activeMainRoute = activeMainRoute,
-                                    visible = showFloatingBottomNav,
-                                ),
-                            ),
-                        currentMainSwipePage = currentMainSwipePage,
-                        onMainSwipePageSettled = { page ->
-                            botWorkspaceTabForMainSwipePage(page)?.let { tab ->
-                                botWorkspaceTab = tab
-                                if (activeMainRoute != AppDestination.Bots.route) {
-                                    AppNavigator.openTopLevel(navController, AppDestination.Bots)
-                                }
-                            } ?: run {
-                                when (page) {
-                                    MainSwipePage.PLUGINS -> AppNavigator.openTopLevel(navController, AppDestination.Plugins)
-                                    MainSwipePage.CHAT -> AppNavigator.openTopLevel(navController, AppDestination.Chat)
-                                    MainSwipePage.CONFIG -> AppNavigator.openTopLevel(navController, AppDestination.Config)
-                                    MainSwipePage.ME -> AppNavigator.openTopLevel(navController, AppDestination.Me)
-                                    else -> Unit
-                                }
+                    CompositionLocalProvider(
+                        LocalSecondaryTopBarRegistrar provides { route, spec ->
+                            registeredSecondaryTopBar = when {
+                                spec != null -> RegisteredSecondaryTopBar(route = route, spec = spec)
+                                registeredSecondaryTopBar?.route == route -> null
+                                route.isBlank() && registeredSecondaryTopBar?.route.isNullOrBlank() -> null
+                                else -> registeredSecondaryTopBar
                             }
                         },
-                        botWorkspaceTab = botWorkspaceTab,
-                        onBotWorkspaceTabChange = { botWorkspaceTab = it },
-                        chatViewModel = chatViewModel,
-                        qqLoginViewModel = qqLoginViewModel,
-                        chatDrawerState = chatDrawerState,
-                        floatingBottomNavPadding = chatBottomBarPadding(showFloatingBottomNav),
-                        configSelectedIds = configSelectedIds,
-                        onConfigSelectedIdsChange = { configSelectedIds = it },
-                    )
+                        LocalConfigDetailChromeRegistrar provides { binding ->
+                            configDetailChromeBinding = binding
+                        },
+                    ) {
+                        AstrBotAppNavGraph(
+                            navController = navController,
+                            modifier = Modifier
+                                .padding(innerPadding)
+                                .padding(top = contentTopPadding)
+                                .padding(
+                                    bottom = floatingBottomNavContentPadding(
+                                        activeMainRoute = activeMainRoute,
+                                        visible = showFloatingBottomNav,
+                                    ),
+                                ),
+                            currentMainSwipePage = currentMainSwipePage,
+                            onMainSwipePageSettled = { page ->
+                                botWorkspaceTabForMainSwipePage(page)?.let { tab ->
+                                    botWorkspaceTab = tab
+                                    if (activeMainRoute != AppDestination.Bots.route) {
+                                        AppNavigator.openTopLevel(navController, AppDestination.Bots)
+                                    }
+                                } ?: run {
+                                    when (page) {
+                                        MainSwipePage.PLUGINS -> AppNavigator.openTopLevel(navController, AppDestination.Plugins)
+                                        MainSwipePage.CHAT -> AppNavigator.openTopLevel(navController, AppDestination.Chat)
+                                        MainSwipePage.CONFIG -> AppNavigator.openTopLevel(navController, AppDestination.Config)
+                                        MainSwipePage.ME -> AppNavigator.openTopLevel(navController, AppDestination.Me)
+                                        else -> Unit
+                                    }
+                                }
+                            },
+                            botWorkspaceTab = botWorkspaceTab,
+                            onBotWorkspaceTabChange = { botWorkspaceTab = it },
+                            chatViewModel = chatViewModel,
+                            qqLoginViewModel = qqLoginViewModel,
+                            chatDrawerState = chatDrawerState,
+                            floatingBottomNavPadding = chatBottomBarPadding(showFloatingBottomNav),
+                            configSelectedIds = configSelectedIds,
+                            onConfigSelectedIdsChange = { configSelectedIds = it },
+                        )
+                    }
                 }
 
                 if (showFloatingBottomNav) {
@@ -176,22 +247,34 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
             }
         }
 
-        AstrBotAppTopBar(
-            activeMainDestination = activeMainDestination,
-            botWorkspaceTab = botWorkspaceTab,
-            configSelectedIds = configSelectedIds,
-            currentChatBot = currentChatBot,
-            chatBots = chatBots,
-            chatPersonas = chatPersonas,
-            currentPersonaId = currentChatPersona?.id,
-            chatSelectorExpanded = chatSelectorExpanded,
-            onBotWorkspaceTabChange = { botWorkspaceTab = it },
-            onConfigSelectionClear = { configSelectedIds = emptySet() },
-            onOpenHistory = { scope.launch { chatDrawerState.open() } },
-            onBotSelectorExpandedChange = { chatSelectorExpanded = it },
-            onSelectBot = { chatViewModel.selectBot(it) },
-            onSelectPersona = { chatViewModel.selectPersona(it) },
-        )
+        when (globalTopBarLayer) {
+            GlobalTopBarLayer.MAIN -> {
+                AstrBotAppTopBar(
+                    activeMainDestination = activeMainDestination,
+                    botWorkspaceTab = botWorkspaceTab,
+                    configSelectedIds = configSelectedIds,
+                    currentChatBot = currentChatBot,
+                    chatBots = chatBots,
+                    chatPersonas = chatPersonas,
+                    currentPersonaId = currentChatPersona?.id,
+                    chatSelectorExpanded = chatSelectorExpanded,
+                    onBotWorkspaceTabChange = { botWorkspaceTab = it },
+                    onConfigSelectionClear = { configSelectedIds = emptySet() },
+                    onOpenHistory = { scope.launch { chatDrawerState.open() } },
+                    onBotSelectorExpandedChange = { chatSelectorExpanded = it },
+                    onSelectBot = { chatViewModel.selectBot(it) },
+                    onSelectPersona = { chatViewModel.selectPersona(it) },
+                )
+            }
+
+            GlobalTopBarLayer.SECONDARY -> {
+                effectiveSecondaryTopBarSpec?.let { spec ->
+                    SecondaryTopBarHost(spec)
+                }
+            }
+
+            GlobalTopBarLayer.NONE -> Unit
+        }
 
         RuntimeOverlay(
             status = runtimeState.status,

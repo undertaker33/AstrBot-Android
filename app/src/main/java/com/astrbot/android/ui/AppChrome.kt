@@ -73,7 +73,7 @@ internal fun topLevelContentTopPadding(safeDrawingTopPadding: Dp): Dp =
 internal fun navGraphContentTopPadding(
     activeMainRoute: String?,
     safeDrawingTopPadding: Dp,
-): Dp = if (activeMainRoute != null) topLevelContentTopPadding(safeDrawingTopPadding) else 0.dp
+): Dp = 0.dp
 
 internal fun secondaryPageHeaderTotalHeight(safeDrawingTopPadding: Dp): Dp =
     topLevelContentTopPadding(safeDrawingTopPadding)

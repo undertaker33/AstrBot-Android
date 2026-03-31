@@ -521,6 +521,7 @@ class ChatViewModel(
                 session = session,
                 sessions = sessions.value,
                 bot = bot,
+                availableBots = bots.value,
                 config = dependencies.resolveConfig(bot.configProfileId),
                 activeProviderId = _uiState.value.selectedProviderId.ifBlank { session.providerId },
                 availableProviders = providers.value.filter { it.enabled && ProviderCapability.CHAT in it.capabilities },
@@ -539,6 +540,9 @@ class ChatViewModel(
                 },
                 updateConfig = { profile ->
                     dependencies.saveConfig(profile)
+                },
+                updateBot = { profile ->
+                    dependencies.saveBot(profile)
                 },
                 updateProvider = { provider ->
                     dependencies.saveProvider(provider)

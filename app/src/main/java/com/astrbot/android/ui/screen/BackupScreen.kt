@@ -92,7 +92,8 @@ fun DataBackupHubScreen(
     onOpenTtsBackup: () -> Unit,
     onOpenFullBackup: () -> Unit,
 ) {
-    val modules = listOf(
+    val modules = backupModuleCardsForDisplay(
+        listOf(
         BackupModuleCardState(
             title = stringResource(R.string.backup_module_full_title),
             subtitle = stringResource(R.string.backup_module_full_desc),
@@ -141,6 +142,7 @@ fun DataBackupHubScreen(
             icon = Icons.Outlined.Memory,
             enabled = true,
             onClick = onOpenTtsBackup,
+        ),
         ),
     )
 
@@ -1327,13 +1329,23 @@ private fun formatBackupDate(timestamp: Long): String {
         .format(Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()))
 }
 
-private data class BackupModuleCardState(
+internal data class BackupModuleCardState(
     val title: String,
     val subtitle: String,
     val icon: ImageVector,
     val enabled: Boolean,
     val onClick: () -> Unit,
 )
+
+internal fun backupModuleCardStateForTest(title: String): BackupModuleCardState {
+    return BackupModuleCardState(
+        title = title,
+        subtitle = title,
+        icon = Icons.Outlined.Memory,
+        enabled = true,
+        onClick = {},
+    )
+}
 
 private fun buildImportSummary(
     context: android.content.Context,
@@ -1721,6 +1733,10 @@ private fun isConfigBackupTitle(title: String): Boolean {
 
 private fun isTtsBackupTitle(title: String): Boolean {
     return title.contains("TTS", ignoreCase = true)
+}
+
+internal fun backupModuleCardsForDisplay(modules: List<BackupModuleCardState>): List<BackupModuleCardState> {
+    return sortBackupModuleCardsForDisplay(modules)
 }
 
 private fun sortBackupModuleCardsForDisplay(modules: List<BackupModuleCardState>): List<BackupModuleCardState> {

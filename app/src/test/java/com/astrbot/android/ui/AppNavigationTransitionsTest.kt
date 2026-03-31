@@ -1,6 +1,9 @@
 package com.astrbot.android.ui
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 class AppNavigationTransitionsTest {
@@ -31,5 +34,21 @@ class AppNavigationTransitionsTest {
         assertEquals(true, isBottomNavigationSwitch("chat", "me"))
         assertEquals(false, isBottomNavigationSwitch("me", "settings-hub"))
         assertEquals(false, isBottomNavigationSwitch("asset-management", "asset-management/tts-voice-assets"))
+    }
+
+    @Test
+    fun `pushing from top level to secondary keeps the current page stationary`() {
+        assertSame(
+            ExitTransition.None,
+            AppNavigationTransitions.exitTransition("config", "settings-hub"),
+        )
+    }
+
+    @Test
+    fun `popping from secondary to top level keeps the destination page stationary`() {
+        assertSame(
+            EnterTransition.None,
+            AppNavigationTransitions.popEnterTransition("settings-hub", "config"),
+        )
     }
 }

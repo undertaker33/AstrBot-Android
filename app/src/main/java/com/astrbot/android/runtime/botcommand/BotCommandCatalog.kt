@@ -1,83 +1,75 @@
 package com.astrbot.android.runtime.botcommand
 
+import androidx.annotation.StringRes
+import com.astrbot.android.R
+
 internal data class BotCommandCatalogEntry(
     val command: String,
-    val zhDescription: String,
-    val enDescription: String,
+    @StringRes val descriptionResId: Int,
 )
 
 internal data class BotCommandCatalogSection(
-    val zhTitle: String,
-    val enTitle: String,
+    @StringRes val titleResId: Int,
     val entries: List<BotCommandCatalogEntry>,
 )
 
 internal object BotCommandCatalog {
     val sections: List<BotCommandCatalogSection> = listOf(
         BotCommandCatalogSection(
-            zhTitle = "内置指令",
-            enTitle = "Built-in commands",
+            titleResId = R.string.bot_command_section_builtin,
             entries = listOf(
-                BotCommandCatalogEntry("/help", "查看帮助", "View help"),
-                BotCommandCatalogEntry("/stop", "停用当前会话中正在运行的 Agent", "Stop the running agent in this conversation"),
-                BotCommandCatalogEntry("/stop <agent_name>", "停用指定名称的 Agent", "Stop the named agent"),
-                BotCommandCatalogEntry("/start <agent_name>", "启用指定名称的 Agent", "Start the named agent"),
-                BotCommandCatalogEntry("/agent", "列出当前 agent 列表", "List current agents"),
+                BotCommandCatalogEntry("/help", R.string.bot_command_desc_help),
+                BotCommandCatalogEntry("/stop", R.string.bot_command_desc_stop_current),
+                BotCommandCatalogEntry("/stop <agent_name>", R.string.bot_command_desc_stop_named),
+                BotCommandCatalogEntry("/start <agent_name>", R.string.bot_command_desc_start_named),
+                BotCommandCatalogEntry("/agent", R.string.bot_command_desc_agent),
             ),
         ),
         BotCommandCatalogSection(
-            zhTitle = "会话管理",
-            enTitle = "Conversation management",
+            titleResId = R.string.bot_command_section_conversation,
             entries = listOf(
-                BotCommandCatalogEntry("/ls", "查看对话列表", "Show conversation list"),
-                BotCommandCatalogEntry("/switch", "通过 /ls 前面的序号切换对话", "Switch conversations by the /ls index"),
-                BotCommandCatalogEntry("/new", "创建新对话", "Create a new conversation"),
-                BotCommandCatalogEntry("/groupnew", "创建新群聊对话", "Create a new group conversation"),
-                BotCommandCatalogEntry("/del", "删除当前对话", "Delete current conversation"),
-                BotCommandCatalogEntry("/rename", "重命名对话", "Rename current conversation"),
-                BotCommandCatalogEntry("/reset", "重置 LLM 会话", "Reset the current LLM conversation"),
-                BotCommandCatalogEntry("/sid", "获取会话 ID 和管理员 ID", "Show session ID and admin UID"),
+                BotCommandCatalogEntry("/ls", R.string.bot_command_desc_ls),
+                BotCommandCatalogEntry("/switch", R.string.bot_command_desc_switch),
+                BotCommandCatalogEntry("/new", R.string.bot_command_desc_new),
+                BotCommandCatalogEntry("/del", R.string.bot_command_desc_del),
+                BotCommandCatalogEntry("/rename", R.string.bot_command_desc_rename),
+                BotCommandCatalogEntry("/reset", R.string.bot_command_desc_reset),
+                BotCommandCatalogEntry("/sid", R.string.bot_command_desc_sid),
             ),
         ),
         BotCommandCatalogSection(
-            zhTitle = "管理员管理（需要管理员权限）",
-            enTitle = "Admin management (admin only)",
+            titleResId = R.string.bot_command_section_admin,
             entries = listOf(
-                BotCommandCatalogEntry("/deop <UID>", "取消授权管理员", "Remove admin authorization"),
-                BotCommandCatalogEntry("/op <UID>", "授权管理员", "Grant admin authorization"),
+                BotCommandCatalogEntry("/deop <UID>", R.string.bot_command_desc_deop),
+                BotCommandCatalogEntry("/op <UID>", R.string.bot_command_desc_op),
             ),
         ),
         BotCommandCatalogSection(
-            zhTitle = "白名单管理",
-            enTitle = "Whitelist management",
+            titleResId = R.string.bot_command_section_whitelist,
             entries = listOf(
-                BotCommandCatalogEntry("/wl <UMO>", "添加白名单", "Add whitelist entry"),
-                BotCommandCatalogEntry("/dwl <UMO>", "删除白名单", "Remove whitelist entry"),
+                BotCommandCatalogEntry("/wl <UMO>", R.string.bot_command_desc_wl),
+                BotCommandCatalogEntry("/dwl <UMO>", R.string.bot_command_desc_dwl),
             ),
         ),
         BotCommandCatalogSection(
-            zhTitle = "提供商管理",
-            enTitle = "Provider management",
+            titleResId = R.string.bot_command_section_provider,
             entries = listOf(
-                BotCommandCatalogEntry("/provider", "查看或切换 LLM Provider", "Show or switch the LLM provider"),
-                BotCommandCatalogEntry("/model", "查看或切换模型", "Show or switch the model"),
-                BotCommandCatalogEntry("/llm", "开启或关闭 LLM", "Enable or disable the LLM"),
-                BotCommandCatalogEntry("/key", "查看或切换 Key", "Show or switch the key"),
+                BotCommandCatalogEntry("/provider", R.string.bot_command_desc_provider),
+                BotCommandCatalogEntry("/model", R.string.bot_command_desc_model),
+                BotCommandCatalogEntry("/llm", R.string.bot_command_desc_llm),
             ),
         ),
         BotCommandCatalogSection(
-            zhTitle = "人格管理",
-            enTitle = "Persona management",
+            titleResId = R.string.bot_command_section_persona,
             entries = listOf(
-                BotCommandCatalogEntry("/persona", "查看或切换 Persona", "Show or switch personas"),
+                BotCommandCatalogEntry("/persona", R.string.bot_command_desc_persona),
             ),
         ),
         BotCommandCatalogSection(
-            zhTitle = "语音管理",
-            enTitle = "Voice management",
+            titleResId = R.string.bot_command_section_voice,
             entries = listOf(
-                BotCommandCatalogEntry("/tts", "开关文本转语音（会话级别）", "Toggle text to speech for this conversation"),
-                BotCommandCatalogEntry("/stt", "开关语音转文本（会话级别）", "Toggle speech to text for this conversation"),
+                BotCommandCatalogEntry("/tts", R.string.bot_command_desc_tts),
+                BotCommandCatalogEntry("/stt", R.string.bot_command_desc_stt),
             ),
         ),
     )

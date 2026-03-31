@@ -45,6 +45,9 @@ import com.astrbot.android.R
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.runtime.ContainerBridgeController
 import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.RegisterSecondaryTopBar
+import com.astrbot.android.ui.SecondaryTopBarPlaceholder
+import com.astrbot.android.ui.SecondaryTopBarSpec
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
@@ -65,11 +68,19 @@ fun SettingsScreen(
     var statusCommand by remember(bridgeConfig.statusCommand) { mutableStateOf(bridgeConfig.statusCommand) }
     var commandPreview by remember(bridgeConfig.commandPreview) { mutableStateOf(bridgeConfig.commandPreview) }
     var autoStart by remember(bridgeConfig.autoStart) { mutableStateOf(bridgeConfig.autoStart) }
+    if (onBack != null) {
+        RegisterSecondaryTopBar(
+            SecondaryTopBarSpec.SubPage(
+                title = context.getString(R.string.settings_runtime_title),
+                onBack = onBack,
+            ),
+        )
+    }
 
     Scaffold(
         topBar = {
             if (onBack != null) {
-                SubPageHeader(title = stringResource(R.string.settings_runtime_title), onBack = onBack)
+                SecondaryTopBarPlaceholder()
             }
         },
         containerColor = MonochromeUi.pageBackground,

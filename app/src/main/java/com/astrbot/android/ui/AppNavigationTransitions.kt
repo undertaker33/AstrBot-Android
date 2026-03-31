@@ -86,7 +86,7 @@ internal object AppNavigationTransitions {
             }
 
             initialLevel == NavigationMotionLevel.TopLevel && targetLevel != NavigationMotionLevel.TopLevel -> {
-                fadeOut(animationSpec = tween(AppMotionTokens.routeFadeMillis))
+                ExitTransition.None
             }
 
             else -> {
@@ -103,8 +103,13 @@ internal object AppNavigationTransitions {
         initialRoute: String?,
         targetRoute: String?,
     ): EnterTransition {
+        val targetLevel = classifyNavigationMotionLevel(targetRoute)
         return when {
             isBottomNavigationSwitch(initialRoute, targetRoute) -> {
+                EnterTransition.None
+            }
+
+            targetLevel == NavigationMotionLevel.TopLevel -> {
                 EnterTransition.None
             }
 
