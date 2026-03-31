@@ -540,6 +540,8 @@ interface ChatViewModelDependencies {
         attachments: List<ConversationAttachment> = emptyList(),
     ): String
 
+    fun replaceMessages(sessionId: String, messages: List<ConversationMessage>)
+
     fun updateMessage(
         sessionId: String,
         messageId: String,
@@ -550,6 +552,10 @@ interface ChatViewModelDependencies {
     fun syncSystemSessionTitle(sessionId: String, title: String)
 
     fun resolveConfig(profileId: String): ConfigProfile
+
+    fun saveConfig(profile: ConfigProfile)
+
+    fun saveProvider(profile: ProviderProfile)
 
     suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String
 
@@ -629,6 +635,10 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
         return ConversationRepository.appendMessage(sessionId, role, content, attachments)
     }
 
+    override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
+        ConversationRepository.replaceMessages(sessionId, messages)
+    }
+
     override fun updateMessage(
         sessionId: String,
         messageId: String,
@@ -644,6 +654,30 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
 
     override fun resolveConfig(profileId: String): ConfigProfile {
         return ConfigRepository.resolve(profileId)
+    }
+
+    override fun saveConfig(profile: ConfigProfile) {
+        ConfigRepository.save(profile)
+    }
+
+    override fun saveProvider(profile: ProviderProfile) {
+        ProviderRepository.save(
+            id = profile.id,
+            name = profile.name,
+            baseUrl = profile.baseUrl,
+            model = profile.model,
+            providerType = profile.providerType,
+            apiKey = profile.apiKey,
+            capabilities = profile.capabilities,
+            enabled = profile.enabled,
+            multimodalRuleSupport = profile.multimodalRuleSupport,
+            multimodalProbeSupport = profile.multimodalProbeSupport,
+            nativeStreamingRuleSupport = profile.nativeStreamingRuleSupport,
+            nativeStreamingProbeSupport = profile.nativeStreamingProbeSupport,
+            sttProbeSupport = profile.sttProbeSupport,
+            ttsProbeSupport = profile.ttsProbeSupport,
+            ttsVoiceOptions = profile.ttsVoiceOptions,
+        )
     }
 
     override suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String {

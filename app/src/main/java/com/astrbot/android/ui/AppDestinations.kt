@@ -15,7 +15,7 @@ internal sealed class AppDestination(
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
 ) {
     data object Bots : AppDestination("bots", Icons.Outlined.SmartToy)
-    data object Personas : AppDestination("personas", Icons.Outlined.Face)
+    data object Plugins : AppDestination("plugins", Icons.Outlined.Face)
     data object Chat : AppDestination("chat", Icons.Outlined.ChatBubbleOutline)
     data object Config : AppDestination("config", Icons.Outlined.Settings)
     data object ConfigDetail : AppDestination("config/detail/{configId}", Icons.Outlined.Settings) {

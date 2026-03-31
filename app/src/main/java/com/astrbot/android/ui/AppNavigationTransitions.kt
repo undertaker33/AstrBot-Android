@@ -21,7 +21,7 @@ internal enum class NavigationMotionLevel {
 internal fun classifyNavigationMotionLevel(route: String?): NavigationMotionLevel {
     val normalizedRoute = route.orEmpty()
     return when {
-        normalizedRoute in setOf("bots", "personas", "chat", "config", "me") -> NavigationMotionLevel.TopLevel
+        normalizedRoute in setOf("bots", "plugins", "chat", "config", "me") -> NavigationMotionLevel.TopLevel
         normalizedRoute.startsWith("config/detail/") || normalizedRoute == "config/detail/{configId}" -> NavigationMotionLevel.Detail
         normalizedRoute.startsWith("asset-management/") && normalizedRoute != "asset-management" -> NavigationMotionLevel.Detail
         normalizedRoute in setOf(
@@ -57,7 +57,7 @@ internal object AppNavigationTransitions {
         val targetLevel = classifyNavigationMotionLevel(targetRoute)
         return when {
             isBottomNavigationSwitch(initialRoute, targetRoute) -> {
-                fadeIn(animationSpec = tween(AppMotionTokens.bottomNavSwitchMillis))
+                EnterTransition.None
             }
 
             targetLevel == NavigationMotionLevel.TopLevel -> {
@@ -82,7 +82,7 @@ internal object AppNavigationTransitions {
         val targetLevel = classifyNavigationMotionLevel(targetRoute)
         return when {
             isBottomNavigationSwitch(initialRoute, targetRoute) -> {
-                fadeOut(animationSpec = tween(AppMotionTokens.bottomNavSwitchMillis))
+                ExitTransition.None
             }
 
             initialLevel == NavigationMotionLevel.TopLevel && targetLevel != NavigationMotionLevel.TopLevel -> {
@@ -105,7 +105,7 @@ internal object AppNavigationTransitions {
     ): EnterTransition {
         return when {
             isBottomNavigationSwitch(initialRoute, targetRoute) -> {
-                fadeIn(animationSpec = tween(AppMotionTokens.bottomNavSwitchMillis))
+                EnterTransition.None
             }
 
             else -> {
@@ -123,7 +123,7 @@ internal object AppNavigationTransitions {
     ): ExitTransition {
         return when {
             isBottomNavigationSwitch(initialRoute, targetRoute) -> {
-                fadeOut(animationSpec = tween(AppMotionTokens.bottomNavSwitchMillis))
+                ExitTransition.None
             }
 
             else -> {

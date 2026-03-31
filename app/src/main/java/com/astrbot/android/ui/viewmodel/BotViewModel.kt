@@ -41,7 +41,9 @@ class BotViewModel(
         dependencies.create()
     }
 
-    fun deleteSelected() {
-        dependencies.delete(botProfile.value.id)
+    fun deleteSelected(): Result<Unit> {
+        return runCatching {
+            dependencies.delete(botProfile.value.id)
+        }
     }
 }

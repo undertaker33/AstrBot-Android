@@ -63,6 +63,13 @@ import java.util.UUID
 fun PersonaScreen(
     personaViewModel: PersonaViewModel = astrBotViewModel(),
 ) {
+    PersonaCatalogContent(personaViewModel = personaViewModel)
+}
+
+@Composable
+internal fun PersonaCatalogContent(
+    personaViewModel: PersonaViewModel = astrBotViewModel(),
+) {
     val personas by personaViewModel.personas.collectAsState()
     val context = LocalContext.current
 
@@ -151,8 +158,13 @@ fun PersonaScreen(
             initialPersona = profile,
             onDismiss = { editingPersona = null },
             onDelete = {
-                personaViewModel.delete(profile.id)
-                editingPersona = null
+                val result = personaViewModel.delete(profile.id)
+                result.onFailure { error ->
+                    showProfileDeletionFailureToast(context, error)
+                }
+                if (result.isSuccess) {
+                    editingPersona = null
+                }
             },
             onSave = { persona ->
                 if (personas.any { it.id == persona.id }) {

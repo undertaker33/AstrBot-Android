@@ -1,6 +1,7 @@
 package com.astrbot.android.runtime
 
 import android.content.Context
+import androidx.appcompat.app.AppCompatDelegate
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
@@ -16,6 +17,10 @@ import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.hasNativeStreamingSupport
+import com.astrbot.android.runtime.botcommand.BotCommandContext
+import com.astrbot.android.runtime.botcommand.BotCommandParser
+import com.astrbot.android.runtime.botcommand.BotCommandRouter
+import com.astrbot.android.runtime.botcommand.BotCommandSource
 import com.astrbot.android.runtime.qq.QqKeywordDetector
 import com.astrbot.android.runtime.qq.QqConversationTitleResolver
 import com.astrbot.android.runtime.qq.QqReplyFormatter
@@ -226,7 +231,7 @@ object OneBotBridgeServer {
                 ConversationRepository.syncSystemSessionTitle(sessionId, sessionTitle)
             }
             val persona = resolvePersona(bot, session.personaId)
-            if (handleBotCommand(event, bot, sessionId, session, persona)) {
+            if (handleBotCommand(event, bot, config, sessionId, session, persona)) {
                 return@lock
             }
             val provider = resolveProvider(bot)
@@ -805,131 +810,97 @@ object OneBotBridgeServer {
     private fun handleBotCommand(
         event: IncomingMessageEvent,
         bot: BotProfile,
+        config: com.astrbot.android.model.ConfigProfile,
         sessionId: String,
         session: ConversationSession,
         currentPersona: PersonaProfile?,
     ): Boolean {
         val trimmedText = event.text.trim()
-        return when {
-            trimmedText.equals("/reset", ignoreCase = true) -> {
-                ConversationRepository.replaceMessages(sessionId, emptyList())
-                sendReply(event, "Current conversation context cleared.")
-                RuntimeLogRepository.append("Bot command handled: /reset session=$sessionId")
-                true
-            }
-
-            trimmedText.equals("/stt", ignoreCase = true) -> {
-                val next = !session.sessionSttEnabled
-                ConversationRepository.updateSessionServiceFlags(sessionId, sessionSttEnabled = next)
-                sendReply(
-                    event,
-                    if (next) "STT enabled for this conversation." else "STT disabled for this conversation.",
-                )
-                RuntimeLogRepository.append("Bot command handled: /stt session=$sessionId enabled=$next")
-                true
-            }
-
-            trimmedText.equals("/tts", ignoreCase = true) -> {
-                val next = !session.sessionTtsEnabled
-                ConversationRepository.updateSessionServiceFlags(sessionId, sessionTtsEnabled = next)
-                sendReply(
-                    event,
-                    if (next) "TTS enabled for this conversation." else "TTS disabled for this conversation.",
-                )
-                RuntimeLogRepository.append("Bot command handled: /tts session=$sessionId enabled=$next")
-                true
-            }
-
-            trimmedText.equals("/persona list", ignoreCase = true) -> {
-                val personas = PersonaRepository.personas.value.filter { it.enabled }
-                val message = if (personas.isEmpty()) {
-                    "No personas available."
-                } else {
-                    buildString {
-                        appendLine("Available personas:")
-                        personas.forEach { persona ->
-                            appendLine(
-                                if (persona.id == currentPersona?.id) "- ${persona.name} (current)" else "- ${persona.name}",
-                            )
-                        }
-                    }.trim()
-                }
-                sendReply(event, message)
-                RuntimeLogRepository.append("Bot command handled: /persona list session=$sessionId")
-                true
-            }
-
-            trimmedText.equals("/persona", ignoreCase = true) -> {
-                sendReply(
-                    event,
-                    listOf(
-                        "Persona commands:",
-                        "/persona list - list all personas and mark the current one",
-                        "/persona <name> - switch persona for the current conversation",
-                        "/persona view <name> - show the persona system prompt",
-                    ).joinToString("\n"),
-                )
-                RuntimeLogRepository.append("Bot command handled: /persona help session=$sessionId")
-                true
-            }
-
-            trimmedText.startsWith("/persona view ", ignoreCase = true) -> {
-                val name = trimmedText.substringAfter("/persona view", "").trim()
-                val persona = findPersonaByName(name)
-                sendReply(
-                    event,
-                    if (persona == null) {
-                        "Persona not found. Use /persona list to check available personas."
-                    } else {
-                        "Persona ${persona.name} system prompt:\n${persona.systemPrompt}"
-                    },
-                )
-                RuntimeLogRepository.append("Bot command handled: /persona view session=$sessionId target=${name.ifBlank { "-" }}")
-                true
-            }
-
-            trimmedText.startsWith("/persona ", ignoreCase = true) -> {
-                val name = trimmedText.substringAfter("/persona", "").trim()
-                val targetPersona = findPersonaByName(name)
-                if (targetPersona == null) {
-                    sendReply(event, "Persona not found. Use /persona list to check available personas.")
-                    RuntimeLogRepository.append("Bot command failed: persona not found target=${name.ifBlank { "-" }}")
-                    true
-                } else {
-                    val providerId = resolveProvider(bot)?.id ?: session.providerId
+        val result = BotCommandRouter.handle(
+            input = trimmedText,
+            context = BotCommandContext(
+                source = BotCommandSource.QQ,
+                languageTag = currentLanguageTag(),
+                sessionId = sessionId,
+                session = session,
+                sessions = ConversationRepository.sessions.value,
+                bot = bot,
+                config = config,
+                activeProviderId = resolveProvider(bot)?.id ?: session.providerId,
+                availableProviders = ProviderRepository.providers.value.filter { it.enabled && ProviderCapability.CHAT in it.capabilities },
+                currentPersona = currentPersona,
+                availablePersonas = PersonaRepository.personas.value.filter { it.enabled },
+                messageType = event.messageType,
+                sourceUid = event.userId,
+                sourceGroupId = event.groupId,
+                selfId = event.selfId,
+                deleteSession = { targetSessionId ->
+                    ConversationRepository.deleteSession(targetSessionId)
+                },
+                renameSession = { targetSessionId, title ->
+                    ConversationRepository.renameSession(targetSessionId, title)
+                },
+                updateConfig = { updatedConfig ->
+                    ConfigRepository.save(updatedConfig)
+                },
+                updateProvider = { updatedProvider ->
+                    ProviderRepository.save(
+                        id = updatedProvider.id,
+                        name = updatedProvider.name,
+                        baseUrl = updatedProvider.baseUrl,
+                        model = updatedProvider.model,
+                        providerType = updatedProvider.providerType,
+                        apiKey = updatedProvider.apiKey,
+                        capabilities = updatedProvider.capabilities,
+                        enabled = updatedProvider.enabled,
+                        multimodalRuleSupport = updatedProvider.multimodalRuleSupport,
+                        multimodalProbeSupport = updatedProvider.multimodalProbeSupport,
+                        nativeStreamingRuleSupport = updatedProvider.nativeStreamingRuleSupport,
+                        nativeStreamingProbeSupport = updatedProvider.nativeStreamingProbeSupport,
+                        sttProbeSupport = updatedProvider.sttProbeSupport,
+                        ttsProbeSupport = updatedProvider.ttsProbeSupport,
+                        ttsVoiceOptions = updatedProvider.ttsVoiceOptions,
+                    )
+                },
+                updateSessionServiceFlags = { sttEnabled, ttsEnabled ->
+                    ConversationRepository.updateSessionServiceFlags(
+                        sessionId = sessionId,
+                        sessionSttEnabled = sttEnabled,
+                        sessionTtsEnabled = ttsEnabled,
+                    )
+                },
+                replaceMessages = { messages ->
+                    ConversationRepository.replaceMessages(sessionId, messages)
+                },
+                updateSessionBindings = { providerId, personaId, botId ->
                     ConversationRepository.updateSessionBindings(
                         sessionId = sessionId,
                         providerId = providerId,
-                        personaId = targetPersona.id,
-                        botId = bot.id,
+                        personaId = personaId,
+                        botId = botId,
                     )
-                    sendReply(
-                        event,
-                        "Persona switched to ${targetPersona.name}. Use /reset to clear current context if you want to avoid old context affecting the new persona.",
-                    )
-                    RuntimeLogRepository.append("Bot command handled: /persona session=$sessionId target=${targetPersona.id}")
-                    true
-                }
-            }
-
-            else -> false
+                },
+            ),
+        )
+        if (!result.handled) {
+            return false
         }
-    }
-
-    private fun findPersonaByName(name: String): PersonaProfile? {
-        val normalized = name.trim()
-        if (normalized.isBlank()) return null
-        return PersonaRepository.personas.value.firstOrNull {
-            it.enabled && it.name.equals(normalized, ignoreCase = true)
+        result.replyText?.let { reply ->
+            sendReply(event, reply)
         }
+        RuntimeLogRepository.append("Bot command handled via router: ${trimmedText.substringBefore(' ')} session=$sessionId")
+        return result.stopModelDispatch
     }
 
     private fun isBotCommand(text: String): Boolean {
-        val normalized = text.trim().lowercase()
-        return normalized == "/reset" ||
-            normalized == "/stt" ||
-            normalized == "/tts" ||
-            normalized.startsWith("/persona")
+        return BotCommandParser.parse(text) != null
+    }
+
+    private fun currentLanguageTag(): String {
+        return AppCompatDelegate.getApplicationLocales()[0]
+            ?.toLanguageTag()
+            .orEmpty()
+            .ifBlank { "zh" }
     }
 
     private fun markMessageId(messageId: String): Boolean {

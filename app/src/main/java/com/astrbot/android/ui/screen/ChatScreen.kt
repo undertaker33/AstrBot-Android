@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -82,6 +84,7 @@ import com.astrbot.android.ui.AppMotionTokens
 import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.animateToItemWithAppMotion
+import com.astrbot.android.ui.chatDrawerContentTopPadding
 import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.chat.ChatInputBar
 import com.astrbot.android.ui.chat.EntryButton
@@ -103,6 +106,7 @@ fun ChatScreen(
     chatViewModel: ChatViewModel = astrBotViewModel(),
     drawerState: DrawerState? = null,
     floatingBottomNavPadding: Dp = 0.dp,
+    showDrawer: Boolean = true,
 ) {
     val context = LocalContext.current
     val providers by chatViewModel.providers.collectAsState()
@@ -254,6 +258,66 @@ fun ChatScreen(
         )
     }
 
+    val content: @Composable () -> Unit = {
+        Scaffold(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MonochromeUi.pageBackground),
+            containerColor = MonochromeUi.pageBackground,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            bottomBar = {
+                ChatInputBar(
+                    input = input,
+                    pendingAttachments = pendingAttachments,
+                    isSending = uiState.isSending,
+                    canSend = (input.isNotBlank() || pendingAttachments.isNotEmpty()) && chatProviders.isNotEmpty(),
+                    floatingBottomNavPadding = floatingBottomNavPadding,
+                    onInputChange = { input = it },
+                    onRemoveAttachment = { attachmentId ->
+                        pendingAttachments = pendingAttachments.filterNot { it.id == attachmentId }
+                    },
+                    onAddImage = { pickImageLauncher.launch("image/*") },
+                    onSend = {
+                        chatViewModel.sendMessage(input, pendingAttachments)
+                        input = ""
+                        pendingAttachments = emptyList()
+                    },
+                )
+            },
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+            ) {
+                if (messages.isEmpty()) {
+                    Spacer(modifier = Modifier.fillMaxSize())
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        contentPadding = PaddingValues(top = 20.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        items(messages, key = { it.id }) { message ->
+                            MessageBubble(
+                                message = message,
+                                assistantName = currentBot?.displayName ?: stringResource(R.string.chat_role_assistant),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (!showDrawer) {
+        content()
+        return
+    }
+
     ModalNavigationDrawer(
         drawerState = resolvedDrawerState,
         drawerContent = {
@@ -353,58 +417,7 @@ fun ChatScreen(
             }
         },
     ) {
-        Scaffold(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MonochromeUi.pageBackground),
-            containerColor = MonochromeUi.pageBackground,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = {
-                ChatInputBar(
-                    input = input,
-                    pendingAttachments = pendingAttachments,
-                    isSending = uiState.isSending,
-                    canSend = (input.isNotBlank() || pendingAttachments.isNotEmpty()) && chatProviders.isNotEmpty(),
-                    floatingBottomNavPadding = floatingBottomNavPadding,
-                    onInputChange = { input = it },
-                    onRemoveAttachment = { attachmentId ->
-                        pendingAttachments = pendingAttachments.filterNot { it.id == attachmentId }
-                    },
-                    onAddImage = { pickImageLauncher.launch("image/*") },
-                    onSend = {
-                        chatViewModel.sendMessage(input, pendingAttachments)
-                        input = ""
-                        pendingAttachments = emptyList()
-                    },
-                )
-            },
-        ) { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            ) {
-                if (messages.isEmpty()) {
-                    Spacer(modifier = Modifier.fillMaxSize())
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                        contentPadding = PaddingValues(top = 20.dp, bottom = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        items(messages, key = { it.id }) { message ->
-                            MessageBubble(
-                                message = message,
-                                assistantName = currentBot?.displayName ?: stringResource(R.string.chat_role_assistant),
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        content()
     }
 }
 
@@ -588,4 +601,230 @@ private fun MessageBubble(
 
 private fun Set<String>.toggle(id: String): Set<String> {
     return if (contains(id)) this - id else this + id
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ChatDrawerContent(
+    chatViewModel: ChatViewModel = astrBotViewModel(),
+    drawerState: DrawerState,
+) {
+    val sessions by chatViewModel.sessions.collectAsState()
+    val uiState by chatViewModel.uiState.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    var showQqConversations by remember { mutableStateOf(true) }
+    val visibleSessions = sessions.filter { session -> showQqConversations || !session.isQqConversation() }
+    var selectedSessionIds by remember { mutableStateOf(emptySet<String>()) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var sessionPendingDelete by remember { mutableStateOf<ConversationSession?>(null) }
+    var sessionPendingRename by remember { mutableStateOf<ConversationSession?>(null) }
+    var renameInput by remember { mutableStateOf("") }
+    var expandedSwipeSessionId by remember { mutableStateOf<String?>(null) }
+    val selectionMode = selectedSessionIds.isNotEmpty()
+    val safeDrawingPadding = WindowInsets.safeDrawing.asPaddingValues()
+    val drawerTopPadding = chatDrawerContentTopPadding(safeDrawingPadding.calculateTopPadding())
+
+    BackHandler(enabled = selectionMode) {
+        selectedSessionIds = emptySet()
+    }
+
+    LaunchedEffect(selectionMode) {
+        if (selectionMode) {
+            expandedSwipeSessionId = null
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.chat_delete_conversation_title)) },
+            text = { Text(stringResource(R.string.config_delete_confirm_message, selectedSessionIds.size)) },
+            confirmButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB42318)),
+                    onClick = {
+                        selectedSessionIds.forEach(chatViewModel::deleteSession)
+                        selectedSessionIds = emptySet()
+                        showDeleteConfirm = false
+                    },
+                ) {
+                    Text(stringResource(R.string.common_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    onClick = { showDeleteConfirm = false },
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
+    sessionPendingDelete?.let { session ->
+        AlertDialog(
+            onDismissRequest = { sessionPendingDelete = null },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.chat_delete_conversation_title)) },
+            text = { Text(stringResource(R.string.chat_delete_conversation_message, session.title)) },
+            confirmButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB42318)),
+                    onClick = {
+                        chatViewModel.deleteSession(session.id)
+                        sessionPendingDelete = null
+                    },
+                ) {
+                    Text(stringResource(R.string.common_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    onClick = { sessionPendingDelete = null },
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
+    sessionPendingRename?.let { session ->
+        AlertDialog(
+            onDismissRequest = { sessionPendingRename = null },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.chat_rename_title)) },
+            text = {
+                OutlinedTextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.chat_rename_field_label)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                    onClick = {
+                        chatViewModel.renameSession(session.id, renameInput)
+                        sessionPendingRename = null
+                    },
+                ) {
+                    Text(stringResource(R.string.common_save))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    onClick = { sessionPendingRename = null },
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth(0.75f)
+            .background(MonochromeUi.drawerSurface),
+    ) {
+        ModalDrawerSheet(
+            modifier = Modifier.fillMaxWidth(),
+            drawerContainerColor = MonochromeUi.drawerSurface,
+            windowInsets = WindowInsets(0, 0, 0, 0),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MonochromeUi.drawerSurface)
+                    .padding(start = 16.dp, end = 16.dp, top = drawerTopPadding, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                SessionDrawerTopToggle(
+                    showQqConversations = showQqConversations,
+                    onShowQqChange = { showQqConversations = it },
+                )
+                SessionDrawerHeader(
+                    onCreateConversation = {
+                        if (!selectionMode) {
+                            chatViewModel.createSession()
+                            scope.launch { drawerState.close() }
+                        }
+                    },
+                )
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(visibleSessions, key = { it.id }) { session ->
+                        val selected = if (selectionMode) {
+                            session.id in selectedSessionIds
+                        } else {
+                            session.id == uiState.selectedSessionId
+                        }
+                        SessionDrawerItem(
+                            session = session,
+                            selected = selected,
+                            selectionMode = selectionMode,
+                            isQqConversation = session.isQqConversation(),
+                            canRename = session.canRenameConversation(),
+                            canDelete = session.canDeleteConversation(),
+                            onClick = {
+                                if (selectionMode) {
+                                    selectedSessionIds = selectedSessionIds.toggle(session.id)
+                                } else {
+                                    chatViewModel.selectSession(session.id)
+                                    scope.launch { drawerState.close() }
+                                }
+                            },
+                            onLongPress = {
+                                if (session.canDeleteConversation()) {
+                                    selectedSessionIds = selectedSessionIds.toggle(session.id)
+                                }
+                            },
+                            onTogglePinned = {
+                                chatViewModel.toggleSessionPinned(session.id)
+                            },
+                            onRename = {
+                                sessionPendingRename = session
+                                renameInput = session.title
+                            },
+                            onDelete = {
+                                sessionPendingDelete = session
+                            },
+                            swipeExpanded = expandedSwipeSessionId == session.id,
+                            onSwipeExpandedChange = { expanded ->
+                                expandedSwipeSessionId = if (expanded) session.id else null
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (selectionMode) {
+            FloatingActionButton(
+                onClick = { showDeleteConfirm = true },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding),
+                containerColor = MonochromeUi.fabBackground,
+                contentColor = MonochromeUi.fabContent,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+            ) {
+                Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.config_delete_selected))
+            }
+        }
+    }
 }

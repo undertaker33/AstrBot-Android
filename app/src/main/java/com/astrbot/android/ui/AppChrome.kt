@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astrbot.android.R
@@ -51,11 +52,34 @@ internal val FloatingBottomNavReservedPadding = 96.dp
  * 右下角悬浮按钮抬升高度，避免与悬浮底栏重叠。
  */
 internal val FloatingBottomNavFabBottomPadding = 88.dp
+internal val AppTopBarHeight = 58.dp
+internal val ChatDrawerTopSpacing = 8.dp
 
 internal fun shouldShowFloatingBottomNav(
     activeMainRoute: String?,
     imeVisible: Boolean,
-): Boolean = activeMainRoute != null && !(activeMainRoute == AppDestination.Chat.route && imeVisible)
+    chatDrawerOpen: Boolean = false,
+): Boolean = activeMainRoute != null &&
+    !(activeMainRoute == AppDestination.Chat.route && imeVisible)
+
+internal fun shouldHostGlobalChatDrawer(
+    activeMainRoute: String?,
+    chatDrawerOpen: Boolean,
+): Boolean = activeMainRoute == AppDestination.Chat.route || chatDrawerOpen
+
+internal fun topLevelContentTopPadding(safeDrawingTopPadding: Dp): Dp =
+    safeDrawingTopPadding + AppTopBarHeight
+
+internal fun navGraphContentTopPadding(
+    activeMainRoute: String?,
+    safeDrawingTopPadding: Dp,
+): Dp = if (activeMainRoute != null) topLevelContentTopPadding(safeDrawingTopPadding) else 0.dp
+
+internal fun secondaryPageHeaderTotalHeight(safeDrawingTopPadding: Dp): Dp =
+    topLevelContentTopPadding(safeDrawingTopPadding)
+
+internal fun chatDrawerContentTopPadding(safeDrawingTopPadding: Dp): Dp =
+    topLevelContentTopPadding(safeDrawingTopPadding) + ChatDrawerTopSpacing
 
 @Suppress("UNUSED_PARAMETER")
 internal fun floatingBottomNavContentPadding(
@@ -75,7 +99,7 @@ internal fun SelectionModeTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .height(58.dp)
+                .height(AppTopBarHeight)
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -114,7 +138,7 @@ internal fun MainTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .height(58.dp)
+                .height(AppTopBarHeight)
                 .padding(horizontal = 16.dp, vertical = 6.dp),
         ) {
             if (titleAlignment == TopBarTitleAlignment.Center) {
@@ -183,6 +207,28 @@ internal fun TopBarToggle(
 }
 
 @Composable
+internal fun TopBarSegmentedToggle(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        options.forEachIndexed { index, label ->
+            TextButton(onClick = { onSelect(index) }) {
+                Text(
+                    text = label,
+                    color = if (selectedIndex == index) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
+                    fontWeight = if (selectedIndex == index) FontWeight.Bold else FontWeight.Medium,
+                )
+            }
+            if (index != options.lastIndex) {
+                Text("|", color = MonochromeUi.textSecondary)
+            }
+        }
+    }
+}
+
+@Composable
 internal fun ChatTopBar(
     selectedBotName: String,
     onOpenHistory: () -> Unit,
@@ -194,7 +240,7 @@ internal fun ChatTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .height(58.dp)
+                .height(AppTopBarHeight)
                 .padding(horizontal = 16.dp, vertical = 6.dp),
         ) {
             Row(

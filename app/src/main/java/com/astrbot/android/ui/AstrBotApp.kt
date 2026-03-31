@@ -3,12 +3,14 @@ package com.astrbot.android.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +34,8 @@ import com.astrbot.android.runtime.ContainerBridgeController
 import com.astrbot.android.ui.navigation.AstrBotAppNavGraph
 import com.astrbot.android.ui.navigation.AstrBotAppTopBar
 import com.astrbot.android.ui.navigation.activeMainDestination
+import com.astrbot.android.ui.screen.BotWorkspaceTab
+import com.astrbot.android.ui.screen.ChatDrawerContent
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
@@ -45,16 +49,14 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
     val qqLoginViewModel: QQLoginViewModel = astrBotViewModel()
     val chatDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var botModelsSelected by remember { mutableStateOf(false) }
+    var botWorkspaceTab by remember { mutableStateOf(BotWorkspaceTab.BOTS) }
     var configSelectedIds by remember { mutableStateOf(setOf<String>()) }
-    val botsLabel = stringResource(R.string.nav_bots)
-    val modelsLabel = stringResource(R.string.nav_models)
-    val destinations = listOf(
-        AppDestination.Bots to stringResource(R.string.nav_bots),
-        AppDestination.Personas to stringResource(R.string.nav_personas),
-        AppDestination.Chat to stringResource(R.string.nav_chat),
-        AppDestination.Config to stringResource(R.string.nav_config),
-        AppDestination.Me to stringResource(R.string.nav_me),
+    val destinations = mainNavigationDestinations(
+        botsLabel = stringResource(R.string.nav_bots),
+        pluginsLabel = stringResource(R.string.nav_plugins),
+        chatLabel = stringResource(R.string.nav_chat),
+        configLabel = stringResource(R.string.nav_config),
+        meLabel = stringResource(R.string.nav_me),
     )
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -70,12 +72,26 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
         chatUiState.selectedProviderId,
     ) { mutableStateOf(false) }
     val density = LocalDensity.current
+    val safeDrawingPadding = WindowInsets.safeDrawing.asPaddingValues()
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     val activeMainDestination = activeMainDestination(currentDestination, destinations)
     val activeMainRoute = activeMainDestination?.first?.route
+    val contentTopPadding = navGraphContentTopPadding(
+        activeMainRoute = activeMainRoute,
+        safeDrawingTopPadding = safeDrawingPadding.calculateTopPadding(),
+    )
+    val currentMainSwipePage = currentMainSwipePage(
+        activeMainRoute = activeMainRoute,
+        botWorkspaceTab = botWorkspaceTab,
+    )
+    val hostGlobalChatDrawer = shouldHostGlobalChatDrawer(
+        activeMainRoute = activeMainRoute,
+        chatDrawerOpen = chatDrawerState.isOpen,
+    )
     val showFloatingBottomNav = shouldShowFloatingBottomNav(
         activeMainRoute = activeMainRoute,
         imeVisible = imeVisible,
+        chatDrawerOpen = chatDrawerState.isOpen,
     )
 
     LaunchedEffect(currentDestination?.route) {
@@ -89,61 +105,93 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
             .fillMaxSize()
             .background(MonochromeUi.pageBackground),
     ) {
-        androidx.compose.material3.Scaffold(
-            contentWindowInsets = WindowInsets.safeDrawing,
-            topBar = {
-                AstrBotAppTopBar(
-                    activeMainDestination = activeMainDestination,
-                    botModelsSelected = botModelsSelected,
-                    botsLabel = botsLabel,
-                    modelsLabel = modelsLabel,
-                    configSelectedIds = configSelectedIds,
-                    currentChatBot = currentChatBot,
-                    chatBots = chatBots,
-                    chatPersonas = chatPersonas,
-                    currentPersonaId = currentChatPersona?.id,
-                    chatSelectorExpanded = chatSelectorExpanded,
-                    onBotModelsSelectedChange = { botModelsSelected = it },
-                    onConfigSelectionClear = { configSelectedIds = emptySet() },
-                    onOpenHistory = { scope.launch { chatDrawerState.open() } },
-                    onBotSelectorExpandedChange = { chatSelectorExpanded = it },
-                    onSelectBot = { chatViewModel.selectBot(it) },
-                    onSelectPersona = { chatViewModel.selectPersona(it) },
-                )
+        ModalNavigationDrawer(
+            drawerState = chatDrawerState,
+            gesturesEnabled = hostGlobalChatDrawer,
+            drawerContent = {
+                if (hostGlobalChatDrawer) {
+                    ChatDrawerContent(
+                        chatViewModel = chatViewModel,
+                        drawerState = chatDrawerState,
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize())
+                }
             },
-        ) { innerPadding ->
-            AstrBotAppNavGraph(
-                navController = navController,
-                modifier = Modifier
-                    .padding(innerPadding)
-                    .padding(
-                        bottom = floatingBottomNavContentPadding(
-                            activeMainRoute = activeMainRoute,
-                            visible = showFloatingBottomNav,
-                        ),
-                ),
-                botModelsSelected = botModelsSelected,
-                onShowBots = { botModelsSelected = false },
-                chatViewModel = chatViewModel,
-                qqLoginViewModel = qqLoginViewModel,
-                chatDrawerState = chatDrawerState,
-                floatingBottomNavPadding = chatBottomBarPadding(showFloatingBottomNav),
-                configSelectedIds = configSelectedIds,
-                onConfigSelectedIdsChange = { configSelectedIds = it },
-            )
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                androidx.compose.material3.Scaffold(
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                ) { innerPadding ->
+                    AstrBotAppNavGraph(
+                        navController = navController,
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .padding(top = contentTopPadding)
+                            .padding(
+                                bottom = floatingBottomNavContentPadding(
+                                    activeMainRoute = activeMainRoute,
+                                    visible = showFloatingBottomNav,
+                                ),
+                            ),
+                        currentMainSwipePage = currentMainSwipePage,
+                        onMainSwipePageSettled = { page ->
+                            botWorkspaceTabForMainSwipePage(page)?.let { tab ->
+                                botWorkspaceTab = tab
+                                if (activeMainRoute != AppDestination.Bots.route) {
+                                    AppNavigator.openTopLevel(navController, AppDestination.Bots)
+                                }
+                            } ?: run {
+                                when (page) {
+                                    MainSwipePage.PLUGINS -> AppNavigator.openTopLevel(navController, AppDestination.Plugins)
+                                    MainSwipePage.CHAT -> AppNavigator.openTopLevel(navController, AppDestination.Chat)
+                                    MainSwipePage.CONFIG -> AppNavigator.openTopLevel(navController, AppDestination.Config)
+                                    MainSwipePage.ME -> AppNavigator.openTopLevel(navController, AppDestination.Me)
+                                    else -> Unit
+                                }
+                            }
+                        },
+                        botWorkspaceTab = botWorkspaceTab,
+                        onBotWorkspaceTabChange = { botWorkspaceTab = it },
+                        chatViewModel = chatViewModel,
+                        qqLoginViewModel = qqLoginViewModel,
+                        chatDrawerState = chatDrawerState,
+                        floatingBottomNavPadding = chatBottomBarPadding(showFloatingBottomNav),
+                        configSelectedIds = configSelectedIds,
+                        onConfigSelectedIdsChange = { configSelectedIds = it },
+                    )
+                }
+
+                if (showFloatingBottomNav) {
+                    FloatingBottomNavBar(
+                        destinations = destinations,
+                        selectedRoute = activeMainRoute ?: AppDestination.Chat.route,
+                        onSelect = { destination -> AppNavigator.openTopLevel(navController, destination) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                    )
+                }
+            }
         }
 
-        if (showFloatingBottomNav) {
-            FloatingBottomNavBar(
-                destinations = destinations,
-                selectedRoute = activeMainRoute ?: AppDestination.Chat.route,
-                onSelect = { destination -> AppNavigator.openTopLevel(navController, destination) },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-            )
-        }
+        AstrBotAppTopBar(
+            activeMainDestination = activeMainDestination,
+            botWorkspaceTab = botWorkspaceTab,
+            configSelectedIds = configSelectedIds,
+            currentChatBot = currentChatBot,
+            chatBots = chatBots,
+            chatPersonas = chatPersonas,
+            currentPersonaId = currentChatPersona?.id,
+            chatSelectorExpanded = chatSelectorExpanded,
+            onBotWorkspaceTabChange = { botWorkspaceTab = it },
+            onConfigSelectionClear = { configSelectedIds = emptySet() },
+            onOpenHistory = { scope.launch { chatDrawerState.open() } },
+            onBotSelectorExpandedChange = { chatSelectorExpanded = it },
+            onSelectBot = { chatViewModel.selectBot(it) },
+            onSelectPersona = { chatViewModel.selectPersona(it) },
+        )
 
         RuntimeOverlay(
             status = runtimeState.status,
@@ -156,3 +204,25 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
         )
     }
 }
+
+private fun mainNavigationDestinations(
+    botsLabel: String,
+    pluginsLabel: String,
+    chatLabel: String,
+    configLabel: String,
+    meLabel: String,
+): List<Pair<AppDestination, String>> = listOf(
+    AppDestination.Bots to botsLabel,
+    AppDestination.Plugins to pluginsLabel,
+    AppDestination.Chat to chatLabel,
+    AppDestination.Config to configLabel,
+    AppDestination.Me to meLabel,
+)
+
+internal fun mainNavigationDestinationsForTest(): List<AppDestination> = listOf(
+    AppDestination.Bots,
+    AppDestination.Plugins,
+    AppDestination.Chat,
+    AppDestination.Config,
+    AppDestination.Me,
+)

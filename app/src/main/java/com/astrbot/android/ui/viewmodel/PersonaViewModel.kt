@@ -30,7 +30,9 @@ class PersonaViewModel(
         dependencies.toggleEnabled(id)
     }
 
-    fun delete(id: String) {
-        dependencies.delete(id)
+    fun delete(id: String): Result<Unit> {
+        return runCatching {
+            dependencies.delete(id)
+        }
     }
 }

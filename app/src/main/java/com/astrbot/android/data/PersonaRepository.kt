@@ -101,12 +101,15 @@ object PersonaRepository {
 
     fun delete(id: String) {
         val removed = _personas.value.firstOrNull { it.id == id }
+        if (removed == null) return
+        ProfileDeletionGuard.requireCanDelete(
+            remainingCount = _personas.value.size,
+            kind = ProfileCatalogKind.PERSONA,
+        )
         val updated = _personas.value.filterNot { it.id == id }
         _personas.value = updated
         persistPersonas(updated)
-        if (removed != null) {
-            RuntimeLogRepository.append("Persona deleted: ${removed.name}")
-        }
+        RuntimeLogRepository.append("Persona deleted: ${removed.name}")
     }
 
     fun snapshotProfiles(): List<PersonaProfile> {

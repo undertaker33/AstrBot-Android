@@ -150,12 +150,11 @@ object BotRepository {
     }
 
     fun delete(botId: String) {
-        if (_botProfiles.value.size == 1) {
-            RuntimeLogRepository.append("Bot delete skipped: last bot cannot be removed")
-            return
-        }
-
         val removed = _botProfiles.value.firstOrNull { it.id == botId } ?: return
+        ProfileDeletionGuard.requireCanDelete(
+            remainingCount = _botProfiles.value.size,
+            kind = ProfileCatalogKind.BOT,
+        )
         repositoryScope.launch {
             val updated = _botProfiles.value.filterNot { it.id == botId }
             val selectedId = if (_selectedBotId.value == botId) updated.first().id else _selectedBotId.value

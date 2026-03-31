@@ -17,6 +17,7 @@
 
     <string name="nav_bots">Bots</string>
     <string name="nav_personas">Personas</string>
+    <string name="nav_plugins">Plugins</string>
     <string name="nav_chat">Chat</string>
     <string name="nav_config">Config</string>
     <string name="nav_logs">Logs</string>
@@ -25,6 +26,8 @@
     <string name="nav_go_login">Go Login</string>
     <string name="nav_settings">Settings</string>
     <string name="nav_models">Models</string>
+    <string name="plugin_placeholder_title">Under construction</string>
+    <string name="plugin_placeholder_message">The plugin workspace is being prepared for this iteration.</string>
     <string name="nav_runtime_settings">Runtime Settings</string>
     <string name="nav_asset_management">Asset Management</string>
 
@@ -537,6 +540,8 @@
     <string name="persona_field_max_context">Max context messages</string>
     <string name="persona_field_system_prompt">System prompt</string>
     <string name="bot_delete_confirm_message">Delete this bot? This cannot be undone.</string>
+    <string name="bot_delete_last_blocked">At least one bot must remain.</string>
     <string name="persona_delete_confirm_message">Delete this persona? This cannot be undone.</string>
+    <string name="persona_delete_last_blocked">At least one persona must remain.</string>
     <string name="provider_delete_confirm_message">Delete this model provider? This cannot be undone.</string>
 </resources>

@@ -14,6 +14,7 @@
 
     <string name="nav_bots">机器人</string>
     <string name="nav_personas">人格</string>
+    <string name="nav_plugins">插件</string>
     <string name="nav_chat">对话</string>
     <string name="nav_config">配置</string>
     <string name="nav_logs">日志</string>
@@ -22,6 +23,8 @@
     <string name="nav_go_login">去登录</string>
     <string name="nav_settings">设置</string>
     <string name="nav_models">模型</string>
+    <string name="plugin_placeholder_title">施工中</string>
+    <string name="plugin_placeholder_message">插件页将在本轮迭代中逐步接入。</string>
     <string name="nav_runtime_settings">运行设置</string>
     <string name="nav_asset_management">资产管理</string>
 
@@ -355,7 +358,9 @@
     <string name="persona_field_max_context">最大上下文消息数</string>
     <string name="persona_field_system_prompt">系统提示词</string>
     <string name="bot_delete_confirm_message">确认删除这个机器人吗？此操作不可撤销。</string>
+    <string name="bot_delete_last_blocked">至少保留一个机器人。</string>
     <string name="persona_delete_confirm_message">确认删除这个人格吗？此操作不可撤销。</string>
+    <string name="persona_delete_last_blocked">至少保留一个人格。</string>
     <string name="provider_delete_confirm_message">确认删除这个模型提供商吗？此操作不可撤销。</string>
     <string name="voice_asset_import_step_title">1. 建立参考音频集</string>
     <string name="voice_asset_selected_audio_label">待导入音频</string>

@@ -18,6 +18,10 @@ import com.astrbot.android.data.backup.AppBackupModuleKind
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.ui.AppDestination
+import com.astrbot.android.ui.MainSwipePage
+import com.astrbot.android.ui.MainSwipeRail
+import com.astrbot.android.ui.mainSwipeEnabledForPage
+import com.astrbot.android.ui.shouldRenderChatDrawer
 import com.astrbot.android.ui.AppNavigationTransitions
 import com.astrbot.android.ui.AppNavigator
 import com.astrbot.android.ui.ChatTopBar
@@ -25,11 +29,12 @@ import com.astrbot.android.ui.ChatTopBarSelectorMenu
 import com.astrbot.android.ui.MainTopBar
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.SelectionModeTopBar
+import com.astrbot.android.ui.TopBarSegmentedToggle
 import com.astrbot.android.ui.TopBarTitleAlignment
-import com.astrbot.android.ui.TopBarToggle
 import com.astrbot.android.ui.screen.AssetDetailScreen
 import com.astrbot.android.ui.screen.AssetManagementScreen
 import com.astrbot.android.ui.screen.BotScreen
+import com.astrbot.android.ui.screen.BotWorkspaceTab
 import com.astrbot.android.ui.screen.ChatScreen
 import com.astrbot.android.ui.screen.ConfigDetailScreen
 import com.astrbot.android.ui.screen.ConfigScreen
@@ -40,6 +45,7 @@ import com.astrbot.android.ui.screen.LogScreen
 import com.astrbot.android.ui.screen.MeScreen
 import com.astrbot.android.ui.screen.ModuleBackupScreen
 import com.astrbot.android.ui.screen.PersonaScreen
+import com.astrbot.android.ui.screen.PluginScreen
 import com.astrbot.android.ui.screen.ProviderScreen
 import com.astrbot.android.ui.screen.QQAccountCenterScreen
 import com.astrbot.android.ui.screen.QQLoginScreen
@@ -52,16 +58,14 @@ import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 @Composable
 internal fun AstrBotAppTopBar(
     activeMainDestination: Pair<AppDestination, String>?,
-    botModelsSelected: Boolean,
-    botsLabel: String,
-    modelsLabel: String,
+    botWorkspaceTab: BotWorkspaceTab,
     configSelectedIds: Set<String>,
     currentChatBot: BotProfile?,
     chatBots: List<BotProfile>,
     chatPersonas: List<PersonaProfile>,
     currentPersonaId: String?,
     chatSelectorExpanded: Boolean,
-    onBotModelsSelectedChange: (Boolean) -> Unit,
+    onBotWorkspaceTabChange: (BotWorkspaceTab) -> Unit,
     onConfigSelectionClear: () -> Unit,
     onOpenHistory: () -> Unit,
     onBotSelectorExpandedChange: (Boolean) -> Unit,
@@ -71,25 +75,31 @@ internal fun AstrBotAppTopBar(
     activeMainDestination?.let { (destination, label) ->
         when (destination) {
             AppDestination.Bots -> MainTopBar(
-                title = if (botModelsSelected) modelsLabel else botsLabel,
+                title = when (botWorkspaceTab) {
+                    BotWorkspaceTab.BOTS -> stringResource(R.string.nav_bots)
+                    BotWorkspaceTab.MODELS -> stringResource(R.string.nav_models)
+                    BotWorkspaceTab.PERSONAS -> stringResource(R.string.nav_personas)
+                },
                 titleAlignment = TopBarTitleAlignment.End,
                 leftContent = {
-                    TopBarToggle(
-                        leftLabel = botsLabel,
-                        rightLabel = modelsLabel,
-                        leftSelected = !botModelsSelected,
-                        onSelectLeft = { onBotModelsSelectedChange(false) },
-                        onSelectRight = { onBotModelsSelectedChange(true) },
+                    TopBarSegmentedToggle(
+                        options = listOf(
+                            stringResource(R.string.nav_bots),
+                            stringResource(R.string.nav_models),
+                            stringResource(R.string.nav_personas),
+                        ),
+                        selectedIndex = botWorkspaceTab.ordinal,
+                        onSelect = { onBotWorkspaceTabChange(BotWorkspaceTab.entries[it]) },
                     )
                 },
             )
 
-            AppDestination.Personas -> MainTopBar(
-                title = stringResource(R.string.nav_personas),
+            AppDestination.Plugins -> MainTopBar(
+                title = stringResource(R.string.nav_plugins),
                 titleAlignment = TopBarTitleAlignment.End,
                 leftContent = {
                     androidx.compose.material3.Text(
-                        stringResource(R.string.nav_personas),
+                        stringResource(R.string.nav_plugins),
                         color = MonochromeUi.textSecondary,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                     )
@@ -140,8 +150,10 @@ internal fun AstrBotAppTopBar(
 internal fun AstrBotAppNavGraph(
     navController: NavHostController,
     modifier: Modifier = Modifier,
-    botModelsSelected: Boolean,
-    onShowBots: () -> Unit,
+    currentMainSwipePage: MainSwipePage,
+    onMainSwipePageSettled: (MainSwipePage) -> Unit,
+    botWorkspaceTab: BotWorkspaceTab,
+    onBotWorkspaceTabChange: (BotWorkspaceTab) -> Unit,
     chatViewModel: ChatViewModel,
     qqLoginViewModel: QQLoginViewModel,
     chatDrawerState: androidx.compose.material3.DrawerState,
@@ -179,23 +191,63 @@ internal fun AstrBotAppNavGraph(
         },
     ) {
         composable(AppDestination.Bots.route) {
-            BotScreen(showModels = botModelsSelected, onShowBots = onShowBots)
-        }
-        composable(AppDestination.Personas.route) { PersonaScreen() }
-        composable(AppDestination.Chat.route) {
-            ChatScreen(
+            MainTopLevelRail(
+                currentMainSwipePage = currentMainSwipePage,
+                onMainSwipePageSettled = onMainSwipePageSettled,
+                navController = navController,
+                botWorkspaceTab = botWorkspaceTab,
+                onBotWorkspaceTabChange = onBotWorkspaceTabChange,
                 chatViewModel = chatViewModel,
                 drawerState = chatDrawerState,
                 floatingBottomNavPadding = floatingBottomNavPadding,
+                configSelectedIds = configSelectedIds,
+                onConfigSelectedIdsChange = onConfigSelectedIdsChange,
+                qqLoginViewModel = qqLoginViewModel,
+            )
+        }
+        composable(AppDestination.Plugins.route) {
+            MainTopLevelRail(
+                currentMainSwipePage = currentMainSwipePage,
+                onMainSwipePageSettled = onMainSwipePageSettled,
+                navController = navController,
+                botWorkspaceTab = botWorkspaceTab,
+                onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                chatViewModel = chatViewModel,
+                drawerState = chatDrawerState,
+                floatingBottomNavPadding = floatingBottomNavPadding,
+                configSelectedIds = configSelectedIds,
+                onConfigSelectedIdsChange = onConfigSelectedIdsChange,
+                qqLoginViewModel = qqLoginViewModel,
+            )
+        }
+        composable(AppDestination.Chat.route) {
+            MainTopLevelRail(
+                currentMainSwipePage = currentMainSwipePage,
+                onMainSwipePageSettled = onMainSwipePageSettled,
+                navController = navController,
+                botWorkspaceTab = botWorkspaceTab,
+                onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                chatViewModel = chatViewModel,
+                drawerState = chatDrawerState,
+                floatingBottomNavPadding = floatingBottomNavPadding,
+                configSelectedIds = configSelectedIds,
+                onConfigSelectedIdsChange = onConfigSelectedIdsChange,
+                qqLoginViewModel = qqLoginViewModel,
             )
         }
         composable(AppDestination.Config.route) {
-            ConfigScreen(
-                selectedConfigIds = configSelectedIds,
-                onSelectedConfigIdsChange = onConfigSelectedIdsChange,
-                onOpenProfile = { profileId ->
-                    AppNavigator.open(navController, AppDestination.ConfigDetail.routeFor(profileId))
-                },
+            MainTopLevelRail(
+                currentMainSwipePage = currentMainSwipePage,
+                onMainSwipePageSettled = onMainSwipePageSettled,
+                navController = navController,
+                botWorkspaceTab = botWorkspaceTab,
+                onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                chatViewModel = chatViewModel,
+                drawerState = chatDrawerState,
+                floatingBottomNavPadding = floatingBottomNavPadding,
+                configSelectedIds = configSelectedIds,
+                onConfigSelectedIdsChange = onConfigSelectedIdsChange,
+                qqLoginViewModel = qqLoginViewModel,
             )
         }
         composable(AppDestination.ConfigDetail.route) { backStackEntry ->
@@ -213,12 +265,18 @@ internal fun AstrBotAppNavGraph(
             }
         }
         composable(AppDestination.Me.route) {
-            MeScreen(
-                onOpenQqAccount = { AppNavigator.open(navController, AppDestination.QQAccount.route) },
-                onOpenSettings = { AppNavigator.open(navController, AppDestination.SettingsHub.route) },
-                onOpenLogs = { AppNavigator.open(navController, AppDestination.Logs.route) },
-                onOpenAssets = { AppNavigator.open(navController, AppDestination.Assets.route) },
-                onOpenBackup = { AppNavigator.open(navController, AppDestination.BackupHub.route) },
+            MainTopLevelRail(
+                currentMainSwipePage = currentMainSwipePage,
+                onMainSwipePageSettled = onMainSwipePageSettled,
+                navController = navController,
+                botWorkspaceTab = botWorkspaceTab,
+                onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                chatViewModel = chatViewModel,
+                drawerState = chatDrawerState,
+                floatingBottomNavPadding = floatingBottomNavPadding,
+                configSelectedIds = configSelectedIds,
+                onConfigSelectedIdsChange = onConfigSelectedIdsChange,
+                qqLoginViewModel = qqLoginViewModel,
             )
         }
         composable(AppDestination.QQAccount.route) {
@@ -339,4 +397,71 @@ internal fun activeMainDestination(
 
 internal fun mainRoute(activeMainDestination: Pair<AppDestination, String>?): String? {
     return activeMainDestination?.first?.route
+}
+
+@Composable
+private fun MainTopLevelRail(
+    currentMainSwipePage: MainSwipePage,
+    onMainSwipePageSettled: (MainSwipePage) -> Unit,
+    navController: NavHostController,
+    botWorkspaceTab: BotWorkspaceTab,
+    onBotWorkspaceTabChange: (BotWorkspaceTab) -> Unit,
+    chatViewModel: ChatViewModel,
+    drawerState: androidx.compose.material3.DrawerState,
+    floatingBottomNavPadding: androidx.compose.ui.unit.Dp,
+    configSelectedIds: Set<String>,
+    onConfigSelectedIdsChange: (Set<String>) -> Unit,
+    qqLoginViewModel: QQLoginViewModel,
+) {
+    MainSwipeRail(
+        currentPage = currentMainSwipePage,
+        onPageSettled = onMainSwipePageSettled,
+        swipeEnabled = mainSwipeEnabledForPage(currentMainSwipePage),
+        pages = mapOf(
+            MainSwipePage.BOTS to {
+                BotScreen(
+                    workspaceTab = BotWorkspaceTab.BOTS,
+                    onWorkspaceTabChange = onBotWorkspaceTabChange,
+                )
+            },
+            MainSwipePage.MODELS to {
+                BotScreen(
+                    workspaceTab = BotWorkspaceTab.MODELS,
+                    onWorkspaceTabChange = onBotWorkspaceTabChange,
+                )
+            },
+            MainSwipePage.PERSONAS to {
+                BotScreen(
+                    workspaceTab = BotWorkspaceTab.PERSONAS,
+                    onWorkspaceTabChange = onBotWorkspaceTabChange,
+                )
+            },
+            MainSwipePage.PLUGINS to { PluginScreen() },
+            MainSwipePage.CHAT to {
+                ChatScreen(
+                    chatViewModel = chatViewModel,
+                    floatingBottomNavPadding = floatingBottomNavPadding,
+                    showDrawer = false,
+                )
+            },
+            MainSwipePage.CONFIG to {
+                ConfigScreen(
+                    selectedConfigIds = configSelectedIds,
+                    onSelectedConfigIdsChange = onConfigSelectedIdsChange,
+                    onOpenProfile = { profileId ->
+                        AppNavigator.open(navController, AppDestination.ConfigDetail.routeFor(profileId))
+                    },
+                )
+            },
+            MainSwipePage.ME to {
+                MeScreen(
+                    onOpenQqAccount = { AppNavigator.open(navController, AppDestination.QQAccount.route) },
+                    onOpenSettings = { AppNavigator.open(navController, AppDestination.SettingsHub.route) },
+                    onOpenLogs = { AppNavigator.open(navController, AppDestination.Logs.route) },
+                    onOpenAssets = { AppNavigator.open(navController, AppDestination.Assets.route) },
+                    onOpenBackup = { AppNavigator.open(navController, AppDestination.BackupHub.route) },
+                )
+            },
+        ),
+    )
 }

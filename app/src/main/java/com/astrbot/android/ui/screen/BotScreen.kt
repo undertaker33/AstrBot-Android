@@ -73,11 +73,11 @@ import com.astrbot.android.ui.viewmodel.ProviderViewModel
 import java.util.UUID
 
 @Composable
-fun BotScreen(
+internal fun BotScreen(
     botViewModel: BotViewModel = astrBotViewModel(),
     providerViewModel: ProviderViewModel = astrBotViewModel(),
-    showModels: Boolean,
-    onShowBots: () -> Unit,
+    workspaceTab: BotWorkspaceTab,
+    onWorkspaceTabChange: (BotWorkspaceTab) -> Unit = {},
 ) {
     val botProfiles by botViewModel.botProfiles.collectAsState()
     val selectedBotId by botViewModel.selectedBotId.collectAsState()
@@ -95,33 +95,43 @@ fun BotScreen(
             .fillMaxSize()
             .background(MonochromeUi.pageBackground),
     ) {
-        if (!showModels) {
-            BotCatalogContent(
-                bots = botProfiles,
-                selectedBotId = selectedBotId,
-                providerOptions = chatProviders,
-                personaOptions = enabledPersonas,
-                configOptions = configProfiles,
-                qqAccountOptions = loginState.savedAccounts,
-                onSelectBot = { botViewModel.select(it) },
-                onToggleBot = { bot, enabled -> botViewModel.save(bot.copy(autoReplyEnabled = enabled)) },
-                onSaveBot = { bot, defaultChatProviderId ->
-                    botViewModel.saveWithConfigModel(bot, defaultChatProviderId)
-                    botViewModel.select(bot.id)
-                    Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
-                },
-                onDeleteBot = { bot ->
-                    botViewModel.select(bot.id)
-                    botViewModel.deleteSelected()
-                },
-            )
-        } else {
-            ProviderCatalogContent(
-                providerViewModel = providerViewModel,
-                onSwitchToBots = onShowBots,
-                showBack = false,
-                showHeader = false,
-            )
+        when (workspaceTab) {
+            BotWorkspaceTab.BOTS -> {
+                BotCatalogContent(
+                    bots = botProfiles,
+                    selectedBotId = selectedBotId,
+                    providerOptions = chatProviders,
+                    personaOptions = enabledPersonas,
+                    configOptions = configProfiles,
+                    qqAccountOptions = loginState.savedAccounts,
+                    onSelectBot = { botViewModel.select(it) },
+                    onToggleBot = { bot, enabled -> botViewModel.save(bot.copy(autoReplyEnabled = enabled)) },
+                    onSaveBot = { bot, defaultChatProviderId ->
+                        botViewModel.saveWithConfigModel(bot, defaultChatProviderId)
+                        botViewModel.select(bot.id)
+                        Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
+                    },
+                    onDeleteBot = { bot ->
+                        botViewModel.select(bot.id)
+                        botViewModel.deleteSelected().onFailure { error ->
+                            showProfileDeletionFailureToast(context, error)
+                        }
+                    },
+                )
+            }
+
+            BotWorkspaceTab.MODELS -> {
+                ProviderCatalogContent(
+                    providerViewModel = providerViewModel,
+                    onSwitchToBots = { onWorkspaceTabChange(BotWorkspaceTab.BOTS) },
+                    showBack = false,
+                    showHeader = false,
+                )
+            }
+
+            BotWorkspaceTab.PERSONAS -> {
+                PersonaCatalogContent()
+            }
         }
     }
 }
@@ -137,7 +147,7 @@ private fun BotCatalogContent(
     onSelectBot: (String) -> Unit,
     onToggleBot: (BotProfile, Boolean) -> Unit,
     onSaveBot: (BotProfile, String) -> Unit,
-    onDeleteBot: (BotProfile) -> Unit,
+    onDeleteBot: (BotProfile) -> Result<Unit>,
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val allTagLabel = stringResource(R.string.bot_tag_all)
@@ -233,10 +243,10 @@ private fun BotCatalogContent(
             qqAccountOptions = qqAccountOptions,
             onDismiss = { editingBot = null },
             onDelete = {
-                if (bots.size > 1) {
-                    onDeleteBot(profile)
+                val result = onDeleteBot(profile)
+                if (result.isSuccess) {
+                    editingBot = null
                 }
-                editingBot = null
             },
             onSave = { bot, defaultChatProviderId ->
                 onSaveBot(bot, defaultChatProviderId)

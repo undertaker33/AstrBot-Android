@@ -130,6 +130,8 @@ class ChatViewModelTest {
             return appendedMessages.last().id
         }
 
+        override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) = Unit
+
         override fun updateMessage(
             sessionId: String,
             messageId: String,
@@ -140,6 +142,10 @@ class ChatViewModelTest {
         override fun syncSystemSessionTitle(sessionId: String, title: String) = Unit
 
         override fun resolveConfig(profileId: String): ConfigProfile = ConfigProfile(defaultChatProviderId = "provider-2")
+
+        override fun saveConfig(profile: ConfigProfile) = Unit
+
+        override fun saveProvider(profile: ProviderProfile) = Unit
 
         override suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String {
             error("Not needed in test")

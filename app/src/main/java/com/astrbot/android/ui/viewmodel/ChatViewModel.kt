@@ -1,5 +1,6 @@
 package com.astrbot.android.ui.viewmodel
 
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.AppStrings
@@ -7,14 +8,17 @@ import com.astrbot.android.R
 import com.astrbot.android.data.StreamingResponseSegmenter
 import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.di.DefaultChatViewModelDependencies
-import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
-import com.astrbot.android.model.chat.ConversationMessage
-import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
+import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.hasNativeStreamingSupport
+import com.astrbot.android.runtime.botcommand.BotCommandContext
+import com.astrbot.android.runtime.botcommand.BotCommandRouter
+import com.astrbot.android.runtime.botcommand.BotCommandSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -159,6 +163,10 @@ class ChatViewModel(
     }
 
     fun createSession() {
+        createSessionInternal()
+    }
+
+    private fun createSessionInternal(): ConversationSession {
         val created = dependencies.createSession(botId = selectedBot()?.id ?: dependencies.selectedBotId.value)
         _uiState.value = _uiState.value.copy(
             selectedSessionId = created.id,
@@ -166,6 +174,7 @@ class ChatViewModel(
         )
         dependencies.log("Chat session created and selected: ${created.id}")
         syncSessionBindings(created.id, _uiState.value.selectedProviderId)
+        return created
     }
 
     fun deleteSelectedSession() {
@@ -501,36 +510,76 @@ class ChatViewModel(
     }
 
     private fun handleSessionCommand(sessionId: String, content: String): Boolean {
-        val normalized = content.lowercase()
-        return when (normalized) {
-            "/stt" -> {
-                val session = dependencies.session(sessionId)
-                val next = !session.sessionSttEnabled
-                dependencies.updateSessionServiceFlags(sessionId, sessionSttEnabled = next)
-                dependencies.appendMessage(
-                    sessionId = sessionId,
-                    role = "assistant",
-                    content = if (next) "STT enabled for this conversation." else "STT disabled for this conversation.",
-                )
-                dependencies.log("Chat command handled: /stt session=$sessionId enabled=$next")
-                true
-            }
-
-            "/tts" -> {
-                val session = dependencies.session(sessionId)
-                val next = !session.sessionTtsEnabled
-                dependencies.updateSessionServiceFlags(sessionId, sessionTtsEnabled = next)
-                dependencies.appendMessage(
-                    sessionId = sessionId,
-                    role = "assistant",
-                    content = if (next) "TTS enabled for this conversation." else "TTS disabled for this conversation.",
-                )
-                dependencies.log("Chat command handled: /tts session=$sessionId enabled=$next")
-                true
-            }
-
-            else -> false
+        val session = dependencies.session(sessionId)
+        val bot = selectedBot() ?: return false
+        val result = BotCommandRouter.handle(
+            input = content,
+            context = BotCommandContext(
+                source = BotCommandSource.APP_CHAT,
+                languageTag = currentLanguageTag(),
+                sessionId = sessionId,
+                session = session,
+                sessions = sessions.value,
+                bot = bot,
+                config = dependencies.resolveConfig(bot.configProfileId),
+                activeProviderId = _uiState.value.selectedProviderId.ifBlank { session.providerId },
+                availableProviders = providers.value.filter { it.enabled && ProviderCapability.CHAT in it.capabilities },
+                currentPersona = currentPersona(),
+                availablePersonas = personas.value.filter { it.enabled },
+                messageType = session.messageType,
+                createSession = { createSessionInternal() },
+                deleteSession = { targetSessionId ->
+                    deleteSession(targetSessionId)
+                },
+                renameSession = { targetSessionId, title ->
+                    renameSession(targetSessionId, title)
+                },
+                selectSession = { targetSessionId ->
+                    selectSession(targetSessionId)
+                },
+                updateConfig = { profile ->
+                    dependencies.saveConfig(profile)
+                },
+                updateProvider = { provider ->
+                    dependencies.saveProvider(provider)
+                },
+                updateSessionServiceFlags = { sttEnabled, ttsEnabled ->
+                    dependencies.updateSessionServiceFlags(
+                        sessionId = sessionId,
+                        sessionSttEnabled = sttEnabled,
+                        sessionTtsEnabled = ttsEnabled,
+                    )
+                },
+                replaceMessages = { messages ->
+                    dependencies.replaceMessages(sessionId, messages)
+                },
+                updateSessionBindings = { providerId, personaId, botId ->
+                    dependencies.updateSessionBindings(
+                        sessionId = sessionId,
+                        providerId = providerId,
+                        personaId = personaId,
+                        botId = botId,
+                    )
+                },
+            ),
+        )
+        if (!result.handled) return false
+        result.replyText?.let { reply ->
+            dependencies.appendMessage(
+                sessionId = sessionId,
+                role = "assistant",
+                content = reply,
+            )
         }
+        dependencies.log("Chat command handled via router: ${content.substringBefore(' ')} session=$sessionId")
+        return result.stopModelDispatch
+    }
+
+    private fun currentLanguageTag(): String {
+        return AppCompatDelegate.getApplicationLocales()[0]
+            ?.toLanguageTag()
+            .orEmpty()
+            .ifBlank { "zh" }
     }
 
     private suspend fun emitPseudoStreamingResponse(
