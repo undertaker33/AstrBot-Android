@@ -9,6 +9,7 @@ keystore.properties
 .externalNativeBuild/
 captures/
 artifacts/
+.worktrees/
 __pycache__/
 *.pyc
 app/src/main/assets/runtime/assets/offline-rootfs-overlay.tar.xz
