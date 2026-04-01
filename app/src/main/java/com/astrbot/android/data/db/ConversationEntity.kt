@@ -18,6 +18,5 @@ data class ConversationEntity(
     val sessionTtsEnabled: Boolean,
     val pinned: Boolean,
     val titleCustomized: Boolean,
-    val messagesJson: String,
     val updatedAt: Long,
 )

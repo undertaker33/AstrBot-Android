@@ -6,30 +6,46 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.astrbot.android.data.db.core.migration8To9
 
 @Database(
     entities = [
         AppPreferenceEntity::class,
         BotEntity::class,
+        BotBoundQqUinEntity::class,
+        BotTriggerWordEntity::class,
         ConfigProfileEntity::class,
+        ConfigAdminUidEntity::class,
+        ConfigWakeWordEntity::class,
+        ConfigWhitelistEntryEntity::class,
+        ConfigKeywordPatternEntity::class,
+        ConfigTextRuleEntity::class,
         ConversationEntity::class,
+        ConversationMessageEntity::class,
+        ConversationAttachmentEntity::class,
         PersonaEntity::class,
+        PersonaPromptEntity::class,
+        PersonaEnabledToolEntity::class,
         ProviderEntity::class,
+        ProviderCapabilityEntity::class,
+        ProviderTtsVoiceOptionEntity::class,
         SavedQqAccountEntity::class,
         TtsVoiceAssetEntity::class,
+        TtsVoiceClipEntity::class,
+        TtsVoiceProviderBindingEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
     abstract fun appPreferenceDao(): AppPreferenceDao
-    abstract fun botDao(): BotDao
-    abstract fun configProfileDao(): ConfigProfileDao
-    abstract fun conversationDao(): ConversationDao
-    abstract fun personaDao(): PersonaDao
-    abstract fun providerDao(): ProviderDao
+    abstract fun botAggregateDao(): BotAggregateDao
+    abstract fun configAggregateDao(): ConfigAggregateDao
+    abstract fun conversationAggregateDao(): ConversationAggregateDao
+    abstract fun personaAggregateDao(): PersonaAggregateDao
+    abstract fun providerAggregateDao(): ProviderAggregateDao
     abstract fun savedQqAccountDao(): SavedQqAccountDao
-    abstract fun ttsVoiceAssetDao(): TtsVoiceAssetDao
+    abstract fun ttsVoiceAssetAggregateDao(): TtsVoiceAssetAggregateDao
 
     companion object {
         @Volatile
@@ -288,6 +304,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration5To6,
             migration6To7,
             migration7To8,
+            migration8To9,
         )
 
         fun get(context: Context): AstrBotDatabase {

@@ -1,6 +1,5 @@
 package com.astrbot.android.data.chat
 
-import com.astrbot.android.data.db.ConversationEntity
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
@@ -9,59 +8,6 @@ import com.astrbot.android.model.chat.defaultSessionRefFor
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
-
-internal fun ConversationSession.toConversationEntity(): ConversationEntity {
-    return ConversationEntity(
-        id = id,
-        title = title,
-        botId = botId,
-        personaId = personaId,
-        providerId = providerId,
-        platformId = platformId,
-        messageType = messageType.wireValue,
-        originSessionId = originSessionId,
-        maxContextMessages = maxContextMessages,
-        sessionSttEnabled = sessionSttEnabled,
-        sessionTtsEnabled = sessionTtsEnabled,
-        pinned = pinned,
-        titleCustomized = titleCustomized,
-        messagesJson = JSONArray().apply {
-            messages.forEach { message -> put(message.toConversationJson()) }
-        }.toString(),
-        updatedAt = messages.maxOfOrNull { it.timestamp } ?: System.currentTimeMillis(),
-    )
-}
-
-internal fun ConversationEntity.toConversationSession(
-    onInvalidMessagesJson: (String) -> Unit = {},
-): ConversationSession {
-    val messagesArray = runCatching { JSONArray(messagesJson.ifBlank { "[]" }) }
-        .getOrElse {
-            onInvalidMessagesJson(id)
-            JSONArray()
-        }
-    val defaultRef = defaultSessionRefFor(id)
-    return ConversationSession(
-        id = id,
-        title = title,
-        botId = botId,
-        personaId = personaId,
-        providerId = providerId,
-        platformId = platformId.ifBlank { defaultRef.platformId },
-        messageType = MessageType.fromWireValue(messageType) ?: defaultRef.messageType,
-        originSessionId = originSessionId.ifBlank { defaultRef.originSessionId },
-        maxContextMessages = maxContextMessages,
-        sessionSttEnabled = sessionSttEnabled,
-        sessionTtsEnabled = sessionTtsEnabled,
-        pinned = pinned,
-        titleCustomized = titleCustomized,
-        messages = buildList {
-            for (index in 0 until messagesArray.length()) {
-                add(messagesArray.optJSONObject(index)?.toConversationMessage() ?: continue)
-            }
-        },
-    )
-}
 
 internal fun ConversationSession.toConversationJson(): JSONObject {
     return JSONObject().apply {

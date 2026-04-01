@@ -6,10 +6,12 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.astrbot.android.data.db.AstrBotDatabase
-import com.astrbot.android.data.db.TtsVoiceAssetDao
+import com.astrbot.android.data.db.TtsVoiceAssetAggregate
+import com.astrbot.android.data.db.TtsVoiceAssetAggregateDao
 import com.astrbot.android.data.db.TtsVoiceAssetEntity
-import com.astrbot.android.data.db.toEntity
+import com.astrbot.android.data.db.TtsVoiceAssetWriteModel
 import com.astrbot.android.data.db.toModel
+import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.ClonedVoiceBinding
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
@@ -35,21 +37,21 @@ object TtsVoiceAssetRepository {
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var legacyPreferences: SharedPreferences? = null
-    private var assetDao: TtsVoiceAssetDao = TtsVoiceAssetDaoPlaceholder.instance
+    private var assetDao: TtsVoiceAssetAggregateDao = TtsVoiceAssetAggregateDaoPlaceholder.instance
     private val _assets = MutableStateFlow<List<TtsVoiceReferenceAsset>>(emptyList())
 
     val assets: StateFlow<List<TtsVoiceReferenceAsset>> = _assets.asStateFlow()
 
     fun initialize(context: Context) {
         val database = AstrBotDatabase.get(context)
-        assetDao = database.ttsVoiceAssetDao()
+        assetDao = database.ttsVoiceAssetAggregateDao()
         legacyPreferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         runBlocking(Dispatchers.IO) {
             seedStorageIfNeeded()
         }
         repositoryScope.launch {
-            assetDao.observeAssets().collect { entities ->
-                val loaded = entities.map(TtsVoiceAssetEntity::toModel)
+            assetDao.observeAssetAggregates().collect { aggregates ->
+                val loaded = aggregates.map(TtsVoiceAssetAggregate::toModel)
                 _assets.value = loaded
                 RuntimeLogRepository.append("TTS voice assets loaded: count=${loaded.size}")
             }
@@ -313,13 +315,7 @@ object TtsVoiceAssetRepository {
 
     private fun persist(assets: List<TtsVoiceReferenceAsset>) {
         runBlocking(Dispatchers.IO) {
-            if (assets.isEmpty()) {
-                assetDao.clearAll()
-            } else {
-                val entities = assets.map { asset -> asset.toEntity() }
-                assetDao.upsertAll(entities)
-                assetDao.deleteMissing(entities.map { it.id })
-            }
+            assetDao.replaceAll(assets.map(TtsVoiceReferenceAsset::toWriteModel))
         }
     }
 
@@ -331,7 +327,7 @@ object TtsVoiceAssetRepository {
             RuntimeLogRepository.append("TTS voice assets legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrDefault(emptyList())
         if (imported.isNotEmpty()) {
-            assetDao.upsertAll(imported.map { asset -> asset.toEntity() })
+            assetDao.replaceAll(imported.map(TtsVoiceReferenceAsset::toWriteModel))
             RuntimeLogRepository.append("TTS voice assets migrated from SharedPreferences: count=${imported.size}")
         }
     }
@@ -398,13 +394,17 @@ object TtsVoiceAssetRepository {
     )
 }
 
-private object TtsVoiceAssetDaoPlaceholder {
-    val instance = object : TtsVoiceAssetDao {
-        override fun observeAssets() = flowOf(emptyList<TtsVoiceAssetEntity>())
-        override suspend fun listAssets(): List<TtsVoiceAssetEntity> = emptyList()
-        override suspend fun upsertAll(entities: List<TtsVoiceAssetEntity>) = Unit
-        override suspend fun deleteMissing(ids: List<String>) = Unit
-        override suspend fun clearAll() = Unit
+private object TtsVoiceAssetAggregateDaoPlaceholder {
+    val instance = object : TtsVoiceAssetAggregateDao() {
+        override fun observeAssetAggregates() = flowOf(emptyList<TtsVoiceAssetAggregate>())
+        override suspend fun listAssetAggregates(): List<TtsVoiceAssetAggregate> = emptyList()
+        override suspend fun upsertAssets(entities: List<TtsVoiceAssetEntity>) = Unit
+        override suspend fun upsertClips(entities: List<com.astrbot.android.data.db.TtsVoiceClipEntity>) = Unit
+        override suspend fun upsertProviderBindings(entities: List<com.astrbot.android.data.db.TtsVoiceProviderBindingEntity>) = Unit
+        override suspend fun deleteMissingAssets(ids: List<String>) = Unit
+        override suspend fun clearAssets() = Unit
+        override suspend fun deleteClipsForAssets(assetIds: List<String>) = Unit
+        override suspend fun deleteBindingsForAssets(assetIds: List<String>) = Unit
         override suspend fun count(): Int = 0
     }
 }

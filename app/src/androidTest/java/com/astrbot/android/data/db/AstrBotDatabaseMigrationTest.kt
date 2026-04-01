@@ -130,4 +130,51 @@ class AstrBotDatabaseMigrationTest {
         }
         database.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate8To9_recreatesAggregateTables() {
+        val databaseName = "migration-test-8-9"
+        helper.createDatabase(databaseName, 8).apply {
+            execSQL(
+                """
+                INSERT INTO conversations (
+                    id, title, botId, personaId, providerId, platformId,
+                    messageType, originSessionId, maxContextMessages,
+                    sessionSttEnabled, sessionTtsEnabled, pinned,
+                    titleCustomized, messagesJson, updatedAt
+                ) VALUES (
+                    'chat-main', 'Main', 'qq-main', '', '', 'app',
+                    'other', 'chat-main', 12,
+                    1, 1, 0,
+                    0, '[]', 123
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(databaseName, 9, true, *AstrBotDatabase.allMigrations)
+
+        val database = context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null)
+        database.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_messages'",
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+        }
+        database.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_attachments'",
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+        }
+        database.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tts_voice_clips'",
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+        }
+        database.close()
+    }
 }

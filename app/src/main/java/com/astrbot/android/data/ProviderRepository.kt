@@ -3,10 +3,12 @@ package com.astrbot.android.data
 import android.content.Context
 import android.content.SharedPreferences
 import com.astrbot.android.data.db.AstrBotDatabase
-import com.astrbot.android.data.db.ProviderDao
+import com.astrbot.android.data.db.ProviderAggregate
+import com.astrbot.android.data.db.ProviderAggregateDao
 import com.astrbot.android.data.db.ProviderEntity
-import com.astrbot.android.data.db.toEntity
+import com.astrbot.android.data.db.ProviderWriteModel
 import com.astrbot.android.data.db.toProfile
+import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
@@ -35,7 +37,7 @@ object ProviderRepository {
     private val initialized = AtomicBoolean(false)
 
     private var preferences: SharedPreferences? = null
-    private var providerDao: ProviderDao = ProviderDaoPlaceholder.instance
+    private var providerDao: ProviderAggregateDao = ProviderDaoPlaceholder.instance
     private val _providers = MutableStateFlow(defaultProviders())
 
     val providers: StateFlow<List<ProviderProfile>> = _providers.asStateFlow()
@@ -43,14 +45,14 @@ object ProviderRepository {
     fun initialize(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
         preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        providerDao = AstrBotDatabase.get(context).providerDao()
+        providerDao = AstrBotDatabase.get(context).providerAggregateDao()
 
         runBlocking(Dispatchers.IO) {
             seedStorageIfNeeded()
         }
         repositoryScope.launch {
-            providerDao.observeProviders().collect { entities ->
-                val loaded = entities.map { entity -> normalizeProvider(entity.toProfile()) }.ifEmpty { defaultProviders() }
+            providerDao.observeProviderAggregates().collect { aggregates ->
+                val loaded = aggregates.map { aggregate -> normalizeProvider(aggregate.toProfile()) }.ifEmpty { defaultProviders() }
                 _providers.value = loaded
                 RuntimeLogRepository.append("Provider catalog loaded: count=${loaded.size}")
             }
@@ -186,13 +188,11 @@ object ProviderRepository {
     private fun persistProviders(profiles: List<ProviderProfile>) {
         runBlocking(Dispatchers.IO) {
             if (profiles.isEmpty()) {
-                providerDao.clearAll()
+                providerDao.replaceAll(emptyList())
             } else {
-                val entities = profiles.mapIndexed { index, profile ->
-                    profile.toEntity(sortIndex = index)
-                }
-                providerDao.upsertAll(entities)
-                providerDao.deleteMissing(entities.map { it.id })
+                providerDao.replaceAll(
+                    profiles.mapIndexed { index, profile -> profile.toWriteModel(sortIndex = index) },
+                )
             }
         }
     }
@@ -205,8 +205,8 @@ object ProviderRepository {
             RuntimeLogRepository.append("Provider catalog legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrDefault(emptyList())
         val seeded = imported.map(::normalizeProvider).ifEmpty { defaultProviders() }
-        providerDao.upsertAll(
-            seeded.mapIndexed { index, profile -> profile.toEntity(sortIndex = index) },
+        providerDao.replaceAll(
+            seeded.mapIndexed { index, profile -> profile.toWriteModel(sortIndex = index) },
         )
         RuntimeLogRepository.append(
             if (imported.isNotEmpty()) {
@@ -264,17 +264,16 @@ object ProviderRepository {
 }
 
 private object ProviderDaoPlaceholder {
-    val instance = object : ProviderDao {
-        override fun observeProviders() = flowOf(emptyList<ProviderEntity>())
-
-        override suspend fun listProviders(): List<ProviderEntity> = emptyList()
-
-        override suspend fun upsertAll(entities: List<ProviderEntity>) = Unit
-
-        override suspend fun deleteMissing(ids: List<String>) = Unit
-
-        override suspend fun clearAll() = Unit
-
+    val instance = object : ProviderAggregateDao() {
+        override fun observeProviderAggregates() = flowOf(emptyList<ProviderAggregate>())
+        override suspend fun listProviderAggregates(): List<ProviderAggregate> = emptyList()
+        override suspend fun upsertProviders(entities: List<ProviderEntity>) = Unit
+        override suspend fun upsertCapabilities(entities: List<com.astrbot.android.data.db.ProviderCapabilityEntity>) = Unit
+        override suspend fun upsertVoiceOptions(entities: List<com.astrbot.android.data.db.ProviderTtsVoiceOptionEntity>) = Unit
+        override suspend fun deleteMissingProviders(ids: List<String>) = Unit
+        override suspend fun clearProviders() = Unit
+        override suspend fun deleteCapabilities(providerIds: List<String>) = Unit
+        override suspend fun deleteVoiceOptions(providerIds: List<String>) = Unit
         override suspend fun count(): Int = 0
     }
 }

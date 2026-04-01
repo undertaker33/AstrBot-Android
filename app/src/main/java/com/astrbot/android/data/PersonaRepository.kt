@@ -3,10 +3,11 @@ package com.astrbot.android.data
 import android.content.Context
 import android.content.SharedPreferences
 import com.astrbot.android.data.db.AstrBotDatabase
-import com.astrbot.android.data.db.PersonaDao
+import com.astrbot.android.data.db.PersonaAggregate
+import com.astrbot.android.data.db.PersonaAggregateDao
 import com.astrbot.android.data.db.PersonaEntity
-import com.astrbot.android.data.db.toEntity
 import com.astrbot.android.data.db.toProfile
+import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.runtime.RuntimeLogRepository
 import java.util.UUID
@@ -29,7 +30,7 @@ object PersonaRepository {
     private val initialized = AtomicBoolean(false)
 
     private var preferences: SharedPreferences? = null
-    private var personaDao: PersonaDao = PersonaDaoPlaceholder.instance
+    private var personaDao: PersonaAggregateDao = PersonaDaoPlaceholder.instance
     private val _personas = MutableStateFlow(defaultPersonas())
 
     val personas: StateFlow<List<PersonaProfile>> = _personas.asStateFlow()
@@ -37,14 +38,14 @@ object PersonaRepository {
     fun initialize(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
         preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        personaDao = AstrBotDatabase.get(context).personaDao()
+        personaDao = AstrBotDatabase.get(context).personaAggregateDao()
 
         runBlocking(Dispatchers.IO) {
             seedStorageIfNeeded()
         }
         repositoryScope.launch {
-            personaDao.observePersonas().collect { entities ->
-                val loaded = entities.map { entity -> normalizePersona(entity.toProfile()) }.ifEmpty { defaultPersonas() }
+            personaDao.observePersonaAggregates().collect { aggregates ->
+                val loaded = aggregates.map { aggregate -> normalizePersona(aggregate.toProfile()) }.ifEmpty { defaultPersonas() }
                 _personas.value = loaded
                 RuntimeLogRepository.append("Persona catalog loaded: count=${loaded.size}")
             }
@@ -131,13 +132,11 @@ object PersonaRepository {
     private fun persistPersonas(personas: List<PersonaProfile>) {
         runBlocking(Dispatchers.IO) {
             if (personas.isEmpty()) {
-                personaDao.clearAll()
+                personaDao.replaceAll(emptyList())
             } else {
-                val entities = personas.mapIndexed { index, persona ->
-                    persona.toEntity(sortIndex = index)
-                }
-                personaDao.upsertAll(entities)
-                personaDao.deleteMissing(entities.map { it.id })
+                personaDao.replaceAll(
+                    personas.mapIndexed { index, persona -> persona.toWriteModel(sortIndex = index) },
+                )
             }
         }
     }
@@ -150,8 +149,8 @@ object PersonaRepository {
             RuntimeLogRepository.append("Persona catalog legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrDefault(emptyList())
         val seeded = imported.map(::normalizePersona).ifEmpty { defaultPersonas() }
-        personaDao.upsertAll(
-            seeded.mapIndexed { index, persona -> persona.toEntity(sortIndex = index) },
+        personaDao.replaceAll(
+            seeded.mapIndexed { index, persona -> persona.toWriteModel(sortIndex = index) },
         )
         RuntimeLogRepository.append(
             if (imported.isNotEmpty()) {
@@ -184,17 +183,16 @@ object PersonaRepository {
 }
 
 private object PersonaDaoPlaceholder {
-    val instance = object : PersonaDao {
-        override fun observePersonas() = flowOf(emptyList<PersonaEntity>())
-
-        override suspend fun listPersonas(): List<PersonaEntity> = emptyList()
-
-        override suspend fun upsertAll(entities: List<PersonaEntity>) = Unit
-
-        override suspend fun deleteMissing(ids: List<String>) = Unit
-
-        override suspend fun clearAll() = Unit
-
+    val instance = object : PersonaAggregateDao() {
+        override fun observePersonaAggregates() = flowOf(emptyList<PersonaAggregate>())
+        override suspend fun listPersonaAggregates(): List<PersonaAggregate> = emptyList()
+        override suspend fun upsertPersonas(entities: List<PersonaEntity>) = Unit
+        override suspend fun upsertPrompts(entities: List<com.astrbot.android.data.db.PersonaPromptEntity>) = Unit
+        override suspend fun upsertEnabledTools(entities: List<com.astrbot.android.data.db.PersonaEnabledToolEntity>) = Unit
+        override suspend fun deleteMissingPersonas(ids: List<String>) = Unit
+        override suspend fun clearPersonas() = Unit
+        override suspend fun deletePrompts(personaIds: List<String>) = Unit
+        override suspend fun deleteEnabledTools(personaIds: List<String>) = Unit
         override suspend fun count(): Int = 0
     }
 }

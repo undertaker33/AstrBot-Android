@@ -1,7 +1,10 @@
 package com.astrbot.android.data.chat
 
-import com.astrbot.android.data.db.ConversationDao
+import com.astrbot.android.data.db.ConversationAggregate
+import com.astrbot.android.data.db.ConversationAggregateDao
+import com.astrbot.android.data.db.ConversationAttachmentEntity
 import com.astrbot.android.data.db.ConversationEntity
+import com.astrbot.android.data.db.ConversationMessageEntity
 import com.astrbot.android.model.chat.ConversationSession
 import kotlinx.coroutines.flow.flowOf
 import org.json.JSONArray
@@ -70,15 +73,24 @@ internal fun mergeDefaultConversationSession(
     return defaultSessionsProvider() + withoutDefault
 }
 
-internal object ConversationDaoPlaceholder {
-    val instance = object : ConversationDao {
-        override fun observeConversations() = flowOf(emptyList<ConversationEntity>())
-        override suspend fun listConversations(): List<ConversationEntity> = emptyList()
-        override suspend fun upsert(entity: ConversationEntity) = Unit
-        override suspend fun upsertAll(entities: List<ConversationEntity>) = Unit
-        override suspend fun deleteById(sessionId: String) = Unit
-        override suspend fun clearAll() = Unit
-        override suspend fun deleteMissing(ids: List<String>) = Unit
+internal object ConversationAggregateDaoPlaceholder {
+    val instance = object : ConversationAggregateDao() {
+        override fun observeConversationAggregates() = flowOf(emptyList<ConversationAggregate>())
+
+        override suspend fun listConversationAggregates(): List<ConversationAggregate> = emptyList()
+
+        override suspend fun upsertSessions(entities: List<ConversationEntity>) = Unit
+
+        override suspend fun upsertMessages(entities: List<ConversationMessageEntity>) = Unit
+
+        override suspend fun upsertAttachments(entities: List<ConversationAttachmentEntity>) = Unit
+
+        override suspend fun deleteMissingSessions(ids: List<String>) = Unit
+
+        override suspend fun clearSessions() = Unit
+
+        override suspend fun deleteMessagesForSessions(sessionIds: List<String>) = Unit
+
         override suspend fun count(): Int = 0
     }
 }

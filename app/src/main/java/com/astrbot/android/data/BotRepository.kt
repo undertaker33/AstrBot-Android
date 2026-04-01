@@ -5,10 +5,11 @@ import android.content.SharedPreferences
 import com.astrbot.android.data.db.AppPreferenceDao
 import com.astrbot.android.data.db.AppPreferenceEntity
 import com.astrbot.android.data.db.AstrBotDatabase
-import com.astrbot.android.data.db.BotDao
+import com.astrbot.android.data.db.BotAggregate
+import com.astrbot.android.data.db.BotAggregateDao
 import com.astrbot.android.data.db.BotEntity
-import com.astrbot.android.data.db.toEntity
 import com.astrbot.android.data.db.toProfile
+import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.runtime.RuntimeLogRepository
 import java.util.UUID
@@ -47,7 +48,7 @@ object BotRepository {
     private val _selectedBotId = MutableStateFlow(defaultBot.id)
     private val _botProfile = MutableStateFlow(defaultBot)
 
-    private var botDao: BotDao = AstrBotDatabaseHolder.placeholder
+    private var botDao: BotAggregateDao = AstrBotAggregateDaoHolder.placeholder
     private var appPreferenceDao: AppPreferenceDao = BotAppPreferenceDaoPlaceholder.instance
     private var bindingsPreferences: SharedPreferences? = null
 
@@ -59,7 +60,7 @@ object BotRepository {
         if (!initialized.compareAndSet(false, true)) return
 
         val database = AstrBotDatabase.get(context)
-        botDao = database.botDao()
+        botDao = database.botAggregateDao()
         appPreferenceDao = database.appPreferenceDao()
         bindingsPreferences = context.applicationContext.getSharedPreferences(BOT_BINDINGS_PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -69,7 +70,7 @@ object BotRepository {
         }
         repositoryScope.launch {
             combine(
-                botDao.observeBots(),
+                botDao.observeBotAggregates(),
                 appPreferenceDao.observeValue(PREF_SELECTED_BOT_ID),
             ) { entities, selectedId -> entities to selectedId }
                 .collect { (entities, selectedId) ->
@@ -214,9 +215,7 @@ object BotRepository {
         if (profiles.isEmpty()) {
             return
         }
-        val entities = profiles.map { profile -> normalizeProfile(profile).toEntity() }
-        botDao.upsertAll(entities)
-        botDao.deleteMissing(entities.map { it.id })
+        botDao.replaceAll(profiles.map { profile -> normalizeProfile(profile).toWriteModel() })
         appPreferenceDao.upsert(
             AppPreferenceEntity(
                 key = PREF_SELECTED_BOT_ID,
@@ -228,7 +227,7 @@ object BotRepository {
 
     private suspend fun seedStorageIfNeeded() {
         if (botDao.count() == 0) {
-            botDao.upsert(defaultBot.toEntity())
+            botDao.replaceAll(listOf(defaultBot.toWriteModel()))
             appPreferenceDao.upsert(
                 AppPreferenceEntity(
                     key = PREF_SELECTED_BOT_ID,
@@ -237,7 +236,7 @@ object BotRepository {
                 ),
             )
         } else if (appPreferenceDao.getValue(PREF_SELECTED_BOT_ID).isNullOrBlank()) {
-            val firstBotId = botDao.listBots().firstOrNull()?.id ?: defaultBot.id
+            val firstBotId = botDao.listBotAggregates().firstOrNull()?.bot?.id ?: defaultBot.id
             appPreferenceDao.upsert(
                 AppPreferenceEntity(
                     key = PREF_SELECTED_BOT_ID,
@@ -253,7 +252,7 @@ object BotRepository {
         val legacyRaw = bindingsPreferences?.getString(KEY_BOT_BINDINGS_JSON, null)
         val imported = runCatching { parseLegacyBotBindings(legacyRaw) }.getOrDefault(emptyMap())
         if (imported.isNotEmpty()) {
-            val currentProfiles = botDao.listBots().map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { listOf(defaultBot) }
+            val currentProfiles = botDao.listBotAggregates().map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { listOf(defaultBot) }
             val updated = currentProfiles.map { current ->
                 imported[current.id]?.let { binding ->
                     normalizeProfile(
@@ -304,14 +303,17 @@ object BotRepository {
     }
 }
 
-private object AstrBotDatabaseHolder {
-    val placeholder = object : BotDao {
-        override fun observeBots() = flowOf(emptyList<BotEntity>())
-        override suspend fun listBots(): List<BotEntity> = emptyList()
-        override suspend fun upsert(entity: BotEntity) = Unit
-        override suspend fun upsertAll(entities: List<BotEntity>) = Unit
-        override suspend fun deleteById(botId: String) = Unit
-        override suspend fun deleteMissing(ids: List<String>) = Unit
+private object AstrBotAggregateDaoHolder {
+    val placeholder = object : BotAggregateDao() {
+        override fun observeBotAggregates() = flowOf(emptyList<BotAggregate>())
+        override suspend fun listBotAggregates(): List<BotAggregate> = emptyList()
+        override suspend fun upsertBots(entities: List<BotEntity>) = Unit
+        override suspend fun upsertBoundQqUins(entities: List<com.astrbot.android.data.db.BotBoundQqUinEntity>) = Unit
+        override suspend fun upsertTriggerWords(entities: List<com.astrbot.android.data.db.BotTriggerWordEntity>) = Unit
+        override suspend fun deleteMissingBots(ids: List<String>) = Unit
+        override suspend fun clearBots() = Unit
+        override suspend fun deleteBoundQqUins(botIds: List<String>) = Unit
+        override suspend fun deleteTriggerWords(botIds: List<String>) = Unit
         override suspend fun count(): Int = 0
     }
 }

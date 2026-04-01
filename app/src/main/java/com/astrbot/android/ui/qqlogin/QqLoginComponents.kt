@@ -10,9 +10,12 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -23,9 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -207,19 +209,17 @@ fun SavedAccountDropdown(
     var expanded by remember { mutableStateOf(false) }
     val selectedAccount = accounts.firstOrNull { it.uin == selectedUin }
 
-    ExposedDropdownMenuBox(
-        expanded = expanded && enabled && accounts.isNotEmpty(),
-        onExpandedChange = { if (enabled && accounts.isNotEmpty()) expanded = !expanded },
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("saved-account-dropdown-container"),
     ) {
         OutlinedTextField(
             value = selectedAccount.displayLabel().ifBlank { selectedUin.ifBlank { "请选择QQ" } },
             onValueChange = {},
             modifier = Modifier
                 .fillMaxWidth()
-                .menuAnchor(
-                    type = MenuAnchorType.PrimaryNotEditable,
-                    enabled = enabled,
-                ),
+                .testTag("saved-account-dropdown-field"),
             readOnly = true,
             enabled = enabled,
             label = { Text("请选择QQ") },
@@ -241,9 +241,19 @@ fun SavedAccountDropdown(
                 disabledTrailingIconColor = Color.White.copy(alpha = 0.4f),
             ),
         )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .clickable(enabled = enabled && accounts.isNotEmpty()) {
+                    expanded = !expanded
+                }
+                .testTag("saved-account-dropdown-overlay"),
+        )
         DropdownMenu(
             expanded = expanded && enabled && accounts.isNotEmpty(),
             onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(),
         ) {
             accounts.forEach { account ->
                 DropdownMenuItem(

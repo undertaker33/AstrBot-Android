@@ -2,15 +2,14 @@
 
 import android.content.Context
 import com.astrbot.android.data.chat.applySystemSessionTitle
-import com.astrbot.android.data.chat.ConversationDaoPlaceholder
+import com.astrbot.android.data.chat.ConversationAggregateDaoPlaceholder
 import com.astrbot.android.data.chat.loadLegacyConversationSessions
 import com.astrbot.android.data.chat.mergeImportedConversationSessions
 import com.astrbot.android.data.chat.sortConversationSessions
-import com.astrbot.android.data.chat.toConversationEntity
-import com.astrbot.android.data.chat.toConversationSession
+import com.astrbot.android.data.db.ConversationAggregateDao
+import com.astrbot.android.data.db.toConversationSession
+import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.data.db.AstrBotDatabase
-import com.astrbot.android.data.db.ConversationDao
-import com.astrbot.android.data.db.ConversationEntity
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
@@ -56,7 +55,7 @@ object ConversationRepository {
     private val persistenceMutex = Mutex()
 
     private var legacyStorageFile: File? = null
-    private var conversationDao: ConversationDao = ConversationDaoPlaceholder.instance
+    private var conversationAggregateDao: ConversationAggregateDao = ConversationAggregateDaoPlaceholder.instance
 
     private val _sessions = MutableStateFlow(defaultSessions())
     val sessions: StateFlow<List<ConversationSession>> = _sessions.asStateFlow()
@@ -68,24 +67,19 @@ object ConversationRepository {
         initializationLoaded.set(false)
 
         legacyStorageFile = File(context.filesDir, LEGACY_STORAGE_FILE_NAME)
-        conversationDao = AstrBotDatabase.get(context).conversationDao()
+        conversationAggregateDao = AstrBotDatabase.get(context).conversationAggregateDao()
 
         repositoryScope.launch {
             runCatching {
                 val importedLegacy = importLegacySessionsIfNeeded()
-                if (conversationDao.count() == 0 && !importedLegacy) {
-                    conversationDao.upsertAll(defaultSessions().map { it.toConversationEntity() })
+                if (conversationAggregateDao.count() == 0 && !importedLegacy) {
+                    conversationAggregateDao.replaceAll(defaultSessions().map { it.toWriteModel() })
                 }
-                val entities = conversationDao.listConversations()
-                val sessionsFromDb = entities.mapNotNull { entity ->
-                    runCatching {
-                        entity.toConversationSession { sessionId ->
-                            RuntimeLogRepository.append("Conversation messages reset for session=$sessionId because JSON was invalid")
-                        }
-                    }
+                val sessionsFromDb = conversationAggregateDao.listConversationAggregates().mapNotNull { aggregate ->
+                    runCatching { aggregate.toConversationSession() }
                         .onFailure { error ->
                             RuntimeLogRepository.append(
-                                "Conversation row skipped: id=${entity.id} reason=${error.message ?: error.javaClass.simpleName}",
+                                "Conversation row skipped: id=${aggregate.session.id} reason=${error.message ?: error.javaClass.simpleName}",
                             )
                         }
                         .getOrNull()
@@ -491,13 +485,7 @@ object ConversationRepository {
             persistenceMutex.withLock {
                 runCatching {
                     val snapshot = _sessions.value
-                    val entities = snapshot.map { it.toConversationEntity() }
-                    if (entities.isEmpty()) {
-                        conversationDao.clearAll()
-                    } else {
-                        conversationDao.upsertAll(entities)
-                        conversationDao.deleteMissing(entities.map { it.id })
-                    }
+                    conversationAggregateDao.replaceAll(snapshot.map { it.toWriteModel() })
                 }.onFailure { error ->
                     RuntimeLogRepository.append(
                         "Conversation database persist failed: ${error.message ?: error.javaClass.simpleName}",
@@ -520,8 +508,8 @@ object ConversationRepository {
             },
         )
         if (legacySessions.isEmpty()) return false
-        val existingSessions = conversationDao.listConversations().mapNotNull { entity ->
-            runCatching { entity.toConversationSession() }.getOrNull()
+        val existingSessions = conversationAggregateDao.listConversationAggregates().mapNotNull { aggregate ->
+            runCatching { aggregate.toConversationSession() }.getOrNull()
         }
         val mergedSessions = mergeImportedConversationSessions(
             defaultSessionId = DEFAULT_SESSION_ID,
@@ -529,7 +517,7 @@ object ConversationRepository {
             legacySessions = legacySessions,
             defaultSessionsProvider = ::defaultSessions,
         )
-        conversationDao.upsertAll(mergedSessions.map { it.toConversationEntity() })
+        conversationAggregateDao.replaceAll(mergedSessions.map { it.toWriteModel() })
         RuntimeLogRepository.append(
             "Conversation legacy JSON imported into database: legacy=${legacySessions.size} merged=${mergedSessions.size}",
         )

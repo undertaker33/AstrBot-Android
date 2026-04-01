@@ -5,10 +5,11 @@ import android.content.SharedPreferences
 import com.astrbot.android.data.db.AppPreferenceDao
 import com.astrbot.android.data.db.AppPreferenceEntity
 import com.astrbot.android.data.db.AstrBotDatabase
-import com.astrbot.android.data.db.ConfigProfileDao
+import com.astrbot.android.data.db.ConfigAggregate
+import com.astrbot.android.data.db.ConfigAggregateDao
 import com.astrbot.android.data.db.ConfigProfileEntity
-import com.astrbot.android.data.db.toEntity
 import com.astrbot.android.data.db.toProfile
+import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.runtime.RuntimeLogRepository
 import java.util.UUID
@@ -35,7 +36,7 @@ object ConfigRepository {
     private val initialized = AtomicBoolean(false)
 
     private var preferences: SharedPreferences? = null
-    private var configProfileDao: ConfigProfileDao = ConfigProfileDaoPlaceholder.instance
+    private var configProfileDao: ConfigAggregateDao = ConfigProfileDaoPlaceholder.instance
     private var appPreferenceDao: AppPreferenceDao = ConfigAppPreferenceDaoPlaceholder.instance
 
     private val _profiles = MutableStateFlow(defaultProfiles())
@@ -48,7 +49,7 @@ object ConfigRepository {
         if (!initialized.compareAndSet(false, true)) return
         preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val database = AstrBotDatabase.get(context)
-        configProfileDao = database.configProfileDao()
+        configProfileDao = database.configAggregateDao()
         appPreferenceDao = database.appPreferenceDao()
 
         runBlocking(Dispatchers.IO) {
@@ -56,7 +57,7 @@ object ConfigRepository {
         }
         repositoryScope.launch {
             combine(
-                configProfileDao.observeProfiles(),
+                configProfileDao.observeConfigAggregates(),
                 appPreferenceDao.observeValue(PREF_SELECTED_PROFILE_ID),
             ) { entities, selectedId ->
                 entities to selectedId
@@ -169,13 +170,11 @@ object ConfigRepository {
     ) {
         runBlocking(Dispatchers.IO) {
             if (profiles.isEmpty()) {
-                configProfileDao.clearAll()
+                configProfileDao.replaceAll(emptyList())
             } else {
-                val entities = profiles.mapIndexed { index, profile ->
-                    profile.toEntity(sortIndex = index)
-                }
-                configProfileDao.upsertAll(entities)
-                configProfileDao.deleteMissing(entities.map { it.id })
+                configProfileDao.replaceAll(
+                    profiles.mapIndexed { index, profile -> profile.toWriteModel(sortIndex = index) },
+                )
             }
             appPreferenceDao.upsert(
                 AppPreferenceEntity(
@@ -213,8 +212,8 @@ object ConfigRepository {
 
         if (configProfileDao.count() == 0) {
             val seededProfiles = imported.profiles.map(::normalizeProfile).ifEmpty { defaultProfiles() }
-            configProfileDao.upsertAll(
-                seededProfiles.mapIndexed { index, profile -> profile.toEntity(sortIndex = index) },
+            configProfileDao.replaceAll(
+                seededProfiles.mapIndexed { index, profile -> profile.toWriteModel(sortIndex = index) },
             )
             RuntimeLogRepository.append(
                 if (imported.profiles.isNotEmpty()) {
@@ -226,7 +225,7 @@ object ConfigRepository {
         }
 
         if (appPreferenceDao.getValue(PREF_SELECTED_PROFILE_ID).isNullOrBlank()) {
-            val availableIds = configProfileDao.listProfiles().map(ConfigProfileEntity::id)
+            val availableIds = configProfileDao.listConfigAggregates().map { it.config.id }
             val resolvedSelected = when {
                 imported.selectedProfileId != null && availableIds.contains(imported.selectedProfileId) -> imported.selectedProfileId
                 availableIds.isNotEmpty() -> availableIds.first()
@@ -278,17 +277,22 @@ object ConfigRepository {
 }
 
 private object ConfigProfileDaoPlaceholder {
-    val instance = object : ConfigProfileDao {
-        override fun observeProfiles() = flowOf(emptyList<ConfigProfileEntity>())
-
-        override suspend fun listProfiles(): List<ConfigProfileEntity> = emptyList()
-
-        override suspend fun upsertAll(entities: List<ConfigProfileEntity>) = Unit
-
-        override suspend fun deleteMissing(ids: List<String>) = Unit
-
-        override suspend fun clearAll() = Unit
-
+    val instance = object : ConfigAggregateDao() {
+        override fun observeConfigAggregates() = flowOf(emptyList<ConfigAggregate>())
+        override suspend fun listConfigAggregates(): List<ConfigAggregate> = emptyList()
+        override suspend fun upsertConfigs(entities: List<ConfigProfileEntity>) = Unit
+        override suspend fun upsertAdminUids(entities: List<com.astrbot.android.data.db.ConfigAdminUidEntity>) = Unit
+        override suspend fun upsertWakeWords(entities: List<com.astrbot.android.data.db.ConfigWakeWordEntity>) = Unit
+        override suspend fun upsertWhitelistEntries(entities: List<com.astrbot.android.data.db.ConfigWhitelistEntryEntity>) = Unit
+        override suspend fun upsertKeywordPatterns(entities: List<com.astrbot.android.data.db.ConfigKeywordPatternEntity>) = Unit
+        override suspend fun upsertTextRules(entities: List<com.astrbot.android.data.db.ConfigTextRuleEntity>) = Unit
+        override suspend fun deleteMissingConfigs(ids: List<String>) = Unit
+        override suspend fun clearConfigs() = Unit
+        override suspend fun deleteAdminUids(configIds: List<String>) = Unit
+        override suspend fun deleteWakeWords(configIds: List<String>) = Unit
+        override suspend fun deleteWhitelistEntries(configIds: List<String>) = Unit
+        override suspend fun deleteKeywordPatterns(configIds: List<String>) = Unit
+        override suspend fun deleteTextRules(configIds: List<String>) = Unit
         override suspend fun count(): Int = 0
     }
 }

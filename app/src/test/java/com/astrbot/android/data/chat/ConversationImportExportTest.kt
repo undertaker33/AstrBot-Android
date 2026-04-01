@@ -1,19 +1,29 @@
 package com.astrbot.android.data.chat
 
-import com.astrbot.android.data.db.ConversationEntity
+import com.astrbot.android.data.db.ConversationAggregate
+import com.astrbot.android.data.db.ConversationMessageAggregate
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
-import org.json.JSONObject
+import com.astrbot.android.data.db.toConversationSession
+import com.astrbot.android.data.db.toWriteModel
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ConversationImportExportTest {
     @Test
-    fun entity_round_trip_preserves_explicit_session_identity() {
+    fun aggregate_round_trip_preserves_explicit_session_identity() {
         val session = testSession()
-
-        val restored = session.toConversationEntity().toConversationSession()
+        val writeModel = session.toWriteModel()
+        val restored = ConversationAggregate(
+            session = writeModel.session,
+            messageAggregates = writeModel.messages.map { message ->
+                ConversationMessageAggregate(
+                    message = message,
+                    attachments = writeModel.attachments.filter { it.messageId == message.id },
+                )
+            },
+        ).toConversationSession()
 
         assertEquals("qq", restored.platformId)
         assertEquals(MessageType.GroupMessage, restored.messageType)

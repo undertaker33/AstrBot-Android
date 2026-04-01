@@ -2,8 +2,6 @@ package com.astrbot.android.data.db
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import com.astrbot.android.model.BotProfile
-
 @Entity(tableName = "bots")
 data class BotEntity(
     @PrimaryKey val id: String,
@@ -11,8 +9,6 @@ data class BotEntity(
     val displayName: String,
     val tag: String,
     val accountHint: String,
-    val boundQqUinsJson: String,
-    val triggerWordsCsv: String,
     val autoReplyEnabled: Boolean,
     val persistConversationLocally: Boolean,
     val bridgeMode: String,
@@ -23,47 +19,3 @@ data class BotEntity(
     val status: String,
     val updatedAt: Long,
 )
-
-fun BotEntity.toProfile(): BotProfile {
-    return BotProfile(
-        id = id,
-        platformName = platformName,
-        displayName = displayName,
-        tag = tag,
-        accountHint = accountHint,
-        boundQqUins = boundQqUinsJson.parseJsonStringList(),
-        triggerWords = triggerWordsCsv
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() },
-        autoReplyEnabled = autoReplyEnabled,
-        persistConversationLocally = persistConversationLocally,
-        bridgeMode = bridgeMode,
-        bridgeEndpoint = bridgeEndpoint,
-        defaultProviderId = defaultProviderId,
-        defaultPersonaId = defaultPersonaId,
-        configProfileId = configProfileId,
-        status = status,
-    )
-}
-
-fun BotProfile.toEntity(): BotEntity {
-    return BotEntity(
-        id = id,
-        platformName = platformName,
-        displayName = displayName,
-        tag = tag,
-        accountHint = accountHint,
-        boundQqUinsJson = boundQqUins.toJsonArrayString(),
-        triggerWordsCsv = triggerWords.joinToString(","),
-        autoReplyEnabled = autoReplyEnabled,
-        persistConversationLocally = persistConversationLocally,
-        bridgeMode = bridgeMode,
-        bridgeEndpoint = bridgeEndpoint,
-        defaultProviderId = defaultProviderId,
-        defaultPersonaId = defaultPersonaId,
-        configProfileId = configProfileId,
-        status = status,
-        updatedAt = System.currentTimeMillis(),
-    )
-}
