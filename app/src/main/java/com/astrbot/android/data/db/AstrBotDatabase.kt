@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.astrbot.android.data.db.core.migration8To9
+import com.astrbot.android.data.db.core.migration9To10
 
 @Database(
     entities = [
@@ -29,12 +30,16 @@ import com.astrbot.android.data.db.core.migration8To9
         ProviderEntity::class,
         ProviderCapabilityEntity::class,
         ProviderTtsVoiceOptionEntity::class,
+        PluginInstallRecordEntity::class,
+        PluginManifestSnapshotEntity::class,
+        PluginManifestPermissionEntity::class,
+        PluginPermissionSnapshotEntity::class,
         SavedQqAccountEntity::class,
         TtsVoiceAssetEntity::class,
         TtsVoiceClipEntity::class,
         TtsVoiceProviderBindingEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -44,6 +49,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
     abstract fun conversationAggregateDao(): ConversationAggregateDao
     abstract fun personaAggregateDao(): PersonaAggregateDao
     abstract fun providerAggregateDao(): ProviderAggregateDao
+    abstract fun pluginInstallAggregateDao(): PluginInstallAggregateDao
     abstract fun savedQqAccountDao(): SavedQqAccountDao
     abstract fun ttsVoiceAssetAggregateDao(): TtsVoiceAssetAggregateDao
 
@@ -305,6 +311,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration6To7,
             migration7To8,
             migration8To9,
+            migration9To10,
         )
 
         fun get(context: Context): AstrBotDatabase {

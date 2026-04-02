@@ -8,6 +8,7 @@ import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.NapCatLoginService
 import com.astrbot.android.data.PersonaRepository
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.SherpaOnnxBridge
@@ -24,6 +25,8 @@ import com.astrbot.android.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.runtime.ContainerBridgeController
 import com.astrbot.android.runtime.ConversationSessionLockManager
 import com.astrbot.android.runtime.RuntimeLogRepository
@@ -392,6 +395,38 @@ object DefaultPersonaViewModelDependencies : PersonaViewModelDependencies {
 
     override fun delete(id: String) {
         PersonaRepository.delete(id)
+    }
+}
+
+interface PluginViewModelDependencies {
+    val records: StateFlow<List<PluginInstallRecord>>
+
+    fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
+
+    fun updatePluginUninstallPolicy(pluginId: String, policy: PluginUninstallPolicy): PluginInstallRecord
+
+    fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): com.astrbot.android.data.PluginUninstallResult
+}
+
+object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
+    override val records: StateFlow<List<PluginInstallRecord>> = PluginRepository.records
+
+    override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
+        return PluginRepository.setEnabled(pluginId, enabled)
+    }
+
+    override fun updatePluginUninstallPolicy(
+        pluginId: String,
+        policy: PluginUninstallPolicy,
+    ): PluginInstallRecord {
+        return PluginRepository.updateUninstallPolicy(pluginId, policy)
+    }
+
+    override fun uninstallPlugin(
+        pluginId: String,
+        policy: PluginUninstallPolicy,
+    ): com.astrbot.android.data.PluginUninstallResult {
+        return PluginRepository.uninstall(pluginId, policy)
     }
 }
 

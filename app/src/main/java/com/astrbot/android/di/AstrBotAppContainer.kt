@@ -13,6 +13,7 @@ import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.PersonaRepository
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.SherpaOnnxBridge
@@ -28,6 +29,7 @@ import com.astrbot.android.ui.viewmodel.ChatViewModel
 import com.astrbot.android.ui.viewmodel.ConfigViewModel
 import com.astrbot.android.ui.viewmodel.ConversationViewModel
 import com.astrbot.android.ui.viewmodel.PersonaViewModel
+import com.astrbot.android.ui.viewmodel.PluginViewModel
 import com.astrbot.android.ui.viewmodel.ProviderViewModel
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import com.astrbot.android.ui.viewmodel.RuntimeAssetViewModel
@@ -56,6 +58,7 @@ class AstrBotAppContainer(
     val configViewModelDependencies: ConfigViewModelDependencies = DefaultConfigViewModelDependencies
     val conversationViewModelDependencies: ConversationViewModelDependencies = DefaultConversationViewModelDependencies
     val personaViewModelDependencies: PersonaViewModelDependencies = DefaultPersonaViewModelDependencies
+    val pluginViewModelDependencies: PluginViewModelDependencies = DefaultPluginViewModelDependencies
     val qqLoginViewModelDependencies: QQLoginViewModelDependencies = DefaultQQLoginViewModelDependencies
     val chatViewModelDependencies: ChatViewModelDependencies = DefaultChatViewModelDependencies
     val mainActivityDependencies: MainActivityDependencies = DefaultMainActivityDependencies
@@ -88,6 +91,7 @@ class AstrBotAppContainer(
         PersonaRepository.initialize(application)
         ConfigRepository.initialize(application)
         ConversationRepository.initialize(application)
+        PluginRepository.initialize(application)
         ConversationBackupRepository.initialize(application)
         AppBackupRepository.initialize(application)
         OneBotBridgeServer.start()
@@ -112,6 +116,7 @@ private class AstrBotViewModelFactory(
             ConfigViewModel::class.java -> ConfigViewModel(container.configViewModelDependencies) as T
             ConversationViewModel::class.java -> ConversationViewModel(container.conversationViewModelDependencies) as T
             PersonaViewModel::class.java -> PersonaViewModel(container.personaViewModelDependencies) as T
+            PluginViewModel::class.java -> PluginViewModel(container.pluginViewModelDependencies) as T
             QQLoginViewModel::class.java -> QQLoginViewModel(container.qqLoginViewModelDependencies) as T
             ChatViewModel::class.java -> ChatViewModel(container.chatViewModelDependencies) as T
             RuntimeAssetViewModel::class.java -> RuntimeAssetViewModel(

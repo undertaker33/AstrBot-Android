@@ -1,6 +1,7 @@
 package com.astrbot.android.data.db
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
@@ -22,6 +23,22 @@ class AstrBotDatabaseMigrationTest {
 
     private val context: Context
         get() = ApplicationProvider.getApplicationContext()
+
+    private fun Context.openDatabaseForVerification(databaseName: String): SQLiteDatabase {
+        return openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).apply {
+            // Foreign key enforcement is configured per SQLite connection. These migration
+            // assertions reopen the database, so the verification connection must enable it.
+            setForeignKeyConstraintsEnabled(true)
+            rawQuery("PRAGMA foreign_keys", null).use { cursor ->
+                cursor.moveToFirst()
+                org.junit.Assert.assertEquals(
+                    "Expected foreign key enforcement to be enabled for verification",
+                    1,
+                    cursor.getInt(0),
+                )
+            }
+        }
+    }
 
     @Test
     @Throws(IOException::class)
@@ -50,7 +67,7 @@ class AstrBotDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(databaseName, 8, true, *AstrBotDatabase.allMigrations)
 
-        val database = context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null)
+        val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery("SELECT COUNT(*) FROM bots", null).use { cursor ->
             cursor.moveToFirst()
             org.junit.Assert.assertEquals(1, cursor.getInt(0))
@@ -112,7 +129,7 @@ class AstrBotDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(databaseName, 8, true, *AstrBotDatabase.allMigrations)
 
-        val database = context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null)
+        val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
             "SELECT value FROM app_preferences WHERE `key` = 'selected_config_profile_id'",
             null,
@@ -156,7 +173,7 @@ class AstrBotDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(databaseName, 9, true, *AstrBotDatabase.allMigrations)
 
-        val database = context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null)
+        val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_messages'",
             null,
@@ -174,6 +191,95 @@ class AstrBotDatabaseMigrationTest {
             null,
         ).use { cursor ->
             org.junit.Assert.assertTrue(cursor.moveToFirst())
+        }
+        database.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate9To10_createsPluginTablesAndCascadesChildren() {
+        val databaseName = "migration-test-9-10"
+        helper.createDatabase(databaseName, 9).apply {
+            execSQL(
+                """
+                INSERT INTO app_preferences (`key`, value, updatedAt)
+                VALUES ('selected_config_profile_id', 'config-1', 123)
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(databaseName, 10, true, *AstrBotDatabase.allMigrations)
+
+        val database = context.openDatabaseForVerification(databaseName)
+        listOf(
+            "plugin_install_records",
+            "plugin_manifest_snapshots",
+            "plugin_manifest_permissions",
+            "plugin_permission_snapshots",
+        ).forEach { tableName ->
+            database.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='$tableName'",
+                null,
+            ).use { cursor ->
+                org.junit.Assert.assertTrue("Expected $tableName to exist", cursor.moveToFirst())
+            }
+        }
+
+        database.execSQL(
+            """
+            INSERT INTO plugin_install_records (
+                pluginId, sourceType, sourceLocation, sourceImportedAt,
+                protocolSupported, minHostVersionSatisfied, maxHostVersionSatisfied, compatibilityNotes,
+                uninstallPolicy, enabled, installedAt, lastUpdatedAt, localPackagePath, extractedDir
+            ) VALUES (
+                'plugin.demo', 'LOCAL_FILE', '/plugins/demo.zip', 100,
+                NULL, NULL, NULL, '',
+                'KEEP_DATA', 1, 100, 100, '/plugins/packages/demo.zip', '/plugins/extracted/plugin.demo'
+            )
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            INSERT INTO plugin_manifest_snapshots (
+                pluginId, version, protocolVersion, author, title, description,
+                minHostVersion, maxHostVersion, sourceType, entrySummary, riskLevel
+            ) VALUES (
+                'plugin.demo', '1.0.0', 1, 'AstrBot', 'Demo', 'Demo plugin',
+                '0.3.0', '', 'LOCAL_FILE', 'Entry summary', 'LOW'
+            )
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            INSERT INTO plugin_manifest_permissions (
+                pluginId, permissionId, title, description, riskLevel, required, sortIndex
+            ) VALUES (
+                'plugin.demo', 'net.access', 'Network access', 'Allows outgoing requests', 'MEDIUM', 1, 0
+            )
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            INSERT INTO plugin_permission_snapshots (
+                pluginId, permissionId, title, description, riskLevel, required, sortIndex
+            ) VALUES (
+                'plugin.demo', 'net.access', 'Network access', 'Allows outgoing requests', 'MEDIUM', 1, 0
+            )
+            """.trimIndent(),
+        )
+
+        database.execSQL("DELETE FROM plugin_install_records WHERE pluginId = 'plugin.demo'")
+
+        listOf(
+            "plugin_manifest_snapshots",
+            "plugin_manifest_permissions",
+            "plugin_permission_snapshots",
+        ).forEach { tableName ->
+            database.rawQuery("SELECT COUNT(*) FROM $tableName", null).use { cursor ->
+                cursor.moveToFirst()
+                org.junit.Assert.assertEquals("Expected $tableName rows to cascade", 0, cursor.getInt(0))
+            }
         }
         database.close()
     }

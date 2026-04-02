@@ -8,3 +8,9 @@ internal val migration8To9 = object : Migration(8, 9) {
         db.resetSchemaToV9()
     }
 }
+
+internal val migration9To10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.createPluginTablesV10()
+    }
+}
