@@ -105,10 +105,17 @@ internal fun AstrBotAppTopBar(
                 title = stringResource(R.string.nav_plugins),
                 titleAlignment = TopBarTitleAlignment.End,
                 leftContent = {
-                    androidx.compose.material3.Text(
-                        stringResource(R.string.nav_plugins),
-                        color = MonochromeUi.textSecondary,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    TopBarSegmentedToggle(
+                        options = listOf(
+                            stringResource(R.string.plugin_workspace_tab_local),
+                            stringResource(R.string.plugin_workspace_tab_market),
+                        ),
+                        selectedIndex = pluginWorkspaceToggleSelectionIndex(pluginWorkspaceTab),
+                        onSelect = { index ->
+                            onPluginWorkspaceTabChange(
+                                if (index == 0) PluginWorkspaceTab.LOCAL else PluginWorkspaceTab.MARKET,
+                            )
+                        },
                     )
                 },
             )
@@ -426,6 +433,13 @@ internal fun activeMainDestination(
 
 internal fun mainRoute(activeMainDestination: Pair<AppDestination, String>?): String? {
     return activeMainDestination?.first?.route
+}
+
+internal fun pluginWorkspaceToggleSelectionIndex(pluginWorkspaceTab: PluginWorkspaceTab): Int {
+    return when (pluginWorkspaceTab) {
+        PluginWorkspaceTab.LOCAL -> 0
+        PluginWorkspaceTab.MARKET -> 1
+    }
 }
 
 @Composable

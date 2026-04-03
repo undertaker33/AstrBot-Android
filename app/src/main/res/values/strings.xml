@@ -18,6 +18,8 @@
     <string name="nav_bots">Bots</string>
     <string name="nav_personas">Personas</string>
     <string name="nav_plugins">Plugins</string>
+    <string name="plugin_workspace_tab_local">Local</string>
+    <string name="plugin_workspace_tab_market">Market</string>
     <string name="nav_chat">Chat</string>
     <string name="nav_config">Config</string>
     <string name="nav_logs">Logs</string>
@@ -28,6 +30,8 @@
     <string name="nav_models">Models</string>
     <string name="plugin_placeholder_title">Under construction</string>
     <string name="plugin_placeholder_message">The plugin workspace is being prepared for this iteration.</string>
+    <string name="plugin_market_placeholder_title">Market is coming soon</string>
+    <string name="plugin_market_placeholder_message">The market page is reserved in this iteration and will be filled in later.</string>
     <string name="plugin_empty_title">No plugins installed</string>
     <string name="plugin_empty_message">Import a local plugin package to start managing plugin metadata, permissions, and compatibility here.</string>
     <string name="plugin_summary_title">Plugin workspace</string>
@@ -153,6 +157,8 @@
     <string name="plugin_installed_library_filter_permission_changes">Permission changes</string>
     <string name="plugin_installed_library_status_enabled">Enabled</string>
     <string name="plugin_installed_library_status_disabled">Disabled</string>
+    <string name="plugin_local_status_enabled">Enabled</string>
+    <string name="plugin_local_status_disabled">Disabled</string>
     <string name="plugin_installed_library_status_update_available">Update available</string>
     <string name="plugin_installed_library_status_compatibility_unknown">Compatibility unknown</string>
     <string name="plugin_installed_library_status_incompatible">Incompatible</string>
