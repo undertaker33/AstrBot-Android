@@ -14,13 +14,30 @@ import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
+import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.hasNativeStreamingSupport
+import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.PluginBotSummary
+import com.astrbot.android.model.plugin.PluginConfigSummary
+import com.astrbot.android.model.plugin.PluginExecutionContext
+import com.astrbot.android.model.plugin.PluginHostAction
+import com.astrbot.android.model.plugin.PluginMessageSummary
+import com.astrbot.android.model.plugin.PluginPermissionGrant
+import com.astrbot.android.model.plugin.PluginTriggerMetadata
+import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
+import com.astrbot.android.runtime.plugin.PluginExecutionEngine
+import com.astrbot.android.runtime.plugin.PluginFailureGuard
+import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
+import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
+import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.qq.QqKeywordDetector
 import com.astrbot.android.runtime.qq.QqConversationTitleResolver
 import com.astrbot.android.runtime.qq.QqReplyFormatter
@@ -293,8 +310,26 @@ object OneBotBridgeServer {
                 content = finalPromptContent,
                 attachments = event.attachments,
             )
+            val preModelSession = ConversationRepository.session(sessionId)
+            val userMessage = preModelSession.messages.lastOrNull { it.role == "user" } ?: return@lock
             RuntimeLogRepository.append(
                 "QQ message received: type=${event.messageType} session=$sessionId chars=${event.text.length} attachments=${event.attachments.size}",
+            )
+            executeQqPlugins(
+                trigger = PluginTriggerSource.BeforeSendMessage,
+                contextFactory = { plugin ->
+                    buildQqPluginContext(
+                        plugin = plugin,
+                        trigger = PluginTriggerSource.BeforeSendMessage,
+                        session = preModelSession,
+                        message = userMessage,
+                        provider = provider,
+                        bot = bot,
+                        persona = persona,
+                        config = config,
+                        event = event,
+                    )
+                },
             )
 
             val response = runCatching {
@@ -366,6 +401,24 @@ object OneBotBridgeServer {
             val outboundAttachments = if (outboundBlocked) emptyList() else assistantAttachments
 
             ConversationRepository.appendMessage(sessionId, "assistant", outboundText, attachments = outboundAttachments)
+            val postModelSession = ConversationRepository.session(sessionId)
+            val assistantMessage = postModelSession.messages.lastOrNull { it.role == "assistant" } ?: return@lock
+            executeQqPlugins(
+                trigger = PluginTriggerSource.AfterModelResponse,
+                contextFactory = { plugin ->
+                    buildQqPluginContext(
+                        plugin = plugin,
+                        trigger = PluginTriggerSource.AfterModelResponse,
+                        session = postModelSession,
+                        message = assistantMessage,
+                        provider = provider,
+                        bot = bot,
+                        persona = persona,
+                        config = config,
+                        event = event,
+                    )
+                },
+            )
             val sentVoiceReply = wantsTts && outboundAttachments.isNotEmpty()
             if (sentVoiceReply) {
                 if (config.voiceStreamingEnabled && outboundAttachments.size > 1) {
@@ -585,6 +638,128 @@ object OneBotBridgeServer {
             MessageType.GroupMessage -> "${event.senderName.ifBlank { event.userId }}: $textContent".trim()
             else -> textContent
         }
+    }
+
+    private fun executeQqPlugins(
+        trigger: PluginTriggerSource,
+        contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+    ) {
+        val plugins = PluginRuntimeRegistry.plugins()
+        if (plugins.isEmpty()) {
+            return
+        }
+        val pluginFailureGuard = PluginFailureGuard(
+            store = PluginRuntimeFailureStateStoreProvider.store(),
+        )
+        val pluginEngine = PluginExecutionEngine(
+            dispatcher = PluginRuntimeDispatcher(pluginFailureGuard),
+            failureGuard = pluginFailureGuard,
+        )
+        val batch = runCatching {
+            pluginEngine.executeBatch(
+                trigger = trigger,
+                plugins = plugins,
+                contextFactory = contextFactory,
+            )
+        }.onFailure { error ->
+            RuntimeLogRepository.append(
+                "QQ runtime plugin dispatch failed: trigger=${trigger.wireValue} reason=${error.message ?: error.javaClass.simpleName}",
+            )
+        }.getOrNull() ?: return
+
+        batch.skipped.forEach { skip ->
+            RuntimeLogRepository.append(
+                "QQ runtime plugin skipped: trigger=${trigger.wireValue} plugin=${skip.plugin.pluginId} reason=${skip.reason.name}",
+            )
+        }
+        batch.outcomes.forEach { outcome ->
+            val resultName = outcome.result::class.simpleName ?: "UnknownResult"
+            if (outcome.succeeded) {
+                RuntimeLogRepository.append(
+                    "QQ runtime plugin executed: trigger=${trigger.wireValue} plugin=${outcome.pluginId} result=$resultName",
+                )
+            } else {
+                val errorResult = outcome.result as? ErrorResult
+                RuntimeLogRepository.append(
+                    "QQ runtime plugin failed: trigger=${trigger.wireValue} plugin=${outcome.pluginId} code=${errorResult?.code.orEmpty()} message=${errorResult?.message.orEmpty()}",
+                )
+            }
+        }
+    }
+
+    private fun buildQqPluginContext(
+        plugin: PluginRuntimePlugin,
+        trigger: PluginTriggerSource,
+        session: ConversationSession,
+        message: ConversationMessage,
+        provider: ProviderProfile,
+        bot: BotProfile,
+        persona: PersonaProfile?,
+        config: com.astrbot.android.model.ConfigProfile,
+        event: IncomingMessageEvent,
+    ): PluginExecutionContext {
+        return PluginExecutionContext(
+            trigger = trigger,
+            pluginId = plugin.pluginId,
+            pluginVersion = plugin.pluginVersion,
+            sessionRef = MessageSessionRef(
+                platformId = session.platformId,
+                messageType = session.messageType,
+                originSessionId = session.originSessionId,
+            ),
+            message = PluginMessageSummary(
+                messageId = message.id,
+                contentPreview = message.content.take(500),
+                senderId = if (message.role == "assistant") bot.id else event.userId,
+                messageType = session.messageType.wireValue,
+                attachmentCount = message.attachments.size,
+                timestamp = message.timestamp,
+            ),
+            bot = PluginBotSummary(
+                botId = bot.id,
+                displayName = bot.displayName,
+                platformId = session.platformId,
+            ),
+            config = PluginConfigSummary(
+                providerId = provider.id,
+                modelId = provider.model,
+                personaId = persona?.id.orEmpty(),
+                extras = buildMap {
+                    put("sessionId", session.id)
+                    put("source", "qq_runtime")
+                    put("selfId", event.selfId)
+                    put("userId", event.userId)
+                    put("groupId", event.groupId)
+                    put("streamingEnabled", config.textStreamingEnabled.toString())
+                    put("ttsEnabled", config.ttsEnabled.toString())
+                },
+            ),
+            permissionSnapshot = plugin.installState.permissionSnapshot.map { permission ->
+                PluginPermissionGrant(
+                    permissionId = permission.permissionId,
+                    title = permission.title,
+                    granted = true,
+                    required = permission.required,
+                    riskLevel = permission.riskLevel,
+                )
+            },
+            hostActionWhitelist = listOf(
+                PluginHostAction.CallModel,
+                PluginHostAction.SendMessage,
+                PluginHostAction.SendNotification,
+                PluginHostAction.OpenHostPage,
+            ),
+            triggerMetadata = PluginTriggerMetadata(
+                eventId = "${trigger.wireValue}:${session.id}:${message.id}",
+                extras = mapOf(
+                    "source" to "qq_runtime",
+                    "selfId" to event.selfId,
+                    "userId" to event.userId,
+                    "groupId" to event.groupId,
+                    "messageId" to event.messageId,
+                ),
+            ),
+        )
     }
 
     private fun sendReply(

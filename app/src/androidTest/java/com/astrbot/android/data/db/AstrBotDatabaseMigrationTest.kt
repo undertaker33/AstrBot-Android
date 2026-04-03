@@ -283,4 +283,82 @@ class AstrBotDatabaseMigrationTest {
         }
         database.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate10To11_addsPluginFailureStateColumnsWithCompatibleDefaults() {
+        val databaseName = "migration-test-10-11"
+        helper.createDatabase(databaseName, 10).apply {
+            execSQL(
+                """
+                INSERT INTO plugin_install_records (
+                    pluginId, sourceType, sourceLocation, sourceImportedAt,
+                    protocolSupported, minHostVersionSatisfied, maxHostVersionSatisfied, compatibilityNotes,
+                    uninstallPolicy, enabled, installedAt, lastUpdatedAt, localPackagePath, extractedDir
+                ) VALUES (
+                    'plugin.demo', 'LOCAL_FILE', '/plugins/demo.zip', 100,
+                    1, 1, 1, '',
+                    'KEEP_DATA', 1, 100, 100, '/plugins/packages/demo.zip', '/plugins/extracted/plugin.demo'
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO plugin_manifest_snapshots (
+                    pluginId, version, protocolVersion, author, title, description,
+                    minHostVersion, maxHostVersion, sourceType, entrySummary, riskLevel
+                ) VALUES (
+                    'plugin.demo', '1.0.0', 1, 'AstrBot', 'Demo', 'Demo plugin',
+                    '0.3.0', '', 'LOCAL_FILE', 'Entry summary', 'LOW'
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(databaseName, 11, true, *AstrBotDatabase.allMigrations)
+
+        val database = context.openDatabaseForVerification(databaseName)
+        database.rawQuery(
+            """
+            SELECT consecutiveFailureCount, lastFailureAtEpochMillis, lastErrorSummary, suspendedUntilEpochMillis
+            FROM plugin_install_records
+            WHERE pluginId = 'plugin.demo'
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals(0, cursor.getInt(0))
+            org.junit.Assert.assertTrue(cursor.isNull(1))
+            org.junit.Assert.assertEquals("", cursor.getString(2))
+            org.junit.Assert.assertTrue(cursor.isNull(3))
+        }
+
+        database.execSQL(
+            """
+            UPDATE plugin_install_records
+            SET consecutiveFailureCount = 3,
+                lastFailureAtEpochMillis = 1234,
+                lastErrorSummary = 'socket timeout',
+                suspendedUntilEpochMillis = 5678
+            WHERE pluginId = 'plugin.demo'
+            """.trimIndent(),
+        )
+
+        database.rawQuery(
+            """
+            SELECT consecutiveFailureCount, lastFailureAtEpochMillis, lastErrorSummary, suspendedUntilEpochMillis
+            FROM plugin_install_records
+            WHERE pluginId = 'plugin.demo'
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals(3, cursor.getInt(0))
+            org.junit.Assert.assertEquals(1234L, cursor.getLong(1))
+            org.junit.Assert.assertEquals("socket timeout", cursor.getString(2))
+            org.junit.Assert.assertEquals(5678L, cursor.getLong(3))
+        }
+        database.close()
+    }
 }

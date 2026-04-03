@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performScrollToNode
 import com.astrbot.android.R
 import com.astrbot.android.di.PluginViewModelDependencies
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
@@ -96,50 +97,43 @@ class PluginScreenSmokeTest {
             useUnmergedTree = true,
         ).assertIsDisplayed()
     }
+
+    @Test
+    fun pluginScreenShowsFailureStateInListAndDetail() {
+        val dependencies = FakePluginViewModelDependencies(
+            listOf(
+                failingRecord(),
+                normalRecord(),
+            ),
+        )
+
+        composeRule.setContent {
+            MaterialTheme {
+                PluginScreen(
+                    pluginViewModel = PluginViewModel(dependencies),
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(PluginUiSpec.pluginFailureChipTag("weather-toolkit"))
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.plugin_failure_summary_with_error, "socket timeout"),
+            useUnmergedTree = true,
+        ).assertIsDisplayed()
+
+        composeRule.onNodeWithTag(PluginUiSpec.pluginCardTag("weather-toolkit")).performClick()
+
+        composeRule.onNodeWithTag(PluginUiSpec.DetailPanelTag).assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.DetailFailureBannerTag).assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.DetailFailureRecoveryTag).assertIsDisplayed()
+    }
 }
 
-private class FakePluginViewModelDependencies : PluginViewModelDependencies {
-    private val recordsState = MutableStateFlow(
-        listOf(
-            PluginInstallRecord.restoreFromPersistedState(
-                manifestSnapshot = PluginManifest(
-                    pluginId = "weather-toolkit",
-                    version = "1.2.0",
-                    protocolVersion = 1,
-                    author = "AstrBot Labs",
-                    title = "Weather Toolkit",
-                    description = "Shows local forecasts and quick climate summaries.",
-                    permissions = listOf(
-                        PluginPermissionDeclaration(
-                            permissionId = "network",
-                            title = "Network access",
-                            description = "Fetches weather data from the configured provider.",
-                            riskLevel = PluginRiskLevel.MEDIUM,
-                        ),
-                    ),
-                    minHostVersion = "0.3.6",
-                    maxHostVersion = "0.4.0",
-                    sourceType = PluginSourceType.LOCAL_FILE,
-                    entrySummary = "Adds a forecast helper card to the plugin workspace.",
-                    riskLevel = PluginRiskLevel.MEDIUM,
-                ),
-                source = PluginSource(
-                    sourceType = PluginSourceType.LOCAL_FILE,
-                    location = "/storage/emulated/0/Download/weather-toolkit.zip",
-                    importedAt = 42L,
-                ),
-                compatibilityState = PluginCompatibilityState.evaluated(
-                    protocolSupported = true,
-                    minHostVersionSatisfied = true,
-                    maxHostVersionSatisfied = true,
-                    notes = "Validated against Phase 1 protocol.",
-                ),
-                enabled = true,
-                installedAt = 100L,
-                lastUpdatedAt = 200L,
-            ),
-        ),
-    )
+private class FakePluginViewModelDependencies(
+    records: List<PluginInstallRecord> = listOf(normalRecord()),
+) : PluginViewModelDependencies {
+    private val recordsState = MutableStateFlow(records)
 
     override val records: StateFlow<List<PluginInstallRecord>> = recordsState
 
@@ -181,6 +175,7 @@ private class FakePluginViewModelDependencies : PluginViewModelDependencies {
 
 private fun PluginInstallRecord.copyWith(
     enabled: Boolean = this.enabled,
+    failureState: PluginFailureState = this.failureState,
     uninstallPolicy: PluginUninstallPolicy = this.uninstallPolicy,
 ): PluginInstallRecord {
     return PluginInstallRecord.restoreFromPersistedState(
@@ -188,11 +183,64 @@ private fun PluginInstallRecord.copyWith(
         source = source,
         permissionSnapshot = permissionSnapshot,
         compatibilityState = compatibilityState,
+        failureState = failureState,
         uninstallPolicy = uninstallPolicy,
         enabled = enabled,
         installedAt = installedAt,
         lastUpdatedAt = lastUpdatedAt,
         localPackagePath = localPackagePath,
         extractedDir = extractedDir,
+    )
+}
+
+private fun normalRecord(): PluginInstallRecord {
+    return PluginInstallRecord.restoreFromPersistedState(
+        manifestSnapshot = PluginManifest(
+            pluginId = "weather-toolkit",
+            version = "1.2.0",
+            protocolVersion = 1,
+            author = "AstrBot Labs",
+            title = "Weather Toolkit",
+            description = "Shows local forecasts and quick climate summaries.",
+            permissions = listOf(
+                PluginPermissionDeclaration(
+                    permissionId = "network",
+                    title = "Network access",
+                    description = "Fetches weather data from the configured provider.",
+                    riskLevel = PluginRiskLevel.MEDIUM,
+                ),
+            ),
+            minHostVersion = "0.3.6",
+            maxHostVersion = "0.4.0",
+            sourceType = PluginSourceType.LOCAL_FILE,
+            entrySummary = "Adds a forecast helper card to the plugin workspace.",
+            riskLevel = PluginRiskLevel.MEDIUM,
+        ),
+        source = PluginSource(
+            sourceType = PluginSourceType.LOCAL_FILE,
+            location = "/storage/emulated/0/Download/weather-toolkit.zip",
+            importedAt = 42L,
+        ),
+        compatibilityState = PluginCompatibilityState.evaluated(
+            protocolSupported = true,
+            minHostVersionSatisfied = true,
+            maxHostVersionSatisfied = true,
+            notes = "Validated against Phase 1 protocol.",
+        ),
+        enabled = true,
+        installedAt = 100L,
+        lastUpdatedAt = 200L,
+    )
+}
+
+private fun failingRecord(): PluginInstallRecord {
+    return normalRecord().copyWith(
+        enabled = false,
+        failureState = PluginFailureState(
+            consecutiveFailureCount = 2,
+            lastFailureAtEpochMillis = 1_000L,
+            lastErrorSummary = "socket timeout",
+            suspendedUntilEpochMillis = 4_102_444_800_000L,
+        ),
     )
 }

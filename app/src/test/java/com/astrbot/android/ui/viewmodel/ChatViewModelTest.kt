@@ -12,6 +12,29 @@ import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.NoOp
+import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginExecutionContext
+import com.astrbot.android.model.plugin.PluginExecutionResult
+import com.astrbot.android.model.plugin.PluginInstallState
+import com.astrbot.android.model.plugin.PluginInstallStatus
+import com.astrbot.android.model.plugin.PluginManifest
+import com.astrbot.android.model.plugin.PluginPermissionDeclaration
+import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginSource
+import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.model.plugin.TextResult
+import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.EngineBackedAppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.InMemoryPluginFailureStateStore
+import com.astrbot.android.runtime.plugin.PluginExecutionBatchResult
+import com.astrbot.android.runtime.plugin.PluginExecutionEngine
+import com.astrbot.android.runtime.plugin.PluginFailureGuard
+import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
+import com.astrbot.android.runtime.plugin.PluginRuntimeHandler
+import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +42,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -46,7 +70,7 @@ class ChatViewModelTest {
                 ),
             ),
             bots = listOf(defaultBot(), defaultBot(id = "bot-2", defaultProviderId = "provider-2")),
-            providers = listOf(defaultProvider("provider-2")),
+            providers = listOf(defaultChatProvider("provider-2")),
         )
 
         val viewModel = ChatViewModel(deps)
@@ -65,6 +89,7 @@ class ChatViewModelTest {
         )
         val viewModel = ChatViewModel(deps)
         advanceUntilIdle()
+        deps.clearRecordedSignals()
 
         viewModel.sendMessage("hello")
         advanceUntilIdle()
@@ -74,44 +99,289 @@ class ChatViewModelTest {
         assertEquals(false, viewModel.uiState.value.isSending)
     }
 
+    @Test
+    fun send_message_triggers_before_send_plugin_after_user_message_persist_and_before_model_dispatch() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val depsSignals = deps.signalLog
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "before-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    depsSignals += "plugin:before"
+                    TextResult("seen")
+                },
+                runtimePlugin(
+                    pluginId = "after-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.AfterModelResponse),
+                ) {
+                    depsSignals += "plugin:after"
+                    NoOp("done")
+                },
+            ),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello plugin")
+        advanceUntilIdle()
+
+        val beforeBatch = runtime.batches.first { it.trigger == PluginTriggerSource.BeforeSendMessage }
+        assertEquals("hello plugin", beforeBatch.outcomes.single().context.message.contentPreview)
+        assertEquals(0, beforeBatch.outcomes.single().context.message.attachmentCount)
+
+        assertOrder(
+            signals = deps.signalLog,
+            before = "append:user:hello plugin",
+            after = "plugin:before",
+        )
+        assertOrder(
+            signals = deps.signalLog,
+            before = "plugin:before",
+            after = "model:sync",
+        )
+        assertOrder(
+            signals = deps.signalLog,
+            before = "model:sync",
+            after = "plugin:after",
+        )
+        assertEquals(1, deps.sentChatRequests)
+    }
+
+    @Test
+    fun send_message_triggers_after_model_response_plugin_after_streaming_and_tts_updates() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(
+                defaultBot(
+                    defaultProviderId = "provider-stream",
+                    configProfileId = "config-stream",
+                ),
+            ),
+            providers = listOf(
+                streamingChatProvider("provider-stream"),
+                defaultTtsProvider("tts-1"),
+            ),
+            config = ConfigProfile(
+                id = "config-stream",
+                defaultChatProviderId = "provider-stream",
+                defaultTtsProviderId = "tts-1",
+                textStreamingEnabled = true,
+                ttsEnabled = true,
+                alwaysTtsEnabled = true,
+                ttsVoiceId = "voice-1",
+            ),
+        ).also {
+            it.streamingResponse = "streamed reply"
+            it.streamingDeltas = listOf("streamed ", "reply")
+        }
+        val depsSignals = deps.signalLog
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "after-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.AfterModelResponse),
+                ) {
+                    depsSignals += "plugin:after"
+                    TextResult("after")
+                },
+            ),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello stream")
+        advanceUntilIdle()
+        val afterBatch = runtime.batches.single { it.trigger == PluginTriggerSource.AfterModelResponse }
+        val afterContext = afterBatch.outcomes.single().context
+        assertEquals("streamed reply", afterContext.message.contentPreview)
+        assertEquals(1, afterContext.message.attachmentCount)
+        assertOrder(
+            signals = deps.signalLog,
+            before = "tts",
+            after = "plugin:after",
+        )
+        assertEquals(1, deps.sentStreamingRequests)
+        assertEquals(1, deps.synthesizedRequests)
+    }
+
+    @Test
+    fun send_message_keeps_command_priority_over_plugins_and_model_dispatch() = runTest(dispatcher) {
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "before-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    TextResult("should-not-run")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/sid")
+        advanceUntilIdle()
+
+        assertTrue(runtime.batches.isEmpty())
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals(1, deps.appendedMessages.count { it.role == "assistant" })
+    }
+
+    @Test
+    fun send_message_isolates_plugin_failures_and_completes_model_flow() = runTest(dispatcher) {
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "before-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    throw IllegalStateException("plugin exploded")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("still send")
+        advanceUntilIdle()
+        val failedOutcome = runtime.batches
+            .single { it.trigger == PluginTriggerSource.BeforeSendMessage }
+            .outcomes
+            .single()
+        assertFalse(failedOutcome.succeeded)
+        assertTrue(failedOutcome.result is ErrorResult)
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("model reply", deps.latestAssistantMessage()?.content)
+        assertEquals("", viewModel.uiState.value.error)
+    }
+
     private class FakeChatDependencies(
         sessions: List<ConversationSession>,
         bots: List<BotProfile>,
         providers: List<ProviderProfile>,
+        private val config: ConfigProfile = ConfigProfile(
+            id = "config-default",
+            defaultChatProviderId = providers.firstOrNull { ProviderCapability.CHAT in it.capabilities }?.id.orEmpty(),
+        ),
     ) : ChatViewModelDependencies {
         override val defaultSessionId: String = "chat-main"
         override val defaultSessionTitle: String = "Default session"
         override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(bots)
         override val selectedBotId: StateFlow<String> = MutableStateFlow(bots.firstOrNull()?.id ?: "qq-main")
         override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(providers)
-        override val configProfiles: StateFlow<List<ConfigProfile>> = MutableStateFlow(listOf(ConfigProfile()))
-        override val sessions: StateFlow<List<ConversationSession>> = MutableStateFlow(sessions)
+        override val configProfiles: StateFlow<List<ConfigProfile>> = MutableStateFlow(listOf(config))
+        override val sessions: MutableStateFlow<List<ConversationSession>> = MutableStateFlow(sessions)
         override val personas: StateFlow<List<PersonaProfile>> = MutableStateFlow(emptyList())
 
-        data class BindingUpdate(val sessionId: String, val providerId: String, val personaId: String, val botId: String)
+        data class BindingUpdate(
+            val sessionId: String,
+            val providerId: String,
+            val personaId: String,
+            val botId: String,
+        )
 
         val bindingUpdates = mutableListOf<BindingUpdate>()
         val appendedMessages = mutableListOf<ConversationMessage>()
         val loggedMessages = mutableListOf<String>()
+        val signalLog = mutableListOf<String>()
+
+        var sentChatRequests = 0
+        var sentStreamingRequests = 0
+        var synthesizedRequests = 0
+        var chatResponse: String = "model reply"
+        var streamingResponse: String = "streamed reply"
+        var streamingDeltas: List<String> = listOf("streamed ", "reply")
 
         override fun session(sessionId: String): ConversationSession {
             return sessions.value.first { it.id == sessionId }
         }
 
         override fun createSession(botId: String): ConversationSession {
-            error("Not needed in test")
+            val created = ConversationSession(
+                id = "chat-created-${sessions.value.size}",
+                title = defaultSessionTitle,
+                botId = botId,
+                providerId = "",
+                personaId = "",
+                maxContextMessages = 12,
+                messages = emptyList(),
+            )
+            sessions.value = sessions.value + created
+            signalLog += "session:create:${created.id}"
+            return created
         }
 
-        override fun deleteSession(sessionId: String) = Unit
+        override fun deleteSession(sessionId: String) {
+            sessions.value = sessions.value.filterNot { it.id == sessionId }
+            signalLog += "session:delete:$sessionId"
+        }
 
-        override fun renameSession(sessionId: String, title: String) = Unit
+        override fun renameSession(sessionId: String, title: String) {
+            mutateSession(sessionId) { it.copy(title = title) }
+            signalLog += "session:rename:$sessionId:$title"
+        }
 
-        override fun toggleSessionPinned(sessionId: String) = Unit
+        override fun toggleSessionPinned(sessionId: String) {
+            mutateSession(sessionId) { it.copy(pinned = !it.pinned) }
+            signalLog += "session:pin:$sessionId"
+        }
 
-        override fun updateSessionServiceFlags(sessionId: String, sessionSttEnabled: Boolean?, sessionTtsEnabled: Boolean?) = Unit
+        override fun updateSessionServiceFlags(sessionId: String, sessionSttEnabled: Boolean?, sessionTtsEnabled: Boolean?) {
+            mutateSession(sessionId) {
+                it.copy(
+                    sessionSttEnabled = sessionSttEnabled ?: it.sessionSttEnabled,
+                    sessionTtsEnabled = sessionTtsEnabled ?: it.sessionTtsEnabled,
+                )
+            }
+            signalLog += "session:service-flags:$sessionId"
+        }
 
         override fun updateSessionBindings(sessionId: String, providerId: String, personaId: String, botId: String) {
+            mutateSession(sessionId) {
+                it.copy(
+                    providerId = providerId,
+                    personaId = personaId,
+                    botId = botId,
+                )
+            }
             bindingUpdates += BindingUpdate(sessionId, providerId, personaId, botId)
+            signalLog += "bind:$sessionId"
         }
 
         override fun appendMessage(
@@ -120,28 +390,54 @@ class ChatViewModelTest {
             content: String,
             attachments: List<ConversationAttachment>,
         ): String {
-            appendedMessages += ConversationMessage(
+            val message = ConversationMessage(
                 id = "msg-${appendedMessages.size}",
                 role = role,
                 content = content,
-                timestamp = 1L,
+                timestamp = appendedMessages.size.toLong() + 1L,
                 attachments = attachments,
             )
-            return appendedMessages.last().id
+            appendedMessages += message
+            mutateSession(sessionId) { it.copy(messages = it.messages + message) }
+            signalLog += "append:$role:${content.ifBlank { "<empty>" }}"
+            return message.id
         }
 
-        override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) = Unit
+        override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
+            mutateSession(sessionId) { it.copy(messages = messages) }
+            signalLog += "replace:$sessionId"
+        }
 
         override fun updateMessage(
             sessionId: String,
             messageId: String,
             content: String?,
             attachments: List<ConversationAttachment>?,
-        ) = Unit
+        ) {
+            mutateSession(sessionId) { session ->
+                session.copy(
+                    messages = session.messages.map { message ->
+                        if (message.id != messageId) {
+                            message
+                        } else {
+                            message.copy(
+                                content = content ?: message.content,
+                                attachments = attachments ?: message.attachments,
+                            )
+                        }
+                    },
+                )
+            }
+            val updated = session(sessionId).messages.first { it.id == messageId }
+            signalLog += "update:$messageId:${updated.content.ifBlank { "<empty>" }}:${updated.attachments.size}"
+        }
 
-        override fun syncSystemSessionTitle(sessionId: String, title: String) = Unit
+        override fun syncSystemSessionTitle(sessionId: String, title: String) {
+            mutateSession(sessionId) { it.copy(title = title) }
+            signalLog += "title:$sessionId:$title"
+        }
 
-        override fun resolveConfig(profileId: String): ConfigProfile = ConfigProfile(defaultChatProviderId = "provider-2")
+        override fun resolveConfig(profileId: String): ConfigProfile = config
 
         override fun saveConfig(profile: ConfigProfile) = Unit
 
@@ -150,7 +446,8 @@ class ChatViewModelTest {
         override fun saveProvider(profile: ProviderProfile) = Unit
 
         override suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String {
-            error("Not needed in test")
+            signalLog += "stt"
+            return "transcribed"
         }
 
         override suspend fun sendConfiguredChat(
@@ -160,7 +457,9 @@ class ChatViewModelTest {
             config: ConfigProfile?,
             availableProviders: List<ProviderProfile>,
         ): String {
-            error("Not needed in test")
+            sentChatRequests += 1
+            signalLog += "model:sync"
+            return chatResponse
         }
 
         override suspend fun sendConfiguredChatStream(
@@ -171,7 +470,10 @@ class ChatViewModelTest {
             availableProviders: List<ProviderProfile>,
             onDelta: suspend (String) -> Unit,
         ): String {
-            error("Not needed in test")
+            sentStreamingRequests += 1
+            signalLog += "model:stream"
+            streamingDeltas.forEach { delta -> onDelta(delta) }
+            return streamingResponse
         }
 
         override suspend fun synthesizeSpeech(
@@ -180,23 +482,136 @@ class ChatViewModelTest {
             voiceId: String,
             readBracketedContent: Boolean,
         ): ConversationAttachment {
-            error("Not needed in test")
+            synthesizedRequests += 1
+            signalLog += "tts"
+            return ConversationAttachment(
+                id = "tts-${synthesizedRequests}",
+                type = "audio",
+                mimeType = "audio/mpeg",
+                fileName = "reply.mp3",
+                base64Data = "audio",
+            )
         }
 
         override suspend fun <T> withSessionLock(sessionId: String, block: suspend () -> T): T {
+            signalLog += "lock:$sessionId"
             return block()
         }
 
         override fun log(message: String) {
             loggedMessages += message
         }
+
+        fun clearRecordedSignals() {
+            signalLog.clear()
+            loggedMessages.clear()
+        }
+
+        fun latestAssistantMessage(): ConversationMessage? {
+            return sessions.value
+                .flatMap { it.messages }
+                .lastOrNull { it.role == "assistant" }
+        }
+
+        private fun mutateSession(sessionId: String, transform: (ConversationSession) -> ConversationSession) {
+            sessions.value = sessions.value.map { session ->
+                if (session.id == sessionId) transform(session) else session
+            }
+        }
     }
 
-    private fun defaultSession(): ConversationSession {
+    private class RecordingAppChatPluginRuntime(
+        plugins: List<PluginRuntimePlugin>,
+    ) : AppChatPluginRuntime {
+        private val failureGuard = PluginFailureGuard(InMemoryPluginFailureStateStore())
+        private val delegate = EngineBackedAppChatPluginRuntime(
+            pluginProvider = { plugins },
+            engine = PluginExecutionEngine(
+                dispatcher = PluginRuntimeDispatcher(failureGuard),
+                failureGuard = failureGuard,
+            ),
+        )
+
+        val batches = mutableListOf<PluginExecutionBatchResult>()
+
+        override fun execute(
+            trigger: PluginTriggerSource,
+            contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+        ): PluginExecutionBatchResult {
+            return delegate.execute(trigger, contextFactory).also { batches += it }
+        }
+    }
+
+    private fun runtimePlugin(
+        pluginId: String,
+        supportedTriggers: Set<PluginTriggerSource>,
+        handler: (PluginExecutionContext) -> PluginExecutionResult,
+    ): PluginRuntimePlugin {
+        val manifest = PluginManifest(
+            pluginId = pluginId,
+            version = "1.0.0",
+            protocolVersion = 1,
+            author = "AstrBot",
+            title = pluginId,
+            description = "test plugin",
+            permissions = listOf(
+                PluginPermissionDeclaration(
+                    permissionId = "send_message",
+                    title = "Send message",
+                    description = "Allows sending message",
+                    riskLevel = PluginRiskLevel.LOW,
+                ),
+            ),
+            minHostVersion = "0.3.0",
+            sourceType = PluginSourceType.LOCAL_FILE,
+            entrySummary = "entry",
+            riskLevel = PluginRiskLevel.LOW,
+        )
+        return PluginRuntimePlugin(
+            pluginId = pluginId,
+            pluginVersion = manifest.version,
+            installState = PluginInstallState(
+                status = PluginInstallStatus.INSTALLED,
+                installedVersion = manifest.version,
+                source = PluginSource(
+                    sourceType = PluginSourceType.LOCAL_FILE,
+                    location = "/plugins/$pluginId.zip",
+                    importedAt = 1L,
+                ),
+                manifestSnapshot = manifest,
+                permissionSnapshot = manifest.permissions,
+                compatibilityState = PluginCompatibilityState.evaluated(
+                    protocolSupported = true,
+                    minHostVersionSatisfied = true,
+                    maxHostVersionSatisfied = true,
+                ),
+                enabled = true,
+                lastInstalledAt = 1L,
+                lastUpdatedAt = 1L,
+                localPackagePath = "/plugins/$pluginId.zip",
+                extractedDir = "/plugins/$pluginId",
+            ),
+            supportedTriggers = supportedTriggers,
+            handler = PluginRuntimeHandler { context -> handler(context) },
+        )
+    }
+
+    private fun assertOrder(signals: List<String>, before: String, after: String) {
+        val beforeIndex = signals.indexOfFirst { it == before }
+        val afterIndex = signals.indexOfFirst { it == after }
+        assertTrue("Missing signal: $before in $signals", beforeIndex >= 0)
+        assertTrue("Missing signal: $after in $signals", afterIndex >= 0)
+        assertTrue("Expected $before before $after in $signals", beforeIndex < afterIndex)
+    }
+
+    private fun defaultSession(
+        id: String = "chat-main",
+        botId: String = "qq-main",
+    ): ConversationSession {
         return ConversationSession(
-            id = "chat-main",
+            id = id,
             title = "Default session",
-            botId = "qq-main",
+            botId = botId,
             providerId = "",
             personaId = "",
             maxContextMessages = 12,
@@ -207,16 +622,17 @@ class ChatViewModelTest {
     private fun defaultBot(
         id: String = "qq-main",
         defaultProviderId: String = "",
+        configProfileId: String = "config-default",
     ): BotProfile {
         return BotProfile(
             id = id,
             displayName = id,
-            configProfileId = ConfigProfile().id,
+            configProfileId = configProfileId,
             defaultProviderId = defaultProviderId,
         )
     }
 
-    private fun defaultProvider(id: String): ProviderProfile {
+    private fun defaultChatProvider(id: String): ProviderProfile {
         return ProviderProfile(
             id = id,
             name = id,
@@ -228,6 +644,35 @@ class ChatViewModelTest {
             enabled = true,
             multimodalRuleSupport = FeatureSupportState.UNKNOWN,
             multimodalProbeSupport = FeatureSupportState.UNKNOWN,
+        )
+    }
+
+    private fun streamingChatProvider(id: String): ProviderProfile {
+        return ProviderProfile(
+            id = id,
+            name = id,
+            baseUrl = "https://example.com",
+            model = "gpt-4o-mini",
+            providerType = ProviderType.OPENAI_COMPATIBLE,
+            apiKey = "key",
+            capabilities = setOf(ProviderCapability.CHAT),
+            enabled = true,
+            nativeStreamingRuleSupport = FeatureSupportState.SUPPORTED,
+            nativeStreamingProbeSupport = FeatureSupportState.SUPPORTED,
+        )
+    }
+
+    private fun defaultTtsProvider(id: String): ProviderProfile {
+        return ProviderProfile(
+            id = id,
+            name = id,
+            baseUrl = "https://example.com",
+            model = "tts-1",
+            providerType = ProviderType.OPENAI_TTS,
+            apiKey = "key",
+            capabilities = setOf(ProviderCapability.TTS),
+            enabled = true,
+            ttsProbeSupport = FeatureSupportState.SUPPORTED,
         )
     }
 }

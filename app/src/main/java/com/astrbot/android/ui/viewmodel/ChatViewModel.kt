@@ -15,7 +15,20 @@ import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.chat.MessageSessionRef
+import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.PluginBotSummary
+import com.astrbot.android.model.plugin.PluginConfigSummary
+import com.astrbot.android.model.plugin.PluginExecutionContext
+import com.astrbot.android.model.plugin.PluginHostAction
+import com.astrbot.android.model.plugin.PluginMessageSummary
+import com.astrbot.android.model.plugin.PluginPermissionGrant
+import com.astrbot.android.model.plugin.PluginTriggerMetadata
+import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.hasNativeStreamingSupport
+import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
@@ -27,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -41,6 +55,8 @@ data class ChatUiState(
 
 class ChatViewModel(
     private val dependencies: ChatViewModelDependencies = DefaultChatViewModelDependencies,
+    private val appChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime,
+    private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) : ViewModel() {
     val bots = dependencies.bots
     val providers = dependencies.providers
@@ -290,7 +306,7 @@ class ChatViewModel(
                     }
 
                     val transcribedAudioText = if (audioAttachments.isNotEmpty() && sttProvider != null) {
-                        withContext(Dispatchers.IO) {
+                        withContext(ioDispatcher) {
                             runCatching {
                                 buildList {
                                     for (attachment in audioAttachments) {
@@ -322,7 +338,7 @@ class ChatViewModel(
                         personaId = personaIdSnapshot,
                         botId = botIdSnapshot,
                     )
-                    dependencies.appendMessage(
+                    val userMessageId = dependencies.appendMessage(
                         sessionId = sessionId,
                         role = "user",
                         content = finalUserContent,
@@ -332,6 +348,20 @@ class ChatViewModel(
                         sessionId,
                         finalUserContent.ifBlank { attachments.firstOrNull()?.fileName ?: "Image" },
                     )
+                    dependencies.session(sessionId)
+                        .messages
+                        .firstOrNull { it.id == userMessageId }
+                        ?.let { userMessage ->
+                            dispatchAppChatPlugins(
+                                trigger = PluginTriggerSource.BeforeSendMessage,
+                                session = dependencies.session(sessionId),
+                                message = userMessage,
+                                provider = provider,
+                                bot = botSnapshot,
+                                personaId = personaIdSnapshot,
+                                config = config,
+                            )
+                        }
 
                     val currentSession = dependencies.session(sessionId)
                     val contextWindow = personaSnapshot?.maxContextMessages ?: currentSession.maxContextMessages
@@ -352,7 +382,7 @@ class ChatViewModel(
                             config = config,
                         )
                     } else {
-                        val fullResponse = withContext(Dispatchers.IO) {
+                        val fullResponse = withContext(ioDispatcher) {
                             dependencies.sendConfiguredChat(
                                 provider = provider,
                                 messages = scopedSession.messages.takeLast(scopedSession.maxContextMessages),
@@ -394,6 +424,21 @@ class ChatViewModel(
                             }
                         }
                     }
+
+                    dependencies.session(sessionId)
+                        .messages
+                        .firstOrNull { it.id == resolvedAssistantMessageId }
+                        ?.let { assistantMessage ->
+                            dispatchAppChatPlugins(
+                                trigger = PluginTriggerSource.AfterModelResponse,
+                                session = dependencies.session(sessionId),
+                                message = assistantMessage,
+                                provider = provider,
+                                bot = botSnapshot,
+                                personaId = personaIdSnapshot,
+                                config = config,
+                            )
+                        }
                 }
             } catch (error: Exception) {
                 val message = error.message ?: error.javaClass.simpleName
@@ -579,6 +624,122 @@ class ChatViewModel(
         return result.stopModelDispatch
     }
 
+    private fun dispatchAppChatPlugins(
+        trigger: PluginTriggerSource,
+        session: ConversationSession,
+        message: ConversationMessage,
+        provider: ProviderProfile,
+        bot: BotProfile?,
+        personaId: String,
+        config: ConfigProfile?,
+    ) {
+        val batch = runCatching {
+            appChatPluginRuntime.execute(trigger) { plugin ->
+                buildAppChatPluginContext(
+                    plugin = plugin,
+                    trigger = trigger,
+                    session = session,
+                    message = message,
+                    provider = provider,
+                    bot = bot,
+                    personaId = personaId,
+                    config = config,
+                )
+            }
+        }.onFailure { error ->
+            dependencies.log(
+                "App chat plugin runtime failed: trigger=${trigger.wireValue} reason=${error.message ?: error.javaClass.simpleName}",
+            )
+        }.getOrNull() ?: return
+
+        batch.skipped.forEach { skip ->
+            dependencies.log(
+                "App chat plugin skipped: trigger=${trigger.wireValue} plugin=${skip.plugin.pluginId} reason=${skip.reason.name}",
+            )
+        }
+        batch.outcomes.forEach { outcome ->
+            val resultName = outcome.result::class.simpleName ?: "UnknownResult"
+            if (outcome.succeeded) {
+                dependencies.log(
+                    "App chat plugin executed: trigger=${trigger.wireValue} plugin=${outcome.pluginId} result=$resultName",
+                )
+            } else {
+                val errorResult = outcome.result as? ErrorResult
+                dependencies.log(
+                    "App chat plugin failed: trigger=${trigger.wireValue} plugin=${outcome.pluginId} code=${errorResult?.code.orEmpty()} message=${errorResult?.message.orEmpty()}",
+                )
+            }
+        }
+    }
+
+    private fun buildAppChatPluginContext(
+        plugin: PluginRuntimePlugin,
+        trigger: PluginTriggerSource,
+        session: ConversationSession,
+        message: ConversationMessage,
+        provider: ProviderProfile,
+        bot: BotProfile?,
+        personaId: String,
+        config: ConfigProfile?,
+    ): PluginExecutionContext {
+        val messagePreview = message.content.take(500)
+        return PluginExecutionContext(
+            trigger = trigger,
+            pluginId = plugin.pluginId,
+            pluginVersion = plugin.pluginVersion,
+            sessionRef = MessageSessionRef(
+                platformId = session.platformId,
+                messageType = session.messageType,
+                originSessionId = session.originSessionId,
+            ),
+            message = PluginMessageSummary(
+                messageId = message.id,
+                contentPreview = messagePreview,
+                senderId = when (message.role) {
+                    "assistant" -> bot?.id.orEmpty()
+                    else -> "app-user"
+                },
+                messageType = session.messageType.wireValue,
+                attachmentCount = message.attachments.size,
+                timestamp = message.timestamp,
+            ),
+            bot = PluginBotSummary(
+                botId = bot?.id ?: session.botId,
+                displayName = bot?.displayName.orEmpty(),
+                platformId = session.platformId,
+            ),
+            config = PluginConfigSummary(
+                providerId = provider.id,
+                modelId = provider.model,
+                personaId = personaId,
+                extras = buildMap {
+                    put("sessionId", session.id)
+                    put("streamingEnabled", (config?.textStreamingEnabled == true).toString())
+                    put("ttsEnabled", (config?.ttsEnabled == true).toString())
+                },
+            ),
+            permissionSnapshot = plugin.installState.permissionSnapshot.map { permission ->
+                PluginPermissionGrant(
+                    permissionId = permission.permissionId,
+                    title = permission.title,
+                    granted = true,
+                    required = permission.required,
+                    riskLevel = permission.riskLevel,
+                )
+            },
+            hostActionWhitelist = listOf(
+                PluginHostAction.CallModel,
+                PluginHostAction.SendMessage,
+                PluginHostAction.SendNotification,
+                PluginHostAction.OpenHostPage,
+            ),
+            triggerMetadata = PluginTriggerMetadata(
+                eventId = "${trigger.wireValue}:${session.id}:${message.id}",
+                extras = mapOf("source" to "app_chat"),
+            ),
+        )
+    }
+
     private fun currentLanguageTag(): String {
         return AppCompatDelegate.getApplicationLocales()[0]
             ?.toLanguageTag()
@@ -622,7 +783,7 @@ class ChatViewModel(
     ): String {
         val visibleBuffer = StringBuilder()
         val pendingBuffer = StringBuilder()
-        val response = withContext(Dispatchers.IO) {
+        val response = withContext(ioDispatcher) {
             dependencies.sendConfiguredChatStream(
                 provider = provider,
                 messages = currentSession.messages.takeLast(currentSession.maxContextMessages),
@@ -743,7 +904,7 @@ class ChatViewModel(
         voiceId: String,
         readBracketedContent: Boolean,
     ): ConversationAttachment? {
-        return withContext(Dispatchers.IO) {
+        return withContext(ioDispatcher) {
             runCatching {
                 dependencies.synthesizeSpeech(
                     provider = provider,

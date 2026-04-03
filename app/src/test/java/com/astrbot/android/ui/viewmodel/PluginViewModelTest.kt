@@ -4,14 +4,31 @@ import com.astrbot.android.R
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.data.PluginUninstallResult
 import com.astrbot.android.di.PluginViewModelDependencies
+import com.astrbot.android.model.plugin.CardResult
+import com.astrbot.android.model.plugin.NoOp
+import com.astrbot.android.model.plugin.PluginCardAction
+import com.astrbot.android.model.plugin.PluginCardSchema
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginInstallState
+import com.astrbot.android.model.plugin.PluginInstallStatus
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginSelectOption
+import com.astrbot.android.model.plugin.PluginSettingsSchema
+import com.astrbot.android.model.plugin.PluginSettingsSection
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.model.plugin.SelectSettingField
+import com.astrbot.android.model.plugin.SettingsUiRequest
+import com.astrbot.android.model.plugin.TextInputSettingField
+import com.astrbot.android.model.plugin.ToggleSettingField
+import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +48,11 @@ class PluginViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(dispatcher)
+
+    @org.junit.After
+    fun tearDown() {
+        PluginRuntimeRegistry.reset()
+    }
 
     @Test
     fun init_selects_first_plugin_and_computes_summary_metrics() = runTest(dispatcher) {
@@ -155,6 +177,104 @@ class PluginViewModelTest {
     }
 
     @Test
+    fun failure_state_maps_to_list_and_detail_ui_state_and_blocks_enable_when_suspended() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = false,
+                    failureState = PluginFailureState(
+                        consecutiveFailureCount = 3,
+                        lastFailureAtEpochMillis = 1_000L,
+                        lastErrorSummary = "socket timeout",
+                        suspendedUntilEpochMillis = 4_102_444_800_000L,
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val failureState = viewModel.uiState.value.failureStatesByPluginId["plugin-1"]
+        assertTrue(failureState != null)
+        assertTrue(failureState!!.isSuspended)
+        assertEquals(3, failureState.consecutiveFailureCount)
+        assertResourceFeedback(
+            feedback = failureState.statusMessage,
+            resId = R.string.plugin_failure_status_suspended,
+        )
+        assertResourceFeedback(
+            feedback = failureState.summaryMessage,
+            resId = R.string.plugin_failure_summary_with_error,
+            expectedArg = "socket timeout",
+        )
+        assertResourceFeedback(
+            feedback = failureState.recoveryMessage,
+            resId = R.string.plugin_failure_recovery_at,
+        )
+
+        assertTrue(viewModel.uiState.value.detailActionState.failureState != null)
+        assertTrue(viewModel.uiState.value.detailActionState.failureState!!.isSuspended)
+        assertResourceFeedback(
+            feedback = viewModel.uiState.value.detailActionState.enableBlockedReason,
+            resId = R.string.plugin_failure_enable_blocked_until_recovery,
+        )
+
+        viewModel.enableSelectedPlugin()
+        advanceUntilIdle()
+
+        assertTrue(deps.enableRequests.isEmpty())
+        assertResourceFeedback(
+            feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
+            resId = R.string.plugin_failure_enable_blocked_until_recovery,
+        )
+    }
+
+    @Test
+    fun failure_state_without_suspension_stays_visible_and_allows_enable() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = false,
+                    failureState = PluginFailureState(
+                        consecutiveFailureCount = 1,
+                        lastFailureAtEpochMillis = 1_000L,
+                        lastErrorSummary = "api returned 429",
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val failureState = viewModel.uiState.value.failureStatesByPluginId["plugin-1"]
+        assertTrue(failureState != null)
+        assertFalse(failureState!!.isSuspended)
+        assertResourceFeedback(
+            feedback = failureState.statusMessage,
+            resId = R.string.plugin_failure_status_active,
+        )
+        assertResourceFeedback(
+            feedback = failureState.recoveryMessage,
+            resId = R.string.plugin_failure_recovery_available,
+        )
+        assertNull(viewModel.uiState.value.detailActionState.enableBlockedReason)
+        assertTrue(viewModel.uiState.value.detailActionState.isEnableActionEnabled)
+
+        viewModel.enableSelectedPlugin()
+        advanceUntilIdle()
+
+        assertEquals(listOf("plugin-1" to true), deps.enableRequests)
+    }
+
+    @Test
     fun update_uninstall_policy_persists_selection_and_uninstall_uses_selected_policy() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
             listOf(pluginRecord(pluginId = "plugin-1", uninstallPolicy = PluginUninstallPolicy.KEEP_DATA)),
@@ -213,6 +333,272 @@ class PluginViewModelTest {
             feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
             resId = R.string.plugin_action_feedback_disabled,
         )
+    }
+
+    @Test
+    fun select_plugin_executes_registered_plugin_entry_runtime() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        var invocationCount = 0
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    invocationCount += 1
+                    NoOp()
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        assertEquals(1, invocationCount)
+    }
+
+    @Test
+    fun select_plugin_maps_card_result_to_schema_ui_state() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    CardResult(
+                        card = PluginCardSchema(
+                            title = "Runtime Card",
+                            body = "Rendered from entry runtime",
+                            actions = listOf(
+                                PluginCardAction(
+                                    actionId = "refresh",
+                                    label = "Refresh",
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val schemaState = viewModel.uiState.value.schemaUiState
+        assertTrue(schemaState is PluginSchemaUiState.Card)
+        schemaState as PluginSchemaUiState.Card
+        assertEquals("Runtime Card", schemaState.schema.title)
+        assertEquals("Rendered from entry runtime", schemaState.schema.body)
+        assertEquals(1, schemaState.schema.actions.size)
+        assertNull(schemaState.lastActionFeedback)
+    }
+
+    @Test
+    fun select_plugin_maps_settings_ui_request_to_schema_ui_state() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    SettingsUiRequest(
+                        schema = PluginSettingsSchema(
+                            title = "Runtime Settings",
+                            sections = listOf(
+                                PluginSettingsSection(
+                                    sectionId = "general",
+                                    title = "General",
+                                    fields = listOf(
+                                        ToggleSettingField(
+                                            fieldId = "enabled",
+                                            label = "Enabled",
+                                            defaultValue = true,
+                                        ),
+                                        TextInputSettingField(
+                                            fieldId = "name",
+                                            label = "Name",
+                                            defaultValue = "AstrBot",
+                                        ),
+                                        SelectSettingField(
+                                            fieldId = "mode",
+                                            label = "Mode",
+                                            defaultValue = "safe",
+                                            options = listOf(
+                                                PluginSelectOption("safe", "Safe"),
+                                                PluginSelectOption("full", "Full"),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val schemaState = viewModel.uiState.value.schemaUiState
+        assertTrue(schemaState is PluginSchemaUiState.Settings)
+        schemaState as PluginSchemaUiState.Settings
+        assertEquals("Runtime Settings", schemaState.schema.title)
+        assertEquals(3, schemaState.draftValues.size)
+        assertEquals(
+            PluginSettingDraftValue.Toggle(true),
+            schemaState.draftValues["enabled"],
+        )
+        assertEquals(
+            PluginSettingDraftValue.Text("AstrBot"),
+            schemaState.draftValues["name"],
+        )
+        assertEquals(
+            PluginSettingDraftValue.Text("safe"),
+            schemaState.draftValues["mode"],
+        )
+    }
+
+    @Test
+    fun card_action_callback_updates_schema_state_feedback() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    CardResult(
+                        card = PluginCardSchema(
+                            title = "Runtime Card",
+                            actions = listOf(
+                                PluginCardAction(
+                                    actionId = "retry",
+                                    label = "Retry",
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        viewModel.onSchemaCardActionClick(
+            actionId = "retry",
+            payload = mapOf("sessionId" to "s-1"),
+        )
+        advanceUntilIdle()
+
+        val schemaState = viewModel.uiState.value.schemaUiState
+        assertTrue(schemaState is PluginSchemaUiState.Card)
+        schemaState as PluginSchemaUiState.Card
+        assertEquals(
+            PluginActionFeedback.Text("Retry · sessionId=s-1"),
+            schemaState.lastActionFeedback,
+        )
+    }
+
+    @Test
+    fun unsupported_card_action_callback_updates_schema_state_feedback() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    CardResult(
+                        card = PluginCardSchema(
+                            title = "Runtime Card",
+                            actions = listOf(
+                                PluginCardAction(
+                                    actionId = "retry",
+                                    label = "Retry",
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        viewModel.onSchemaCardActionClick(actionId = "unsupported-action")
+        advanceUntilIdle()
+
+        val schemaState = viewModel.uiState.value.schemaUiState
+        assertTrue(schemaState is PluginSchemaUiState.Card)
+        schemaState as PluginSchemaUiState.Card
+        assertEquals(
+            PluginActionFeedback.Text("Unsupported schema card action: unsupported-action"),
+            schemaState.lastActionFeedback,
+        )
+    }
+
+    @Test
+    fun settings_draft_update_callback_updates_schema_state() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    SettingsUiRequest(
+                        schema = PluginSettingsSchema(
+                            title = "Runtime Settings",
+                            sections = listOf(
+                                PluginSettingsSection(
+                                    sectionId = "general",
+                                    title = "General",
+                                    fields = listOf(
+                                        ToggleSettingField(
+                                            fieldId = "enabled",
+                                            label = "Enabled",
+                                            defaultValue = false,
+                                        ),
+                                        TextInputSettingField(
+                                            fieldId = "nickname",
+                                            label = "Nickname",
+                                            defaultValue = "",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        viewModel.updateSettingsDraft("enabled", PluginSettingDraftValue.Toggle(true))
+        viewModel.updateSettingsDraft("nickname", PluginSettingDraftValue.Text("Aster"))
+        advanceUntilIdle()
+
+        val schemaState = viewModel.uiState.value.schemaUiState
+        assertTrue(schemaState is PluginSchemaUiState.Settings)
+        schemaState as PluginSchemaUiState.Settings
+        assertEquals(PluginSettingDraftValue.Toggle(true), schemaState.draftValues["enabled"])
+        assertEquals(PluginSettingDraftValue.Text("Aster"), schemaState.draftValues["nickname"])
     }
 
     private class FakePluginDependencies(
@@ -274,6 +660,7 @@ class PluginViewModelTest {
         pluginId: String,
         riskLevel: PluginRiskLevel = PluginRiskLevel.LOW,
         enabled: Boolean = false,
+        failureState: PluginFailureState = PluginFailureState.none(),
         uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
         compatibilityState: PluginCompatibilityState = PluginCompatibilityState.evaluated(
             protocolSupported = true,
@@ -306,12 +693,40 @@ class PluginViewModelTest {
                 sourceType = PluginSourceType.LOCAL_FILE,
                 location = "/tmp/$pluginId.zip",
                 importedAt = 1L,
-                ),
-                compatibilityState = compatibilityState,
-                uninstallPolicy = uninstallPolicy,
-                enabled = enabled,
-                lastUpdatedAt = 1L,
-            )
+            ),
+            compatibilityState = compatibilityState,
+            failureState = failureState,
+            uninstallPolicy = uninstallPolicy,
+            enabled = enabled,
+            lastUpdatedAt = 1L,
+        )
+    }
+
+    private fun runtimePlugin(
+        pluginId: String,
+        trigger: PluginTriggerSource = PluginTriggerSource.OnPluginEntryClick,
+        handler: (com.astrbot.android.model.plugin.PluginExecutionContext) -> com.astrbot.android.model.plugin.PluginExecutionResult,
+    ): PluginRuntimePlugin {
+        val record = pluginRecord(pluginId = pluginId, enabled = true)
+        return PluginRuntimePlugin(
+            pluginId = pluginId,
+            pluginVersion = record.installedVersion,
+            installState = PluginInstallState(
+                status = PluginInstallStatus.INSTALLED,
+                installedVersion = record.installedVersion,
+                source = record.source,
+                manifestSnapshot = record.manifestSnapshot,
+                permissionSnapshot = record.permissionSnapshot,
+                compatibilityState = record.compatibilityState,
+                enabled = record.enabled,
+                lastInstalledAt = record.installedAt,
+                lastUpdatedAt = record.lastUpdatedAt,
+                localPackagePath = record.localPackagePath,
+                extractedDir = record.extractedDir,
+            ),
+            supportedTriggers = setOf(trigger),
+            handler = handler,
+        )
     }
 
 }
@@ -331,6 +746,7 @@ private fun assertResourceFeedback(
 
 private fun PluginInstallRecord.withOverrides(
     enabled: Boolean = this.enabled,
+    failureState: PluginFailureState = this.failureState,
     uninstallPolicy: PluginUninstallPolicy = this.uninstallPolicy,
     lastUpdatedAt: Long = this.lastUpdatedAt,
 ): PluginInstallRecord {
@@ -339,6 +755,7 @@ private fun PluginInstallRecord.withOverrides(
         source = source,
         permissionSnapshot = permissionSnapshot,
         compatibilityState = compatibilityState,
+        failureState = failureState,
         uninstallPolicy = uninstallPolicy,
         enabled = enabled,
         installedAt = installedAt,

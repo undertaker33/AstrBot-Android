@@ -8,6 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.astrbot.android.data.db.core.migration8To9
 import com.astrbot.android.data.db.core.migration9To10
+import com.astrbot.android.data.db.core.migration10To11
 
 @Database(
     entities = [
@@ -39,7 +40,7 @@ import com.astrbot.android.data.db.core.migration9To10
         TtsVoiceClipEntity::class,
         TtsVoiceProviderBindingEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -312,6 +313,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration7To8,
             migration8To9,
             migration9To10,
+            migration10To11,
         )
 
         fun get(context: Context): AstrBotDatabase {
