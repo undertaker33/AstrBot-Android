@@ -148,6 +148,7 @@ class FloatingBottomNavBarTest {
             qqLogin = "QQ Login",
             settings = "Settings",
             assetManagement = "Assets",
+            pluginDetail = "Plugin details",
             models = "Models",
             runtime = "Runtime",
             dataBackup = "Backup",
@@ -169,6 +170,10 @@ class FloatingBottomNavBarTest {
         assertEquals(
             "Backup",
             (fallbackSecondaryTopBarSpecForRoute(AppDestination.FullBackup.route, strings) as SecondaryTopBarSpec.SubPage).title,
+        )
+        assertEquals(
+            "Plugin details",
+            (fallbackSecondaryTopBarSpecForRoute(AppDestination.PluginDetail.route, strings) as SecondaryTopBarSpec.SubPage).title,
         )
     }
 }

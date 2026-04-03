@@ -48,6 +48,7 @@ internal data class SecondaryTopBarStrings(
     val qqLogin: String,
     val settings: String,
     val assetManagement: String,
+    val pluginDetail: String,
     val models: String,
     val runtime: String,
     val dataBackup: String,
@@ -144,6 +145,8 @@ internal fun fallbackSecondaryTopBarSpecForRoute(
         else -> null
     } ?: if (matchesAssetDetailRoute(route)) {
         strings.assetManagement
+    } else if (matchesPluginDetailRoute(route)) {
+        strings.pluginDetail
     } else {
         null
     } ?: return null
@@ -164,6 +167,12 @@ private fun matchesAssetDetailRoute(route: String?): Boolean {
     if (route == null) return false
     return route == AppDestination.AssetDetail.route ||
         (route.startsWith("asset-management/") && route != AppDestination.Assets.route)
+}
+
+private fun matchesPluginDetailRoute(route: String?): Boolean {
+    if (route == null) return false
+    return route == AppDestination.PluginDetail.route ||
+        (route.startsWith("plugins/detail/") && route != AppDestination.Plugins.route)
 }
 
 @Composable

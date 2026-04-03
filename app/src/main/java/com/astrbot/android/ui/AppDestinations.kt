@@ -16,6 +16,9 @@ internal sealed class AppDestination(
 ) {
     data object Bots : AppDestination("bots", Icons.Outlined.SmartToy)
     data object Plugins : AppDestination("plugins", Icons.Outlined.Face)
+    data object PluginDetail : AppDestination("plugins/detail/{pluginId}", Icons.Outlined.Face) {
+        fun routeFor(pluginId: String): String = "plugins/detail/$pluginId"
+    }
     data object Chat : AppDestination("chat", Icons.Outlined.ChatBubbleOutline)
     data object Config : AppDestination("config", Icons.Outlined.Settings)
     data object ConfigDetail : AppDestination("config/detail/{configId}", Icons.Outlined.Settings) {

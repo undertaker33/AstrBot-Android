@@ -63,7 +63,7 @@ class PluginViewModelTest {
     }
 
     @Test
-    fun init_selects_first_plugin_and_computes_summary_metrics() = runTest(dispatcher) {
+    fun init_selects_first_plugin_and_exposes_workspace_sources() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
             listOf(
                 pluginRecord(
@@ -100,10 +100,6 @@ class PluginViewModelTest {
         assertEquals("plugin-1", viewModel.uiState.value.selectedPluginId)
         assertEquals("plugin-1", viewModel.uiState.value.selectedPlugin?.pluginId)
         assertFalse(viewModel.uiState.value.isShowingDetail)
-        assertEquals(2, viewModel.uiState.value.summaryMetrics.installedCount)
-        assertEquals(1, viewModel.uiState.value.summaryMetrics.repositorySourceCount)
-        assertEquals(2, viewModel.uiState.value.summaryMetrics.discoverableCount)
-        assertEquals(1, viewModel.uiState.value.summaryMetrics.incompatibleCount)
         assertEquals(1, viewModel.uiState.value.repositorySources.size)
         assertEquals(2, viewModel.uiState.value.catalogEntries.size)
     }

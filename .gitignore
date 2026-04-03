@@ -17,6 +17,10 @@ artifacts/plugins/*
 !artifacts/plugins/meme-manager-sample/
 !artifacts/plugins/meme-manager-sample/**
 .worktrees/
+.android-home/
+.android-sdk/
+.codex-home/
+.gradle-user-home/
 __pycache__/
 *.pyc
 app/src/main/assets/runtime/assets/offline-rootfs-overlay.tar.xz

@@ -51,13 +51,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-data class PluginSummaryMetrics(
-    val installedCount: Int = 0,
-    val repositorySourceCount: Int = 0,
-    val discoverableCount: Int = 0,
-    val incompatibleCount: Int = 0,
-)
-
 data class PluginRepositorySourceCardUiState(
     val sourceId: String,
     val title: String,
@@ -121,7 +114,6 @@ data class PluginScreenUiState(
     val catalogEntries: List<PluginCatalogEntryCardUiState> = emptyList(),
     val updateAvailabilitiesByPluginId: Map<String, PluginUpdateAvailability> = emptyMap(),
     val failureStatesByPluginId: Map<String, PluginFailureUiState> = emptyMap(),
-    val summaryMetrics: PluginSummaryMetrics = PluginSummaryMetrics(),
     val repositoryUrlDraft: String = "",
     val directPackageUrlDraft: String = "",
     val isInstallActionRunning: Boolean = false,
@@ -238,11 +230,6 @@ class PluginViewModel(
             catalogEntries = snapshot.catalogEntries.map(::toCatalogEntryCardUiState),
             updateAvailabilitiesByPluginId = updateAvailabilities,
             failureStatesByPluginId = failureStates,
-            summaryMetrics = buildSummaryMetrics(
-                records = snapshot.records,
-                repositorySources = snapshot.repositorySources,
-                catalogEntries = snapshot.catalogEntries,
-            ),
             selectedPluginId = selectedPlugin?.pluginId,
             selectedPlugin = selectedPlugin,
             isShowingDetail = snapshot.isShowingDetail && selectedPlugin != null,
@@ -501,21 +488,6 @@ class PluginViewModel(
             }
             installActionRunning.value = false
         }
-    }
-
-    private fun buildSummaryMetrics(
-        records: List<PluginInstallRecord>,
-        repositorySources: List<com.astrbot.android.model.plugin.PluginRepositorySource>,
-        catalogEntries: List<PluginCatalogEntryRecord>,
-    ): PluginSummaryMetrics {
-        return PluginSummaryMetrics(
-            installedCount = records.size,
-            repositorySourceCount = repositorySources.size,
-            discoverableCount = catalogEntries.size,
-            incompatibleCount = records.count { record ->
-                record.compatibilityState.status == PluginCompatibilityStatus.INCOMPATIBLE
-            },
-        )
     }
 
     private fun buildDetailMetadataState(

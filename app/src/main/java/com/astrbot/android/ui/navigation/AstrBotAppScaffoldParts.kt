@@ -48,6 +48,7 @@ import com.astrbot.android.ui.screen.LogScreen
 import com.astrbot.android.ui.screen.MeScreen
 import com.astrbot.android.ui.screen.ModuleBackupScreen
 import com.astrbot.android.ui.screen.PersonaScreen
+import com.astrbot.android.ui.screen.PluginDetailScreenRoute
 import com.astrbot.android.ui.screen.PluginScreen
 import com.astrbot.android.ui.screen.ProviderScreen
 import com.astrbot.android.ui.screen.QQAccountCenterScreen
@@ -213,6 +214,9 @@ internal fun AstrBotAppNavGraph(
                 currentMainSwipePage = currentMainSwipePage,
                 onMainSwipePageSettled = onMainSwipePageSettled,
                 navController = navController,
+                onOpenPluginDetail = { pluginId ->
+                    AppNavigator.open(navController, AppDestination.PluginDetail.routeFor(pluginId))
+                },
                 botWorkspaceTab = botWorkspaceTab,
                 onBotWorkspaceTabChange = onBotWorkspaceTabChange,
                 chatViewModel = chatViewModel,
@@ -221,6 +225,13 @@ internal fun AstrBotAppNavGraph(
                 configSelectedIds = configSelectedIds,
                 onConfigSelectedIdsChange = onConfigSelectedIdsChange,
                 qqLoginViewModel = qqLoginViewModel,
+            )
+        }
+        composable(AppDestination.PluginDetail.route) { backStackEntry ->
+            val pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty()
+            PluginDetailScreenRoute(
+                pluginId = pluginId,
+                onBack = { AppNavigator.back(navController) },
             )
         }
         composable(AppDestination.Chat.route) {
@@ -415,6 +426,7 @@ private fun MainTopLevelRail(
     configSelectedIds: Set<String>,
     onConfigSelectedIdsChange: (Set<String>) -> Unit,
     qqLoginViewModel: QQLoginViewModel,
+    onOpenPluginDetail: (String) -> Unit = {},
 ) {
     val safeDrawingTopPadding = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
     Box(
@@ -443,7 +455,7 @@ private fun MainTopLevelRail(
                         onWorkspaceTabChange = onBotWorkspaceTabChange,
                     )
                 },
-                MainSwipePage.PLUGINS to { PluginScreen() },
+                MainSwipePage.PLUGINS to { PluginScreen(onOpenPluginDetail = onOpenPluginDetail) },
                 MainSwipePage.CHAT to {
                     ChatScreen(
                         chatViewModel = chatViewModel,
