@@ -65,6 +65,29 @@ data class PluginManifest(
     val riskLevel: PluginRiskLevel = PluginRiskLevel.LOW,
 )
 
+data class PluginFailureState(
+    val consecutiveFailureCount: Int = 0,
+    val lastFailureAtEpochMillis: Long? = null,
+    val lastErrorSummary: String = "",
+    val suspendedUntilEpochMillis: Long? = null,
+) {
+    init {
+        require(consecutiveFailureCount >= 0) {
+            "consecutiveFailureCount must not be negative."
+        }
+    }
+
+    val hasFailures: Boolean
+        get() = consecutiveFailureCount > 0 ||
+            lastFailureAtEpochMillis != null ||
+            lastErrorSummary.isNotBlank() ||
+            suspendedUntilEpochMillis != null
+
+    companion object {
+        fun none(): PluginFailureState = PluginFailureState()
+    }
+}
+
 data class PluginInstallState(
     val status: PluginInstallStatus = PluginInstallStatus.NOT_INSTALLED,
     val installedVersion: String = "",
@@ -73,6 +96,7 @@ data class PluginInstallState(
     val permissionSnapshot: List<PluginPermissionDeclaration> = emptyList(),
     val compatibilityState: PluginCompatibilityState = PluginCompatibilityState.unknown(),
     val enabled: Boolean = false,
+    val failureState: PluginFailureState = PluginFailureState.none(),
     val lastInstalledAt: Long = 0L,
     val lastUpdatedAt: Long = 0L,
     val localPackagePath: String = "",
@@ -160,6 +184,7 @@ class PluginInstallRecord private constructor(
     val compatibilityState: PluginCompatibilityState = PluginCompatibilityState.unknown(),
     val uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
     val enabled: Boolean = false,
+    val failureState: PluginFailureState = PluginFailureState.none(),
     val installedAt: Long = 0L,
     val lastUpdatedAt: Long = 0L,
     val localPackagePath: String = "",
@@ -184,6 +209,7 @@ class PluginInstallRecord private constructor(
             compatibilityState == other.compatibilityState &&
             uninstallPolicy == other.uninstallPolicy &&
             enabled == other.enabled &&
+            failureState == other.failureState &&
             installedAt == other.installedAt &&
             lastUpdatedAt == other.lastUpdatedAt &&
             localPackagePath == other.localPackagePath &&
@@ -197,6 +223,7 @@ class PluginInstallRecord private constructor(
         result = 31 * result + compatibilityState.hashCode()
         result = 31 * result + uninstallPolicy.hashCode()
         result = 31 * result + enabled.hashCode()
+        result = 31 * result + failureState.hashCode()
         result = 31 * result + installedAt.hashCode()
         result = 31 * result + lastUpdatedAt.hashCode()
         result = 31 * result + localPackagePath.hashCode()
@@ -212,6 +239,7 @@ class PluginInstallRecord private constructor(
             "compatibilityState=$compatibilityState, " +
             "uninstallPolicy=$uninstallPolicy, " +
             "enabled=$enabled, " +
+            "failureState=$failureState, " +
             "installedAt=$installedAt, " +
             "lastUpdatedAt=$lastUpdatedAt, " +
             "localPackagePath=$localPackagePath, " +
@@ -231,6 +259,7 @@ class PluginInstallRecord private constructor(
                 compatibilityState = PluginCompatibilityState.unknown(),
                 uninstallPolicy = PluginUninstallPolicy.default(),
                 enabled = false,
+                failureState = PluginFailureState.none(),
                 installedAt = 0L,
                 lastUpdatedAt = 0L,
                 localPackagePath = "",
@@ -245,6 +274,7 @@ class PluginInstallRecord private constructor(
             compatibilityState: PluginCompatibilityState = PluginCompatibilityState.unknown(),
             uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
             enabled: Boolean = false,
+            failureState: PluginFailureState = PluginFailureState.none(),
             installedAt: Long = 0L,
             lastUpdatedAt: Long = 0L,
             localPackagePath: String = "",
@@ -260,6 +290,7 @@ class PluginInstallRecord private constructor(
                 compatibilityState = compatibilityState,
                 uninstallPolicy = uninstallPolicy,
                 enabled = enabled,
+                failureState = failureState,
                 installedAt = installedAt,
                 lastUpdatedAt = lastUpdatedAt,
                 localPackagePath = localPackagePath,

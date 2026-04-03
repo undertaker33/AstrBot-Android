@@ -50,9 +50,13 @@ import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
 import com.astrbot.android.ui.viewmodel.PluginDetailActionState
+import com.astrbot.android.ui.viewmodel.PluginFailureUiState
+import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
+import com.astrbot.android.ui.viewmodel.PluginSettingDraftValue
 import com.astrbot.android.ui.viewmodel.PluginSummaryMetrics
 import com.astrbot.android.ui.viewmodel.PluginViewModel
+import com.astrbot.android.ui.screen.plugin.schema.PluginSchemaRenderer
 
 @Composable
 fun PluginScreen(
@@ -79,6 +83,8 @@ fun PluginScreen(
                     onDisable = pluginViewModel::disableSelectedPlugin,
                     onSelectPolicy = pluginViewModel::updateSelectedUninstallPolicy,
                     onUninstall = pluginViewModel::uninstallSelectedPlugin,
+                    onSchemaCardActionClick = pluginViewModel::onSchemaCardActionClick,
+                    onSettingsDraftChange = pluginViewModel::updateSettingsDraft,
                 )
             } else {
                 PluginListWorkspace(
@@ -122,6 +128,7 @@ private fun PluginListWorkspace(
         items(uiState.records, key = { it.pluginId }) { record ->
             PluginRecordCard(
                 record = record,
+                failureState = uiState.failureStatesByPluginId[record.pluginId],
                 selected = uiState.selectedPluginId == record.pluginId,
                 onClick = { onSelectPlugin(record.pluginId) },
             )
@@ -137,6 +144,8 @@ private fun PluginDetailWorkspace(
     onDisable: () -> Unit,
     onSelectPolicy: (PluginUninstallPolicy) -> Unit,
     onUninstall: () -> Unit,
+    onSchemaCardActionClick: (actionId: String, payload: Map<String, String>) -> Unit,
+    onSettingsDraftChange: (fieldId: String, draftValue: PluginSettingDraftValue) -> Unit,
 ) {
     val record = uiState.selectedPlugin ?: return
     val actionState = uiState.detailActionState
@@ -169,6 +178,11 @@ private fun PluginDetailWorkspace(
             }
         }
         item { PluginDetailHero(record) }
+        actionState.failureState?.let { failureState ->
+            item {
+                PluginFailureBanner(failureState = failureState)
+            }
+        }
         item {
             PluginDetailSection(
                 title = stringResource(R.string.plugin_detail_overview_title),
@@ -199,6 +213,16 @@ private fun PluginDetailWorkspace(
                 onSelectPolicy = onSelectPolicy,
                 onUninstall = onUninstall,
             )
+        }
+        if (shouldRenderSchemaWorkspace(uiState.schemaUiState)) {
+            item {
+                PluginSchemaRenderer(
+                    schemaUiState = uiState.schemaUiState,
+                    onCardActionClick = onSchemaCardActionClick,
+                    onSettingsDraftChange = onSettingsDraftChange,
+                    modifier = Modifier.testTag(PluginUiSpec.SchemaWorkspaceTag),
+                )
+            }
         }
     }
 }
@@ -265,6 +289,7 @@ private fun PluginMetricCard(
 @Composable
 private fun PluginRecordCard(
     record: PluginInstallRecord,
+    failureState: PluginFailureUiState?,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -312,6 +337,12 @@ private fun PluginRecordCard(
                     PluginBadge(riskLabel(record.manifestSnapshot.riskLevel), PluginUiSpec.riskBadgePalette(record.manifestSnapshot.riskLevel))
                     PluginBadge(compatibilityLabel(record.compatibilityState.status), PluginUiSpec.compatibilityBadgePalette(record.compatibilityState.status))
                 }
+                failureState?.let {
+                    PluginFailureSummaryInline(
+                        pluginId = record.pluginId,
+                        failureState = it,
+                    )
+                }
             }
         }
     }
@@ -348,6 +379,66 @@ private fun PluginDetailHero(record: PluginInstallRecord) {
                 text = record.manifestSnapshot.entrySummary,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MonochromeUi.textPrimary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginFailureSummaryInline(
+    pluginId: String,
+    failureState: PluginFailureUiState,
+) {
+    val palette = PluginUiSpec.failureBadgePalette(failureState.isSuspended)
+    Column(verticalArrangement = Arrangement.spacedBy(PluginUiSpec.InnerSpacing)) {
+        PluginBadge(
+            label = failureState.statusMessage.asText(),
+            palette = palette,
+            modifier = Modifier.testTag(PluginUiSpec.pluginFailureChipTag(pluginId)),
+        )
+        Text(
+            text = failureState.summaryMessage.asText(),
+            modifier = Modifier.testTag(PluginUiSpec.DetailFailureSummaryTag),
+            style = MaterialTheme.typography.bodySmall,
+            color = MonochromeUi.textSecondary,
+        )
+        Text(
+            text = failureState.recoveryMessage.asText(),
+            modifier = Modifier.testTag(PluginUiSpec.DetailFailureRecoveryTag),
+            style = MaterialTheme.typography.bodySmall,
+            color = MonochromeUi.textSecondary,
+        )
+    }
+}
+
+@Composable
+private fun PluginFailureBanner(failureState: PluginFailureUiState) {
+    val palette = PluginUiSpec.failureBannerPalette(failureState.isSuspended)
+    Surface(
+        shape = PluginUiSpec.SectionShape,
+        color = palette.containerColor,
+        border = PluginUiSpec.CardBorder,
+        modifier = Modifier.testTag(PluginUiSpec.DetailFailureBannerTag),
+    ) {
+        Column(
+            modifier = Modifier.padding(PluginUiSpec.FailureBannerPadding),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.FailureBannerSpacing),
+        ) {
+            PluginBadge(
+                label = failureState.statusMessage.asText(),
+                palette = PluginUiSpec.failureBadgePalette(failureState.isSuspended),
+            )
+            Text(
+                text = failureState.summaryMessage.asText(),
+                modifier = Modifier.testTag(PluginUiSpec.DetailFailureSummaryTag),
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.contentColor,
+            )
+            Text(
+                text = failureState.recoveryMessage.asText(),
+                modifier = Modifier.testTag(PluginUiSpec.DetailFailureRecoveryTag),
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.contentColor,
             )
         }
     }
@@ -608,11 +699,13 @@ private fun PluginActionFeedback.asText(): String {
 private fun PluginBadge(
     label: String,
     palette: PluginBadgePalette,
+    modifier: Modifier = Modifier,
 ) {
     AssistChip(
         onClick = {},
         enabled = false,
         label = { Text(text = label, color = palette.contentColor) },
+        modifier = modifier,
         colors = AssistChipDefaults.assistChipColors(
             disabledContainerColor = palette.containerColor,
             disabledLabelColor = palette.contentColor,
@@ -698,4 +791,8 @@ private fun installStatusLabel(record: PluginInstallRecord): String {
     } else {
         stringResource(R.string.plugin_status_installed)
     }
+}
+
+internal fun shouldRenderSchemaWorkspace(schemaUiState: PluginSchemaUiState): Boolean {
+    return schemaUiState !is PluginSchemaUiState.None
 }

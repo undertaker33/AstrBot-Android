@@ -66,6 +66,12 @@
     <string name="plugin_action_feedback_uninstalled_keep_data">插件已卸载，并保留本地插件数据。</string>
     <string name="plugin_action_feedback_uninstalled_remove_data">插件已卸载，并移除了本地插件数据。</string>
     <string name="plugin_action_feedback_uninstall_failed">卸载插件失败。</string>
+    <string name="plugin_failure_status_suspended">异常熔断中</string>
+    <string name="plugin_failure_status_active">有异常但未停用</string>
+    <string name="plugin_failure_summary_with_error">最近错误：%1$s</string>
+    <string name="plugin_failure_recovery_at">预计恢复时间：%1$s</string>
+    <string name="plugin_failure_recovery_available">当前未停用，仍可尝试启用。</string>
+    <string name="plugin_failure_enable_blocked_until_recovery">恢复前无法启用该插件。</string>
     <string name="plugin_field_author">作者</string>
     <string name="plugin_field_protocol">协议版本</string>
     <string name="plugin_field_min_host">最低宿主版本</string>

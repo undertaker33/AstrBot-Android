@@ -69,6 +69,12 @@
     <string name="plugin_action_feedback_uninstalled_keep_data">Plugin uninstalled. Preserved local plugin data.</string>
     <string name="plugin_action_feedback_uninstalled_remove_data">Plugin uninstalled. Removed local plugin data.</string>
     <string name="plugin_action_feedback_uninstall_failed">Failed to uninstall plugin.</string>
+    <string name="plugin_failure_status_suspended">Error suspended</string>
+    <string name="plugin_failure_status_active">Failure history</string>
+    <string name="plugin_failure_summary_with_error">Recent error: %1$s</string>
+    <string name="plugin_failure_recovery_at">Auto recovery at %1$s</string>
+    <string name="plugin_failure_recovery_available">Not suspended right now.</string>
+    <string name="plugin_failure_enable_blocked_until_recovery">Cannot enable this plugin until recovery completes.</string>
     <string name="plugin_field_author">Author</string>
     <string name="plugin_field_protocol">Protocol version</string>
     <string name="plugin_field_min_host">Minimum host version</string>

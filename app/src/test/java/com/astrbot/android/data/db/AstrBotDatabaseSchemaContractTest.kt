@@ -1,6 +1,7 @@
 package com.astrbot.android.data.db
 
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRiskLevel
@@ -32,8 +33,17 @@ class AstrBotDatabaseSchemaContractTest {
     }
 
     @Test
-    fun latestMigration_targetsVersion10() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 10)
+    fun migrations_include10To11Step() {
+        assertTrue(
+            AstrBotDatabase.allMigrations.any { migration ->
+                migration.startVersion == 10 && migration.endVersion == 11
+            },
+        )
+    }
+
+    @Test
+    fun latestMigration_targetsVersion11() {
+        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 11)
     }
 
     @Test
@@ -83,6 +93,24 @@ class AstrBotDatabaseSchemaContractTest {
     }
 
     @Test
+    fun version11Schema_containsPluginFailureStateColumns() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/11.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/11.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v11 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "consecutiveFailureCount",
+            "lastFailureAtEpochMillis",
+            "lastErrorSummary",
+            "suspendedUntilEpochMillis",
+        ).forEach { columnName ->
+            assertTrue("Expected $columnName to exist in v11 schema", columnName in schema)
+        }
+    }
+
+    @Test
     fun pluginAggregate_mapper_fallsBackToManifestPermissions_whenPermissionSnapshotsAreMissing() {
         val aggregate = PluginInstallAggregate(
             record = PluginInstallRecordEntity(
@@ -95,6 +123,10 @@ class AstrBotDatabaseSchemaContractTest {
                 maxHostVersionSatisfied = true,
                 compatibilityNotes = "",
                 uninstallPolicy = PluginUninstallPolicy.KEEP_DATA.name,
+                consecutiveFailureCount = 0,
+                lastFailureAtEpochMillis = null,
+                lastErrorSummary = "",
+                suspendedUntilEpochMillis = null,
                 enabled = true,
                 installedAt = 100L,
                 lastUpdatedAt = 200L,
@@ -189,6 +221,12 @@ class AstrBotDatabaseSchemaContractTest {
                 notes = "Host is newer than tested range.",
             ),
             uninstallPolicy = PluginUninstallPolicy.REMOVE_DATA,
+            failureState = PluginFailureState(
+                consecutiveFailureCount = 2,
+                lastFailureAtEpochMillis = 222L,
+                lastErrorSummary = "network timeout",
+                suspendedUntilEpochMillis = 555L,
+            ),
             enabled = true,
             installedAt = 100L,
             lastUpdatedAt = 200L,

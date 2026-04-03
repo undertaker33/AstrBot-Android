@@ -1,6 +1,7 @@
 package com.astrbot.android.data.db
 
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -48,6 +49,12 @@ fun PluginInstallAggregate.toInstallRecord(): PluginInstallRecord {
             notes = record.compatibilityNotes,
         ),
         uninstallPolicy = enumValueOf(record.uninstallPolicy),
+        failureState = PluginFailureState(
+            consecutiveFailureCount = record.consecutiveFailureCount,
+            lastFailureAtEpochMillis = record.lastFailureAtEpochMillis,
+            lastErrorSummary = record.lastErrorSummary,
+            suspendedUntilEpochMillis = record.suspendedUntilEpochMillis,
+        ),
         enabled = record.enabled,
         installedAt = record.installedAt,
         lastUpdatedAt = record.lastUpdatedAt,
@@ -68,6 +75,10 @@ fun PluginInstallRecord.toWriteModel(): PluginInstallWriteModel {
             maxHostVersionSatisfied = compatibilityState.maxHostVersionSatisfied,
             compatibilityNotes = compatibilityState.notes,
             uninstallPolicy = uninstallPolicy.name,
+            consecutiveFailureCount = failureState.consecutiveFailureCount,
+            lastFailureAtEpochMillis = failureState.lastFailureAtEpochMillis,
+            lastErrorSummary = failureState.lastErrorSummary,
+            suspendedUntilEpochMillis = failureState.suspendedUntilEpochMillis,
             enabled = enabled,
             installedAt = installedAt,
             lastUpdatedAt = lastUpdatedAt,

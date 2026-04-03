@@ -10,6 +10,7 @@ import com.astrbot.android.data.db.PluginPermissionSnapshotEntity
 import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
@@ -132,6 +133,60 @@ class PluginRepositoryTest {
     }
 
     @Test
+    fun repository_updates_failure_state_and_persists_it() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val record = sampleRecord(version = "1.0.0", lastUpdatedAt = 10L)
+        dao.seed(record)
+        resetPluginRepositoryForTest(dao = dao, initialized = true, now = 900L)
+
+        val updated = PluginRepository.updateFailureState(
+            pluginId = record.pluginId,
+            failureState = PluginFailureState(
+                consecutiveFailureCount = 2,
+                lastFailureAtEpochMillis = 800L,
+                lastErrorSummary = "socket timeout",
+                suspendedUntilEpochMillis = 1_300L,
+            ),
+        )
+
+        assertEquals(2, updated.failureState.consecutiveFailureCount)
+        assertEquals(800L, updated.failureState.lastFailureAtEpochMillis)
+        assertEquals("socket timeout", updated.failureState.lastErrorSummary)
+        assertEquals(1_300L, updated.failureState.suspendedUntilEpochMillis)
+        assertEquals(900L, updated.lastUpdatedAt)
+        assertEquals(
+            updated.failureState,
+            runBlocking { dao.getPluginInstallAggregate(record.pluginId) }!!.toInstallRecord().failureState,
+        )
+    }
+
+    @Test
+    fun repository_clears_failure_state_and_persists_reset_snapshot() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val record = sampleRecord(
+            version = "1.0.0",
+            lastUpdatedAt = 10L,
+            failureState = PluginFailureState(
+                consecutiveFailureCount = 3,
+                lastFailureAtEpochMillis = 700L,
+                lastErrorSummary = "plugin crashed",
+                suspendedUntilEpochMillis = 1_100L,
+            ),
+        )
+        dao.seed(record)
+        resetPluginRepositoryForTest(dao = dao, initialized = true, now = 950L)
+
+        val updated = PluginRepository.clearFailureState(record.pluginId)
+
+        assertEquals(PluginFailureState.none(), updated.failureState)
+        assertEquals(950L, updated.lastUpdatedAt)
+        assertEquals(
+            PluginFailureState.none(),
+            runBlocking { dao.getPluginInstallAggregate(record.pluginId) }!!.toInstallRecord().failureState,
+        )
+    }
+
+    @Test
     fun repository_uninstall_keep_data_skips_data_cleanup_and_removes_record() {
         val dao = InMemoryPluginInstallAggregateDao()
         val record = sampleRecord(version = "1.0.0", uninstallPolicy = PluginUninstallPolicy.KEEP_DATA)
@@ -239,6 +294,7 @@ private fun sampleRecord(
         maxHostVersionSatisfied = true,
     ),
     uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
+    failureState: PluginFailureState = PluginFailureState.none(),
 ): PluginInstallRecord {
     val manifest = PluginManifest(
         pluginId = "com.example.demo",
@@ -272,6 +328,7 @@ private fun sampleRecord(
         permissionSnapshot = manifest.permissions,
         compatibilityState = compatibilityState,
         uninstallPolicy = uninstallPolicy,
+        failureState = failureState,
         enabled = enabled,
         installedAt = installedAt,
         lastUpdatedAt = lastUpdatedAt,

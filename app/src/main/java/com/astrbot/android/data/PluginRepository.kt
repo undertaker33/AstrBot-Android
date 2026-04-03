@@ -7,6 +7,7 @@ import com.astrbot.android.data.db.PluginInstallAggregateDao
 import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
+import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import java.util.concurrent.atomic.AtomicBoolean
@@ -132,6 +133,29 @@ object PluginRepository : PluginInstallStore {
         )
     }
 
+    fun updateFailureState(
+        pluginId: String,
+        failureState: PluginFailureState,
+    ): PluginInstallRecord {
+        requireInitialized()
+        val current = requireRecord(pluginId)
+        if (current.failureState == failureState) {
+            return current
+        }
+        return persistUpdatedRecord(
+            current = current,
+            failureState = failureState,
+            lastUpdatedAt = timeProvider(),
+        )
+    }
+
+    fun clearFailureState(pluginId: String): PluginInstallRecord {
+        return updateFailureState(
+            pluginId = pluginId,
+            failureState = PluginFailureState.none(),
+        )
+    }
+
     fun uninstall(
         pluginId: String,
         policy: PluginUninstallPolicy,
@@ -164,6 +188,7 @@ object PluginRepository : PluginInstallStore {
         current: PluginInstallRecord,
         enabled: Boolean = current.enabled,
         uninstallPolicy: PluginUninstallPolicy = current.uninstallPolicy,
+        failureState: PluginFailureState = current.failureState,
         lastUpdatedAt: Long = current.lastUpdatedAt,
     ): PluginInstallRecord {
         val updated = PluginInstallRecord.restoreFromPersistedState(
@@ -173,6 +198,7 @@ object PluginRepository : PluginInstallStore {
             compatibilityState = current.compatibilityState,
             uninstallPolicy = uninstallPolicy,
             enabled = enabled,
+            failureState = failureState,
             installedAt = current.installedAt,
             lastUpdatedAt = lastUpdatedAt,
             localPackagePath = current.localPackagePath,
