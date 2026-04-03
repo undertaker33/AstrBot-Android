@@ -7,6 +7,11 @@ import org.junit.Test
 class AppDestinationTest {
 
     @Test
+    fun `plugin workspace redesign keeps plugins as the top-level route`() {
+        assertEquals("plugins", AppDestination.Plugins.route)
+    }
+
+    @Test
     fun `plugin detail route exposes parameterized route string`() {
         assertEquals("plugins/detail/{pluginId}", AppDestination.PluginDetail.route)
         assertEquals("plugins/detail/weather-toolkit", AppDestination.PluginDetail.routeFor("weather-toolkit"))

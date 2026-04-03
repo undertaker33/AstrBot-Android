@@ -146,6 +146,10 @@ class PluginScreenSmokeTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag(PluginUiSpec.DetailPanelTag).assertIsDisplayed()
         composeRule.onNodeWithText("Carol").assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.DetailBackActionTag).performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag(PluginUiSpec.LocalPageTag).assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.installedLibraryCardTag("update")).assertIsDisplayed()
     }
 
     @Test
