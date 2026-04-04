@@ -60,8 +60,17 @@ class AstrBotDatabaseSchemaContractTest {
     }
 
     @Test
-    fun latestMigration_targetsVersion13() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 13)
+    fun migrations_include13To14Step() {
+        assertTrue(
+            AstrBotDatabase.allMigrations.any { migration ->
+                migration.startVersion == 13 && migration.endVersion == 14
+            },
+        )
+    }
+
+    @Test
+    fun latestMigration_targetsVersion14() {
+        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 14)
     }
 
     @Test
@@ -176,6 +185,24 @@ class AstrBotDatabaseSchemaContractTest {
             "lastSyncErrorSummary",
         ).forEach { columnName ->
             assertTrue("Expected $columnName to exist in v13 schema", columnName in schema)
+        }
+    }
+
+    @Test
+    fun version14Schema_containsPluginConfigSnapshotTable() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/14.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/14.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v14 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "plugin_config_snapshots",
+            "coreConfigJson",
+            "extensionConfigJson",
+            "updatedAt",
+        ).forEach { token ->
+            assertTrue("Expected $token to exist in v14 schema", token in schema)
         }
     }
 

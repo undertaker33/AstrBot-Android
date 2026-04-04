@@ -31,7 +31,11 @@ import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
+import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginRepositorySource
+import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.runtime.ContainerBridgeController
@@ -428,6 +432,25 @@ interface PluginViewModelDependencies {
 
     suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord
 
+    fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema?
+
+    fun resolvePluginConfigSnapshot(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+    ): PluginConfigStoreSnapshot
+
+    fun savePluginCoreConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        coreValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot
+
+    fun savePluginExtensionConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        extensionValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot
+
     fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
 
     fun updatePluginUninstallPolicy(pluginId: String, policy: PluginUninstallPolicy): PluginInstallRecord
@@ -485,6 +508,44 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         return withContext(Dispatchers.IO) {
             defaultPluginInstaller().upgrade(update)
         }
+    }
+
+    override fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
+        return PluginRepository.getInstalledStaticConfigSchema(pluginId)
+    }
+
+    override fun resolvePluginConfigSnapshot(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+    ): PluginConfigStoreSnapshot {
+        return PluginRepository.resolveConfigSnapshot(
+            pluginId = pluginId,
+            boundary = boundary,
+        )
+    }
+
+    override fun savePluginCoreConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        coreValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot {
+        return PluginRepository.saveCoreConfig(
+            pluginId = pluginId,
+            boundary = boundary,
+            coreValues = coreValues,
+        )
+    }
+
+    override fun savePluginExtensionConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        extensionValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot {
+        return PluginRepository.saveExtensionConfig(
+            pluginId = pluginId,
+            boundary = boundary,
+            extensionValues = extensionValues,
+        )
     }
 
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {

@@ -1,6 +1,5 @@
 package com.astrbot.android.ui.screen
 
-import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 
 enum class PluginDetailSection {
@@ -8,7 +7,6 @@ enum class PluginDetailSection {
     PrimaryActions,
     Overview,
     SafetyCompatibility,
-    PluginPanel,
     TechnicalMetadata,
 }
 
@@ -20,9 +18,6 @@ internal fun buildPluginDetailSections(
         add(PluginDetailSection.PrimaryActions)
         add(PluginDetailSection.Overview)
         add(PluginDetailSection.SafetyCompatibility)
-        if (uiState.schemaUiState !is PluginSchemaUiState.None) {
-            add(PluginDetailSection.PluginPanel)
-        }
         add(PluginDetailSection.TechnicalMetadata)
     }
 }

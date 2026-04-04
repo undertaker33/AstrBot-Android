@@ -44,13 +44,10 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
-import com.astrbot.android.ui.screen.plugin.schema.PluginSchemaRenderer
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
 import com.astrbot.android.ui.viewmodel.PluginDetailActionState
 import com.astrbot.android.ui.viewmodel.PluginDetailMetadataState
 import com.astrbot.android.ui.viewmodel.PluginFailureUiState
-import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
-import com.astrbot.android.ui.viewmodel.PluginSettingDraftValue
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginViewModel
 import java.text.DateFormat
@@ -61,11 +58,12 @@ import java.util.Locale
 fun PluginDetailScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
+    onOpenConfig: (String) -> Unit,
     pluginViewModel: PluginViewModel = astrBotViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     LaunchedEffect(pluginId) {
-        pluginViewModel.selectPlugin(pluginId)
+        pluginViewModel.selectPluginForDetail(pluginId)
     }
 
     BoxWithPageBackground {
@@ -73,13 +71,12 @@ fun PluginDetailScreenRoute(
             PluginDetailRouteWorkspace(
                 uiState = uiState,
                 onBack = onBack,
+                onOpenConfig = onOpenConfig,
                 onEnable = pluginViewModel::enableSelectedPlugin,
                 onDisable = pluginViewModel::disableSelectedPlugin,
                 onRequestUpgrade = pluginViewModel::requestUpgradeForSelectedPlugin,
                 onSelectPolicy = pluginViewModel::updateSelectedUninstallPolicy,
                 onUninstall = pluginViewModel::uninstallSelectedPlugin,
-                onSchemaCardActionClick = pluginViewModel::onSchemaCardActionClick,
-                onSettingsDraftChange = pluginViewModel::updateSettingsDraft,
             )
         }
         uiState.upgradeDialogState?.let { dialogState ->
@@ -96,13 +93,12 @@ fun PluginDetailScreenRoute(
 private fun PluginDetailRouteWorkspace(
     uiState: PluginScreenUiState,
     onBack: () -> Unit,
+    onOpenConfig: (String) -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
     onRequestUpgrade: () -> Unit,
     onSelectPolicy: (PluginUninstallPolicy) -> Unit,
     onUninstall: () -> Unit,
-    onSchemaCardActionClick: (actionId: String, payload: Map<String, String>) -> Unit,
-    onSettingsDraftChange: (fieldId: String, draftValue: PluginSettingDraftValue) -> Unit,
 ) {
     val record = uiState.selectedPlugin ?: return
 
@@ -140,6 +136,7 @@ private fun PluginDetailRouteWorkspace(
                 PluginDetailSection.PrimaryActions -> PluginDetailPrimaryActionsSection(
                     record = record,
                     actionState = uiState.detailActionState,
+                    onOpenConfig = { onOpenConfig(record.pluginId) },
                     onEnable = onEnable,
                     onDisable = onDisable,
                     onRequestUpgrade = onRequestUpgrade,
@@ -148,11 +145,6 @@ private fun PluginDetailRouteWorkspace(
                 )
                 PluginDetailSection.Overview -> PluginDetailOverviewSection(record, uiState.detailMetadataState)
                 PluginDetailSection.SafetyCompatibility -> PluginDetailSafetyCompatibilitySection(record, uiState.detailActionState)
-                PluginDetailSection.PluginPanel -> PluginDetailPluginPanelSection(
-                    schemaUiState = uiState.schemaUiState,
-                    onSchemaCardActionClick = onSchemaCardActionClick,
-                    onSettingsDraftChange = onSettingsDraftChange,
-                )
                 PluginDetailSection.TechnicalMetadata -> PluginDetailTechnicalMetadataSection(record, uiState.detailMetadataState)
             }
         }
@@ -209,6 +201,7 @@ private fun PluginDetailTopSummarySection(record: PluginInstallRecord) {
 private fun PluginDetailPrimaryActionsSection(
     record: PluginInstallRecord,
     actionState: PluginDetailActionState,
+    onOpenConfig: () -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
     onRequestUpgrade: () -> Unit,
@@ -254,6 +247,14 @@ private fun PluginDetailPrimaryActionsSection(
                 onClick = onUninstall,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailUninstallActionTag),
             ) { Text(stringResource(R.string.plugin_action_uninstall)) }
+        }
+        OutlinedButton(
+            onClick = onOpenConfig,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.DetailOpenConfigActionTag),
+        ) {
+            Text(stringResource(R.string.plugin_action_open_config))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
@@ -336,25 +337,6 @@ private fun PluginDetailSafetyCompatibilitySection(
         } else {
             detailHintCard(stringResource(R.string.plugin_detail_runtime_health_clear))
         }
-    }
-}
-
-@Composable
-private fun PluginDetailPluginPanelSection(
-    schemaUiState: PluginSchemaUiState,
-    onSchemaCardActionClick: (actionId: String, payload: Map<String, String>) -> Unit,
-    onSettingsDraftChange: (fieldId: String, draftValue: PluginSettingDraftValue) -> Unit,
-) {
-    PluginSectionCard(
-        title = stringResource(R.string.plugin_detail_plugin_panel_title),
-        tag = PluginUiSpec.DetailPluginPanelTag,
-    ) {
-        PluginSchemaRenderer(
-            schemaUiState = schemaUiState,
-            onCardActionClick = onSchemaCardActionClick,
-            onSettingsDraftChange = onSettingsDraftChange,
-            modifier = Modifier.fillMaxWidth().testTag(PluginUiSpec.SchemaWorkspaceTag),
-        )
     }
 }
 

@@ -29,6 +29,8 @@ import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
+import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
@@ -38,10 +40,14 @@ import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginPermissionDiff
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.ui.screen.PluginConfigScreenRoute
+import com.astrbot.android.ui.screen.PluginQuickInstallMode
 import com.astrbot.android.ui.screen.PluginDetailScreenRoute
 import com.astrbot.android.ui.screen.PluginScreen
 import com.astrbot.android.ui.screen.PluginWorkspaceTab
@@ -98,6 +104,27 @@ class PluginScreenSmokeTest {
 
         composeRule.onNodeWithTag(PluginUiSpec.LocalPageTag).assertIsDisplayed()
         composeRule.onNodeWithTag(PluginUiSpec.LocalSearchTag).assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.LocalInstallFabTag).assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.LocalInstallFabTag).performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag(PluginUiSpec.LocalInstallDialogTag).assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.LocalInstallModeSelectorTag).assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.plugin_quick_install_mode_local_zip))
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.LocalInstallModeSelectorTag).performClick()
+        composeRule.onNodeWithTag(PluginUiSpec.localInstallModeOptionTag(PluginQuickInstallMode.RepositoryUrl.name))
+            .performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.plugin_repository_url_label))
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.LocalInstallModeSelectorTag).performClick()
+        composeRule.onNodeWithTag(PluginUiSpec.localInstallModeOptionTag(PluginQuickInstallMode.DirectPackageUrl.name))
+            .performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.plugin_direct_package_url_label))
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.common_cancel)).performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithText(composeRule.activity.getString(R.string.plugin_installed_library_search_placeholder))
             .assertIsDisplayed()
         composeRule.onAllNodesWithTag(PluginUiSpec.LocalFilterChipTag).assertCountEquals(3)
@@ -146,6 +173,12 @@ class PluginScreenSmokeTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag(PluginUiSpec.DetailPanelTag).assertIsDisplayed()
         composeRule.onNodeWithText("Carol").assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.DetailOpenConfigActionTag).performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag(PluginUiSpec.ConfigPageTag).assertIsDisplayed()
+        composeRule.onNodeWithTag(PluginUiSpec.ConfigBackActionTag).performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag(PluginUiSpec.DetailPanelTag).assertIsDisplayed()
         composeRule.onNodeWithTag(PluginUiSpec.DetailBackActionTag).performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag(PluginUiSpec.LocalPageTag).assertIsDisplayed()
@@ -306,6 +339,16 @@ private fun PluginRouteHost(dependencies: FakePluginViewModelDependencies) {
                 PluginDetailScreenRoute(
                     pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty(),
                     onBack = { navController.popBackStack() },
+                    onOpenConfig = { pluginId ->
+                        navController.navigate(AppDestination.PluginConfig.routeFor(pluginId))
+                    },
+                    pluginViewModel = detailViewModel,
+                )
+            }
+            composable(AppDestination.PluginConfig.route) { backStackEntry ->
+                PluginConfigScreenRoute(
+                    pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty(),
+                    onBack = { navController.popBackStack() },
                     pluginViewModel = detailViewModel,
                 )
             }
@@ -369,6 +412,25 @@ private class FakePluginViewModelDependencies(
         updateAvailabilitiesState.value = updateAvailabilitiesState.value - update.pluginId
         return upgraded
     }
+
+    override fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? = null
+
+    override fun resolvePluginConfigSnapshot(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+    ): PluginConfigStoreSnapshot = boundary.createSnapshot()
+
+    override fun savePluginCoreConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        coreValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot = boundary.createSnapshot(coreValues = coreValues)
+
+    override fun savePluginExtensionConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        extensionValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot = boundary.createSnapshot(extensionValues = extensionValues)
 
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         val updated = requireNotNull(recordsState.value.firstOrNull { it.pluginId == pluginId }).copyWith(

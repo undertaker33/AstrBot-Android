@@ -49,6 +49,7 @@ internal data class SecondaryTopBarStrings(
     val settings: String,
     val assetManagement: String,
     val pluginDetail: String,
+    val pluginConfig: String,
     val models: String,
     val runtime: String,
     val dataBackup: String,
@@ -145,6 +146,8 @@ internal fun fallbackSecondaryTopBarSpecForRoute(
         else -> null
     } ?: if (matchesAssetDetailRoute(route)) {
         strings.assetManagement
+    } else if (matchesPluginConfigRoute(route)) {
+        strings.pluginConfig
     } else if (matchesPluginDetailRoute(route)) {
         strings.pluginDetail
     } else {
@@ -173,6 +176,11 @@ private fun matchesPluginDetailRoute(route: String?): Boolean {
     if (route == null) return false
     return route == AppDestination.PluginDetail.route ||
         (route.startsWith("plugins/detail/") && route != AppDestination.Plugins.route)
+}
+
+private fun matchesPluginConfigRoute(route: String?): Boolean {
+    if (route == null) return false
+    return route == AppDestination.PluginConfig.route || route.endsWith("/config")
 }
 
 @Composable

@@ -229,6 +229,43 @@ class PluginInstallerTest {
     }
 
     @Test
+    fun installer_extracts_static_config_schema_into_installed_plugin_directory() {
+        val tempDir = Files.createTempDirectory("plugin-installer-static-schema").toFile()
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                clock = { 250L },
+            )
+            val candidate = createPluginPackage(
+                directory = tempDir,
+                fileName = "candidate.zip",
+                manifest = validManifest(version = "1.1.0"),
+                extraEntries = mapOf(
+                    "_conf_schema.json" to """
+                        {
+                          "api_key": {
+                            "type": "string",
+                            "description": "API key",
+                            "default": "demo-key"
+                          }
+                        }
+                    """.trimIndent(),
+                ),
+            )
+
+            val installed = installer.installFromLocalPackage(candidate)
+
+            assertTrue(File(installed.extractedDir, "_conf_schema.json").exists())
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun installer_rejects_incompatible_package() {
         val tempDir = Files.createTempDirectory("plugin-installer-incompatible").toFile()
         try {

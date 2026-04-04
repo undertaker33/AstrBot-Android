@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
@@ -255,6 +256,81 @@ private fun PluginSchemaSettings(
 }
 
 @Composable
+fun PluginStaticConfigRenderer(
+    model: PluginStaticConfigRenderModel,
+    onDraftChange: (fieldKey: String, draftValue: PluginSettingDraftValue) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val visibleSections = model.sections.mapNotNull { section ->
+        val visibleFields = section.fields.filter(StaticConfigFieldRenderModel::isVisible)
+        if (visibleFields.isEmpty()) {
+            null
+        } else {
+            section.copy(fields = visibleFields)
+        }
+    }
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.SchemaStaticConfigTag),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(PluginUiSpec.SchemaContainerPadding),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+        ) {
+            visibleSections.forEach { section ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(PluginUiSpec.schemaStaticConfigSectionTag(section.sectionId)),
+                    shape = PluginUiSpec.SectionShape,
+                    color = MonochromeUi.cardAltBackground,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(PluginUiSpec.SchemaSectionPadding),
+                        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaSectionInnerSpacing),
+                    ) {
+                        Text(
+                            text = section.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonochromeUi.textPrimary,
+                        )
+                        section.fields.forEach { field ->
+                            when (field) {
+                                is StaticConfigFieldRenderModel.Toggle -> PluginStaticConfigToggleField(
+                                    field = field,
+                                    onChange = { checked ->
+                                        onDraftChange(field.fieldKey, PluginSettingDraftValue.Toggle(checked))
+                                    },
+                                )
+
+                                is StaticConfigFieldRenderModel.TextInput -> PluginStaticConfigTextInputField(
+                                    field = field,
+                                    onChange = { value ->
+                                        onDraftChange(field.fieldKey, PluginSettingDraftValue.Text(value))
+                                    },
+                                )
+
+                                is StaticConfigFieldRenderModel.Select -> PluginStaticConfigSelectField(
+                                    field = field,
+                                    onChange = { value ->
+                                        onDraftChange(field.fieldKey, PluginSettingDraftValue.Text(value))
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PluginSchemaStatusChip(status: com.astrbot.android.model.plugin.PluginUiStatus) {
     val palette = PluginUiSpec.schemaStatusPalette(status)
     Surface(
@@ -366,6 +442,163 @@ private fun PluginSelectSettingField(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StaticConfigFieldMeta(
+    fieldKey: String,
+    description: String,
+    hint: String,
+    obviousHint: Boolean,
+    defaultValueText: String,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.schemaStaticConfigFieldTag(fieldKey)),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (description.isNotBlank()) {
+            Text(
+                text = description,
+                modifier = Modifier.testTag(PluginUiSpec.schemaStaticConfigDescriptionTag(fieldKey)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MonochromeUi.textSecondary,
+            )
+        }
+        if (hint.isNotBlank()) {
+            Text(
+                text = if (obviousHint) hint else "Hint: $hint",
+                modifier = Modifier.testTag(PluginUiSpec.schemaStaticConfigHintTag(fieldKey)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MonochromeUi.textSecondary,
+            )
+        }
+        if (defaultValueText.isNotBlank()) {
+            Text(
+                text = "Default: $defaultValueText",
+                modifier = Modifier.testTag(PluginUiSpec.schemaStaticConfigDefaultTag(fieldKey)),
+                style = MaterialTheme.typography.labelSmall,
+                color = MonochromeUi.textSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginStaticConfigToggleField(
+    field: StaticConfigFieldRenderModel.Toggle,
+    onChange: (Boolean) -> Unit,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = field.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textPrimary,
+            )
+            Switch(
+                checked = field.value,
+                onCheckedChange = onChange,
+                modifier = Modifier.testTag(PluginUiSpec.schemaStaticConfigToggleTag(field.fieldKey)),
+            )
+        }
+        StaticConfigFieldMeta(
+            fieldKey = field.fieldKey,
+            description = field.description,
+            hint = field.hint,
+            obviousHint = field.obviousHint,
+            defaultValueText = field.defaultValueText,
+        )
+    }
+}
+
+@Composable
+private fun PluginStaticConfigTextInputField(
+    field: StaticConfigFieldRenderModel.TextInput,
+    onChange: (String) -> Unit,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+    ) {
+        OutlinedTextField(
+            value = field.value,
+            onValueChange = onChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.schemaStaticConfigTextInputTag(field.fieldKey)),
+            label = {
+                Text(
+                    text = field.label,
+                    color = MonochromeUi.textSecondary,
+                )
+            },
+            singleLine = field.inputMode == StaticConfigTextInputMode.SingleLine ||
+                field.inputMode == StaticConfigTextInputMode.Integer ||
+                field.inputMode == StaticConfigTextInputMode.Decimal,
+        )
+        StaticConfigFieldMeta(
+            fieldKey = field.fieldKey,
+            description = field.description,
+            hint = field.hint,
+            obviousHint = field.obviousHint,
+            defaultValueText = field.defaultValueText,
+        )
+    }
+}
+
+@Composable
+private fun PluginStaticConfigSelectField(
+    field: StaticConfigFieldRenderModel.Select,
+    onChange: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.schemaStaticConfigSelectTag(field.fieldKey)),
+        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+    ) {
+        Text(
+            text = field.label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MonochromeUi.textSecondary,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing)) {
+            field.options.forEach { option ->
+                val selected = option.value == field.value
+                OutlinedButton(
+                    onClick = { onChange(option.value) },
+                    modifier = Modifier.testTag(
+                        PluginUiSpec.schemaStaticConfigSelectOptionTag(field.fieldKey, option.value),
+                    ),
+                    border = if (selected) {
+                        BorderStroke(PluginUiSpec.SchemaSelectedBorderWidth, MonochromeUi.textPrimary)
+                    } else {
+                        PluginUiSpec.CardBorder
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (selected) MonochromeUi.cardBackground else MonochromeUi.cardAltBackground,
+                        contentColor = MonochromeUi.textPrimary,
+                    ),
+                ) {
+                    Text(option.label)
+                }
+            }
+        }
+        StaticConfigFieldMeta(
+            fieldKey = field.fieldKey,
+            description = field.description,
+            hint = field.hint,
+            obviousHint = field.obviousHint,
+            defaultValueText = field.defaultValueText,
+        )
     }
 }
 

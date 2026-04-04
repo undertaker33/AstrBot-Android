@@ -142,6 +142,22 @@ class PluginScreenPresentationTest {
     }
 
     @Test
+    fun `local install sheet presentation defaults to local zip and exposes all supported modes`() {
+        val method = pluginPresentationMethod("buildPluginLocalInstallSheetPresentation")
+        val presentation = method.invoke(null)
+
+        assertEquals(
+            PluginQuickInstallMode.LocalZip,
+            propertyValue<PluginQuickInstallMode>(presentation, "selectedMode"),
+        )
+        assertEquals(
+            PluginQuickInstallMode.entries,
+            propertyValue<List<PluginQuickInstallMode>>(presentation, "availableModes"),
+        )
+        assertFalse(propertyValue<Boolean>(presentation, "showSheet").not())
+    }
+
+    @Test
     fun `health overview presentation aggregates installed updates needs review and sources`() {
         val healthy = pluginRecord("healthy")
         val incompatible = pluginRecord(pluginId = "incompatible", compatible = false)

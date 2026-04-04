@@ -137,6 +137,12 @@ data class PluginQuickInstallPresentation(
     val showDirectPackageUrlForm: Boolean,
 )
 
+data class PluginLocalInstallSheetPresentation(
+    val showSheet: Boolean,
+    val selectedMode: PluginQuickInstallMode,
+    val availableModes: List<PluginQuickInstallMode>,
+)
+
 data class PluginRecordPresentation(
     val badges: List<String>,
 )
@@ -269,6 +275,24 @@ internal fun buildPluginQuickInstallPresentation(
         showLocalZipAction = selectedMode == PluginQuickInstallMode.LocalZip,
         showRepositoryUrlForm = selectedMode == PluginQuickInstallMode.RepositoryUrl,
         showDirectPackageUrlForm = selectedMode == PluginQuickInstallMode.DirectPackageUrl,
+    )
+}
+
+internal fun buildPluginLocalInstallSheetPresentation(
+    showSheet: Boolean = true,
+    selectedMode: PluginQuickInstallMode = PluginQuickInstallMode.LocalZip,
+): PluginLocalInstallSheetPresentation {
+    return PluginLocalInstallSheetPresentation(
+        showSheet = showSheet,
+        selectedMode = selectedMode,
+        availableModes = PluginQuickInstallMode.entries,
+    )
+}
+
+internal fun buildPluginLocalInstallSheetPresentation(): PluginLocalInstallSheetPresentation {
+    return buildPluginLocalInstallSheetPresentation(
+        showSheet = true,
+        selectedMode = PluginQuickInstallMode.LocalZip,
     )
 }
 

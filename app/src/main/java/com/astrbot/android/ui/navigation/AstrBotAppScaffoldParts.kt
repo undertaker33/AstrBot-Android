@@ -37,6 +37,7 @@ import com.astrbot.android.ui.topLevelContentTopPadding
 import com.astrbot.android.ui.screen.AssetDetailScreen
 import com.astrbot.android.ui.screen.AssetManagementScreen
 import com.astrbot.android.ui.screen.BotScreen
+import com.astrbot.android.ui.screen.PluginConfigScreenRoute
 import com.astrbot.android.ui.screen.BotWorkspaceTab
 import com.astrbot.android.ui.screen.ChatScreen
 import com.astrbot.android.ui.screen.ConfigDetailScreen
@@ -246,6 +247,16 @@ internal fun AstrBotAppNavGraph(
         composable(AppDestination.PluginDetail.route) { backStackEntry ->
             val pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty()
             PluginDetailScreenRoute(
+                pluginId = pluginId,
+                onBack = { AppNavigator.back(navController) },
+                onOpenConfig = {
+                    AppNavigator.open(navController, AppDestination.PluginConfig.routeFor(pluginId))
+                },
+            )
+        }
+        composable(AppDestination.PluginConfig.route) { backStackEntry ->
+            val pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty()
+            PluginConfigScreenRoute(
                 pluginId = pluginId,
                 onBack = { AppNavigator.back(navController) },
             )

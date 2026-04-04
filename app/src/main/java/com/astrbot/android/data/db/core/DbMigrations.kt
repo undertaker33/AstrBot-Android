@@ -90,3 +90,9 @@ internal val migration12To13 = object : Migration(12, 13) {
         )
     }
 }
+
+internal val migration13To14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.createPluginConfigTablesV14()
+    }
+}

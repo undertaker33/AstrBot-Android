@@ -6,9 +6,12 @@ import com.astrbot.android.data.db.PluginCatalogDao
 import com.astrbot.android.data.db.PluginCatalogEntryEntity
 import com.astrbot.android.data.db.PluginCatalogSourceEntity
 import com.astrbot.android.data.db.PluginCatalogVersionEntity
+import com.astrbot.android.data.db.PluginConfigSnapshotDao
 import com.astrbot.android.data.db.toEntryRecord
 import com.astrbot.android.data.db.PluginInstallAggregate
 import com.astrbot.android.data.db.PluginInstallAggregateDao
+import com.astrbot.android.data.db.toEntity
+import com.astrbot.android.data.db.toSnapshot
 import com.astrbot.android.data.db.toModel
 import com.astrbot.android.data.db.toSyncState
 import com.astrbot.android.data.db.toInstallRecord
@@ -20,17 +23,23 @@ import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
+import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
+import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginPermissionDiff
 import com.astrbot.android.model.plugin.PluginPermissionUpgrade
+import com.astrbot.android.model.plugin.PluginStaticConfigJson
+import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginSourceBadge
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.runtime.plugin.compareVersions
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +49,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 
 interface PluginInstallStore {
     fun findByPluginId(pluginId: String): PluginInstallRecord?
@@ -68,6 +78,7 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     private var appContext: Context? = null
     private var pluginDao: PluginInstallAggregateDao? = null
     private var pluginCatalogDao: PluginCatalogDao? = null
+    private var pluginConfigDao: PluginConfigSnapshotDao? = null
     private var timeProvider: () -> Long = System::currentTimeMillis
     private var pluginDataRemover: PluginDataRemover = NoOpPluginDataRemover
     private val _records = MutableStateFlow<List<PluginInstallRecord>>(emptyList())
@@ -84,6 +95,7 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         val database = AstrBotDatabase.get(context)
         val dao = database.pluginInstallAggregateDao()
         pluginCatalogDao = database.pluginCatalogDao()
+        pluginConfigDao = database.pluginConfigSnapshotDao()
         pluginDao = dao
         _records.value = runBlocking(Dispatchers.IO) {
             dao.listPluginInstallAggregates().map(PluginInstallAggregate::toInstallRecord)
@@ -314,6 +326,69 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         )
     }
 
+    fun resolveConfigSnapshot(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+    ): PluginConfigStoreSnapshot {
+        requireInitialized()
+        requireRecord(pluginId)
+        val persisted = runBlocking(Dispatchers.IO) {
+            requireConfigDao().get(pluginId)?.toSnapshot()
+        } ?: PluginConfigStoreSnapshot()
+        return boundary.createSnapshot(
+            coreValues = (boundary.coreDefaults + persisted.coreValues)
+                .filterKeys { it in boundary.coreFieldKeys },
+            extensionValues = persisted.extensionValues.filterKeys { it in boundary.extensionFieldKeys },
+        )
+    }
+
+    fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
+        requireInitialized()
+        val record = requireRecord(pluginId)
+        val extractedDir = record.extractedDir.takeIf { it.isNotBlank() } ?: return null
+        val schemaFile = File(extractedDir, "_conf_schema.json")
+        if (!schemaFile.isFile) {
+            return null
+        }
+        return runCatching {
+            PluginStaticConfigJson.decodeSchema(
+                JSONObject(schemaFile.readText()),
+            )
+        }.getOrNull()
+    }
+
+    fun saveCoreConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        coreValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot {
+        requireInitialized()
+        requireRecord(pluginId)
+        val current = resolveConfigSnapshot(pluginId = pluginId, boundary = boundary)
+        val snapshot = boundary.createSnapshot(
+            coreValues = coreValues,
+            extensionValues = current.extensionValues,
+        )
+        persistConfigSnapshot(pluginId = pluginId, snapshot = snapshot)
+        return snapshot
+    }
+
+    fun saveExtensionConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        extensionValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot {
+        requireInitialized()
+        requireRecord(pluginId)
+        val current = resolveConfigSnapshot(pluginId = pluginId, boundary = boundary)
+        val snapshot = boundary.createSnapshot(
+            coreValues = current.coreValues,
+            extensionValues = extensionValues,
+        )
+        persistConfigSnapshot(pluginId = pluginId, snapshot = snapshot)
+        return snapshot
+    }
+
     private fun requireInitialized() {
         check(initialized.get() && pluginDao != null) {
             "PluginRepository.initialize(context) must be called before use."
@@ -501,4 +576,21 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
 
     private fun requireCatalogDao(): PluginCatalogDao = pluginCatalogDao
         ?: error("PluginRepository.initialize(context) must be called before use.")
+
+    private fun requireConfigDao(): PluginConfigSnapshotDao = pluginConfigDao
+        ?: error("PluginRepository.initialize(context) must be called before use.")
+
+    private fun persistConfigSnapshot(
+        pluginId: String,
+        snapshot: PluginConfigStoreSnapshot,
+    ) {
+        runBlocking(Dispatchers.IO) {
+            requireConfigDao().upsert(
+                snapshot.toEntity(
+                    pluginId = pluginId,
+                    updatedAt = timeProvider(),
+                ),
+            )
+        }
+    }
 }

@@ -149,6 +149,7 @@ class FloatingBottomNavBarTest {
             settings = "Settings",
             assetManagement = "Assets",
             pluginDetail = "Plugin details",
+            pluginConfig = "Plugin configuration",
             models = "Models",
             runtime = "Runtime",
             dataBackup = "Backup",
@@ -174,6 +175,10 @@ class FloatingBottomNavBarTest {
         assertEquals(
             "Plugin details",
             (fallbackSecondaryTopBarSpecForRoute(AppDestination.PluginDetail.route, strings) as SecondaryTopBarSpec.SubPage).title,
+        )
+        assertEquals(
+            "Plugin configuration",
+            (fallbackSecondaryTopBarSpecForRoute(AppDestination.PluginConfig.route, strings) as SecondaryTopBarSpec.SubPage).title,
         )
     }
 }

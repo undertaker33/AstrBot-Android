@@ -1,5 +1,7 @@
 package com.astrbot.android.ui.screen
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,14 +23,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -55,6 +64,7 @@ import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
@@ -81,6 +91,9 @@ fun PluginScreen(
     onOpenPluginDetail: (String) -> Unit = {},
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
+    val localPackagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { pluginViewModel.submitLocalPackageUri(it.toString()) }
+    }
 
     Box(
         modifier = Modifier
@@ -93,6 +106,13 @@ fun PluginScreen(
                 onSearchQueryChange = pluginViewModel::updateLocalSearchQuery,
                 onFilterSelected = pluginViewModel::updateSelectedLocalFilter,
                 onOpenPluginDetail = onOpenPluginDetail,
+                onRepositoryUrlDraftChange = pluginViewModel::updateRepositoryUrlDraft,
+                onDirectPackageUrlDraftChange = pluginViewModel::updateDirectPackageUrlDraft,
+                onSubmitRepositoryUrl = pluginViewModel::submitRepositoryUrl,
+                onSubmitDirectPackageUrl = pluginViewModel::submitDirectPackageUrl,
+                onImportLocalPackage = {
+                    localPackagePicker.launch(arrayOf("application/zip", "application/octet-stream"))
+                },
             )
             PluginWorkspaceTab.MARKET -> PluginMarketWorkspace()
         }
@@ -105,107 +125,155 @@ private fun PluginLocalWorkspace(
     onSearchQueryChange: (String) -> Unit,
     onFilterSelected: (PluginLocalFilter) -> Unit,
     onOpenPluginDetail: (String) -> Unit,
+    onRepositoryUrlDraftChange: (String) -> Unit,
+    onDirectPackageUrlDraftChange: (String) -> Unit,
+    onSubmitRepositoryUrl: () -> Unit,
+    onSubmitDirectPackageUrl: () -> Unit,
+    onImportLocalPackage: () -> Unit,
 ) {
     val presentation = buildPluginLocalWorkspacePresentation(
         uiState = uiState,
         searchQuery = uiState.localSearchQuery,
         selectedFilter = uiState.selectedLocalFilter,
     )
+    var showInstallSheet by rememberSaveable { mutableStateOf(false) }
+    var selectedInstallMode by rememberSaveable { mutableStateOf(PluginQuickInstallMode.LocalZip) }
+    val installSheetPresentation = buildPluginLocalInstallSheetPresentation(
+        showSheet = showInstallSheet,
+        selectedMode = selectedInstallMode,
+    )
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = PluginUiSpec.ScreenHorizontalPadding)
-            .testTag(PluginUiSpec.LocalPageTag),
-        contentPadding = PaddingValues(
-            top = PluginUiSpec.ScreenVerticalPadding,
-            bottom = PluginUiSpec.ListContentBottomPadding,
-        ),
-        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
-    ) {
-        item {
-            OutlinedTextField(
-                value = uiState.localSearchQuery,
-                onValueChange = onSearchQueryChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag(PluginUiSpec.LocalSearchTag),
-                singleLine = true,
-                shape = PluginUiSpec.SummaryShape,
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = null,
-                        tint = MonochromeUi.textSecondary,
-                    )
-                },
-                placeholder = {
-                    Text(
-                        text = stringResource(R.string.plugin_installed_library_search_placeholder),
-                        color = MonochromeUi.textSecondary,
-                    )
-                },
-                colors = monochromeOutlinedTextFieldColors(),
-            )
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .testTag(PluginUiSpec.LocalFilterRowTag),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                presentation.filters.forEach { filter ->
-                    FilterChip(
-                        selected = filter.selected,
-                        onClick = { onFilterSelected(filter.filter) },
-                        modifier = Modifier.testTag(PluginUiSpec.LocalFilterChipTag),
-                        label = {
-                            Text(
-                                text = stringResource(
-                                    when (filter.filter) {
-                                        PluginLocalFilter.ENABLED -> R.string.plugin_installed_library_filter_enabled
-                                        PluginLocalFilter.DISABLED -> R.string.plugin_local_status_disabled
-                                        PluginLocalFilter.UPDATES -> R.string.plugin_installed_library_filter_updates
-                                    },
-                                ),
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MonochromeUi.chipSelectedBackground,
-                            selectedLabelColor = MonochromeUi.textPrimary,
-                            containerColor = MonochromeUi.chipBackground,
-                            labelColor = MonochromeUi.textSecondary,
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = filter.selected,
-                            borderColor = MonochromeUi.border,
-                            selectedBorderColor = MonochromeUi.textPrimary,
-                            borderWidth = 1.dp,
-                            selectedBorderWidth = 1.2.dp,
-                        ),
-                    )
-                }
-            }
-        }
-        if (presentation.cards.isEmpty()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = PluginUiSpec.ScreenHorizontalPadding)
+                .testTag(PluginUiSpec.LocalPageTag),
+            contentPadding = PaddingValues(
+                top = PluginUiSpec.ScreenVerticalPadding,
+                bottom = PluginUiSpec.ListContentBottomPadding,
+            ),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
+        ) {
             item {
-                PluginSectionEmptyState(
-                    message = stringResource(R.string.plugin_installed_library_empty_message),
+                OutlinedTextField(
+                    value = uiState.localSearchQuery,
+                    onValueChange = onSearchQueryChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(PluginUiSpec.LocalSearchTag),
+                    singleLine = true,
+                    shape = PluginUiSpec.SummaryShape,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = MonochromeUi.textSecondary,
+                        )
+                    },
+                    placeholder = {
+                        Text(
+                            text = stringResource(R.string.plugin_installed_library_search_placeholder),
+                            color = MonochromeUi.textSecondary,
+                        )
+                    },
+                    colors = monochromeOutlinedTextFieldColors(),
                 )
             }
-        } else {
-            items(presentation.cards, key = { it.pluginId }) { card ->
-                Box(modifier = Modifier.testTag(PluginUiSpec.LocalCardTag)) {
-                    PluginLocalCard(
-                        card = card,
-                        onClick = { onOpenPluginDetail(card.pluginId) },
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .testTag(PluginUiSpec.LocalFilterRowTag),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    presentation.filters.forEach { filter ->
+                        FilterChip(
+                            selected = filter.selected,
+                            onClick = { onFilterSelected(filter.filter) },
+                            modifier = Modifier.testTag(PluginUiSpec.LocalFilterChipTag),
+                            label = {
+                                Text(
+                                    text = stringResource(
+                                        when (filter.filter) {
+                                            PluginLocalFilter.ENABLED -> R.string.plugin_installed_library_filter_enabled
+                                            PluginLocalFilter.DISABLED -> R.string.plugin_local_status_disabled
+                                            PluginLocalFilter.UPDATES -> R.string.plugin_installed_library_filter_updates
+                                        },
+                                    ),
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MonochromeUi.chipSelectedBackground,
+                                selectedLabelColor = MonochromeUi.textPrimary,
+                                containerColor = MonochromeUi.chipBackground,
+                                labelColor = MonochromeUi.textSecondary,
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = filter.selected,
+                                borderColor = MonochromeUi.border,
+                                selectedBorderColor = MonochromeUi.textPrimary,
+                                borderWidth = 1.dp,
+                                selectedBorderWidth = 1.2.dp,
+                            ),
+                        )
+                    }
+                }
+            }
+            if (presentation.cards.isEmpty()) {
+                item {
+                    PluginSectionEmptyState(
+                        message = stringResource(R.string.plugin_installed_library_empty_message),
                     )
+                }
+            } else {
+                items(presentation.cards, key = { it.pluginId }) { card ->
+                    Box(modifier = Modifier.testTag(PluginUiSpec.LocalCardTag)) {
+                        PluginLocalCard(
+                            card = card,
+                            onClick = { onOpenPluginDetail(card.pluginId) },
+                        )
+                    }
                 }
             }
         }
+
+        FloatingActionButton(
+            onClick = { showInstallSheet = true },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
+                .testTag(PluginUiSpec.LocalInstallFabTag),
+            containerColor = MonochromeUi.fabBackground,
+            contentColor = MonochromeUi.fabContent,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = stringResource(R.string.plugin_local_add_fab_content_description),
+            )
+        }
+    }
+
+    if (installSheetPresentation.showSheet) {
+        PluginLocalInstallDialog(
+            selectedMode = installSheetPresentation.selectedMode,
+            availableModes = installSheetPresentation.availableModes,
+            repositoryUrlDraft = uiState.repositoryUrlDraft,
+            directPackageUrlDraft = uiState.directPackageUrlDraft,
+            isActionRunning = uiState.isInstallActionRunning,
+            lastActionMessage = uiState.detailActionState.lastActionMessage,
+            onModeSelected = { selectedInstallMode = it },
+            onRepositoryUrlDraftChange = onRepositoryUrlDraftChange,
+            onDirectPackageUrlDraftChange = onDirectPackageUrlDraftChange,
+            onSubmitRepositoryUrl = onSubmitRepositoryUrl,
+            onSubmitDirectPackageUrl = onSubmitDirectPackageUrl,
+            onImportLocalPackage = onImportLocalPackage,
+            onDismiss = { showInstallSheet = false },
+        )
     }
 }
 
@@ -275,6 +343,201 @@ private fun PluginLocalCard(
                 modifier = Modifier.testTag(PluginUiSpec.LocalCardChevronTag),
                 tint = MonochromeUi.textSecondary,
             )
+        }
+    }
+}
+
+@Composable
+private fun PluginLocalInstallDialog(
+    selectedMode: PluginQuickInstallMode,
+    availableModes: List<PluginQuickInstallMode>,
+    repositoryUrlDraft: String,
+    directPackageUrlDraft: String,
+    isActionRunning: Boolean,
+    lastActionMessage: PluginActionFeedback?,
+    onModeSelected: (PluginQuickInstallMode) -> Unit,
+    onRepositoryUrlDraftChange: (String) -> Unit,
+    onDirectPackageUrlDraftChange: (String) -> Unit,
+    onSubmitRepositoryUrl: () -> Unit,
+    onSubmitDirectPackageUrl: () -> Unit,
+    onImportLocalPackage: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag(PluginUiSpec.LocalInstallDialogTag),
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textPrimary,
+        title = {
+            Text(
+                text = stringResource(R.string.plugin_install_entry_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = stringResource(R.string.plugin_install_entry_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MonochromeUi.textSecondary,
+                )
+                PluginInstallModeDropdown(
+                    selectedMode = selectedMode,
+                    availableModes = availableModes,
+                    onModeSelected = onModeSelected,
+                )
+                PluginInstallActionFields(
+                    selectedMode = selectedMode,
+                    repositoryUrlDraft = repositoryUrlDraft,
+                    directPackageUrlDraft = directPackageUrlDraft,
+                    isActionRunning = isActionRunning,
+                    onRepositoryUrlDraftChange = onRepositoryUrlDraftChange,
+                    onDirectPackageUrlDraftChange = onDirectPackageUrlDraftChange,
+                    onSubmitRepositoryUrl = onSubmitRepositoryUrl,
+                    onSubmitDirectPackageUrl = onSubmitDirectPackageUrl,
+                    onImportLocalPackage = onImportLocalPackage,
+                    lastActionMessage = lastActionMessage,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+            ) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun PluginInstallModeDropdown(
+    selectedMode: PluginQuickInstallMode,
+    availableModes: List<PluginQuickInstallMode>,
+    onModeSelected: (PluginQuickInstallMode) -> Unit,
+) {
+    var expanded by remember(selectedMode, availableModes) { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = stringResource(R.string.plugin_install_method_label),
+            style = MaterialTheme.typography.labelSmall,
+            color = MonochromeUi.textSecondary,
+        )
+        Surface(
+            onClick = { expanded = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.LocalInstallModeSelectorTag),
+            shape = PluginUiSpec.SectionShape,
+            color = MonochromeUi.cardAltBackground,
+            border = PluginUiSpec.CardBorder,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(selectedMode.labelRes()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MonochromeUi.textPrimary,
+                )
+                Icon(
+                    imageVector = Icons.Outlined.ArrowDropDown,
+                    contentDescription = null,
+                    tint = MonochromeUi.textSecondary,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            availableModes.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(mode.labelRes())) },
+                    modifier = Modifier.testTag(PluginUiSpec.localInstallModeOptionTag(mode.name)),
+                    onClick = {
+                        onModeSelected(mode)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginInstallActionFields(
+    selectedMode: PluginQuickInstallMode,
+    repositoryUrlDraft: String,
+    directPackageUrlDraft: String,
+    isActionRunning: Boolean,
+    onRepositoryUrlDraftChange: (String) -> Unit,
+    onDirectPackageUrlDraftChange: (String) -> Unit,
+    onSubmitRepositoryUrl: () -> Unit,
+    onSubmitDirectPackageUrl: () -> Unit,
+    onImportLocalPackage: () -> Unit,
+    lastActionMessage: PluginActionFeedback?,
+) {
+    val presentation = buildPluginQuickInstallPresentation(selectedMode)
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        when (presentation.selectedMode) {
+            PluginQuickInstallMode.LocalZip -> {
+                OutlinedButton(
+                    onClick = onImportLocalPackage,
+                    enabled = !isActionRunning,
+                ) {
+                    Text(stringResource(R.string.plugin_local_package_action))
+                }
+            }
+
+            PluginQuickInstallMode.RepositoryUrl -> {
+                OutlinedTextField(
+                    value = repositoryUrlDraft,
+                    onValueChange = onRepositoryUrlDraftChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.plugin_repository_url_label)) },
+                    placeholder = { Text(stringResource(R.string.plugin_repository_url_placeholder)) },
+                    singleLine = true,
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+                OutlinedButton(
+                    onClick = onSubmitRepositoryUrl,
+                    enabled = !isActionRunning && repositoryUrlDraft.isNotBlank(),
+                ) {
+                    Text(stringResource(R.string.plugin_repository_url_action))
+                }
+            }
+
+            PluginQuickInstallMode.DirectPackageUrl -> {
+                OutlinedTextField(
+                    value = directPackageUrlDraft,
+                    onValueChange = onDirectPackageUrlDraftChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.plugin_direct_package_url_label)) },
+                    placeholder = { Text(stringResource(R.string.plugin_direct_package_url_placeholder)) },
+                    singleLine = true,
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+                OutlinedButton(
+                    onClick = onSubmitDirectPackageUrl,
+                    enabled = !isActionRunning && directPackageUrlDraft.isNotBlank(),
+                ) {
+                    Text(stringResource(R.string.plugin_direct_package_url_action))
+                }
+            }
+        }
+
+        lastActionMessage?.let { message ->
+            PluginActionFeedbackCard(message = message)
         }
     }
 }
@@ -1714,6 +1977,14 @@ private fun localStatusLabel(enabled: Boolean): String {
         stringResource(R.string.plugin_local_status_enabled)
     } else {
         stringResource(R.string.plugin_local_status_disabled)
+    }
+}
+
+private fun PluginQuickInstallMode.labelRes(): Int {
+    return when (this) {
+        PluginQuickInstallMode.LocalZip -> R.string.plugin_quick_install_mode_local_zip
+        PluginQuickInstallMode.RepositoryUrl -> R.string.plugin_quick_install_mode_repository_url
+        PluginQuickInstallMode.DirectPackageUrl -> R.string.plugin_quick_install_mode_direct_package_url
     }
 }
 

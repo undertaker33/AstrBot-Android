@@ -4,6 +4,12 @@ import com.astrbot.android.model.plugin.PluginCardAction
 import com.astrbot.android.model.plugin.PluginCardField
 import com.astrbot.android.model.plugin.PluginCardSchema
 import com.astrbot.android.model.plugin.PluginSelectOption
+import com.astrbot.android.model.plugin.PluginStaticConfigField
+import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
+import com.astrbot.android.model.plugin.PluginStaticConfigOption
+import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigSpecialType
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginSettingsSection
 import com.astrbot.android.model.plugin.PluginUiStatus
@@ -12,6 +18,7 @@ import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
 import com.astrbot.android.ui.screen.plugin.schema.buildPluginCardRenderModel
 import com.astrbot.android.ui.screen.plugin.schema.buildPluginSettingsRenderModel
+import com.astrbot.android.ui.screen.plugin.schema.buildPluginStaticConfigRenderModel
 import com.astrbot.android.ui.screen.plugin.schema.dispatchSchemaCardAction
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
 import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
@@ -158,5 +165,133 @@ class PluginSchemaRendererPresentationTest {
                 ),
             ),
         )
+    }
+
+    @Test
+    fun `static config render model groups fields by section and resolves drafts for core schema subset`() {
+        val schema = PluginStaticConfigSchema(
+            fields = listOf(
+                PluginStaticConfigField(
+                    fieldKey = "token",
+                    fieldType = PluginStaticConfigFieldType.StringField,
+                    description = "Bot token",
+                    hint = "Required for provider auth.",
+                    defaultValue = PluginStaticConfigValue.StringValue("sk-demo"),
+                    section = "credentials",
+                ),
+                PluginStaticConfigField(
+                    fieldKey = "prompt_template",
+                    fieldType = PluginStaticConfigFieldType.TextField,
+                    description = "Prompt template",
+                    defaultValue = PluginStaticConfigValue.StringValue("You are AstrBot."),
+                    section = "content",
+                ),
+                PluginStaticConfigField(
+                    fieldKey = "max_tokens",
+                    fieldType = PluginStaticConfigFieldType.IntField,
+                    description = "Maximum number of generated tokens.",
+                    defaultValue = PluginStaticConfigValue.IntValue(8192),
+                    section = "tuning",
+                ),
+                PluginStaticConfigField(
+                    fieldKey = "temperature",
+                    fieldType = PluginStaticConfigFieldType.FloatField,
+                    description = "Sampling temperature.",
+                    defaultValue = PluginStaticConfigValue.FloatValue(0.7),
+                    section = "tuning",
+                ),
+                PluginStaticConfigField(
+                    fieldKey = "enabled",
+                    fieldType = PluginStaticConfigFieldType.BoolField,
+                    description = "Whether the plugin is enabled.",
+                    defaultValue = PluginStaticConfigValue.BoolValue(false),
+                ),
+                PluginStaticConfigField(
+                    fieldKey = "provider",
+                    fieldType = PluginStaticConfigFieldType.StringField,
+                    description = "Provider id",
+                    options = listOf(
+                        PluginStaticConfigOption.Plain("openai"),
+                        PluginStaticConfigOption.Labeled("gemini", "Gemini"),
+                    ),
+                    specialType = PluginStaticConfigSpecialType.SelectProvider,
+                    section = "credentials",
+                ),
+                PluginStaticConfigField(
+                    fieldKey = "internal_note",
+                    fieldType = PluginStaticConfigFieldType.StringField,
+                    description = "Internal note",
+                    invisible = true,
+                    section = "advanced",
+                ),
+            ),
+        )
+
+        val model = buildPluginStaticConfigRenderModel(
+            schema = schema,
+            draftValues = mapOf(
+                "token" to PluginSettingDraftValue.Text("sk-live"),
+                "max_tokens" to PluginSettingDraftValue.Text("4096"),
+                "temperature" to PluginSettingDraftValue.Text("0.9"),
+                "enabled" to PluginSettingDraftValue.Toggle(true),
+                "provider" to PluginSettingDraftValue.Text("gemini"),
+            ),
+        )
+
+        assertEquals(5, model.sections.size)
+        assertEquals("General", model.sections[0].title)
+        assertEquals("Credentials", model.sections[1].title)
+        assertEquals("Content", model.sections[2].title)
+        assertEquals("Tuning", model.sections[3].title)
+        assertEquals("Advanced", model.sections[4].title)
+
+        val generalField = model.sections[0].fields.single()
+        assertTrue(generalField is com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.Toggle)
+        val credentialsFields = model.sections[1].fields
+        assertTrue(credentialsFields[0] is com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.TextInput)
+        assertTrue(credentialsFields[1] is com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.Select)
+        val contentField = model.sections[2].fields.single()
+        val tuningFields = model.sections[3].fields
+        val advancedField = model.sections[4].fields.single()
+
+        val tokenField =
+            credentialsFields[0] as com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.TextInput
+        val providerField =
+            credentialsFields[1] as com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.Select
+        val promptField =
+            contentField as com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.TextInput
+        val maxTokensField =
+            tuningFields[0] as com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.TextInput
+        val temperatureField =
+            tuningFields[1] as com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.TextInput
+        val enabledField =
+            generalField as com.astrbot.android.ui.screen.plugin.schema.StaticConfigFieldRenderModel.Toggle
+
+        assertEquals("Token", tokenField.label)
+        assertEquals("sk-live", tokenField.value)
+        assertEquals(
+            com.astrbot.android.ui.screen.plugin.schema.StaticConfigTextInputMode.SingleLine,
+            tokenField.inputMode,
+        )
+        assertEquals("Prompt Template", promptField.label)
+        assertEquals(
+            com.astrbot.android.ui.screen.plugin.schema.StaticConfigTextInputMode.MultiLine,
+            promptField.inputMode,
+        )
+        assertEquals(
+            com.astrbot.android.ui.screen.plugin.schema.StaticConfigTextInputMode.Integer,
+            maxTokensField.inputMode,
+        )
+        assertEquals("4096", maxTokensField.value)
+        assertEquals(
+            com.astrbot.android.ui.screen.plugin.schema.StaticConfigTextInputMode.Decimal,
+            temperatureField.inputMode,
+        )
+        assertEquals("0.9", temperatureField.value)
+        assertTrue(enabledField.value)
+        assertEquals(PluginStaticConfigSpecialType.SelectProvider, providerField.specialType)
+        assertEquals("gemini", providerField.value)
+        assertEquals("Gemini", providerField.options[1].label)
+        assertFalse(advancedField.isVisible)
     }
 }

@@ -307,6 +307,33 @@ private class MinimalPluginViewModelDeps(
         error("Not needed for this sample test")
     }
 
+    override fun getPluginStaticConfigSchema(pluginId: String): com.astrbot.android.model.plugin.PluginStaticConfigSchema? {
+        return null
+    }
+
+    override fun resolvePluginConfigSnapshot(
+        pluginId: String,
+        boundary: com.astrbot.android.model.plugin.PluginConfigStorageBoundary,
+    ): com.astrbot.android.model.plugin.PluginConfigStoreSnapshot {
+        return boundary.createSnapshot()
+    }
+
+    override fun savePluginCoreConfig(
+        pluginId: String,
+        boundary: com.astrbot.android.model.plugin.PluginConfigStorageBoundary,
+        coreValues: Map<String, com.astrbot.android.model.plugin.PluginStaticConfigValue>,
+    ): com.astrbot.android.model.plugin.PluginConfigStoreSnapshot {
+        return boundary.createSnapshot(coreValues = coreValues)
+    }
+
+    override fun savePluginExtensionConfig(
+        pluginId: String,
+        boundary: com.astrbot.android.model.plugin.PluginConfigStorageBoundary,
+        extensionValues: Map<String, com.astrbot.android.model.plugin.PluginStaticConfigValue>,
+    ): com.astrbot.android.model.plugin.PluginConfigStoreSnapshot {
+        return boundary.createSnapshot(extensionValues = extensionValues)
+    }
+
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         val current = recordsFlow.value.first { it.pluginId == pluginId }
         val updated = PluginInstallRecord.restoreFromPersistedState(

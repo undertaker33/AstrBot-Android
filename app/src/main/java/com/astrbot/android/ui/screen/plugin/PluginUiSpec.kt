@@ -81,6 +81,9 @@ object PluginUiSpec {
     const val LocalFilterChipTag = "plugin-local-filter-chip"
     const val LocalCardTag = "plugin-local-card"
     const val LocalCardChevronTag = "plugin-local-card-chevron"
+    const val LocalInstallFabTag = "plugin-local-install-fab"
+    const val LocalInstallDialogTag = "plugin-local-install-dialog"
+    const val LocalInstallModeSelectorTag = "plugin-local-install-mode-selector"
     const val MarketPageTag = "plugin-market-page"
     const val DiscoverSectionTag = "plugin-discover-section"
     const val RepositoriesSectionTag = "plugin-repositories-section"
@@ -96,6 +99,7 @@ object PluginUiSpec {
     const val DetailSafetyCompatibilityTag = "plugin-detail-safety-compatibility"
     const val DetailPluginPanelTag = "plugin-detail-plugin-panel"
     const val DetailTechnicalMetadataTag = "plugin-detail-technical-metadata"
+    const val DetailOpenConfigActionTag = "plugin-detail-open-config-action"
     const val DetailMetadataTag = "plugin-detail-metadata"
     const val DetailUpdateHintTag = "plugin-detail-update-hint"
     const val DetailPermissionDiffTag = "plugin-detail-permission-diff"
@@ -112,6 +116,13 @@ object PluginUiSpec {
     const val SchemaCardStatusTag = "plugin-schema-card-status"
     const val SchemaCardFeedbackTag = "plugin-schema-card-feedback"
     const val SchemaSettingsTag = "plugin-schema-settings"
+    const val SchemaStaticConfigTag = "plugin-schema-static-config"
+    const val ConfigPageTag = "plugin-config-page"
+    const val ConfigBackActionTag = "plugin-config-back-action"
+    const val ConfigSummaryTag = "plugin-config-summary"
+    const val ConfigStaticSectionTag = "plugin-config-static-section"
+    const val ConfigRuntimeSectionTag = "plugin-config-runtime-section"
+    const val ConfigEmptyStateTag = "plugin-config-empty-state"
     const val DetailFailureBannerTag = "plugin-failure-banner"
     const val DetailFailureSummaryTag = "plugin-failure-summary"
     const val DetailFailureRecoveryTag = "plugin-failure-recovery"
@@ -132,6 +143,20 @@ object PluginUiSpec {
     fun schemaSettingsSelectOptionTag(fieldId: String, optionValue: String): String {
         return "plugin-schema-select-${toTagSegment(fieldId)}-option-${toTagSegment(optionValue)}"
     }
+    fun schemaStaticConfigSectionTag(sectionId: String): String = "plugin-static-config-section-${toTagSegment(sectionId)}"
+    fun schemaStaticConfigFieldTag(fieldKey: String): String = "plugin-static-config-field-${toTagSegment(fieldKey)}"
+    fun schemaStaticConfigDescriptionTag(fieldKey: String): String {
+        return "plugin-static-config-description-${toTagSegment(fieldKey)}"
+    }
+    fun schemaStaticConfigHintTag(fieldKey: String): String = "plugin-static-config-hint-${toTagSegment(fieldKey)}"
+    fun schemaStaticConfigDefaultTag(fieldKey: String): String = "plugin-static-config-default-${toTagSegment(fieldKey)}"
+    fun schemaStaticConfigToggleTag(fieldKey: String): String = "plugin-static-config-toggle-${toTagSegment(fieldKey)}"
+    fun schemaStaticConfigTextInputTag(fieldKey: String): String = "plugin-static-config-text-${toTagSegment(fieldKey)}"
+    fun schemaStaticConfigSelectTag(fieldKey: String): String = "plugin-static-config-select-${toTagSegment(fieldKey)}"
+    fun schemaStaticConfigSelectOptionTag(fieldKey: String, optionValue: String): String {
+        return "plugin-static-config-select-${toTagSegment(fieldKey)}-option-${toTagSegment(optionValue)}"
+    }
+    fun localInstallModeOptionTag(mode: String): String = "plugin-local-install-mode-${toTagSegment(mode)}"
 
     val EmptyStateContainerColor: Color
         @Composable

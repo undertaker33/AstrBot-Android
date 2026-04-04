@@ -9,6 +9,8 @@ keystore.properties
 .externalNativeBuild/
 captures/
 artifacts/
+artifacts/plugins/
+docs/plugins/
 .superpowers/
 .worktrees/
 .android-home/

@@ -22,10 +22,15 @@ import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginSelectOption
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginSettingsSection
+import com.astrbot.android.model.plugin.PluginStaticConfigField
+import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
+import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginTriggerSource
@@ -1013,16 +1018,194 @@ class PluginViewModelTest {
         assertEquals(PluginSettingDraftValue.Text("Aster"), schemaState.draftValues["nickname"])
     }
 
+    @Test
+    fun detail_selection_keeps_config_state_empty() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    SettingsUiRequest(
+                        schema = PluginSettingsSchema(
+                            title = "Runtime Settings",
+                            sections = listOf(
+                                PluginSettingsSection(
+                                    sectionId = "general",
+                                    title = "General",
+                                    fields = listOf(
+                                        ToggleSettingField(
+                                            fieldId = "enabled",
+                                            label = "Enabled",
+                                            defaultValue = false,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPluginForDetail("plugin-1")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isShowingDetail)
+        assertTrue(viewModel.uiState.value.schemaUiState is PluginSchemaUiState.None)
+        assertNull(viewModel.uiState.value.staticConfigUiState)
+    }
+
+    @Test
+    fun config_selection_resolves_static_schema_and_persisted_snapshot() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+            staticSchemas = mapOf(
+                "plugin-1" to PluginStaticConfigSchema(
+                    fields = listOf(
+                        PluginStaticConfigField(
+                            fieldKey = "token",
+                            fieldType = PluginStaticConfigFieldType.StringField,
+                            defaultValue = PluginStaticConfigValue.StringValue("sk-demo"),
+                        ),
+                    ),
+                ),
+            ),
+            configSnapshots = mapOf(
+                "plugin-1" to PluginConfigStoreSnapshot(
+                    coreValues = mapOf(
+                        "token" to PluginStaticConfigValue.StringValue("sk-live"),
+                    ),
+                    extensionValues = mapOf(
+                        "enabled" to PluginStaticConfigValue.BoolValue(true),
+                    ),
+                ),
+            ),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    SettingsUiRequest(
+                        schema = PluginSettingsSchema(
+                            title = "Runtime Settings",
+                            sections = listOf(
+                                PluginSettingsSection(
+                                    sectionId = "general",
+                                    title = "General",
+                                    fields = listOf(
+                                        ToggleSettingField(
+                                            fieldId = "enabled",
+                                            label = "Enabled",
+                                            defaultValue = false,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPluginForConfig("plugin-1")
+        advanceUntilIdle()
+
+        val staticConfigState = requireNotNull(viewModel.uiState.value.staticConfigUiState)
+        assertEquals(
+            PluginSettingDraftValue.Text("sk-live"),
+            staticConfigState.draftValues["token"],
+        )
+
+        val runtimeState = viewModel.uiState.value.schemaUiState
+        assertTrue(runtimeState is PluginSchemaUiState.Settings)
+        runtimeState as PluginSchemaUiState.Settings
+        assertEquals(
+            PluginSettingDraftValue.Toggle(true),
+            runtimeState.draftValues["enabled"],
+        )
+        assertEquals("plugin-1", deps.lastResolvedConfigPluginId)
+    }
+
+    @Test
+    fun config_draft_updates_persist_core_and_extension_values() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+            staticSchemas = mapOf(
+                "plugin-1" to PluginStaticConfigSchema(
+                    fields = listOf(
+                        PluginStaticConfigField(
+                            fieldKey = "token",
+                            fieldType = PluginStaticConfigFieldType.StringField,
+                            defaultValue = PluginStaticConfigValue.StringValue("sk-demo"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    SettingsUiRequest(
+                        schema = PluginSettingsSchema(
+                            title = "Runtime Settings",
+                            sections = listOf(
+                                PluginSettingsSection(
+                                    sectionId = "general",
+                                    title = "General",
+                                    fields = listOf(
+                                        ToggleSettingField(
+                                            fieldId = "enabled",
+                                            label = "Enabled",
+                                            defaultValue = false,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPluginForConfig("plugin-1")
+        advanceUntilIdle()
+        viewModel.updateStaticConfigDraft("token", PluginSettingDraftValue.Text("sk-live"))
+        viewModel.updateSettingsDraft("enabled", PluginSettingDraftValue.Toggle(true))
+        advanceUntilIdle()
+
+        assertEquals(
+            mapOf("token" to PluginStaticConfigValue.StringValue("sk-live")),
+            deps.lastSavedCoreValues,
+        )
+        assertEquals(
+            mapOf("enabled" to PluginStaticConfigValue.BoolValue(true)),
+            deps.lastSavedExtensionValues,
+        )
+    }
+
     private class FakePluginDependencies(
         records: List<PluginInstallRecord>,
         repositorySources: List<com.astrbot.android.model.plugin.PluginRepositorySource> = emptyList(),
         catalogEntries: List<PluginCatalogEntryRecord> = emptyList(),
         updateAvailabilities: Map<String, PluginUpdateAvailability> = emptyMap(),
+        staticSchemas: Map<String, PluginStaticConfigSchema> = emptyMap(),
+        configSnapshots: Map<String, PluginConfigStoreSnapshot> = emptyMap(),
     ) : PluginViewModelDependencies {
         private val recordsFlow = MutableStateFlow(records)
         private val repositorySourcesFlow = MutableStateFlow(repositorySources)
         private val catalogEntriesFlow = MutableStateFlow(catalogEntries)
         private val updateAvailabilitiesFlow = MutableStateFlow(updateAvailabilities)
+        private val staticSchemasByPluginId = staticSchemas.toMutableMap()
+        private val configSnapshotsByPluginId = configSnapshots.toMutableMap()
         val enableRequests = mutableListOf<Pair<String, Boolean>>()
         val handledInstallIntents = mutableListOf<PluginInstallIntent>()
         val localPackageUris = mutableListOf<String>()
@@ -1031,6 +1214,9 @@ class PluginViewModelTest {
         var lastUninstallPolicy: PluginUninstallPolicy? = null
         var localPackageInstallError: Throwable? = null
         var nextLocalPackageInstallResult: PluginInstallIntentResult? = null
+        var lastResolvedConfigPluginId: String? = null
+        var lastSavedCoreValues: Map<String, PluginStaticConfigValue> = emptyMap()
+        var lastSavedExtensionValues: Map<String, PluginStaticConfigValue> = emptyMap()
 
         override val records: StateFlow<List<PluginInstallRecord>> = recordsFlow
         override val repositorySources: StateFlow<List<com.astrbot.android.model.plugin.PluginRepositorySource>> = repositorySourcesFlow
@@ -1042,6 +1228,49 @@ class PluginViewModelTest {
 
         override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
             return updateAvailabilitiesFlow.value[pluginId]
+        }
+
+        override fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
+            return staticSchemasByPluginId[pluginId]
+        }
+
+        override fun resolvePluginConfigSnapshot(
+            pluginId: String,
+            boundary: com.astrbot.android.model.plugin.PluginConfigStorageBoundary,
+        ): PluginConfigStoreSnapshot {
+            lastResolvedConfigPluginId = pluginId
+            return boundary.createSnapshot(
+                coreValues = configSnapshotsByPluginId[pluginId]?.coreValues.orEmpty(),
+                extensionValues = configSnapshotsByPluginId[pluginId]?.extensionValues.orEmpty(),
+            )
+        }
+
+        override fun savePluginCoreConfig(
+            pluginId: String,
+            boundary: com.astrbot.android.model.plugin.PluginConfigStorageBoundary,
+            coreValues: Map<String, PluginStaticConfigValue>,
+        ): PluginConfigStoreSnapshot {
+            lastSavedCoreValues = coreValues
+            val updatedSnapshot = boundary.createSnapshot(
+                coreValues = coreValues,
+                extensionValues = configSnapshotsByPluginId[pluginId]?.extensionValues.orEmpty(),
+            )
+            configSnapshotsByPluginId[pluginId] = updatedSnapshot
+            return updatedSnapshot
+        }
+
+        override fun savePluginExtensionConfig(
+            pluginId: String,
+            boundary: com.astrbot.android.model.plugin.PluginConfigStorageBoundary,
+            extensionValues: Map<String, PluginStaticConfigValue>,
+        ): PluginConfigStoreSnapshot {
+            lastSavedExtensionValues = extensionValues
+            val updatedSnapshot = boundary.createSnapshot(
+                coreValues = configSnapshotsByPluginId[pluginId]?.coreValues.orEmpty(),
+                extensionValues = extensionValues,
+            )
+            configSnapshotsByPluginId[pluginId] = updatedSnapshot
+            return updatedSnapshot
         }
 
         override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {

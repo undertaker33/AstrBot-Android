@@ -9,8 +9,8 @@ import org.junit.Test
 class PluginDetailPresentationTest {
 
     @Test
-    fun `detail section builder keeps top summary primary actions overview safety panel metadata order`() {
-        val sectionsWithPanel = buildPluginDetailSections(
+    fun `detail section builder keeps top summary primary actions overview safety metadata order`() {
+        val sectionsWithRuntimeSchema = buildPluginDetailSections(
             uiState = PluginScreenUiState(
                 schemaUiState = PluginSchemaUiState.Settings(
                     schema = PluginSettingsSchema(
@@ -27,10 +27,9 @@ class PluginDetailPresentationTest {
                 PluginDetailSection.PrimaryActions,
                 PluginDetailSection.Overview,
                 PluginDetailSection.SafetyCompatibility,
-                PluginDetailSection.PluginPanel,
                 PluginDetailSection.TechnicalMetadata,
             ),
-            sectionsWithPanel,
+            sectionsWithRuntimeSchema,
         )
         assertEquals(
             listOf(

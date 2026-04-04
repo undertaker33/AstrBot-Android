@@ -8,6 +8,8 @@ import com.astrbot.android.data.db.PluginCatalogDao
 import com.astrbot.android.data.db.PluginCatalogEntryEntity
 import com.astrbot.android.data.db.PluginCatalogSourceEntity
 import com.astrbot.android.data.db.PluginCatalogVersionEntity
+import com.astrbot.android.data.db.PluginConfigSnapshotDao
+import com.astrbot.android.data.db.PluginConfigSnapshotEntity
 import com.astrbot.android.data.db.PluginManifestPermissionEntity
 import com.astrbot.android.data.db.PluginManifestSnapshotEntity
 import com.astrbot.android.data.db.PluginPermissionSnapshotEntity
@@ -20,6 +22,12 @@ import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
+import com.astrbot.android.model.plugin.PluginStaticConfigField
+import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
+import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
+import com.astrbot.android.model.plugin.toStorageBoundary
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
@@ -29,6 +37,9 @@ import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.model.plugin.PluginStaticConfigJson
+import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,6 +96,186 @@ class PluginRepositoryTest {
 
         assertEquals(record, runBlocking { dao.getPluginInstallAggregate(record.pluginId) }?.toInstallRecord())
         assertEquals(record, PluginRepository.records.value.single())
+    }
+
+    @Test
+    fun repository_resolveConfigSnapshot_applies_defaults_and_saved_values_with_boundary_filtering() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val configDao = InMemoryPluginConfigSnapshotDao()
+        val record = sampleRecord(version = "1.0.0", enabled = true)
+        dao.seed(record)
+        configDao.seed(
+            PluginConfigSnapshotEntity(
+                pluginId = record.pluginId,
+                coreConfigJson = """{"token":"sk-live"}""",
+                extensionConfigJson = """{"session_mode":"threaded","rogue":"drop-me"}""",
+                updatedAt = 120L,
+            ),
+        )
+        resetPluginRepositoryForTest(dao = dao, configDao = configDao, initialized = true)
+        val boundary = PluginStaticConfigSchema(
+            fields = listOf(
+                PluginStaticConfigField(
+                    fieldKey = "token",
+                    fieldType = PluginStaticConfigFieldType.StringField,
+                    defaultValue = PluginStaticConfigValue.StringValue("sk-demo"),
+                ),
+                PluginStaticConfigField(
+                    fieldKey = "temperature",
+                    fieldType = PluginStaticConfigFieldType.FloatField,
+                    defaultValue = PluginStaticConfigValue.FloatValue(0.7),
+                ),
+            ),
+        ).toStorageBoundary(extensionFieldKeys = setOf("session_mode"))
+
+        val snapshot = PluginRepository.resolveConfigSnapshot(record.pluginId, boundary)
+
+        assertEquals(
+            PluginConfigStoreSnapshot(
+                coreValues = mapOf(
+                    "token" to PluginStaticConfigValue.StringValue("sk-live"),
+                    "temperature" to PluginStaticConfigValue.FloatValue(0.7),
+                ),
+                extensionValues = mapOf(
+                    "session_mode" to PluginStaticConfigValue.StringValue("threaded"),
+                ),
+            ),
+            snapshot,
+        )
+    }
+
+    @Test
+    fun repository_saveCoreConfig_persists_snapshot_and_keeps_existing_extension_values() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val configDao = InMemoryPluginConfigSnapshotDao()
+        val record = sampleRecord(version = "1.0.0", enabled = true)
+        dao.seed(record)
+        configDao.seed(
+            PluginConfigSnapshotEntity(
+                pluginId = record.pluginId,
+                coreConfigJson = """{"token":"sk-demo"}""",
+                extensionConfigJson = """{"session_mode":"threaded"}""",
+                updatedAt = 100L,
+            ),
+        )
+        resetPluginRepositoryForTest(dao = dao, configDao = configDao, initialized = true, now = 500L)
+        val boundary = PluginStaticConfigSchema(
+            fields = listOf(
+                PluginStaticConfigField(
+                    fieldKey = "token",
+                    fieldType = PluginStaticConfigFieldType.StringField,
+                ),
+            ),
+        ).toStorageBoundary(extensionFieldKeys = setOf("session_mode"))
+
+        val snapshot = PluginRepository.saveCoreConfig(
+            pluginId = record.pluginId,
+            boundary = boundary,
+            coreValues = mapOf("token" to PluginStaticConfigValue.StringValue("sk-live")),
+        )
+
+        assertEquals(
+            PluginConfigStoreSnapshot(
+                coreValues = mapOf("token" to PluginStaticConfigValue.StringValue("sk-live")),
+                extensionValues = mapOf("session_mode" to PluginStaticConfigValue.StringValue("threaded")),
+            ),
+            snapshot,
+        )
+        assertEquals(500L, runBlocking { configDao.get(record.pluginId) }?.updatedAt)
+    }
+
+    @Test
+    fun repository_reads_static_config_schema_from_installed_plugin_directory() {
+        val tempDir = Files.createTempDirectory("plugin-static-schema-source").toFile()
+        try {
+            val dao = InMemoryPluginInstallAggregateDao()
+            val expectedSchema = PluginStaticConfigSchema(
+                fields = listOf(
+                    PluginStaticConfigField(
+                        fieldKey = "api_key",
+                        fieldType = PluginStaticConfigFieldType.StringField,
+                        description = "API key",
+                        defaultValue = PluginStaticConfigValue.StringValue("demo-key"),
+                    ),
+                    PluginStaticConfigField(
+                        fieldKey = "enabled",
+                        fieldType = PluginStaticConfigFieldType.BoolField,
+                        defaultValue = PluginStaticConfigValue.BoolValue(true),
+                    ),
+                ),
+            )
+            writeStaticSchemaFile(
+                directory = tempDir,
+                schema = expectedSchema,
+            )
+            val record = sampleRecord(
+                version = "1.0.0",
+                enabled = true,
+                extractedDir = tempDir.absolutePath,
+            )
+            dao.seed(record)
+            resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+            val schema = PluginRepository.getInstalledStaticConfigSchema(record.pluginId)
+
+            assertEquals(expectedSchema, schema)
+        } finally {
+            resetPluginRepositoryForTest(initialized = false)
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun repository_returns_null_when_static_config_schema_file_is_missing() {
+        val tempDir = Files.createTempDirectory("plugin-static-schema-missing").toFile()
+        try {
+            val dao = InMemoryPluginInstallAggregateDao()
+            val record = sampleRecord(
+                version = "1.0.0",
+                enabled = true,
+                extractedDir = tempDir.absolutePath,
+            )
+            dao.seed(record)
+            resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+            val schema = PluginRepository.getInstalledStaticConfigSchema(record.pluginId)
+
+            assertEquals(null, schema)
+        } finally {
+            resetPluginRepositoryForTest(initialized = false)
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun repository_returns_null_when_static_config_schema_file_is_invalid() {
+        val tempDir = Files.createTempDirectory("plugin-static-schema-invalid").toFile()
+        try {
+            val dao = InMemoryPluginInstallAggregateDao()
+            File(tempDir, "_conf_schema.json").writeText(
+                """
+                {
+                  "api_key": {
+                    "type": "unsupported"
+                  }
+                }
+                """.trimIndent(),
+            )
+            val record = sampleRecord(
+                version = "1.0.0",
+                enabled = true,
+                extractedDir = tempDir.absolutePath,
+            )
+            dao.seed(record)
+            resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+            val schema = PluginRepository.getInstalledStaticConfigSchema(record.pluginId)
+
+            assertEquals(null, schema)
+        } finally {
+            resetPluginRepositoryForTest(initialized = false)
+            tempDir.deleteRecursively()
+        }
     }
 
     @Test
@@ -682,12 +873,31 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
     }
 }
 
+private class InMemoryPluginConfigSnapshotDao : PluginConfigSnapshotDao {
+    private val entities = linkedMapOf<String, PluginConfigSnapshotEntity>()
+
+    fun seed(entity: PluginConfigSnapshotEntity) {
+        entities[entity.pluginId] = entity
+    }
+
+    override suspend fun get(pluginId: String): PluginConfigSnapshotEntity? = entities[pluginId]
+
+    override suspend fun upsert(entity: PluginConfigSnapshotEntity) {
+        entities[entity.pluginId] = entity
+    }
+
+    override suspend fun delete(pluginId: String) {
+        entities.remove(pluginId)
+    }
+}
+
 private fun sampleRecord(
     version: String,
     sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
     enabled: Boolean = false,
     installedAt: Long = 0L,
     lastUpdatedAt: Long = 0L,
+    extractedDir: String = "/tmp/$version",
     compatibilityState: PluginCompatibilityState = PluginCompatibilityState.evaluated(
         protocolSupported = true,
         minHostVersionSatisfied = true,
@@ -740,7 +950,16 @@ private fun sampleRecord(
         installedAt = installedAt,
         lastUpdatedAt = lastUpdatedAt,
         localPackagePath = "/tmp/$version.zip",
-        extractedDir = "/tmp/$version",
+        extractedDir = extractedDir,
+    )
+}
+
+private fun writeStaticSchemaFile(
+    directory: File,
+    schema: PluginStaticConfigSchema,
+) {
+    File(directory, "_conf_schema.json").writeText(
+        PluginStaticConfigJson.encodeSchema(schema).toString(2),
     )
 }
 
@@ -824,6 +1043,7 @@ private fun catalogVersion(
 private fun resetPluginRepositoryForTest(
     dao: PluginInstallAggregateDao = InMemoryPluginInstallAggregateDao(),
     catalogDao: PluginCatalogDao = InMemoryPluginCatalogDao(),
+    configDao: PluginConfigSnapshotDao = InMemoryPluginConfigSnapshotDao(),
     initialized: Boolean,
     now: Long = 0L,
     dataRemover: PluginDataRemover = NoOpPluginDataRemover,
@@ -836,6 +1056,10 @@ private fun resetPluginRepositoryForTest(
     repositoryClass.getDeclaredField("pluginCatalogDao").apply {
         isAccessible = true
         set(PluginRepository, catalogDao)
+    }
+    repositoryClass.getDeclaredField("pluginConfigDao").apply {
+        isAccessible = true
+        set(PluginRepository, configDao)
     }
 
     @Suppress("UNCHECKED_CAST")

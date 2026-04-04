@@ -27,8 +27,13 @@ import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginMessageSummary
 import com.astrbot.android.model.plugin.PluginPermissionGrant
+import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginSettingsField
 import com.astrbot.android.model.plugin.PluginSettingsSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigField
+import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
+import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
@@ -126,6 +131,7 @@ data class PluginScreenUiState(
     val detailMetadataState: PluginDetailMetadataState = PluginDetailMetadataState(),
     val detailActionState: PluginDetailActionState = PluginDetailActionState(),
     val upgradeDialogState: PluginUpgradeDialogState? = null,
+    val staticConfigUiState: PluginStaticConfigUiState? = null,
     val schemaUiState: PluginSchemaUiState = PluginSchemaUiState.None,
 )
 
@@ -191,6 +197,11 @@ sealed interface PluginSchemaUiState {
     ) : PluginSchemaUiState
 }
 
+data class PluginStaticConfigUiState(
+    val schema: PluginStaticConfigSchema,
+    val draftValues: Map<String, PluginSettingDraftValue> = emptyMap(),
+)
+
 class PluginViewModel(
     private val dependencies: PluginViewModelDependencies = DefaultPluginViewModelDependencies,
 ) : ViewModel() {
@@ -198,12 +209,14 @@ class PluginViewModel(
     private val showingDetail = MutableStateFlow(false)
     private val lastActionMessage = MutableStateFlow<PluginActionFeedback?>(null)
     private val schemaUiState = MutableStateFlow<PluginSchemaUiState>(PluginSchemaUiState.None)
+    private val staticConfigUiState = MutableStateFlow<PluginStaticConfigUiState?>(null)
     private val repositoryUrlDraft = MutableStateFlow("")
     private val directPackageUrlDraft = MutableStateFlow("")
     private val installActionRunning = MutableStateFlow(false)
     private val upgradeDialogState = MutableStateFlow<PluginUpgradeDialogState?>(null)
     private val localSearchQuery = MutableStateFlow("")
     private val selectedLocalFilter = MutableStateFlow(PluginLocalFilter.ENABLED)
+    private var currentConfigBoundary: PluginConfigStorageBoundary? = null
 
     val uiState: StateFlow<PluginScreenUiState> = combine(
         combine(
@@ -223,7 +236,8 @@ class PluginViewModel(
         },
         lastActionMessage,
         schemaUiState,
-    ) { snapshot, actionMessage, schemaState ->
+        staticConfigUiState,
+    ) { snapshot, actionMessage, schemaState, staticSchemaState ->
         val selectedPlugin = snapshot.records.firstOrNull { it.pluginId == snapshot.selectedId }
         val updateAvailabilities = snapshot.records.mapNotNull { record ->
             dependencies.getUpdateAvailability(record.pluginId)?.let { record.pluginId to it }
@@ -249,6 +263,7 @@ class PluginViewModel(
                 actionMessage = actionMessage,
                 updateAvailability = selectedPlugin?.let { updateAvailabilities[it.pluginId] },
             ),
+            staticConfigUiState = staticSchemaState,
             schemaUiState = schemaState,
         )
     }.combine(upgradeDialogState) { state, upgradeDialog ->
@@ -279,6 +294,8 @@ class PluginViewModel(
                 if (selectedPluginId.value != resolvedSelection) {
                     selectedPluginId.value = resolvedSelection
                     schemaUiState.value = PluginSchemaUiState.None
+                    staticConfigUiState.value = null
+                    currentConfigBoundary = null
                 }
                 if (resolvedSelection == null && showingDetail.value) {
                     showingDetail.value = false
@@ -288,6 +305,10 @@ class PluginViewModel(
     }
 
     fun selectPlugin(pluginId: String) {
+        selectPluginForConfig(pluginId)
+    }
+
+    fun selectPluginForDetail(pluginId: String) {
         val selected = resolveSelection(
             records = dependencies.records.value,
             requestedPluginId = pluginId,
@@ -295,7 +316,24 @@ class PluginViewModel(
         selectedPluginId.value = selected
         showingDetail.value = true
         lastActionMessage.value = null
-        executePluginEntry(pluginId = selected)
+        schemaUiState.value = PluginSchemaUiState.None
+        staticConfigUiState.value = null
+        currentConfigBoundary = null
+    }
+
+    fun selectPluginForConfig(pluginId: String) {
+        val selected = resolveSelection(
+            records = dependencies.records.value,
+            requestedPluginId = pluginId,
+        ) ?: return
+        selectedPluginId.value = selected
+        showingDetail.value = true
+        lastActionMessage.value = null
+        val runtimeSchemaState = executePluginEntry(pluginId = selected)
+        loadConfigState(
+            pluginId = selected,
+            runtimeSchemaState = runtimeSchemaState,
+        )
     }
 
     fun updateRepositoryUrlDraft(value: String) {
@@ -437,9 +475,24 @@ class PluginViewModel(
     ) {
         val current = schemaUiState.value as? PluginSchemaUiState.Settings ?: return
         if (!current.schema.containsField(fieldId)) return
-        schemaUiState.value = current.copy(
+        val updated = current.copy(
             draftValues = current.draftValues + (fieldId to draftValue),
         )
+        schemaUiState.value = updated
+        persistRuntimeConfig(updated)
+    }
+
+    fun updateStaticConfigDraft(
+        fieldKey: String,
+        draftValue: PluginSettingDraftValue,
+    ) {
+        val current = staticConfigUiState.value ?: return
+        if (current.schema.fields.none { field -> field.fieldKey == fieldKey }) return
+        val updated = current.copy(
+            draftValues = current.draftValues + (fieldKey to draftValue),
+        )
+        staticConfigUiState.value = updated
+        persistStaticConfig(updated)
     }
 
     fun updateSelectedUninstallPolicy(policy: PluginUninstallPolicy) {
@@ -584,17 +637,14 @@ class PluginViewModel(
         return buildSourceBadge(record)
     }
 
-    private fun executePluginEntry(pluginId: String) {
-        val selected = uiState.value.selectedPlugin ?: return
+    private fun executePluginEntry(pluginId: String): PluginSchemaUiState {
+        val selected = uiState.value.selectedPlugin ?: return PluginSchemaUiState.None
         val runtime = PluginRuntimeRegistry.plugins()
             .firstOrNull { plugin ->
                 plugin.pluginId == pluginId &&
                     PluginTriggerSource.OnPluginEntryClick in plugin.supportedTriggers
             }
-            ?: run {
-                schemaUiState.value = PluginSchemaUiState.None
-                return
-            }
+            ?: return PluginSchemaUiState.None
         val result = runCatching {
             runtime.handler.execute(
                 buildEntryClickContext(
@@ -605,7 +655,7 @@ class PluginViewModel(
         }.getOrElse { throwable ->
             ErrorResult(message = throwable.message ?: "Plugin runtime failed")
         }
-        schemaUiState.value = result.toSchemaUiState()
+        return result.toSchemaUiState()
     }
 
     private fun buildEntryClickContext(
@@ -686,6 +736,190 @@ class PluginViewModel(
             section.fields.any { field: PluginSettingsField ->
                 field.fieldId == fieldId
             }
+        }
+    }
+
+    private fun loadConfigState(
+        pluginId: String,
+        runtimeSchemaState: PluginSchemaUiState,
+    ) {
+        val staticSchema = dependencies.getPluginStaticConfigSchema(pluginId)
+        val boundary = buildConfigStorageBoundary(
+            staticSchema = staticSchema,
+            runtimeSchemaState = runtimeSchemaState,
+        )
+        currentConfigBoundary = boundary
+        val snapshot = dependencies.resolvePluginConfigSnapshot(
+            pluginId = pluginId,
+            boundary = boundary,
+        )
+        staticConfigUiState.value = staticSchema?.toUiState(snapshot.coreValues)
+        schemaUiState.value = runtimeSchemaState.withPersistedExtensionValues(snapshot.extensionValues)
+    }
+
+    private fun buildConfigStorageBoundary(
+        staticSchema: PluginStaticConfigSchema?,
+        runtimeSchemaState: PluginSchemaUiState,
+    ): PluginConfigStorageBoundary {
+        val extensionFieldKeys = (runtimeSchemaState as? PluginSchemaUiState.Settings)
+            ?.schema
+            ?.allFieldIds()
+            .orEmpty()
+        return if (staticSchema != null) {
+            PluginConfigStorageBoundary(
+                coreFieldKeys = staticSchema.fields.map(PluginStaticConfigField::fieldKey).toSet(),
+                extensionFieldKeys = extensionFieldKeys,
+                coreDefaults = staticSchema.fields.mapNotNull { field ->
+                    field.defaultValue?.let { defaultValue -> field.fieldKey to defaultValue }
+                }.toMap(),
+            )
+        } else {
+            PluginConfigStorageBoundary(
+                coreFieldKeys = emptySet(),
+                extensionFieldKeys = extensionFieldKeys,
+            )
+        }
+    }
+
+    private fun persistStaticConfig(state: PluginStaticConfigUiState) {
+        val pluginId = uiState.value.selectedPluginId ?: return
+        val boundary = currentConfigBoundary ?: return
+        val coreValues = state.schema.fields.mapNotNull { field ->
+            state.draftValues[field.fieldKey]
+                ?.toStaticConfigValue(field.fieldType)
+                ?.let { value -> field.fieldKey to value }
+        }.toMap()
+        dependencies.savePluginCoreConfig(
+            pluginId = pluginId,
+            boundary = boundary,
+            coreValues = coreValues,
+        )
+    }
+
+    private fun persistRuntimeConfig(state: PluginSchemaUiState.Settings) {
+        val pluginId = uiState.value.selectedPluginId ?: return
+        val boundary = currentConfigBoundary ?: return
+        val extensionValues = state.schema.sections
+            .flatMap { section -> section.fields }
+            .mapNotNull { field ->
+                val value = state.draftValues[field.fieldId]?.toExtensionConfigValue(field) ?: return@mapNotNull null
+                field.fieldId to value
+            }
+            .toMap()
+        dependencies.savePluginExtensionConfig(
+            pluginId = pluginId,
+            boundary = boundary,
+            extensionValues = extensionValues,
+        )
+    }
+
+    private fun PluginStaticConfigSchema.toUiState(
+        persistedCoreValues: Map<String, PluginStaticConfigValue>,
+    ): PluginStaticConfigUiState {
+        val draftValues = fields.mapNotNull { field ->
+            val persistedValue = persistedCoreValues[field.fieldKey] ?: field.defaultValue
+            persistedValue?.toDraftValue(field.fieldType)?.let { draftValue ->
+                field.fieldKey to draftValue
+            }
+        }.toMap()
+        return PluginStaticConfigUiState(
+            schema = this,
+            draftValues = draftValues,
+        )
+    }
+
+    private fun PluginSchemaUiState.withPersistedExtensionValues(
+        extensionValues: Map<String, PluginStaticConfigValue>,
+    ): PluginSchemaUiState {
+        val settingsState = this as? PluginSchemaUiState.Settings ?: return this
+        return settingsState.copy(
+            draftValues = settingsState.schema.sections
+                .flatMap { section -> section.fields }
+                .fold(settingsState.draftValues) { drafts, field ->
+                    val persistedValue = extensionValues[field.fieldId] ?: return@fold drafts
+                    val persistedDraft = persistedValue.toDraftValue(field) ?: return@fold drafts
+                    drafts + (field.fieldId to persistedDraft)
+                },
+        )
+    }
+
+    private fun PluginSettingsSchema.allFieldIds(): Set<String> {
+        return sections
+            .flatMap { section -> section.fields }
+            .map(PluginSettingsField::fieldId)
+            .toSet()
+    }
+
+    private fun PluginStaticConfigValue.toDraftValue(
+        fieldType: PluginStaticConfigFieldType,
+    ): PluginSettingDraftValue? {
+        return when (fieldType) {
+            PluginStaticConfigFieldType.BoolField -> {
+                (this as? PluginStaticConfigValue.BoolValue)?.let { PluginSettingDraftValue.Toggle(it.value) }
+            }
+
+            PluginStaticConfigFieldType.StringField,
+            PluginStaticConfigFieldType.TextField,
+            PluginStaticConfigFieldType.IntField,
+            PluginStaticConfigFieldType.FloatField,
+            -> PluginSettingDraftValue.Text(asStringValue())
+        }
+    }
+
+    private fun PluginStaticConfigValue.toDraftValue(
+        field: PluginSettingsField,
+    ): PluginSettingDraftValue? {
+        return when (field) {
+            is ToggleSettingField -> (this as? PluginStaticConfigValue.BoolValue)
+                ?.let { PluginSettingDraftValue.Toggle(it.value) }
+
+            is TextInputSettingField,
+            is SelectSettingField,
+            -> PluginSettingDraftValue.Text(asStringValue())
+        }
+    }
+
+    private fun PluginSettingDraftValue.toStaticConfigValue(
+        fieldType: PluginStaticConfigFieldType,
+    ): PluginStaticConfigValue? {
+        return when (fieldType) {
+            PluginStaticConfigFieldType.BoolField -> {
+                (this as? PluginSettingDraftValue.Toggle)?.let { PluginStaticConfigValue.BoolValue(it.value) }
+            }
+
+            PluginStaticConfigFieldType.StringField,
+            PluginStaticConfigFieldType.TextField,
+            -> (this as? PluginSettingDraftValue.Text)?.let { PluginStaticConfigValue.StringValue(it.value) }
+
+            PluginStaticConfigFieldType.IntField -> {
+                (this as? PluginSettingDraftValue.Text)?.value?.toIntOrNull()?.let(PluginStaticConfigValue::IntValue)
+            }
+
+            PluginStaticConfigFieldType.FloatField -> {
+                (this as? PluginSettingDraftValue.Text)?.value?.toDoubleOrNull()?.let(PluginStaticConfigValue::FloatValue)
+            }
+        }
+    }
+
+    private fun PluginSettingDraftValue.toExtensionConfigValue(
+        field: PluginSettingsField,
+    ): PluginStaticConfigValue? {
+        return when (field) {
+            is ToggleSettingField -> (this as? PluginSettingDraftValue.Toggle)
+                ?.let { PluginStaticConfigValue.BoolValue(it.value) }
+
+            is TextInputSettingField,
+            is SelectSettingField,
+            -> (this as? PluginSettingDraftValue.Text)?.let { PluginStaticConfigValue.StringValue(it.value) }
+        }
+    }
+
+    private fun PluginStaticConfigValue.asStringValue(): String {
+        return when (this) {
+            is PluginStaticConfigValue.StringValue -> value
+            is PluginStaticConfigValue.IntValue -> value.toString()
+            is PluginStaticConfigValue.FloatValue -> value.toString()
+            is PluginStaticConfigValue.BoolValue -> value.toString()
         }
     }
 

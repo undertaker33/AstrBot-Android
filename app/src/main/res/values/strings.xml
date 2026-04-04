@@ -39,6 +39,7 @@
     <string name="plugin_homepage_hero_title">Plugin library</string>
     <string name="plugin_homepage_hero_subtitle">Browse installed plugins, discover new ones, and install from local packages or remote sources.</string>
     <string name="plugin_detail_title">Plugin details</string>
+    <string name="plugin_config_title">Plugin configuration</string>
     <string name="plugin_health_overview_title">Health overview</string>
     <string name="plugin_health_overview_subtitle">Track installed plugins, available updates, review items, and source coverage at a glance.</string>
     <string name="plugin_health_metric_installed">Installed</string>
@@ -61,6 +62,8 @@
     <string name="plugin_quick_install_mode_local_zip">Local zip</string>
     <string name="plugin_quick_install_mode_repository_url">Repository URL</string>
     <string name="plugin_quick_install_mode_direct_package_url">Direct package URL</string>
+    <string name="plugin_install_method_label">Install method</string>
+    <string name="plugin_local_add_fab_content_description">Add plugin</string>
     <string name="plugin_repository_url_label">Repository catalog URL</string>
     <string name="plugin_repository_url_placeholder">https://repo.example.com/catalog.json</string>
     <string name="plugin_repository_url_action">Subscribe and sync</string>
@@ -93,6 +96,7 @@
     <string name="plugin_action_disable">Disable</string>
     <string name="plugin_action_upgrade">Upgrade</string>
     <string name="plugin_action_uninstall">Uninstall</string>
+    <string name="plugin_action_open_config">Open configuration</string>
     <string name="plugin_action_uninstall_policy_title">Uninstall data policy</string>
     <string name="plugin_action_uninstall_policy_keep_data">Keep data</string>
     <string name="plugin_action_uninstall_policy_remove_data">Remove data</string>
@@ -101,6 +105,10 @@
     <string name="plugin_action_feedback_update_state_failed">Failed to update plugin state.</string>
     <string name="plugin_action_feedback_uninstall_policy_keep_data">Uninstall policy set to Keep data.</string>
     <string name="plugin_action_feedback_uninstall_policy_remove_data">Uninstall policy set to Remove data.</string>
+    <string name="plugin_config_core_title">Core configuration</string>
+    <string name="plugin_config_extension_title">Runtime extension</string>
+    <string name="plugin_config_empty_title">No configurable fields</string>
+    <string name="plugin_config_empty_message">This plugin does not currently expose static or runtime configuration fields.</string>
     <string name="plugin_action_feedback_update_uninstall_policy_failed">Failed to update uninstall policy.</string>
     <string name="plugin_action_feedback_enable_blocked_incompatible">Cannot enable this plugin because it is incompatible.</string>
     <string name="plugin_action_feedback_enable_blocked_incompatible_with_notes">Cannot enable this plugin because it is incompatible. %1$s</string>

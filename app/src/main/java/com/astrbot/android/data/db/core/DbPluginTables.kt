@@ -144,3 +144,17 @@ internal fun SupportSQLiteDatabase.createPluginCatalogTablesV12() {
         """.trimIndent(),
     )
 }
+
+internal fun SupportSQLiteDatabase.createPluginConfigTablesV14() {
+    execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS plugin_config_snapshots (
+            pluginId TEXT NOT NULL PRIMARY KEY,
+            coreConfigJson TEXT NOT NULL,
+            extensionConfigJson TEXT NOT NULL,
+            updatedAt INTEGER NOT NULL,
+            FOREIGN KEY(pluginId) REFERENCES plugin_install_records(pluginId) ON DELETE CASCADE
+        )
+        """.trimIndent(),
+    )
+}
