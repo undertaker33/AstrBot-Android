@@ -1,6 +1,34 @@
 package com.astrbot.android.runtime.botcommand
 
 object BotCommandRouter {
+    private val supportedCommands = setOf(
+        "help",
+        "sid",
+        "agent",
+        "stop",
+        "start",
+        "switch",
+        "new",
+        "del",
+        "rename",
+        "provider",
+        "model",
+        "llm",
+        "op",
+        "deop",
+        "wl",
+        "dwl",
+        "ls",
+        "reset",
+        "stt",
+        "tts",
+        "persona",
+    )
+
+    fun supports(commandName: String): Boolean {
+        return commandName.lowercase() in supportedCommands
+    }
+
     fun handle(
         input: String,
         context: BotCommandContext,

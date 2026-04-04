@@ -98,6 +98,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
             settings = context.getString(R.string.nav_settings),
             assetManagement = context.getString(R.string.nav_asset_management),
             pluginDetail = context.getString(R.string.plugin_detail_title),
+            pluginWorkspace = context.getString(R.string.plugin_workspace_title),
             pluginConfig = context.getString(R.string.plugin_config_title),
             models = context.getString(R.string.nav_models),
             runtime = context.getString(R.string.settings_runtime_title),

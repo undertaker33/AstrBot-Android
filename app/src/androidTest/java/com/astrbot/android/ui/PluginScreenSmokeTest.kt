@@ -32,6 +32,7 @@ import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginFailureState
+import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -339,6 +340,9 @@ private fun PluginRouteHost(dependencies: FakePluginViewModelDependencies) {
                 PluginDetailScreenRoute(
                     pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty(),
                     onBack = { navController.popBackStack() },
+                    onOpenWorkspace = { pluginId ->
+                        navController.navigate(AppDestination.PluginWorkspace.routeFor(pluginId))
+                    },
                     onOpenConfig = { pluginId ->
                         navController.navigate(AppDestination.PluginConfig.routeFor(pluginId))
                     },
@@ -431,6 +435,24 @@ private class FakePluginViewModelDependencies(
         boundary: PluginConfigStorageBoundary,
         extensionValues: Map<String, PluginStaticConfigValue>,
     ): PluginConfigStoreSnapshot = boundary.createSnapshot(extensionValues = extensionValues)
+
+    override fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot {
+        return PluginHostWorkspaceSnapshot()
+    }
+
+    override suspend fun importPluginWorkspaceFile(
+        pluginId: String,
+        uri: String,
+    ): PluginHostWorkspaceSnapshot {
+        return PluginHostWorkspaceSnapshot()
+    }
+
+    override fun deletePluginWorkspaceFile(
+        pluginId: String,
+        relativePath: String,
+    ): PluginHostWorkspaceSnapshot {
+        return PluginHostWorkspaceSnapshot()
+    }
 
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         val updated = requireNotNull(recordsState.value.firstOrNull { it.pluginId == pluginId }).copyWith(

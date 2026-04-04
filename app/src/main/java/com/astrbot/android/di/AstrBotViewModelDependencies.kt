@@ -1,6 +1,7 @@
 package com.astrbot.android.di
 
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
@@ -27,12 +28,14 @@ import com.astrbot.android.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.plugin.ExternalPluginWorkspacePolicy
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
+import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
@@ -451,6 +454,18 @@ interface PluginViewModelDependencies {
         extensionValues: Map<String, PluginStaticConfigValue>,
     ): PluginConfigStoreSnapshot
 
+    fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot
+
+    suspend fun importPluginWorkspaceFile(
+        pluginId: String,
+        uri: String,
+    ): PluginHostWorkspaceSnapshot
+
+    fun deletePluginWorkspaceFile(
+        pluginId: String,
+        relativePath: String,
+    ): PluginHostWorkspaceSnapshot
+
     fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
 
     fun updatePluginUninstallPolicy(pluginId: String, policy: PluginUninstallPolicy): PluginInstallRecord
@@ -548,6 +563,68 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         )
     }
 
+    override fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot {
+        val appContext = PluginRepository.requireAppContext()
+        return ExternalPluginWorkspacePolicy.snapshot(
+            storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir),
+            pluginId = pluginId,
+        )
+    }
+
+    override suspend fun importPluginWorkspaceFile(
+        pluginId: String,
+        uri: String,
+    ): PluginHostWorkspaceSnapshot {
+        val appContext = PluginRepository.requireAppContext()
+        return withContext(Dispatchers.IO) {
+            val storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir)
+            val paths = ExternalPluginWorkspacePolicy.ensureWorkspace(
+                storagePaths = storagePaths,
+                pluginId = pluginId,
+            )
+            val contentUri = Uri.parse(uri)
+            val targetFile = ExternalPluginWorkspacePolicy.buildImportTarget(
+                importsDirPath = paths.importsDir.absolutePath,
+                displayName = queryDisplayName(appContext, contentUri)
+                    ?: contentUri.lastPathSegment
+                    ?: "imported-file",
+            )
+            targetFile.parentFile?.mkdirs()
+            appContext.contentResolver.openInputStream(contentUri)?.use { input ->
+                targetFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            } ?: error("Unable to open selected workspace file.")
+            ExternalPluginWorkspacePolicy.snapshot(
+                storagePaths = storagePaths,
+                pluginId = pluginId,
+            )
+        }
+    }
+
+    override fun deletePluginWorkspaceFile(
+        pluginId: String,
+        relativePath: String,
+    ): PluginHostWorkspaceSnapshot {
+        val appContext = PluginRepository.requireAppContext()
+        val storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir)
+        val snapshot = ExternalPluginWorkspacePolicy.snapshot(
+            storagePaths = storagePaths,
+            pluginId = pluginId,
+        )
+        val targetFile = ExternalPluginWorkspacePolicy.resolveWorkspaceFile(
+            privateRootPath = snapshot.privateRootPath,
+            relativePath = relativePath,
+        )
+        if (targetFile.exists()) {
+            targetFile.deleteRecursively()
+        }
+        return ExternalPluginWorkspacePolicy.snapshot(
+            storagePaths = storagePaths,
+            pluginId = pluginId,
+        )
+    }
+
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         return PluginRepository.setEnabled(pluginId, enabled)
     }
@@ -564,6 +641,24 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         policy: PluginUninstallPolicy,
     ): com.astrbot.android.data.PluginUninstallResult {
         return PluginRepository.uninstall(pluginId, policy)
+    }
+}
+
+private fun queryDisplayName(
+    appContext: android.content.Context,
+    uri: Uri,
+): String? {
+    return appContext.contentResolver.query(
+        uri,
+        arrayOf(OpenableColumns.DISPLAY_NAME),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        val columnIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (columnIndex < 0) return@use null
+        cursor.getString(columnIndex)
     }
 }
 

@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.AppStrings
 import com.astrbot.android.R
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.StreamingResponseSegmenter
+import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.di.DefaultChatViewModelDependencies
 import com.astrbot.android.model.BotProfile
@@ -17,19 +19,29 @@ import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.ExternalPluginHostActionPolicy
+import com.astrbot.android.model.plugin.ExternalPluginMediaSourceResolver
+import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
+import com.astrbot.android.model.plugin.HostActionRequest
+import com.astrbot.android.model.plugin.MediaResult
+import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginBotSummary
 import com.astrbot.android.model.plugin.PluginConfigSummary
 import com.astrbot.android.model.plugin.PluginExecutionContext
+import com.astrbot.android.model.plugin.PluginExecutionResult
 import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.model.plugin.PluginMessageSummary
 import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.botcommand.BotCommandContext
+import com.astrbot.android.runtime.botcommand.BotCommandParser
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +63,12 @@ data class ChatUiState(
     val streamingEnabled: Boolean = false,
     val isSending: Boolean = false,
     val error: String = "",
+)
+
+private data class PluginCommandConsumption(
+    val replyText: String = "",
+    val attachments: List<ConversationAttachment> = emptyList(),
+    val handled: Boolean = false,
 )
 
 class ChatViewModel(
@@ -557,6 +575,14 @@ class ChatViewModel(
     private fun handleSessionCommand(sessionId: String, content: String): Boolean {
         val session = dependencies.session(sessionId)
         val bot = selectedBot() ?: return false
+        val parsedCommand = BotCommandParser.parse(content)
+        if (parsedCommand != null && !BotCommandRouter.supports(parsedCommand.name)) {
+            return handlePluginCommand(
+                session = session,
+                bot = bot,
+                content = content,
+            )
+        }
         val result = BotCommandRouter.handle(
             input = content,
             context = BotCommandContext(
@@ -612,16 +638,83 @@ class ChatViewModel(
                 },
             ),
         )
-        if (!result.handled) return false
-        result.replyText?.let { reply ->
-            dependencies.appendMessage(
-                sessionId = sessionId,
-                role = "assistant",
-                content = reply,
+        if (result.handled) {
+            result.replyText?.let { reply ->
+                dependencies.appendMessage(
+                    sessionId = sessionId,
+                    role = "assistant",
+                    content = reply,
+                )
+            }
+            dependencies.log("Chat command handled via router: ${content.substringBefore(' ')} session=$sessionId")
+            return result.stopModelDispatch
+        }
+        return false
+    }
+
+    private fun handlePluginCommand(
+        session: ConversationSession,
+        bot: BotProfile,
+        content: String,
+    ): Boolean {
+        if (!content.startsWith("/") || !ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnCommand)) {
+            return false
+        }
+        val personaId = resolveSessionPersonaId(session.id)
+        val config = dependencies.resolveConfig(bot.configProfileId)
+        val syntheticMessage = ConversationMessage(
+            id = "plugin-command:${session.id}:${content.hashCode()}",
+            role = "user",
+            content = content,
+            timestamp = System.currentTimeMillis(),
+        )
+        val batch = runCatching {
+            appChatPluginRuntime.execute(PluginTriggerSource.OnCommand) { plugin ->
+                buildAppChatPluginContext(
+                    plugin = plugin,
+                    trigger = PluginTriggerSource.OnCommand,
+                    session = session,
+                    message = syntheticMessage,
+                    provider = selectedProvider(),
+                    bot = bot,
+                    personaId = personaId,
+                    config = config,
+                )
+            }
+        }.onFailure { error ->
+            dependencies.log(
+                "App chat plugin command runtime failed: command=${content.substringBefore(' ')} reason=${error.message ?: error.javaClass.simpleName}",
+            )
+        }.getOrNull() ?: return false
+
+        batch.skipped.forEach { skip ->
+            dependencies.log(
+                "App chat plugin command skipped: plugin=${skip.plugin.pluginId} reason=${skip.reason.name}",
             )
         }
-        dependencies.log("Chat command handled via router: ${content.substringBefore(' ')} session=$sessionId")
-        return result.stopModelDispatch
+        if (batch.outcomes.isEmpty()) {
+            return false
+        }
+        batch.outcomes.forEach { outcome ->
+            val consumption = consumePluginCommandResult(
+                pluginId = outcome.pluginId,
+                result = outcome.result,
+                context = outcome.context,
+                extractedDir = outcome.installState.extractedDir,
+            )
+            if (consumption.handled) {
+                dependencies.appendMessage(
+                    sessionId = session.id,
+                    role = "assistant",
+                    content = consumption.replyText,
+                    attachments = consumption.attachments,
+                )
+            }
+            dependencies.log(
+                "App chat plugin command handled: plugin=${outcome.pluginId} result=${outcome.result::class.simpleName.orEmpty()} handled=${consumption.handled}",
+            )
+        }
+        return true
     }
 
     private fun dispatchAppChatPlugins(
@@ -669,7 +762,29 @@ class ChatViewModel(
                     "App chat plugin failed: trigger=${trigger.wireValue} plugin=${outcome.pluginId} code=${errorResult?.code.orEmpty()} message=${errorResult?.message.orEmpty()}",
                 )
             }
+            val consumption = consumePluginCommandResult(
+                pluginId = outcome.pluginId,
+                result = outcome.result,
+                context = outcome.context,
+                extractedDir = outcome.installState.extractedDir,
+            )
+            if (consumption.handled) {
+                dependencies.appendMessage(
+                    sessionId = session.id,
+                    role = "assistant",
+                    content = consumption.replyText,
+                    attachments = consumption.attachments,
+                )
+            }
         }
+    }
+
+    private fun resolvePluginPrivateRootPath(pluginId: String): String {
+        return runCatching {
+            PluginStoragePaths.fromFilesDir(
+                PluginRepository.requireAppContext().filesDir,
+            ).privateDir(pluginId).absolutePath
+        }.getOrDefault("")
     }
 
     private fun buildAppChatPluginContext(
@@ -677,7 +792,7 @@ class ChatViewModel(
         trigger: PluginTriggerSource,
         session: ConversationSession,
         message: ConversationMessage,
-        provider: ProviderProfile,
+        provider: ProviderProfile?,
         bot: BotProfile?,
         personaId: String,
         config: ConfigProfile?,
@@ -709,8 +824,8 @@ class ChatViewModel(
                 platformId = session.platformId,
             ),
             config = PluginConfigSummary(
-                providerId = provider.id,
-                modelId = provider.model,
+                providerId = provider?.id.orEmpty(),
+                modelId = provider?.model.orEmpty(),
                 personaId = personaId,
                 extras = buildMap {
                     put("sessionId", session.id)
@@ -727,17 +842,91 @@ class ChatViewModel(
                     riskLevel = permission.riskLevel,
                 )
             },
-            hostActionWhitelist = listOf(
-                PluginHostAction.CallModel,
-                PluginHostAction.SendMessage,
-                PluginHostAction.SendNotification,
-                PluginHostAction.OpenHostPage,
-            ),
+            hostActionWhitelist = ExternalPluginHostActionPolicy.openActions(),
             triggerMetadata = PluginTriggerMetadata(
                 eventId = "${trigger.wireValue}:${session.id}:${message.id}",
+                command = message.content.takeIf { trigger == PluginTriggerSource.OnCommand }.orEmpty(),
                 extras = mapOf("source" to "app_chat"),
             ),
         )
+    }
+
+    private fun consumePluginCommandResult(
+        pluginId: String,
+        result: PluginExecutionResult,
+        context: PluginExecutionContext,
+        extractedDir: String,
+    ): PluginCommandConsumption {
+        return when (result) {
+            is TextResult -> PluginCommandConsumption(
+                replyText = result.text,
+                handled = true,
+            )
+
+            is MediaResult -> PluginCommandConsumption(
+                attachments = result.items.mapIndexed { index, item ->
+                    val resolved = ExternalPluginMediaSourceResolver.resolve(
+                        item = item,
+                        extractedDir = extractedDir,
+                        privateRootPath = resolvePluginPrivateRootPath(pluginId),
+                    )
+                    ConversationAttachment(
+                        id = "plugin-media-$index-${resolved.resolvedSource.hashCode()}",
+                        type = if (resolved.mimeType.startsWith("audio/")) "audio" else "image",
+                        mimeType = resolved.mimeType.ifBlank { "image/jpeg" },
+                        fileName = resolved.altText.ifBlank { resolved.resolvedSource.substringAfterLast('/') },
+                        remoteUrl = resolved.resolvedSource,
+                    )
+                },
+                handled = true,
+            )
+
+            is NoOp -> PluginCommandConsumption(handled = false)
+
+            is ErrorResult -> PluginCommandConsumption(
+                replyText = result.message,
+                handled = true,
+            )
+
+            is HostActionRequest -> {
+                val emittedMessages = mutableListOf<String>()
+                val executor = ExternalPluginHostActionExecutor(
+                    sendMessageHandler = { text -> emittedMessages += text },
+                    sendNotificationHandler = { title, message ->
+                        dependencies.log("Plugin notification requested: title=$title message=$message")
+                    },
+                    openHostPageHandler = { route ->
+                        dependencies.log("Plugin requested host page: route=$route")
+                    },
+                )
+                val execution = executor.execute(
+                    pluginId = pluginId,
+                    request = result,
+                    context = context,
+                )
+                if (execution.succeeded) {
+                    PluginCommandConsumption(
+                        replyText = emittedMessages.firstOrNull()
+                            ?: when (result.action) {
+                                PluginHostAction.SendNotification -> "Notification sent: ${execution.message}"
+                                PluginHostAction.OpenHostPage -> "Opened host page: ${execution.message}"
+                                else -> execution.message
+                            },
+                        handled = true,
+                    )
+                } else {
+                    PluginCommandConsumption(
+                        replyText = execution.message,
+                        handled = true,
+                    )
+                }
+            }
+
+            else -> PluginCommandConsumption(
+                replyText = "Command trigger does not support ${result::class.simpleName.orEmpty()} yet.",
+                handled = true,
+            )
+        }
     }
 
     private fun currentLanguageTag(): String {

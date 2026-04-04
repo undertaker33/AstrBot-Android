@@ -35,6 +35,14 @@ fun PluginSchemaRenderer(
 ) {
     when (schemaUiState) {
         PluginSchemaUiState.None -> Unit
+        is PluginSchemaUiState.Text -> {
+            PluginSchemaText(
+                title = schemaUiState.title,
+                text = schemaUiState.text,
+                modifier = modifier,
+            )
+        }
+
         is PluginSchemaUiState.Card -> {
             PluginSchemaCard(
                 model = buildPluginCardRenderModel(
@@ -51,6 +59,53 @@ fun PluginSchemaRenderer(
                 model = buildPluginSettingsRenderModel(schemaUiState),
                 onSettingsDraftChange = onSettingsDraftChange,
                 modifier = modifier,
+            )
+        }
+
+        is PluginSchemaUiState.Media -> {
+            PluginSchemaMedia(
+                items = schemaUiState.items,
+                modifier = modifier,
+            )
+        }
+
+        is PluginSchemaUiState.Error -> {
+            PluginSchemaError(
+                message = schemaUiState.message,
+                modifier = modifier,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginSchemaText(
+    title: String,
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.SchemaTextTag),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(PluginUiSpec.SchemaContainerPadding),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textPrimary,
             )
         }
     }
@@ -251,6 +306,98 @@ private fun PluginSchemaSettings(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PluginSchemaMedia(
+    items: List<com.astrbot.android.ui.viewmodel.PluginSchemaMediaItem>,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.SchemaMediaTag),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(PluginUiSpec.SchemaContainerPadding),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+        ) {
+            Text(
+                text = stringResource(com.astrbot.android.R.string.plugin_media_result_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            items.forEachIndexed { index, item ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(PluginUiSpec.schemaMediaItemTag(index)),
+                    shape = PluginUiSpec.SectionShape,
+                    color = MonochromeUi.cardAltBackground,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(
+                            horizontal = PluginUiSpec.SchemaRowHorizontalPadding,
+                            vertical = PluginUiSpec.SchemaRowVerticalPadding,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = item.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MonochromeUi.textPrimary,
+                        )
+                        Text(
+                            text = item.mimeType,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MonochromeUi.textSecondary,
+                        )
+                        Text(
+                            text = item.resolvedSource,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MonochromeUi.textSecondary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginSchemaError(
+    message: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.SchemaErrorTag),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(PluginUiSpec.SchemaContainerPadding),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+        ) {
+            Text(
+                text = stringResource(com.astrbot.android.R.string.plugin_runtime_error_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
         }
     }
 }

@@ -39,6 +39,7 @@
     <string name="plugin_homepage_hero_title">Plugin library</string>
     <string name="plugin_homepage_hero_subtitle">Browse installed plugins, discover new ones, and install from local packages or remote sources.</string>
     <string name="plugin_detail_title">Plugin details</string>
+    <string name="plugin_workspace_title">Plugin workspace</string>
     <string name="plugin_config_title">Plugin configuration</string>
     <string name="plugin_health_overview_title">Health overview</string>
     <string name="plugin_health_overview_subtitle">Track installed plugins, available updates, review items, and source coverage at a glance.</string>
@@ -78,12 +79,19 @@
     <string name="plugin_risk_medium">Medium risk</string>
     <string name="plugin_risk_high">High risk</string>
     <string name="plugin_risk_critical">Critical risk</string>
+    <string name="plugin_trust_local_package">Local package</string>
+    <string name="plugin_trust_direct_source">Direct source</string>
+    <string name="plugin_trust_repository_listed">Repository listed</string>
+    <string name="plugin_review_unreviewed">Not reviewed</string>
+    <string name="plugin_review_local_checks_passed">Local checks passed</string>
+    <string name="plugin_review_host_compatibility_blocked">Blocked by host compatibility</string>
     <string name="plugin_detail_overview_title">Overview</string>
     <string name="plugin_detail_safety_compatibility_title">Safety &amp; compatibility</string>
     <string name="plugin_detail_plugin_panel_title">Plugin panel</string>
     <string name="plugin_detail_technical_metadata_title">Technical metadata</string>
     <string name="plugin_detail_compatibility_group_title">Compatibility</string>
     <string name="plugin_detail_permissions_group_title">Permissions</string>
+    <string name="plugin_detail_governance_group_title">Governance</string>
     <string name="plugin_detail_runtime_health_group_title">Runtime health</string>
     <string name="plugin_detail_runtime_health_clear">No runtime issues recorded.</string>
     <string name="plugin_detail_meta_title">Package metadata</string>
@@ -96,6 +104,7 @@
     <string name="plugin_action_disable">Disable</string>
     <string name="plugin_action_upgrade">Upgrade</string>
     <string name="plugin_action_uninstall">Uninstall</string>
+    <string name="plugin_action_open_workspace">Open workspace</string>
     <string name="plugin_action_open_config">Open configuration</string>
     <string name="plugin_action_uninstall_policy_title">Uninstall data policy</string>
     <string name="plugin_action_uninstall_policy_keep_data">Keep data</string>
@@ -109,6 +118,15 @@
     <string name="plugin_config_extension_title">Runtime extension</string>
     <string name="plugin_config_empty_title">No configurable fields</string>
     <string name="plugin_config_empty_message">This plugin does not currently expose static or runtime configuration fields.</string>
+    <string name="plugin_workspace_files_title">Workspace files</string>
+    <string name="plugin_workspace_management_title">Management view</string>
+    <string name="plugin_workspace_import_action">Import file</string>
+    <string name="plugin_workspace_delete_action">Delete file</string>
+    <string name="plugin_workspace_empty_files">No files have been imported into this plugin workspace yet.</string>
+    <string name="plugin_workspace_private_root_label">Private root</string>
+    <string name="plugin_workspace_imports_root_label">Imports</string>
+    <string name="plugin_workspace_runtime_root_label">Runtime</string>
+    <string name="plugin_workspace_file_meta">%1$d bytes | %2$s</string>
     <string name="plugin_action_feedback_update_uninstall_policy_failed">Failed to update uninstall policy.</string>
     <string name="plugin_action_feedback_enable_blocked_incompatible">Cannot enable this plugin because it is incompatible.</string>
     <string name="plugin_action_feedback_enable_blocked_incompatible_with_notes">Cannot enable this plugin because it is incompatible. %1$s</string>
@@ -143,6 +161,9 @@
     <string name="plugin_field_source_location">Source location</string>
     <string name="plugin_field_compatibility_status">Compatibility status</string>
     <string name="plugin_field_compatibility_notes">Compatibility notes</string>
+    <string name="plugin_field_risk_level">Risk level</string>
+    <string name="plugin_field_trust_level">Trust level</string>
+    <string name="plugin_field_review_state">Review state</string>
     <string name="plugin_permission_required">Required permission</string>
     <string name="plugin_permission_optional">Optional permission</string>
     <string name="plugin_value_not_limited">Not limited</string>
@@ -715,4 +736,6 @@
     <string name="persona_delete_confirm_message">Delete this persona? This cannot be undone.</string>
     <string name="persona_delete_last_blocked">At least one persona must remain.</string>
     <string name="provider_delete_confirm_message">Delete this model provider? This cannot be undone.</string>
+    <string name="plugin_media_result_title">Media output</string>
+    <string name="plugin_runtime_error_title">Plugin runtime error</string>
 </resources>

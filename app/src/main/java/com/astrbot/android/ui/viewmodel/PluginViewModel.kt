@@ -10,6 +10,11 @@ import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.CardResult
 import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.ExternalPluginHostActionPolicy
+import com.astrbot.android.model.plugin.ExternalPluginMediaSourceResolver
+import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
+import com.astrbot.android.model.plugin.HostActionRequest
+import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginBotSummary
 import com.astrbot.android.model.plugin.PluginCardAction
@@ -21,6 +26,7 @@ import com.astrbot.android.model.plugin.PluginConfigSummary
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginExecutionResult
 import com.astrbot.android.model.plugin.PluginFailureState
+import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -34,14 +40,18 @@ import com.astrbot.android.model.plugin.PluginStaticConfigField
 import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
 import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
+import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
+import com.astrbot.android.model.plugin.resolveGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.model.plugin.SelectSettingField
 import com.astrbot.android.model.plugin.SettingsUiRequest
+import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
+import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.compareVersions
@@ -104,6 +114,7 @@ data class PluginDetailMetadataState(
     val changelogSummary: String = "",
     val updateHint: PluginUpdateHintUiState? = null,
     val permissionDiffHint: PluginPermissionDiffHintUiState? = null,
+    val governanceState: PluginGovernanceSnapshot? = null,
 )
 
 private data class PluginWorkspaceSnapshot(
@@ -112,6 +123,13 @@ private data class PluginWorkspaceSnapshot(
     val catalogEntries: List<PluginCatalogEntryRecord>,
     val selectedId: String?,
     val isShowingDetail: Boolean,
+)
+
+private data class WorkspaceUiSnapshot(
+    val snapshot: PluginHostWorkspaceSnapshot,
+    val schemaState: PluginSchemaUiState,
+    val actionMessage: PluginActionFeedback?,
+    val isImportRunning: Boolean,
 )
 
 data class PluginScreenUiState(
@@ -133,6 +151,7 @@ data class PluginScreenUiState(
     val upgradeDialogState: PluginUpgradeDialogState? = null,
     val staticConfigUiState: PluginStaticConfigUiState? = null,
     val schemaUiState: PluginSchemaUiState = PluginSchemaUiState.None,
+    val hostWorkspaceState: PluginHostWorkspaceUiState = PluginHostWorkspaceUiState(),
 )
 
 data class PluginDetailActionState(
@@ -186,9 +205,23 @@ sealed interface PluginSettingDraftValue {
 sealed interface PluginSchemaUiState {
     data object None : PluginSchemaUiState
 
+    data class Text(
+        val title: String,
+        val text: String,
+        val markdown: Boolean = false,
+    ) : PluginSchemaUiState
+
     data class Card(
         val schema: PluginCardSchema,
         val lastActionFeedback: PluginActionFeedback? = null,
+    ) : PluginSchemaUiState
+
+    data class Media(
+        val items: List<PluginSchemaMediaItem> = emptyList(),
+    ) : PluginSchemaUiState
+
+    data class Error(
+        val message: String,
     ) : PluginSchemaUiState
 
     data class Settings(
@@ -197,19 +230,52 @@ sealed interface PluginSchemaUiState {
     ) : PluginSchemaUiState
 }
 
+data class PluginSchemaMediaItem(
+    val label: String,
+    val resolvedSource: String,
+    val mimeType: String,
+)
+
 data class PluginStaticConfigUiState(
     val schema: PluginStaticConfigSchema,
     val draftValues: Map<String, PluginSettingDraftValue> = emptyMap(),
 )
 
+data class PluginHostWorkspaceFileUiState(
+    val relativePath: String,
+    val sizeBytes: Long = 0L,
+    val lastModifiedAtEpochMillis: Long = 0L,
+)
+
+data class PluginHostWorkspaceUiState(
+    val isVisible: Boolean = false,
+    val pluginId: String = "",
+    val title: String = "",
+    val description: String = "",
+    val privateRootPath: String = "",
+    val importsPath: String = "",
+    val runtimePath: String = "",
+    val exportsPath: String = "",
+    val cachePath: String = "",
+    val files: List<PluginHostWorkspaceFileUiState> = emptyList(),
+    val managementSchemaState: PluginSchemaUiState = PluginSchemaUiState.None,
+    val lastActionMessage: PluginActionFeedback? = null,
+    val isImportActionRunning: Boolean = false,
+)
+
 class PluginViewModel(
     private val dependencies: PluginViewModelDependencies = DefaultPluginViewModelDependencies,
 ) : ViewModel() {
+    private val hostActionExecutor = ExternalPluginHostActionExecutor()
     private val selectedPluginId = MutableStateFlow<String?>(null)
     private val showingDetail = MutableStateFlow(false)
     private val lastActionMessage = MutableStateFlow<PluginActionFeedback?>(null)
     private val schemaUiState = MutableStateFlow<PluginSchemaUiState>(PluginSchemaUiState.None)
     private val staticConfigUiState = MutableStateFlow<PluginStaticConfigUiState?>(null)
+    private val hostWorkspaceSnapshot = MutableStateFlow(PluginHostWorkspaceSnapshot())
+    private val hostWorkspaceSchemaUiState = MutableStateFlow<PluginSchemaUiState>(PluginSchemaUiState.None)
+    private val hostWorkspaceActionMessage = MutableStateFlow<PluginActionFeedback?>(null)
+    private val hostWorkspaceImportRunning = MutableStateFlow(false)
     private val repositoryUrlDraft = MutableStateFlow("")
     private val directPackageUrlDraft = MutableStateFlow("")
     private val installActionRunning = MutableStateFlow(false)
@@ -266,6 +332,30 @@ class PluginViewModel(
             staticConfigUiState = staticSchemaState,
             schemaUiState = schemaState,
         )
+    }.combine(
+        combine(
+            hostWorkspaceSnapshot,
+            hostWorkspaceSchemaUiState,
+            hostWorkspaceActionMessage,
+            hostWorkspaceImportRunning,
+        ) { workspaceSnapshot, workspaceSchemaState, workspaceActionMessageState, isWorkspaceImportRunning ->
+            WorkspaceUiSnapshot(
+                snapshot = workspaceSnapshot,
+                schemaState = workspaceSchemaState,
+                actionMessage = workspaceActionMessageState,
+                isImportRunning = isWorkspaceImportRunning,
+            )
+        },
+    ) { state, workspaceState ->
+        state.copy(
+            hostWorkspaceState = buildHostWorkspaceState(
+                record = state.selectedPlugin,
+                snapshot = workspaceState.snapshot,
+                managementSchemaState = workspaceState.schemaState,
+                actionMessage = workspaceState.actionMessage,
+                isImportActionRunning = workspaceState.isImportRunning,
+            ),
+        )
     }.combine(upgradeDialogState) { state, upgradeDialog ->
         state.copy(upgradeDialogState = upgradeDialog)
     }.combine(localSearchQuery) { state, searchQuery ->
@@ -295,6 +385,9 @@ class PluginViewModel(
                     selectedPluginId.value = resolvedSelection
                     schemaUiState.value = PluginSchemaUiState.None
                     staticConfigUiState.value = null
+                    hostWorkspaceSnapshot.value = PluginHostWorkspaceSnapshot()
+                    hostWorkspaceSchemaUiState.value = PluginSchemaUiState.None
+                    hostWorkspaceActionMessage.value = null
                     currentConfigBoundary = null
                 }
                 if (resolvedSelection == null && showingDetail.value) {
@@ -318,22 +411,47 @@ class PluginViewModel(
         lastActionMessage.value = null
         schemaUiState.value = PluginSchemaUiState.None
         staticConfigUiState.value = null
+        hostWorkspaceSnapshot.value = PluginHostWorkspaceSnapshot()
+        hostWorkspaceSchemaUiState.value = PluginSchemaUiState.None
+        hostWorkspaceActionMessage.value = null
         currentConfigBoundary = null
     }
 
     fun selectPluginForConfig(pluginId: String) {
-        val selected = resolveSelection(
+        val selectedId = resolveSelection(
             records = dependencies.records.value,
             requestedPluginId = pluginId,
         ) ?: return
-        selectedPluginId.value = selected
+        val selectedRecord = dependencies.records.value.firstOrNull { it.pluginId == selectedId } ?: return
+        selectedPluginId.value = selectedId
         showingDetail.value = true
         lastActionMessage.value = null
-        val runtimeSchemaState = executePluginEntry(pluginId = selected)
+        hostWorkspaceSnapshot.value = PluginHostWorkspaceSnapshot()
+        hostWorkspaceSchemaUiState.value = PluginSchemaUiState.None
+        hostWorkspaceActionMessage.value = null
+        val runtimeSchemaState = executePluginEntry(
+            record = selectedRecord,
+            entryPoint = "plugin_config",
+        )
         loadConfigState(
-            pluginId = selected,
+            pluginId = selectedId,
             runtimeSchemaState = runtimeSchemaState,
         )
+    }
+
+    fun selectPluginForWorkspace(pluginId: String) {
+        val selectedId = resolveSelection(
+            records = dependencies.records.value,
+            requestedPluginId = pluginId,
+        ) ?: return
+        val selectedRecord = dependencies.records.value.firstOrNull { it.pluginId == selectedId } ?: return
+        selectedPluginId.value = selectedId
+        showingDetail.value = true
+        lastActionMessage.value = null
+        schemaUiState.value = PluginSchemaUiState.None
+        staticConfigUiState.value = null
+        currentConfigBoundary = null
+        loadWorkspaceState(record = selectedRecord)
     }
 
     fun updateRepositoryUrlDraft(value: String) {
@@ -469,6 +587,25 @@ class PluginViewModel(
         )
     }
 
+    fun onHostWorkspaceCardActionClick(
+        actionId: String,
+        payload: Map<String, String> = emptyMap(),
+    ) {
+        val current = hostWorkspaceSchemaUiState.value as? PluginSchemaUiState.Card ?: return
+        val action = current.schema.actions.firstOrNull { it.actionId == actionId }
+        if (action == null) {
+            hostWorkspaceSchemaUiState.value = current.copy(
+                lastActionFeedback = PluginActionFeedback.Text(
+                    "Unsupported schema card action: $actionId",
+                ),
+            )
+            return
+        }
+        hostWorkspaceSchemaUiState.value = current.copy(
+            lastActionFeedback = buildSchemaActionFeedback(action, payload),
+        )
+    }
+
     fun updateSettingsDraft(
         fieldId: String,
         draftValue: PluginSettingDraftValue,
@@ -480,6 +617,17 @@ class PluginViewModel(
         )
         schemaUiState.value = updated
         persistRuntimeConfig(updated)
+    }
+
+    fun updateHostWorkspaceSettingsDraft(
+        fieldId: String,
+        draftValue: PluginSettingDraftValue,
+    ) {
+        val current = hostWorkspaceSchemaUiState.value as? PluginSchemaUiState.Settings ?: return
+        if (!current.schema.containsField(fieldId)) return
+        hostWorkspaceSchemaUiState.value = current.copy(
+            draftValues = current.draftValues + (fieldId to draftValue),
+        )
     }
 
     fun updateStaticConfigDraft(
@@ -602,6 +750,7 @@ class PluginViewModel(
             changelogSummary = resolveChangelogSummary(record, catalogEntry, updateAvailability),
             updateHint = updateAvailability?.takeIf { it.updateAvailable }?.let(::toUpdateHintUiState),
             permissionDiffHint = permissionDiffHint,
+            governanceState = record.resolveGovernanceSnapshot(),
         )
     }
 
@@ -633,34 +782,74 @@ class PluginViewModel(
         )
     }
 
+    private fun buildHostWorkspaceState(
+        record: PluginInstallRecord?,
+        snapshot: PluginHostWorkspaceSnapshot,
+        managementSchemaState: PluginSchemaUiState,
+        actionMessage: PluginActionFeedback?,
+        isImportActionRunning: Boolean,
+    ): PluginHostWorkspaceUiState {
+        if (record == null || snapshot.privateRootPath.isBlank()) {
+            return PluginHostWorkspaceUiState()
+        }
+        return PluginHostWorkspaceUiState(
+            isVisible = true,
+            pluginId = record.pluginId,
+            title = record.manifestSnapshot.title,
+            description = record.manifestSnapshot.description,
+            privateRootPath = snapshot.privateRootPath,
+            importsPath = snapshot.importsPath,
+            runtimePath = snapshot.runtimePath,
+            exportsPath = snapshot.exportsPath,
+            cachePath = snapshot.cachePath,
+            files = snapshot.files.map { file ->
+                PluginHostWorkspaceFileUiState(
+                    relativePath = file.relativePath,
+                    sizeBytes = file.sizeBytes,
+                    lastModifiedAtEpochMillis = file.lastModifiedAtEpochMillis,
+                )
+            },
+            managementSchemaState = managementSchemaState,
+            lastActionMessage = actionMessage,
+            isImportActionRunning = isImportActionRunning,
+        )
+    }
+
     internal fun buildSourceBadgeForTest(record: PluginInstallRecord): PluginSourceBadgeUiState {
         return buildSourceBadge(record)
     }
 
-    private fun executePluginEntry(pluginId: String): PluginSchemaUiState {
-        val selected = uiState.value.selectedPlugin ?: return PluginSchemaUiState.None
+    private fun executePluginEntry(
+        record: PluginInstallRecord,
+        entryPoint: String,
+    ): PluginSchemaUiState {
         val runtime = PluginRuntimeRegistry.plugins()
             .firstOrNull { plugin ->
-                plugin.pluginId == pluginId &&
+                plugin.pluginId == record.pluginId &&
+                    ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnPluginEntryClick) &&
                     PluginTriggerSource.OnPluginEntryClick in plugin.supportedTriggers
             }
             ?: return PluginSchemaUiState.None
+        val context = buildEntryClickContext(
+            record = record,
+            runtime = runtime,
+            entryPoint = entryPoint,
+        )
         val result = runCatching {
-            runtime.handler.execute(
-                buildEntryClickContext(
-                    record = selected,
-                    runtime = runtime,
-                ),
-            )
+            runtime.handler.execute(context)
         }.getOrElse { throwable ->
             ErrorResult(message = throwable.message ?: "Plugin runtime failed")
         }
-        return result.toSchemaUiState()
+        return result.toSchemaUiState(
+            record = record,
+            context = context,
+        )
     }
 
     private fun buildEntryClickContext(
         record: PluginInstallRecord,
         runtime: PluginRuntimePlugin,
+        entryPoint: String,
     ): PluginExecutionContext {
         return PluginExecutionContext(
             trigger = PluginTriggerSource.OnPluginEntryClick,
@@ -691,23 +880,115 @@ class PluginViewModel(
                     riskLevel = permission.riskLevel,
                 )
             },
-            hostActionWhitelist = PluginHostAction.entries.toList(),
+            hostActionWhitelist = ExternalPluginHostActionPolicy.openActions(),
             triggerMetadata = PluginTriggerMetadata(
-                entryPoint = "plugin_detail",
+                entryPoint = entryPoint,
             ),
         )
     }
 
-    private fun PluginExecutionResult.toSchemaUiState(): PluginSchemaUiState {
+    private fun PluginExecutionResult.toSchemaUiState(
+        record: PluginInstallRecord,
+        context: PluginExecutionContext,
+    ): PluginSchemaUiState {
         return when (this) {
+            is TextResult -> PluginSchemaUiState.Text(
+                title = displayTitle.ifBlank { record.manifestSnapshot.title },
+                text = text,
+                markdown = markdown,
+            )
             is CardResult -> PluginSchemaUiState.Card(schema = card)
+            is MediaResult -> runCatching {
+                PluginSchemaUiState.Media(
+                    items = items.map { item ->
+                        val resolved = ExternalPluginMediaSourceResolver.resolve(
+                            item = item,
+                            extractedDir = record.extractedDir,
+                            privateRootPath = dependencies.resolvePluginWorkspaceSnapshot(record.pluginId).privateRootPath,
+                        )
+                        PluginSchemaMediaItem(
+                            label = resolved.altText.ifBlank { resolved.source.substringAfterLast('/') },
+                            resolvedSource = resolved.resolvedSource,
+                            mimeType = resolved.mimeType,
+                        )
+                    },
+                )
+            }.getOrElse { error ->
+                PluginSchemaUiState.Error(error.message ?: "Plugin media result is invalid")
+            }
+            is HostActionRequest -> {
+                val execution = hostActionExecutor.execute(
+                    pluginId = record.pluginId,
+                    request = this,
+                    context = context,
+                )
+                if (execution.succeeded) {
+                    PluginSchemaUiState.Text(
+                        title = title.ifBlank { action.name },
+                        text = execution.message.ifBlank { action.name },
+                    )
+                } else {
+                    PluginSchemaUiState.Error(
+                        execution.message.ifBlank { "Plugin host action failed." },
+                    )
+                }
+            }
             is SettingsUiRequest -> PluginSchemaUiState.Settings(
                 schema = schema,
                 draftValues = schema.defaultDraftValues(),
             )
             is NoOp -> PluginSchemaUiState.None
-            is ErrorResult -> PluginSchemaUiState.None
-            else -> PluginSchemaUiState.None
+            is ErrorResult -> PluginSchemaUiState.Error(message)
+            else -> PluginSchemaUiState.Error("Unsupported plugin result: ${this::class.simpleName.orEmpty()}")
+        }
+    }
+
+    private fun loadWorkspaceState(record: PluginInstallRecord) {
+        hostWorkspaceSnapshot.value = dependencies.resolvePluginWorkspaceSnapshot(record.pluginId)
+        hostWorkspaceSchemaUiState.value = executePluginEntry(
+            record = record,
+            entryPoint = "plugin_workspace",
+        )
+        hostWorkspaceActionMessage.value = null
+        hostWorkspaceImportRunning.value = false
+    }
+
+    fun importWorkspaceFile(uri: String) {
+        val pluginId = uiState.value.selectedPluginId ?: return
+        if (hostWorkspaceImportRunning.value) return
+        viewModelScope.launch {
+            hostWorkspaceImportRunning.value = true
+            runCatching {
+                dependencies.importPluginWorkspaceFile(
+                    pluginId = pluginId,
+                    uri = uri,
+                )
+            }.onSuccess { snapshot ->
+                hostWorkspaceSnapshot.value = snapshot
+                hostWorkspaceActionMessage.value = PluginActionFeedback.Text("Workspace file imported.")
+            }.onFailure { error ->
+                hostWorkspaceActionMessage.value = PluginActionFeedback.Text(
+                    error.message ?: "Plugin workspace import failed.",
+                )
+            }
+            hostWorkspaceImportRunning.value = false
+        }
+    }
+
+    fun deleteWorkspaceFile(relativePath: String) {
+        val pluginId = uiState.value.selectedPluginId ?: return
+        runCatching {
+            dependencies.deletePluginWorkspaceFile(
+                pluginId = pluginId,
+                relativePath = relativePath,
+            )
+        }.onSuccess { snapshot ->
+            hostWorkspaceSnapshot.value = snapshot
+            hostWorkspaceActionMessage.value = PluginActionFeedback.Text("Workspace file removed.")
+        }.onFailure { error ->
+            hostWorkspaceActionMessage.value = PluginActionFeedback.Text(
+                error.message ?: "Plugin workspace delete failed.",
+            )
         }
     }
 

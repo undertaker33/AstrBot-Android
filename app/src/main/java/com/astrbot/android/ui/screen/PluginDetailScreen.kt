@@ -58,6 +58,7 @@ import java.util.Locale
 fun PluginDetailScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
+    onOpenWorkspace: (String) -> Unit,
     onOpenConfig: (String) -> Unit,
     pluginViewModel: PluginViewModel = astrBotViewModel(),
 ) {
@@ -71,6 +72,7 @@ fun PluginDetailScreenRoute(
             PluginDetailRouteWorkspace(
                 uiState = uiState,
                 onBack = onBack,
+                onOpenWorkspace = onOpenWorkspace,
                 onOpenConfig = onOpenConfig,
                 onEnable = pluginViewModel::enableSelectedPlugin,
                 onDisable = pluginViewModel::disableSelectedPlugin,
@@ -93,6 +95,7 @@ fun PluginDetailScreenRoute(
 private fun PluginDetailRouteWorkspace(
     uiState: PluginScreenUiState,
     onBack: () -> Unit,
+    onOpenWorkspace: (String) -> Unit,
     onOpenConfig: (String) -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
@@ -136,6 +139,7 @@ private fun PluginDetailRouteWorkspace(
                 PluginDetailSection.PrimaryActions -> PluginDetailPrimaryActionsSection(
                     record = record,
                     actionState = uiState.detailActionState,
+                    onOpenWorkspace = { onOpenWorkspace(record.pluginId) },
                     onOpenConfig = { onOpenConfig(record.pluginId) },
                     onEnable = onEnable,
                     onDisable = onDisable,
@@ -144,7 +148,11 @@ private fun PluginDetailRouteWorkspace(
                     onUninstall = onUninstall,
                 )
                 PluginDetailSection.Overview -> PluginDetailOverviewSection(record, uiState.detailMetadataState)
-                PluginDetailSection.SafetyCompatibility -> PluginDetailSafetyCompatibilitySection(record, uiState.detailActionState)
+                PluginDetailSection.SafetyCompatibility -> PluginDetailSafetyCompatibilitySection(
+                    record = record,
+                    actionState = uiState.detailActionState,
+                    metadata = uiState.detailMetadataState,
+                )
                 PluginDetailSection.TechnicalMetadata -> PluginDetailTechnicalMetadataSection(record, uiState.detailMetadataState)
             }
         }
@@ -201,6 +209,7 @@ private fun PluginDetailTopSummarySection(record: PluginInstallRecord) {
 private fun PluginDetailPrimaryActionsSection(
     record: PluginInstallRecord,
     actionState: PluginDetailActionState,
+    onOpenWorkspace: () -> Unit,
     onOpenConfig: () -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
@@ -247,6 +256,14 @@ private fun PluginDetailPrimaryActionsSection(
                 onClick = onUninstall,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailUninstallActionTag),
             ) { Text(stringResource(R.string.plugin_action_uninstall)) }
+        }
+        OutlinedButton(
+            onClick = onOpenWorkspace,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.DetailOpenWorkspaceActionTag),
+        ) {
+            Text(stringResource(R.string.plugin_action_open_workspace))
         }
         OutlinedButton(
             onClick = onOpenConfig,
@@ -298,6 +315,7 @@ private fun PluginDetailOverviewSection(record: PluginInstallRecord, metadata: P
 private fun PluginDetailSafetyCompatibilitySection(
     record: PluginInstallRecord,
     actionState: PluginDetailActionState,
+    metadata: PluginDetailMetadataState,
 ) {
     PluginSectionCard(
         title = stringResource(R.string.plugin_detail_safety_compatibility_title),
@@ -326,6 +344,14 @@ private fun PluginDetailSafetyCompatibilitySection(
                 }
             },
         )
+        metadata.governanceState?.let { governanceState ->
+            PluginKeyValueSection(
+                title = stringResource(R.string.plugin_detail_governance_group_title),
+                items = buildGovernanceDisplayItems(governanceState).map { item ->
+                    stringResource(item.labelRes) to stringResource(item.valueRes)
+                },
+            )
+        }
         Text(
             text = stringResource(R.string.plugin_detail_runtime_health_group_title),
             style = MaterialTheme.typography.labelLarge,

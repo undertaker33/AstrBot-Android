@@ -36,6 +36,7 @@
     <string name="plugin_homepage_hero_title">插件库</string>
     <string name="plugin_homepage_hero_subtitle">查看已安装插件、发现新插件，并从本地包或远程来源快速安装。</string>
     <string name="plugin_detail_title">插件详情</string>
+    <string name="plugin_workspace_title">插件工作台</string>
     <string name="plugin_health_overview_title">健康概览</string>
     <string name="plugin_health_overview_subtitle">一眼查看已安装数量、可用更新、待复核项和来源覆盖情况。</string>
     <string name="plugin_health_metric_installed">已安装</string>
@@ -72,12 +73,19 @@
     <string name="plugin_risk_medium">中风险</string>
     <string name="plugin_risk_high">高风险</string>
     <string name="plugin_risk_critical">严重风险</string>
+    <string name="plugin_trust_local_package">本地包</string>
+    <string name="plugin_trust_direct_source">直链来源</string>
+    <string name="plugin_trust_repository_listed">仓库已列出</string>
+    <string name="plugin_review_unreviewed">未审核</string>
+    <string name="plugin_review_local_checks_passed">本地校验通过</string>
+    <string name="plugin_review_host_compatibility_blocked">被宿主兼容性阻断</string>
     <string name="plugin_detail_overview_title">概览</string>
     <string name="plugin_detail_safety_compatibility_title">安全与兼容性</string>
     <string name="plugin_detail_plugin_panel_title">插件面板</string>
     <string name="plugin_detail_technical_metadata_title">技术元信息</string>
     <string name="plugin_detail_compatibility_group_title">兼容性</string>
     <string name="plugin_detail_permissions_group_title">权限</string>
+    <string name="plugin_detail_governance_group_title">治理状态</string>
     <string name="plugin_detail_runtime_health_group_title">运行健康</string>
     <string name="plugin_detail_runtime_health_clear">暂无运行问题记录。</string>
     <string name="plugin_detail_meta_title">包元信息</string>
@@ -90,6 +98,7 @@
     <string name="plugin_action_disable">停用</string>
     <string name="plugin_action_upgrade">升级</string>
     <string name="plugin_action_uninstall">卸载</string>
+    <string name="plugin_action_open_workspace">打开工作台</string>
     <string name="plugin_action_uninstall_policy_title">卸载数据策略</string>
     <string name="plugin_action_uninstall_policy_keep_data">保留数据</string>
     <string name="plugin_action_uninstall_policy_remove_data">移除数据</string>
@@ -99,6 +108,15 @@
     <string name="plugin_action_feedback_uninstall_policy_keep_data">卸载策略已切换为保留数据。</string>
     <string name="plugin_action_feedback_uninstall_policy_remove_data">卸载策略已切换为移除数据。</string>
     <string name="plugin_action_feedback_update_uninstall_policy_failed">更新卸载策略失败。</string>
+    <string name="plugin_workspace_files_title">工作区文件</string>
+    <string name="plugin_workspace_management_title">管理视图</string>
+    <string name="plugin_workspace_import_action">导入文件</string>
+    <string name="plugin_workspace_delete_action">删除文件</string>
+    <string name="plugin_workspace_empty_files">当前插件工作区还没有导入任何文件。</string>
+    <string name="plugin_workspace_private_root_label">私有根目录</string>
+    <string name="plugin_workspace_imports_root_label">导入目录</string>
+    <string name="plugin_workspace_runtime_root_label">运行目录</string>
+    <string name="plugin_workspace_file_meta">%1$d 字节 | %2$s</string>
     <string name="plugin_action_feedback_enable_blocked_incompatible">该插件当前不兼容，无法启用。</string>
     <string name="plugin_action_feedback_enable_blocked_incompatible_with_notes">该插件当前不兼容，无法启用。%1$s</string>
     <string name="plugin_action_feedback_uninstalled_keep_data">插件已卸载，并保留本地插件数据。</string>
@@ -132,6 +150,9 @@
     <string name="plugin_field_source_location">来源路径</string>
     <string name="plugin_field_compatibility_status">兼容状态</string>
     <string name="plugin_field_compatibility_notes">兼容备注</string>
+    <string name="plugin_field_risk_level">风险等级</string>
+    <string name="plugin_field_trust_level">信任等级</string>
+    <string name="plugin_field_review_state">审核状态</string>
     <string name="plugin_permission_required">必需权限</string>
     <string name="plugin_permission_optional">可选权限</string>
     <string name="plugin_value_not_limited">未限制</string>
@@ -687,4 +708,6 @@
     <string name="backup_restore_full_success">完整备份已导入。机器人 %1$d，模型 %2$d，人格 %3$d，配置 %4$d，对话 %5$d，QQ 账号 %6$d，TTS 音色 %7$d。</string>
     <string name="backup_import_mode_replace_all">全量覆盖</string>
     <string name="backup_import_apply_plan">按当前方案导入</string>
+    <string name="plugin_media_result_title">媒体输出</string>
+    <string name="plugin_runtime_error_title">插件运行时错误</string>
 </resources>

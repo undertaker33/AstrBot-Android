@@ -50,6 +50,7 @@ import com.astrbot.android.ui.screen.MeScreen
 import com.astrbot.android.ui.screen.ModuleBackupScreen
 import com.astrbot.android.ui.screen.PersonaScreen
 import com.astrbot.android.ui.screen.PluginDetailScreenRoute
+import com.astrbot.android.ui.screen.PluginWorkspaceScreenRoute
 import com.astrbot.android.ui.screen.PluginScreen
 import com.astrbot.android.ui.screen.PluginWorkspaceTab
 import com.astrbot.android.ui.screen.ProviderScreen
@@ -249,9 +250,19 @@ internal fun AstrBotAppNavGraph(
             PluginDetailScreenRoute(
                 pluginId = pluginId,
                 onBack = { AppNavigator.back(navController) },
+                onOpenWorkspace = {
+                    AppNavigator.open(navController, AppDestination.PluginWorkspace.routeFor(pluginId))
+                },
                 onOpenConfig = {
                     AppNavigator.open(navController, AppDestination.PluginConfig.routeFor(pluginId))
                 },
+            )
+        }
+        composable(AppDestination.PluginWorkspace.route) { backStackEntry ->
+            val pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty()
+            PluginWorkspaceScreenRoute(
+                pluginId = pluginId,
+                onBack = { AppNavigator.back(navController) },
             )
         }
         composable(AppDestination.PluginConfig.route) { backStackEntry ->

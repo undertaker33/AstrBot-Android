@@ -3,11 +3,13 @@ package com.astrbot.android.runtime.plugin
 import com.astrbot.android.model.plugin.ErrorResult
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginExecutionResult
+import com.astrbot.android.model.plugin.PluginInstallState
 import com.astrbot.android.model.plugin.PluginTriggerSource
 
 data class PluginExecutionOutcome(
     val pluginId: String,
     val pluginVersion: String,
+    val installState: PluginInstallState,
     val context: PluginExecutionContext,
     val result: PluginExecutionResult,
     val succeeded: Boolean,
@@ -35,6 +37,7 @@ class PluginExecutionEngine(
             PluginExecutionOutcome(
                 pluginId = plugin.pluginId,
                 pluginVersion = plugin.pluginVersion,
+                installState = plugin.installState,
                 context = normalizedContext,
                 result = result,
                 succeeded = true,
@@ -44,6 +47,7 @@ class PluginExecutionEngine(
             PluginExecutionOutcome(
                 pluginId = plugin.pluginId,
                 pluginVersion = plugin.pluginVersion,
+                installState = plugin.installState,
                 context = normalizedContext,
                 result = ErrorResult(
                     message = error.message ?: "Plugin execution failed",

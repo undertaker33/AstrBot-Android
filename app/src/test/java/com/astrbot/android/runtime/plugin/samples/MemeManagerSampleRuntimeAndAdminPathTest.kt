@@ -4,6 +4,8 @@ import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.di.PluginViewModelDependencies
+import com.astrbot.android.model.plugin.ExternalPluginMediaSourceResolver
+import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginExecutionResult
@@ -15,11 +17,13 @@ import com.astrbot.android.model.plugin.PluginMediaItem
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginSettingsSection
+import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
 import com.astrbot.android.model.plugin.SettingsUiRequest
 import com.astrbot.android.model.plugin.TextInputSettingField
-import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
+import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeBinder
 import com.astrbot.android.runtime.plugin.PluginExecutionEngine
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginInstaller
@@ -28,6 +32,8 @@ import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.RemotePluginPackageDownloader
+import com.astrbot.android.runtime.plugin.runtimePlugin
+import com.astrbot.android.runtime.plugin.samplePluginInstallRecord
 import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
 import com.astrbot.android.ui.viewmodel.PluginViewModel
 import java.io.File
@@ -41,6 +47,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -176,6 +183,51 @@ class MemeManagerSampleRuntimeAndAdminPathTest {
         }
     }
 
+    @Test
+    fun sample_external_bridge_can_execute_media_and_admin_paths() = runTest(dispatcher) {
+        assumeTrue(isPythonAvailable())
+        val tempDir = Files.createTempDirectory("meme-manager-sample-external").toFile()
+        try {
+            resetPluginRepositoryForSampleTest(initialized = true)
+            val installed = installSample(tempDir = tempDir, version = "1.1.0")
+            val binding = ExternalPluginRuntimeBinder().bind(installed)
+            val runtime = ExternalPluginBridgeRuntime(
+                pythonCommandCandidates = listOf("python"),
+            )
+
+            val mediaResult = runtime.execute(
+                binding = binding,
+                context = sampleExecutionContext(
+                    runtimePlugin(
+                        pluginId = installed.pluginId,
+                        version = installed.installedVersion,
+                        supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                    ),
+                ),
+            )
+            assertTrue(mediaResult is MediaResult)
+            val mediaItem = (mediaResult as MediaResult).items.single()
+            assertTrue(mediaItem.source.startsWith("plugin://package/resources/memes/angry/"))
+            val resolvedMedia = ExternalPluginMediaSourceResolver.resolve(
+                item = mediaItem,
+                extractedDir = installed.extractedDir,
+            )
+            assertTrue(File(resolvedMedia.resolvedSource).exists())
+
+            val adminResult = runtime.execute(
+                binding = binding,
+                context = sampleEntryClickContext(installed.pluginId, installed.installedVersion),
+            )
+            assertTrue(adminResult is SettingsUiRequest)
+            val schema = (adminResult as SettingsUiRequest).schema
+            assertEquals("Meme Manager", schema.title)
+            assertEquals("admin", schema.sections.single().sectionId)
+        } finally {
+            resetPluginRepositoryForSampleTest(initialized = false)
+            tempDir.deleteRecursively()
+        }
+    }
+
     private suspend fun installSample(tempDir: File, version: String): PluginInstallRecord {
         val zip = SampleAssetPaths.packageZip(version)
         assertTrue("Missing sample zip: ${zip.absolutePath}", zip.exists())
@@ -225,6 +277,37 @@ private fun sampleExecutionContext(plugin: PluginRuntimePlugin): PluginExecution
         permissionSnapshot = emptyList(),
         hostActionWhitelist = listOf(PluginHostAction.SendMessage),
         triggerMetadata = com.astrbot.android.model.plugin.PluginTriggerMetadata(command = "/meme"),
+    )
+}
+
+private fun sampleEntryClickContext(
+    pluginId: String,
+    version: String,
+): PluginExecutionContext {
+    return sampleExecutionContext(
+        PluginRuntimePlugin(
+            pluginId = pluginId,
+            pluginVersion = version,
+            installState = samplePluginInstallRecord(
+                pluginId = pluginId,
+                version = version,
+                lastUpdatedAt = 100L,
+            ).toInstallStateForRuntime(),
+            supportedTriggers = setOf(PluginTriggerSource.OnPluginEntryClick),
+            handler = object : com.astrbot.android.runtime.plugin.PluginRuntimeHandler {
+                override fun execute(context: PluginExecutionContext): PluginExecutionResult = NoOp("unused")
+            },
+        ),
+    ).copy(
+        trigger = PluginTriggerSource.OnPluginEntryClick,
+        message = com.astrbot.android.model.plugin.PluginMessageSummary(
+            messageId = "entry-click",
+            contentPreview = "",
+            messageType = "entry",
+        ),
+        triggerMetadata = com.astrbot.android.model.plugin.PluginTriggerMetadata(
+            entryPoint = "plugin-detail",
+        ),
     )
 }
 
@@ -334,6 +417,24 @@ private class MinimalPluginViewModelDeps(
         return boundary.createSnapshot(extensionValues = extensionValues)
     }
 
+    override fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot {
+        return PluginHostWorkspaceSnapshot()
+    }
+
+    override suspend fun importPluginWorkspaceFile(
+        pluginId: String,
+        uri: String,
+    ): PluginHostWorkspaceSnapshot {
+        return PluginHostWorkspaceSnapshot()
+    }
+
+    override fun deletePluginWorkspaceFile(
+        pluginId: String,
+        relativePath: String,
+    ): PluginHostWorkspaceSnapshot {
+        return PluginHostWorkspaceSnapshot()
+    }
+
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         val current = recordsFlow.value.first { it.pluginId == pluginId }
         val updated = PluginInstallRecord.restoreFromPersistedState(
@@ -384,4 +485,13 @@ private fun PluginInstallRecord.toInstallStateForRuntime(): com.astrbot.android.
         localPackagePath = localPackagePath,
         extractedDir = extractedDir,
     )
+}
+
+private fun isPythonAvailable(): Boolean {
+    return runCatching {
+        ProcessBuilder("python", "--version")
+            .redirectErrorStream(true)
+            .start()
+            .waitFor() == 0
+    }.getOrDefault(false)
 }

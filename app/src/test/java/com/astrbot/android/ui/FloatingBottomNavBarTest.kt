@@ -149,6 +149,7 @@ class FloatingBottomNavBarTest {
             settings = "Settings",
             assetManagement = "Assets",
             pluginDetail = "Plugin details",
+            pluginWorkspace = "Plugin workspace",
             pluginConfig = "Plugin configuration",
             models = "Models",
             runtime = "Runtime",

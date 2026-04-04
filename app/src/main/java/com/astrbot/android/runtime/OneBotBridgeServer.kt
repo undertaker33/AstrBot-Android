@@ -7,8 +7,10 @@ import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.StreamingResponseSegmenter
+import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.PersonaProfile
@@ -20,6 +22,12 @@ import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.ExternalPluginHostActionPolicy
+import com.astrbot.android.model.plugin.ExternalPluginMediaSourceResolver
+import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
+import com.astrbot.android.model.plugin.HostActionRequest
+import com.astrbot.android.model.plugin.MediaResult
+import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginBotSummary
 import com.astrbot.android.model.plugin.PluginConfigSummary
 import com.astrbot.android.model.plugin.PluginExecutionContext
@@ -28,6 +36,9 @@ import com.astrbot.android.model.plugin.PluginMessageSummary
 import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.model.plugin.TextResult
+import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
+import com.astrbot.android.runtime.plugin.PluginExecutionOutcome
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
@@ -251,6 +262,9 @@ object OneBotBridgeServer {
             if (handleBotCommand(event, bot, config, sessionId, session, persona)) {
                 return@lock
             }
+            if (handlePluginCommand(event, bot, config, sessionId, session, persona)) {
+                return@lock
+            }
             val provider = resolveProvider(bot)
             if (provider == null) {
                 RuntimeLogRepository.append("Auto reply skipped: no enabled chat provider configured")
@@ -317,6 +331,7 @@ object OneBotBridgeServer {
             )
             executeQqPlugins(
                 trigger = PluginTriggerSource.BeforeSendMessage,
+                event = event,
                 contextFactory = { plugin ->
                     buildQqPluginContext(
                         plugin = plugin,
@@ -405,6 +420,7 @@ object OneBotBridgeServer {
             val assistantMessage = postModelSession.messages.lastOrNull { it.role == "assistant" } ?: return@lock
             executeQqPlugins(
                 trigger = PluginTriggerSource.AfterModelResponse,
+                event = event,
                 contextFactory = { plugin ->
                     buildQqPluginContext(
                         plugin = plugin,
@@ -642,6 +658,7 @@ object OneBotBridgeServer {
 
     private fun executeQqPlugins(
         trigger: PluginTriggerSource,
+        event: IncomingMessageEvent,
         contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
     ) {
         val plugins = PluginRuntimeRegistry.plugins()
@@ -684,6 +701,7 @@ object OneBotBridgeServer {
                     "QQ runtime plugin failed: trigger=${trigger.wireValue} plugin=${outcome.pluginId} code=${errorResult?.code.orEmpty()} message=${errorResult?.message.orEmpty()}",
                 )
             }
+            consumeQqPluginOutcome(event = event, outcome = outcome)
         }
     }
 
@@ -692,7 +710,7 @@ object OneBotBridgeServer {
         trigger: PluginTriggerSource,
         session: ConversationSession,
         message: ConversationMessage,
-        provider: ProviderProfile,
+        provider: ProviderProfile?,
         bot: BotProfile,
         persona: PersonaProfile?,
         config: com.astrbot.android.model.ConfigProfile,
@@ -721,8 +739,8 @@ object OneBotBridgeServer {
                 platformId = session.platformId,
             ),
             config = PluginConfigSummary(
-                providerId = provider.id,
-                modelId = provider.model,
+                providerId = provider?.id.orEmpty(),
+                modelId = provider?.model.orEmpty(),
                 personaId = persona?.id.orEmpty(),
                 extras = buildMap {
                     put("sessionId", session.id)
@@ -743,12 +761,7 @@ object OneBotBridgeServer {
                     riskLevel = permission.riskLevel,
                 )
             },
-            hostActionWhitelist = listOf(
-                PluginHostAction.CallModel,
-                PluginHostAction.SendMessage,
-                PluginHostAction.SendNotification,
-                PluginHostAction.OpenHostPage,
-            ),
+            hostActionWhitelist = ExternalPluginHostActionPolicy.openActions(),
             triggerMetadata = PluginTriggerMetadata(
                 eventId = "${trigger.wireValue}:${session.id}:${message.id}",
                 extras = mapOf(
@@ -813,6 +826,136 @@ object OneBotBridgeServer {
                 "QQ reply send failed: ${error.message ?: error.javaClass.simpleName}",
             )
         }
+    }
+
+    private fun handlePluginCommand(
+        event: IncomingMessageEvent,
+        bot: BotProfile,
+        config: com.astrbot.android.model.ConfigProfile,
+        sessionId: String,
+        session: ConversationSession,
+        currentPersona: PersonaProfile?,
+    ): Boolean {
+        val trimmedText = event.text.trim()
+        if (!trimmedText.startsWith("/") || !ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnCommand)) {
+            return false
+        }
+        val syntheticMessage = ConversationMessage(
+            id = "qq-plugin-command:${sessionId}:${trimmedText.hashCode()}",
+            role = "user",
+            content = trimmedText,
+            timestamp = System.currentTimeMillis(),
+        )
+        val batch = runCatching {
+            val pluginFailureGuard = PluginFailureGuard(
+                store = PluginRuntimeFailureStateStoreProvider.store(),
+            )
+            PluginExecutionEngine(
+                dispatcher = PluginRuntimeDispatcher(pluginFailureGuard),
+                failureGuard = pluginFailureGuard,
+            ).executeBatch(
+                trigger = PluginTriggerSource.OnCommand,
+                plugins = PluginRuntimeRegistry.plugins(),
+                contextFactory = { plugin ->
+                    buildQqPluginContext(
+                        plugin = plugin,
+                        trigger = PluginTriggerSource.OnCommand,
+                        session = session,
+                        message = syntheticMessage,
+                        provider = resolveProvider(bot),
+                        bot = bot,
+                        persona = currentPersona,
+                        config = config,
+                        event = event,
+                    )
+                },
+            )
+        }.onFailure { error ->
+            RuntimeLogRepository.append(
+                "QQ plugin command runtime failed: command=${trimmedText.substringBefore(' ')} reason=${error.message ?: error.javaClass.simpleName}",
+            )
+        }.getOrNull() ?: return false
+
+        batch.skipped.forEach { skip ->
+            RuntimeLogRepository.append(
+                "QQ plugin command skipped: plugin=${skip.plugin.pluginId} reason=${skip.reason.name}",
+            )
+        }
+        if (batch.outcomes.isEmpty()) {
+            return false
+        }
+        batch.outcomes.forEach { outcome ->
+            consumeQqPluginOutcome(event = event, outcome = outcome)
+            RuntimeLogRepository.append(
+                "QQ plugin command handled: plugin=${outcome.pluginId} result=${outcome.result::class.simpleName.orEmpty()}",
+            )
+        }
+        return true
+    }
+
+    private fun consumeQqPluginOutcome(
+        event: IncomingMessageEvent,
+        outcome: PluginExecutionOutcome,
+    ) {
+        when (val result = outcome.result) {
+            is TextResult -> sendReply(event, result.text)
+            is ErrorResult -> sendReply(event, result.message)
+            is NoOp -> Unit
+            is MediaResult -> {
+                val attachments = result.items.mapIndexed { index, item ->
+                    val resolved = ExternalPluginMediaSourceResolver.resolve(
+                        item = item,
+                        extractedDir = outcome.installState.extractedDir,
+                        privateRootPath = resolvePluginPrivateRootPath(outcome.pluginId),
+                    )
+                    ConversationAttachment(
+                        id = "qq-plugin-media-$index-${resolved.resolvedSource.hashCode()}",
+                        type = if (resolved.mimeType.startsWith("audio/")) "audio" else "image",
+                        mimeType = resolved.mimeType.ifBlank { "image/jpeg" },
+                        fileName = resolved.altText.ifBlank { resolved.resolvedSource.substringAfterLast('/') },
+                        remoteUrl = resolved.resolvedSource,
+                    )
+                }
+                sendReply(event, text = "", attachments = attachments)
+            }
+            is HostActionRequest -> {
+                val emittedMessages = mutableListOf<String>()
+                val execution = ExternalPluginHostActionExecutor(
+                    sendMessageHandler = { text ->
+                        emittedMessages += text
+                        sendReply(event, text)
+                    },
+                    sendNotificationHandler = { title, message ->
+                        RuntimeLogRepository.append("QQ plugin notification requested: title=$title message=$message")
+                    },
+                    openHostPageHandler = { route ->
+                        RuntimeLogRepository.append("QQ plugin requested host page: route=$route")
+                    },
+                ).execute(
+                    pluginId = outcome.pluginId,
+                    request = result,
+                    context = outcome.context,
+                )
+                if (!execution.succeeded) {
+                    sendReply(event, execution.message)
+                } else if (emittedMessages.isEmpty() && execution.message.isNotBlank()) {
+                    sendReply(event, execution.message)
+                }
+            }
+            else -> {
+                RuntimeLogRepository.append(
+                    "QQ runtime plugin result is not consumable yet: plugin=${outcome.pluginId} result=${result::class.simpleName.orEmpty()}",
+                )
+            }
+        }
+    }
+
+    private fun resolvePluginPrivateRootPath(pluginId: String): String {
+        return runCatching {
+            PluginStoragePaths.fromFilesDir(
+                PluginRepository.requireAppContext().filesDir,
+            ).privateDir(pluginId).absolutePath
+        }.getOrDefault("")
     }
 
     private fun materializeAudioAttachmentForOneBot(attachment: ConversationAttachment): String? {

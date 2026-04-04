@@ -18,6 +18,15 @@ class AppDestinationTest {
     }
 
     @Test
+    fun `plugin workspace route exposes parameterized route string`() {
+        assertEquals("plugins/detail/{pluginId}/workspace", AppDestination.PluginWorkspace.route)
+        assertEquals(
+            "plugins/detail/weather-toolkit/workspace",
+            AppDestination.PluginWorkspace.routeFor("weather-toolkit"),
+        )
+    }
+
+    @Test
     fun `plugin detail route is treated as a detail motion level`() {
         assertEquals(NavigationMotionLevel.Detail, classifyNavigationMotionLevel(AppDestination.PluginDetail.route))
     }

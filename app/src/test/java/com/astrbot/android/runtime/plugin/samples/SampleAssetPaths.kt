@@ -3,8 +3,12 @@ package com.astrbot.android.runtime.plugin.samples
 import java.io.File
 
 internal object SampleAssetPaths {
+    private fun artifactRoot(name: String): File {
+        return File(findRepoRoot(), "artifacts/plugins/$name")
+    }
+
     private val rootDir: File by lazy {
-        File(findRepoRoot(), "artifacts/plugins/meme-manager-sample")
+        artifactRoot("meme-manager-sample")
     }
 
     val catalogFixture: File by lazy {
@@ -13,6 +17,10 @@ internal object SampleAssetPaths {
 
     fun packageZip(version: String): File {
         return File(rootDir, "packages/meme-manager-$version.zip")
+    }
+
+    fun greetingToolkitPackageZip(version: String): File {
+        return File(artifactRoot("greeting-toolkit-sample"), "packages/greeting-toolkit-$version.zip")
     }
 }
 

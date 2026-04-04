@@ -13,12 +13,16 @@ import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.HostActionRequest
+import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginExecutionResult
+import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.model.plugin.PluginInstallState
 import com.astrbot.android.model.plugin.PluginInstallStatus
+import com.astrbot.android.model.plugin.PluginMediaItem
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRiskLevel
@@ -35,6 +39,7 @@ import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimeHandler
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import java.nio.file.Files
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -251,6 +256,131 @@ class ChatViewModelTest {
         assertTrue(runtime.batches.isEmpty())
         assertEquals(0, deps.sentChatRequests)
         assertEquals(1, deps.appendedMessages.count { it.role == "assistant" })
+    }
+
+    @Test
+    fun send_message_dispatches_plugin_command_and_appends_text_reply_without_model_dispatch() = runTest(dispatcher) {
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "command-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                ) { context ->
+                    assertEquals("/plugin hello", context.triggerMetadata.command)
+                    TextResult("plugin command reply")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/plugin hello")
+        advanceUntilIdle()
+
+        val batch = runtime.batches.single()
+        assertEquals(PluginTriggerSource.OnCommand, batch.trigger)
+        assertEquals("/plugin hello", batch.outcomes.single().context.message.contentPreview)
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals("plugin command reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_dispatches_plugin_command_and_appends_media_reply_without_model_dispatch() = runTest(dispatcher) {
+        val tempDir = Files.createTempDirectory("chat-plugin-command-media").toFile()
+        try {
+            val extractedDir = tempDir.resolve("plugin").apply { mkdirs() }
+            extractedDir.resolve("assets").mkdirs()
+            extractedDir.resolve("assets/banner.png").writeText("banner", Charsets.UTF_8)
+            val runtime = RecordingAppChatPluginRuntime(
+                plugins = listOf(
+                    runtimePlugin(
+                        pluginId = "command-plugin",
+                        supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                        extractedDir = extractedDir.absolutePath,
+                    ) {
+                        MediaResult(
+                            items = listOf(
+                                PluginMediaItem(
+                                    source = "plugin://package/assets/banner.png",
+                                    mimeType = "image/png",
+                                    altText = "Banner",
+                                ),
+                            ),
+                        )
+                    },
+                ),
+            )
+            val deps = FakeChatDependencies(
+                sessions = listOf(defaultSession()),
+                bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+                providers = listOf(defaultChatProvider("provider-1")),
+            )
+            val viewModel = ChatViewModel(
+                dependencies = deps,
+                appChatPluginRuntime = runtime,
+                ioDispatcher = dispatcher,
+            )
+            advanceUntilIdle()
+            deps.clearRecordedSignals()
+
+            viewModel.sendMessage("/plugin media")
+            advanceUntilIdle()
+
+            assertEquals(0, deps.sentChatRequests)
+            val assistantMessage = deps.latestAssistantMessage()
+            assertEquals(1, assistantMessage?.attachments?.size)
+            assertEquals(
+                extractedDir.resolve("assets/banner.png").absolutePath,
+                assistantMessage?.attachments?.single()?.remoteUrl,
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun send_message_dispatches_plugin_command_host_action_send_message_without_model_dispatch() = runTest(dispatcher) {
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "command-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                ) {
+                    HostActionRequest(
+                        action = PluginHostAction.SendMessage,
+                        payload = mapOf("text" to "host action reply"),
+                    )
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/plugin host-action")
+        advanceUntilIdle()
+
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals("host action reply", deps.latestAssistantMessage()?.content)
     }
 
     @Test
@@ -545,6 +675,7 @@ class ChatViewModelTest {
     private fun runtimePlugin(
         pluginId: String,
         supportedTriggers: Set<PluginTriggerSource>,
+        extractedDir: String = "/plugins/$pluginId",
         handler: (PluginExecutionContext) -> PluginExecutionResult,
     ): PluginRuntimePlugin {
         val manifest = PluginManifest(
@@ -589,7 +720,7 @@ class ChatViewModelTest {
                 lastInstalledAt = 1L,
                 lastUpdatedAt = 1L,
                 localPackagePath = "/plugins/$pluginId.zip",
-                extractedDir = "/plugins/$pluginId",
+                extractedDir = extractedDir,
             ),
             supportedTriggers = supportedTriggers,
             handler = PluginRuntimeHandler { context -> handler(context) },

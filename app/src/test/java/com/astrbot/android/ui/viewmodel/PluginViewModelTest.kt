@@ -5,6 +5,7 @@ import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.data.PluginUninstallResult
 import com.astrbot.android.di.PluginViewModelDependencies
 import com.astrbot.android.model.plugin.CardResult
+import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginCardAction
 import com.astrbot.android.model.plugin.PluginCardSchema
@@ -15,8 +16,10 @@ import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallState
 import com.astrbot.android.model.plugin.PluginInstallStatus
 import com.astrbot.android.model.plugin.PluginManifest
+import com.astrbot.android.model.plugin.PluginReviewState
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginTrustLevel
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogEntry
@@ -24,6 +27,7 @@ import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
+import com.astrbot.android.model.plugin.PluginMediaItem
 import com.astrbot.android.model.plugin.PluginSelectOption
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginSettingsSection
@@ -36,13 +40,19 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
+import com.astrbot.android.model.plugin.PluginWorkspaceFileEntry
 import com.astrbot.android.model.plugin.SelectSettingField
 import com.astrbot.android.model.plugin.SettingsUiRequest
+import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
+import com.astrbot.android.model.plugin.HostActionRequest
+import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import java.lang.reflect.Method
+import java.nio.file.Files
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -193,6 +203,38 @@ class PluginViewModelTest {
         assertEquals("1.2.0", detail.updateHint?.latestVersion)
         assertEquals("Host version is below required minimum 2.0.0.", detail.updateHint?.blockedReason)
         assertEquals(listOf("Read host logs"), detail.permissionDiffHint?.addedPermissions)
+        assertEquals(PluginRiskLevel.MEDIUM, detail.governanceState?.riskLevel)
+        assertEquals(PluginTrustLevel.REPOSITORY_LISTED, detail.governanceState?.trustLevel)
+        assertEquals(PluginReviewState.LOCAL_CHECKS_PASSED, detail.governanceState?.reviewState)
+    }
+
+    @Test
+    fun detail_state_marks_local_package_as_host_blocked_when_compatibility_fails() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(
+                pluginRecord(
+                    pluginId = "plugin-blocked",
+                    sourceType = PluginSourceType.LOCAL_FILE,
+                    riskLevel = PluginRiskLevel.HIGH,
+                    compatibilityState = PluginCompatibilityState.evaluated(
+                        protocolSupported = true,
+                        minHostVersionSatisfied = false,
+                        maxHostVersionSatisfied = true,
+                        notes = "Needs host 9.0.0 or newer.",
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-blocked")
+        advanceUntilIdle()
+
+        val governance = viewModel.uiState.value.detailMetadataState.governanceState
+        assertEquals(PluginRiskLevel.HIGH, governance?.riskLevel)
+        assertEquals(PluginTrustLevel.LOCAL_PACKAGE, governance?.trustLevel)
+        assertEquals(PluginReviewState.HOST_COMPATIBILITY_BLOCKED, governance?.reviewState)
     }
 
     @Test
@@ -885,6 +927,130 @@ class PluginViewModelTest {
     }
 
     @Test
+    fun select_plugin_maps_text_result_to_schema_ui_state() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    TextResult(
+                        text = "Runtime text reply",
+                        markdown = true,
+                        displayTitle = "Runtime Output",
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val schemaState = viewModel.uiState.value.schemaUiState
+        assertTrue(schemaState is PluginSchemaUiState.Text)
+        schemaState as PluginSchemaUiState.Text
+        assertEquals("Runtime Output", schemaState.title)
+        assertEquals("Runtime text reply", schemaState.text)
+        assertTrue(schemaState.markdown)
+    }
+
+    @Test
+    fun select_plugin_maps_media_result_to_schema_ui_state() = runTest(dispatcher) {
+        val tempDir = Files.createTempDirectory("plugin-media-ui").toFile()
+        try {
+            val extractedDir = tempDir.resolve("plugin").apply { mkdirs() }
+            extractedDir.resolve("assets").mkdirs()
+            extractedDir.resolve("assets/banner.png").writeText("banner", Charsets.UTF_8)
+            val deps = FakePluginDependencies(
+                listOf(
+                    pluginRecord(
+                        pluginId = "plugin-1",
+                        extractedDir = extractedDir.absolutePath,
+                    ),
+                ),
+            )
+            PluginRuntimeRegistry.registerProvider {
+                listOf(
+                    runtimePlugin(pluginId = "plugin-1") {
+                        MediaResult(
+                            items = listOf(
+                                PluginMediaItem(
+                                    source = "plugin://package/assets/banner.png",
+                                    mimeType = "image/png",
+                                    altText = "Banner",
+                                ),
+                                PluginMediaItem(
+                                    source = "https://example.com/banner.png",
+                                    mimeType = "image/png",
+                                    altText = "Remote Banner",
+                                ),
+                            ),
+                        )
+                    },
+                )
+            }
+
+            val viewModel = PluginViewModel(deps)
+            advanceUntilIdle()
+
+            viewModel.selectPlugin("plugin-1")
+            advanceUntilIdle()
+
+            val schemaState = viewModel.uiState.value.schemaUiState
+            assertTrue(schemaState is PluginSchemaUiState.Media)
+            schemaState as PluginSchemaUiState.Media
+            assertEquals(2, schemaState.items.size)
+            assertEquals("Banner", schemaState.items.first().label)
+            assertEquals(
+                extractedDir.resolve("assets/banner.png").absolutePath,
+                schemaState.items.first().resolvedSource,
+            )
+            assertEquals(
+                "https://example.com/banner.png",
+                schemaState.items.last().resolvedSource,
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun select_plugin_maps_invalid_media_result_to_error_schema_state() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(pluginRecord(pluginId = "plugin-1")),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    MediaResult(
+                        items = listOf(
+                            PluginMediaItem(
+                                source = "assets/banner.png",
+                                mimeType = "image/png",
+                                altText = "Banner",
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val schemaState = viewModel.uiState.value.schemaUiState
+        assertTrue(schemaState is PluginSchemaUiState.Error)
+        schemaState as PluginSchemaUiState.Error
+        assertTrue(schemaState.message.contains("assets/banner.png"))
+    }
+
+    @Test
     fun card_action_callback_updates_schema_state_feedback() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
             listOf(pluginRecord(pluginId = "plugin-1")),
@@ -1192,6 +1358,165 @@ class PluginViewModelTest {
         )
     }
 
+    @Test
+    fun select_plugin_for_workspace_loads_private_workspace_snapshot_and_management_schema() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+            workspaceSnapshots = mapOf(
+                "plugin-1" to PluginHostWorkspaceSnapshot(
+                    privateRootPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1",
+                    importsPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/imports",
+                    runtimePath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/runtime",
+                    exportsPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/exports",
+                    cachePath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/cache",
+                    files = listOf(
+                        PluginWorkspaceFileEntry(
+                            relativePath = "imports/meme/cat.png",
+                            sizeBytes = 42,
+                            lastModifiedAtEpochMillis = 123L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    SettingsUiRequest(
+                        schema = PluginSettingsSchema(
+                            title = "Workspace Admin",
+                            sections = listOf(
+                                PluginSettingsSection(
+                                    sectionId = "admin",
+                                    title = "Admin",
+                                    fields = listOf(
+                                        ToggleSettingField(
+                                            fieldId = "autoIndex",
+                                            label = "Auto index",
+                                            defaultValue = true,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPluginForWorkspace("plugin-1")
+        advanceUntilIdle()
+
+        val workspace = viewModel.uiState.value.hostWorkspaceState
+        assertTrue(workspace.isVisible)
+        assertEquals("plugin-1", workspace.pluginId)
+        assertEquals(
+            listOf("imports/meme/cat.png"),
+            workspace.files.map { it.relativePath },
+        )
+        assertTrue(workspace.managementSchemaState is PluginSchemaUiState.Settings)
+        val schema = (workspace.managementSchemaState as PluginSchemaUiState.Settings).schema
+        assertEquals("Workspace Admin", schema.title)
+    }
+
+    @Test
+    fun import_workspace_file_refreshes_snapshot_and_tracks_import_uri() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+            workspaceSnapshots = mapOf(
+                "plugin-1" to PluginHostWorkspaceSnapshot(
+                    privateRootPath = "/private/plugin-1",
+                    importsPath = "/private/plugin-1/imports",
+                    runtimePath = "/private/plugin-1/runtime",
+                    exportsPath = "/private/plugin-1/exports",
+                    cachePath = "/private/plugin-1/cache",
+                ),
+            ),
+        )
+        deps.nextImportedWorkspaceSnapshot = PluginHostWorkspaceSnapshot(
+            privateRootPath = "/private/plugin-1",
+            importsPath = "/private/plugin-1/imports",
+            runtimePath = "/private/plugin-1/runtime",
+            exportsPath = "/private/plugin-1/exports",
+            cachePath = "/private/plugin-1/cache",
+            files = listOf(
+                PluginWorkspaceFileEntry(
+                    relativePath = "imports/new/cat.png",
+                    sizeBytes = 128,
+                    lastModifiedAtEpochMillis = 456L,
+                ),
+            ),
+        )
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPluginForWorkspace("plugin-1")
+        advanceUntilIdle()
+
+        viewModel.importWorkspaceFile("content://sample/cat.png")
+        advanceUntilIdle()
+
+        assertEquals(listOf("content://sample/cat.png"), deps.workspaceImportUris)
+        assertEquals(
+            listOf("imports/new/cat.png"),
+            viewModel.uiState.value.hostWorkspaceState.files.map { it.relativePath },
+        )
+    }
+
+    @Test
+    fun workspace_entry_host_action_request_is_consumed_into_visible_feedback() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = true,
+                    permissions = listOf(
+                        PluginPermissionDeclaration(
+                            permissionId = "send_notification",
+                            title = "Send notification",
+                            description = "Allows notification host actions",
+                        ),
+                    ),
+                ),
+            ),
+            workspaceSnapshots = mapOf(
+                "plugin-1" to PluginHostWorkspaceSnapshot(
+                    privateRootPath = "/private/plugin-1",
+                    importsPath = "/private/plugin-1/imports",
+                    runtimePath = "/private/plugin-1/runtime",
+                    exportsPath = "/private/plugin-1/exports",
+                    cachePath = "/private/plugin-1/cache",
+                ),
+            ),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    HostActionRequest(
+                        action = PluginHostAction.SendNotification,
+                        title = "Notify",
+                        payload = mapOf("title" to "Meme Manager", "message" to "Import completed"),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPluginForWorkspace("plugin-1")
+        advanceUntilIdle()
+
+        val schema = viewModel.uiState.value.hostWorkspaceState.managementSchemaState
+        assertTrue(schema is PluginSchemaUiState.Text)
+        schema as PluginSchemaUiState.Text
+        assertEquals("Notify", schema.title)
+        assertTrue(schema.text.contains("Meme Manager"))
+        assertTrue(schema.text.contains("Import completed"))
+    }
+
     private class FakePluginDependencies(
         records: List<PluginInstallRecord>,
         repositorySources: List<com.astrbot.android.model.plugin.PluginRepositorySource> = emptyList(),
@@ -1199,6 +1524,7 @@ class PluginViewModelTest {
         updateAvailabilities: Map<String, PluginUpdateAvailability> = emptyMap(),
         staticSchemas: Map<String, PluginStaticConfigSchema> = emptyMap(),
         configSnapshots: Map<String, PluginConfigStoreSnapshot> = emptyMap(),
+        workspaceSnapshots: Map<String, PluginHostWorkspaceSnapshot> = emptyMap(),
     ) : PluginViewModelDependencies {
         private val recordsFlow = MutableStateFlow(records)
         private val repositorySourcesFlow = MutableStateFlow(repositorySources)
@@ -1206,14 +1532,17 @@ class PluginViewModelTest {
         private val updateAvailabilitiesFlow = MutableStateFlow(updateAvailabilities)
         private val staticSchemasByPluginId = staticSchemas.toMutableMap()
         private val configSnapshotsByPluginId = configSnapshots.toMutableMap()
+        private val workspaceSnapshotsByPluginId = workspaceSnapshots.toMutableMap()
         val enableRequests = mutableListOf<Pair<String, Boolean>>()
         val handledInstallIntents = mutableListOf<PluginInstallIntent>()
         val localPackageUris = mutableListOf<String>()
         val upgradeRequests = mutableListOf<PluginUpdateAvailability>()
+        val workspaceImportUris = mutableListOf<String>()
         var lastUpdatedPolicy: PluginUninstallPolicy? = null
         var lastUninstallPolicy: PluginUninstallPolicy? = null
         var localPackageInstallError: Throwable? = null
         var nextLocalPackageInstallResult: PluginInstallIntentResult? = null
+        var nextImportedWorkspaceSnapshot: PluginHostWorkspaceSnapshot? = null
         var lastResolvedConfigPluginId: String? = null
         var lastSavedCoreValues: Map<String, PluginStaticConfigValue> = emptyMap()
         var lastSavedExtensionValues: Map<String, PluginStaticConfigValue> = emptyMap()
@@ -1271,6 +1600,33 @@ class PluginViewModelTest {
             )
             configSnapshotsByPluginId[pluginId] = updatedSnapshot
             return updatedSnapshot
+        }
+
+        override fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot {
+            return workspaceSnapshotsByPluginId[pluginId] ?: PluginHostWorkspaceSnapshot()
+        }
+
+        override suspend fun importPluginWorkspaceFile(
+            pluginId: String,
+            uri: String,
+        ): PluginHostWorkspaceSnapshot {
+            workspaceImportUris += uri
+            val updated = nextImportedWorkspaceSnapshot ?: workspaceSnapshotsByPluginId[pluginId]
+                ?: PluginHostWorkspaceSnapshot()
+            workspaceSnapshotsByPluginId[pluginId] = updated
+            return updated
+        }
+
+        override fun deletePluginWorkspaceFile(
+            pluginId: String,
+            relativePath: String,
+        ): PluginHostWorkspaceSnapshot {
+            val current = workspaceSnapshotsByPluginId[pluginId] ?: PluginHostWorkspaceSnapshot()
+            val updated = current.copy(
+                files = current.files.filterNot { it.relativePath == relativePath },
+            )
+            workspaceSnapshotsByPluginId[pluginId] = updated
+            return updated
         }
 
         override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
@@ -1359,9 +1715,17 @@ class PluginViewModelTest {
         sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
         catalogSourceId: String? = null,
         enabled: Boolean = false,
+        extractedDir: String = "",
         failureState: PluginFailureState = PluginFailureState.none(),
         uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
         lastUpdatedAt: Long = 1L,
+        permissions: List<PluginPermissionDeclaration> = listOf(
+            PluginPermissionDeclaration(
+                permissionId = "$pluginId.permission",
+                title = "Permission",
+                description = "Permission for $pluginId",
+            ),
+        ),
         compatibilityState: PluginCompatibilityState = PluginCompatibilityState.evaluated(
             protocolSupported = true,
             minHostVersionSatisfied = true,
@@ -1376,13 +1740,7 @@ class PluginViewModelTest {
                 author = "AstrBot",
                 title = pluginId,
                 description = "Plugin $pluginId",
-                permissions = listOf(
-                    PluginPermissionDeclaration(
-                        permissionId = "$pluginId.permission",
-                        title = "Permission",
-                        description = "Permission for $pluginId",
-                    ),
-                ),
+                permissions = permissions,
                 minHostVersion = "1.0.0",
                 maxHostVersion = "2.0.0",
                 sourceType = sourceType,
@@ -1400,6 +1758,7 @@ class PluginViewModelTest {
             catalogSourceId = catalogSourceId,
             enabled = enabled,
             lastUpdatedAt = lastUpdatedAt,
+            extractedDir = extractedDir,
         )
     }
 
