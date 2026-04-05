@@ -547,6 +547,8 @@
     <string name="chat_error_prefix">Last error: %1$s</string>
     <string name="chat_no_provider_selected">No model selected</string>
     <string name="chat_request_failed_prefix">Request failed: %1$s</string>
+    <string name="chat_plugin_command_runtime_failed">Plugin command failed: %1$s</string>
+    <string name="chat_plugin_command_suspended">Plugin %1$s is temporarily suspended after repeated failures. Try again later.</string>
     <string name="chat_input_placeholder">Message AstrBot</string>
     <string name="chat_input_footer_hint">Use ~ at the end of a message to trigger reply TTS when the current config allows it.</string>
     <string name="chat_role_you">You</string>

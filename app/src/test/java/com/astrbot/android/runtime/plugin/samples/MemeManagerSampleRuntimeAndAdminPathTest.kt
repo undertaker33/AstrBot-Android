@@ -4,7 +4,9 @@ import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.di.PluginViewModelDependencies
+import com.astrbot.android.model.plugin.ExternalPluginExecutionContractJson
 import com.astrbot.android.model.plugin.ExternalPluginMediaSourceResolver
+import com.astrbot.android.model.plugin.ExternalPluginRuntimeKind
 import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginExecutionContext
@@ -24,6 +26,8 @@ import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
 import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeBinder
+import com.astrbot.android.runtime.plugin.ExternalPluginScriptExecutionRequest
+import com.astrbot.android.runtime.plugin.ExternalPluginScriptExecutor
 import com.astrbot.android.runtime.plugin.PluginExecutionEngine
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginInstaller
@@ -46,8 +50,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -184,15 +188,37 @@ class MemeManagerSampleRuntimeAndAdminPathTest {
     }
 
     @Test
-    fun sample_external_bridge_can_execute_media_and_admin_paths() = runTest(dispatcher) {
-        assumeTrue(isPythonAvailable())
+    fun sample_external_bridge_can_execute_media_and_admin_paths_via_quickjs_contract() = runTest(dispatcher) {
         val tempDir = Files.createTempDirectory("meme-manager-sample-external").toFile()
         try {
             resetPluginRepositoryForSampleTest(initialized = true)
             val installed = installSample(tempDir = tempDir, version = "1.1.0")
             val binding = ExternalPluginRuntimeBinder().bind(installed)
+            assertTrue(File(installed.extractedDir, "runtime/index.js").exists())
+            assertFalse(File(installed.extractedDir, "runtime/entry.py").exists())
+            val contract = ExternalPluginExecutionContractJson.decodeContract(
+                JSONObject(File(installed.extractedDir, "android-execution.json").readText(Charsets.UTF_8)),
+            )
+            assertEquals(ExternalPluginRuntimeKind.JsQuickJs, contract.entryPoint.runtimeKind)
+            assertEquals("runtime/index.js", contract.entryPoint.path)
+            assertEquals("handleEvent", contract.entryPoint.entrySymbol)
+            val scriptRequests = mutableListOf<ExternalPluginScriptExecutionRequest>()
             val runtime = ExternalPluginBridgeRuntime(
-                pythonCommandCandidates = listOf("python"),
+                scriptExecutor = object : ExternalPluginScriptExecutor {
+                    override fun execute(request: ExternalPluginScriptExecutionRequest): String {
+                        scriptRequests += request
+                        val script = File(request.scriptAbsolutePath).readText(Charsets.UTF_8)
+                        assertTrue(script.contains("function handleEvent"))
+                        assertTrue(script.contains("plugin://package/resources/memes/"))
+                        assertTrue(script.contains("plugin://workspace/imports/"))
+                        assertTrue(script.contains("open_host_page"))
+                        return when (scriptRequests.size) {
+                            1 -> """{"resultType":"media","items":[{"source":"plugin://package/resources/memes/angry/9D03FF21BB828C2AF9CCC7FCCB1E25B3.jpg","mimeType":"image/jpeg","altText":"angry meme"}]}"""
+                            2 -> """{"resultType":"settings_ui","schema":{"title":"Meme Manager","sections":[{"sectionId":"admin","title":"Admin","fields":[{"fieldType":"text_input","fieldId":"defaultCategory","label":"Default category","defaultValue":"angry"}]}]}}"""
+                            else -> error("Unexpected QuickJS script request #${scriptRequests.size}")
+                        }
+                    }
+                },
             )
 
             val mediaResult = runtime.execute(
@@ -222,6 +248,12 @@ class MemeManagerSampleRuntimeAndAdminPathTest {
             val schema = (adminResult as SettingsUiRequest).schema
             assertEquals("Meme Manager", schema.title)
             assertEquals("admin", schema.sections.single().sectionId)
+            assertEquals(2, scriptRequests.size)
+            assertTrue(scriptRequests.all { request ->
+                request.scriptAbsolutePath.endsWith("runtime\\index.js") ||
+                    request.scriptAbsolutePath.endsWith("runtime/index.js")
+            })
+            assertTrue(scriptRequests.all { request -> request.entrySymbol == "handleEvent" })
         } finally {
             resetPluginRepositoryForSampleTest(initialized = false)
             tempDir.deleteRecursively()
@@ -487,11 +519,3 @@ private fun PluginInstallRecord.toInstallStateForRuntime(): com.astrbot.android.
     )
 }
 
-private fun isPythonAvailable(): Boolean {
-    return runCatching {
-        ProcessBuilder("python", "--version")
-            .redirectErrorStream(true)
-            .start()
-            .waitFor() == 0
-    }.getOrDefault(false)
-}

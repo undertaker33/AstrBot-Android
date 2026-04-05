@@ -7,7 +7,6 @@ import com.astrbot.android.model.plugin.ExternalPluginRuntimeBinding
 import com.astrbot.android.model.plugin.ExternalPluginRuntimeKind
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
-import java.io.IOException
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -16,97 +15,92 @@ import org.junit.Test
 class ExternalPluginBridgeRuntimeTest {
 
     @Test
-    fun bridge_runtime_decodes_python_process_result_into_protocol_result() {
-        val runner = RecordingExternalPluginProcessRunner(
-            results = listOf(
-                ExternalPluginProcessResult(
-                    exitCode = 0,
-                    stdout = JSONObject(
-                        mapOf(
-                            "resultType" to "text",
-                            "text" to "hello from external runtime",
-                        ),
-                    ).toString(),
-                    stderr = "",
-                ),
+    fun bridge_runtime_decodes_quickjs_result_into_protocol_result() {
+        val executor = RecordingExternalPluginScriptExecutor(
+            outputs = listOf(
+                JSONObject(
+                    mapOf(
+                        "resultType" to "text",
+                        "text" to "hello from quickjs runtime",
+                    ),
+                ).toString(),
             ),
         )
         val runtime = ExternalPluginBridgeRuntime(
-            processRunner = runner,
-            pythonCommandCandidates = listOf("python-test"),
+            scriptExecutor = executor,
             timeoutMs = 4_000L,
         )
 
         val result = runtime.execute(
-            binding = readyBinding(),
+            binding = readyBinding(runtimeKind = ExternalPluginRuntimeKind.JsQuickJs),
             context = executionContextFor(runtimePlugin("bridge-plugin")),
         )
 
         assertTrue(result is TextResult)
-        assertEquals("hello from external runtime", (result as TextResult).text)
-        assertEquals(1, runner.requests.size)
-        assertEquals("python-test", runner.requests.single().command.first())
-        assertTrue(runner.requests.single().stdin.contains("\"trigger\":\"on_command\""))
-        assertTrue(runner.requests.single().stdin.contains("\"pluginId\":\"bridge-plugin\""))
+        assertEquals("hello from quickjs runtime", (result as TextResult).text)
+        assertEquals(1, executor.requests.size)
+        assertEquals("C:/tmp/runtime/index.js", executor.requests.single().scriptAbsolutePath)
+        assertEquals("handleEvent", executor.requests.single().entrySymbol)
+        assertTrue(executor.requests.single().contextJson.contains("\"trigger\":\"on_command\""))
     }
 
     @Test
-    fun bridge_runtime_falls_back_to_next_python_candidate_when_launch_fails() {
-        val runner = RecordingExternalPluginProcessRunner(
-            errorsByCommand = mapOf(
-                "python-missing" to IOException("missing"),
-            ),
-            results = listOf(
-                ExternalPluginProcessResult(
-                    exitCode = 0,
-                    stdout = JSONObject(
-                        mapOf(
-                            "resultType" to "text",
-                            "text" to "fallback runtime",
-                        ),
-                    ).toString(),
-                    stderr = "",
-                ),
-            ),
-        )
+    fun bridge_runtime_rejects_empty_quickjs_response() {
         val runtime = ExternalPluginBridgeRuntime(
-            processRunner = runner,
-            pythonCommandCandidates = listOf("python-missing", "python-ready"),
+            scriptExecutor = RecordingExternalPluginScriptExecutor(outputs = listOf("   ")),
+            timeoutMs = 4_000L,
         )
 
-        val result = runtime.execute(
-            binding = readyBinding(),
-            context = executionContextFor(runtimePlugin("bridge-plugin")),
-        )
+        val error = try {
+            runtime.execute(
+                binding = readyBinding(runtimeKind = ExternalPluginRuntimeKind.JsQuickJs),
+                context = executionContextFor(runtimePlugin("bridge-plugin")),
+            )
+            throw AssertionError("Expected empty quickjs response to fail")
+        } catch (expected: IllegalStateException) {
+            expected
+        }
 
-        assertTrue(result is TextResult)
-        assertEquals("fallback runtime", (result as TextResult).text)
-        assertEquals(listOf("python-missing", "python-ready"), runner.requests.map { it.command.first() })
+        assertTrue(error.message.orEmpty().contains("empty response"))
     }
 
     @Test
-    fun bridge_runtime_raises_structured_failure_for_timeout() {
+    fun bridge_runtime_rejects_invalid_quickjs_json_response() {
         val runtime = ExternalPluginBridgeRuntime(
-            processRunner = RecordingExternalPluginProcessRunner(
-                results = listOf(
-                    ExternalPluginProcessResult(
-                        exitCode = -1,
-                        stdout = "",
-                        stderr = "timed out",
-                        timedOut = true,
-                    ),
+            scriptExecutor = RecordingExternalPluginScriptExecutor(outputs = listOf("{not-valid-json")),
+            timeoutMs = 4_000L,
+        )
+
+        val error = try {
+            runtime.execute(
+                binding = readyBinding(runtimeKind = ExternalPluginRuntimeKind.JsQuickJs),
+                context = executionContextFor(runtimePlugin("bridge-plugin")),
+            )
+            throw AssertionError("Expected invalid quickjs json to fail")
+        } catch (expected: IllegalStateException) {
+            expected
+        }
+
+        assertTrue(error.message.orEmpty().contains("invalid JSON"))
+    }
+
+    @Test
+    fun bridge_runtime_raises_structured_failure_for_quickjs_timeout() {
+        val runtime = ExternalPluginBridgeRuntime(
+            scriptExecutor = RecordingExternalPluginScriptExecutor(
+                errors = listOf(
+                    IllegalStateException("External plugin timed out after 2000ms: bridge-plugin"),
                 ),
             ),
-            pythonCommandCandidates = listOf("python-test"),
             timeoutMs = 2_000L,
         )
 
         val error = try {
             runtime.execute(
-                binding = readyBinding(),
+                binding = readyBinding(runtimeKind = ExternalPluginRuntimeKind.JsQuickJs),
                 context = executionContextFor(runtimePlugin("bridge-plugin")),
             )
-            throw AssertionError("Expected bridge runtime timeout to fail")
+            throw AssertionError("Expected quickjs timeout to fail")
         } catch (expected: IllegalStateException) {
             expected
         }
@@ -115,6 +109,12 @@ class ExternalPluginBridgeRuntimeTest {
     }
 
     private fun readyBinding(): ExternalPluginRuntimeBinding {
+        return readyBinding(runtimeKind = ExternalPluginRuntimeKind.JsQuickJs)
+    }
+
+    private fun readyBinding(
+        runtimeKind: ExternalPluginRuntimeKind,
+    ): ExternalPluginRuntimeBinding {
         val record = samplePluginInstallRecord(
             pluginId = "bridge-plugin",
             lastUpdatedAt = 100L,
@@ -126,29 +126,30 @@ class ExternalPluginBridgeRuntimeTest {
                 contractVersion = 1,
                 enabled = true,
                 entryPoint = ExternalPluginExecutionEntryPoint(
-                    runtimeKind = ExternalPluginRuntimeKind.PythonMain,
-                    path = "runtime/entry.py",
-                    entrySymbol = "handle_event",
+                    runtimeKind = runtimeKind,
+                    path = "runtime/index.js",
+                    entrySymbol = "handleEvent",
                 ),
                 supportedTriggers = setOf(PluginTriggerSource.OnCommand),
             ),
-            entryAbsolutePath = "C:/tmp/runtime/entry.py",
+            entryAbsolutePath = "C:/tmp/runtime/index.js",
         )
     }
 }
 
-internal class RecordingExternalPluginProcessRunner(
-    private val results: List<ExternalPluginProcessResult> = emptyList(),
-    private val errorsByCommand: Map<String, IOException> = emptyMap(),
-) : ExternalPluginProcessRunner {
-    val requests = mutableListOf<ExternalPluginProcessRequest>()
-    private var successIndex = 0
+internal class RecordingExternalPluginScriptExecutor(
+    private val outputs: List<String> = emptyList(),
+    private val errors: List<IllegalStateException> = emptyList(),
+) : ExternalPluginScriptExecutor {
+    val requests = mutableListOf<ExternalPluginScriptExecutionRequest>()
+    private var outputIndex = 0
+    private var errorIndex = 0
 
-    override fun execute(request: ExternalPluginProcessRequest): ExternalPluginProcessResult {
+    override fun execute(request: ExternalPluginScriptExecutionRequest): String {
         requests += request
-        errorsByCommand[request.command.first()]?.let { throw it }
-        return results.getOrElse(successIndex++) {
-            error("Missing fake process result for request #${requests.size}")
+        errors.getOrNull(errorIndex++)?.let { throw it }
+        return outputs.getOrElse(outputIndex++) {
+            error("Missing fake script output for request #${requests.size}")
         }
     }
 }

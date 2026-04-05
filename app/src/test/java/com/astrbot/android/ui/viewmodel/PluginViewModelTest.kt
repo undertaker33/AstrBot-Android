@@ -49,10 +49,15 @@ import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.PluginHostAction
+import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
+import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
+import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
+import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
 import java.lang.reflect.Method
 import java.nio.file.Files
+import org.json.JSONObject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -1515,6 +1520,76 @@ class PluginViewModelTest {
         assertEquals("Notify", schema.title)
         assertTrue(schema.text.contains("Meme Manager"))
         assertTrue(schema.text.contains("Import completed"))
+    }
+
+    @Test
+    fun config_entry_consumes_external_catalog_quickjs_settings_result() = runTest(dispatcher) {
+        val extractedDir = Files.createTempDirectory("plugin-viewmodel-external-quickjs").toFile()
+        try {
+            val record = createQuickJsExternalPluginInstallRecord(
+                extractedDir = extractedDir,
+                pluginId = "plugin-quickjs-config",
+                supportedTriggers = listOf("on_plugin_entry_click"),
+            )
+            PluginRuntimeRegistry.registerExternalProvider {
+                ExternalPluginRuntimeCatalog.plugins(
+                    records = listOf(record),
+                    bridgeRuntime = ExternalPluginBridgeRuntime(
+                        scriptExecutor = RecordingExternalPluginScriptExecutor(
+                            outputs = listOf(
+                                JSONObject(
+                                    mapOf(
+                                        "resultType" to "settings_ui",
+                                        "schema" to JSONObject(
+                                            mapOf(
+                                                "title" to "QuickJS Config",
+                                                "sections" to listOf(
+                                                    JSONObject(
+                                                        mapOf(
+                                                            "sectionId" to "runtime",
+                                                            "title" to "Runtime",
+                                                            "fields" to listOf(
+                                                                JSONObject(
+                                                                    mapOf(
+                                                                        "fieldType" to "text_input",
+                                                                        "fieldId" to "greeting",
+                                                                        "label" to "Greeting",
+                                                                        "defaultValue" to "hello from quickjs",
+                                                                    ),
+                                                                ),
+                                                            ),
+                                                        ),
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ).toString(),
+                            ),
+                        ),
+                    ),
+                )
+            }
+
+            val deps = FakePluginDependencies(records = listOf(record))
+            val viewModel = PluginViewModel(deps)
+            advanceUntilIdle()
+
+            viewModel.selectPluginForConfig("plugin-quickjs-config")
+            advanceUntilIdle()
+
+            val schemaState = viewModel.uiState.value.schemaUiState
+            assertTrue(schemaState is PluginSchemaUiState.Settings)
+            schemaState as PluginSchemaUiState.Settings
+            assertEquals("QuickJS Config", schemaState.schema.title)
+            assertEquals("runtime", schemaState.schema.sections.single().sectionId)
+            assertEquals("hello from quickjs", schemaState.draftValues["greeting"].let { value ->
+                (value as PluginSettingDraftValue.Text).value
+            })
+        } finally {
+            PluginRuntimeRegistry.reset()
+            extractedDir.deleteRecursively()
+        }
     }
 
     private class FakePluginDependencies(

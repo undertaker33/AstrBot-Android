@@ -11,7 +11,7 @@ enum class ExternalPluginExecutionBindingStatus {
 enum class ExternalPluginRuntimeKind(
     val wireValue: String,
 ) {
-    PythonMain("python_main");
+    JsQuickJs("js_quickjs");
 
     companion object {
         fun fromWireValue(value: String): ExternalPluginRuntimeKind? {

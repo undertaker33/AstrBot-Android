@@ -39,6 +39,7 @@ import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
+import com.astrbot.android.runtime.plugin.PluginDispatchSkipReason
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
@@ -685,7 +686,16 @@ class ChatViewModel(
             dependencies.log(
                 "App chat plugin command runtime failed: command=${content.substringBefore(' ')} reason=${error.message ?: error.javaClass.simpleName}",
             )
-        }.getOrNull() ?: return false
+        }.getOrElse { error ->
+            dependencies.appendMessage(
+                sessionId = session.id,
+                role = "assistant",
+                content = pluginCommandRuntimeFailureMessage(
+                    reason = error.message ?: error.javaClass.simpleName,
+                ),
+            )
+            return true
+        }
 
         batch.skipped.forEach { skip ->
             dependencies.log(
@@ -693,6 +703,19 @@ class ChatViewModel(
             )
         }
         if (batch.outcomes.isEmpty()) {
+            val suspendedPlugin = batch.skipped.firstOrNull { skip ->
+                skip.reason == PluginDispatchSkipReason.FailureSuspended
+            }
+            if (suspendedPlugin != null) {
+                dependencies.appendMessage(
+                    sessionId = session.id,
+                    role = "assistant",
+                    content = pluginCommandSuspendedMessage(
+                        pluginId = suspendedPlugin.plugin.pluginId,
+                    ),
+                )
+                return true
+            }
             return false
         }
         batch.outcomes.forEach { outcome ->
@@ -934,6 +957,36 @@ class ChatViewModel(
             ?.toLanguageTag()
             .orEmpty()
             .ifBlank { "zh" }
+    }
+
+    private fun pluginCommandRuntimeFailureMessage(reason: String): String {
+        val languageTag = currentLanguageTag()
+        return AppStrings.getForLanguageTag(
+            languageTag,
+            R.string.chat_plugin_command_runtime_failed,
+            reason,
+        ).ifBlank {
+            if (languageTag.startsWith("zh")) {
+                "插件命令执行失败：$reason"
+            } else {
+                "Plugin command failed: $reason"
+            }
+        }
+    }
+
+    private fun pluginCommandSuspendedMessage(pluginId: String): String {
+        val languageTag = currentLanguageTag()
+        return AppStrings.getForLanguageTag(
+            languageTag,
+            R.string.chat_plugin_command_suspended,
+            pluginId,
+        ).ifBlank {
+            if (languageTag.startsWith("zh")) {
+                "插件 $pluginId 因连续失败已被暂时熔断，请稍后再试。"
+            } else {
+                "Plugin $pluginId is temporarily suspended after repeated failures. Try again later."
+            }
+        }
     }
 
     private suspend fun emitPseudoStreamingResponse(

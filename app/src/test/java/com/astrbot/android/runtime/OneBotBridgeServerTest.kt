@@ -19,12 +19,17 @@ import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
+import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.InMemoryPluginFailureStateStore
 import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
+import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
+import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.runtime.plugin.executionContextFor
 import com.astrbot.android.runtime.plugin.runtimePlugin
+import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.Continuation
@@ -32,6 +37,7 @@ import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -118,6 +124,72 @@ class OneBotBridgeServerTest {
             val afterContext = contexts.first { it.trigger == PluginTriggerSource.AfterModelResponse }
             assertEquals("model reply", afterContext.message.contentPreview)
             assertEquals(0, afterContext.message.attachmentCount)
+        }
+    }
+
+    @Test
+    fun `replyable qq message consumes external quickjs plugins around model dispatch`() = runTest {
+        val extractedDir = Files.createTempDirectory("onebot-external-quickjs").toFile()
+        try {
+            val record = createQuickJsExternalPluginInstallRecord(
+                extractedDir = extractedDir,
+                pluginId = "qq-external-plugin",
+                supportedTriggers = listOf("before_send_message", "after_model_response"),
+            )
+            withOneBotState(
+                bot = defaultBot(),
+                config = defaultConfig(),
+                providers = listOf(defaultChatProvider()),
+            ) {
+                val httpCalls = AtomicInteger(0)
+                PluginRuntimeRegistry.registerExternalProvider {
+                    ExternalPluginRuntimeCatalog.plugins(
+                        records = listOf(record),
+                        bridgeRuntime = ExternalPluginBridgeRuntime(
+                            scriptExecutor = RecordingExternalPluginScriptExecutor(
+                                outputs = listOf(
+                                    JSONObject(mapOf("resultType" to "noop", "reason" to "before")).toString(),
+                                    JSONObject(mapOf("resultType" to "noop", "reason" to "after")).toString(),
+                                ),
+                            ),
+                        ),
+                    )
+                }
+                ChatCompletionService.setHttpClientOverrideForTests(
+                    FakeHttpClient(
+                        onExecute = { request ->
+                            httpCalls.incrementAndGet()
+                            HttpResponsePayload(
+                                code = 200,
+                                body = """{"choices":[{"message":{"content":"model reply"}}]}""",
+                                headers = emptyMap(),
+                                url = request.url,
+                            )
+                        },
+                    ),
+                )
+
+                invokeHandlePayload(
+                    """
+                    {
+                      "post_type": "message",
+                      "message_type": "private",
+                      "self_id": "10001",
+                      "user_id": "20002",
+                      "message_id": "message-external-quickjs",
+                      "raw_message": "hello external"
+                    }
+                    """.trimIndent(),
+                )
+
+                assertEquals(1, httpCalls.get())
+                val sessionId = "qq-qq-main-private-20002"
+                val messages = ConversationRepository.session(sessionId).messages
+                assertEquals("hello external", messages.first { it.role == "user" }.content)
+                assertEquals("model reply", messages.last { it.role == "assistant" }.content)
+            }
+        } finally {
+            extractedDir.deleteRecursively()
         }
     }
 

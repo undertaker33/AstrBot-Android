@@ -1,9 +1,9 @@
 package com.astrbot.android.runtime.plugin.samples
 
 import com.astrbot.android.data.PluginRepository
-import com.astrbot.android.model.plugin.ExternalPluginExecutionContractJson
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.plugin.ExternalPluginExecutionBindingStatus
+import com.astrbot.android.model.plugin.ExternalPluginExecutionContractJson
 import com.astrbot.android.model.plugin.ExternalPluginRuntimeKind
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
@@ -24,35 +24,30 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class GreetingToolkitSampleInstallTest {
+class TemplatePluginSampleInstallTest {
 
     @Test
-    fun greeting_toolkit_sample_package_can_install_from_local_zip_and_extract_static_schema() = runBlocking {
-        val tempDir = Files.createTempDirectory("greeting-toolkit-sample-install").toFile()
+    fun template_sample_package_installs_and_binds_quickjs_entry() = runBlocking {
+        val tempDir = Files.createTempDirectory("template-sample-install").toFile()
         try {
             resetPluginRepositoryForSampleTest(initialized = true)
-            val packageZip = SampleAssetPaths.greetingToolkitPackageZip("1.0.0")
-            assertTrue("Missing greeting toolkit sample zip: ${packageZip.absolutePath}", packageZip.exists())
+            val packageZip = SampleAssetPaths.templatePackageZip()
+            assertTrue("Missing template sample zip: ${packageZip.absolutePath}", packageZip.exists())
 
             val installer = PluginInstaller(
                 validator = PluginPackageValidator(hostVersion = "0.4.2", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                clock = { 1234L },
+                clock = { 3456L },
             )
 
             val installed = installer.installFromLocalPackage(packageZip)
             val binding = ExternalPluginRuntimeBinder().bind(installed)
 
-            assertEquals("com.astrbot.samples.greeting_toolkit", installed.pluginId)
-            assertTrue(File(installed.extractedDir, "_conf_schema.json").exists())
-            assertTrue(File(installed.extractedDir, "assets/prompts/default.txt").exists())
-            assertTrue(File(installed.extractedDir, "android-execution.json").exists())
+            assertEquals("com.example.astrbot.plugin.template", installed.pluginId)
+            assertEquals(ExternalPluginExecutionBindingStatus.READY, binding.status)
             assertTrue(File(installed.extractedDir, "runtime/index.js").exists())
             assertFalse(File(installed.extractedDir, "runtime/entry.py").exists())
-            assertEquals(ExternalPluginExecutionBindingStatus.READY, binding.status)
-            assertTrue(binding.entryAbsolutePath.isNotBlank())
-            assertTrue(File(binding.entryAbsolutePath).exists())
             val contract = ExternalPluginExecutionContractJson.decodeContract(
                 JSONObject(File(installed.extractedDir, "android-execution.json").readText(Charsets.UTF_8)),
             )
@@ -66,16 +61,16 @@ class GreetingToolkitSampleInstallTest {
     }
 
     @Test
-    fun greeting_toolkit_sample_runtime_executes_via_quickjs_bridge_contract() = runBlocking {
-        val tempDir = Files.createTempDirectory("greeting-toolkit-sample-runtime").toFile()
+    fun template_sample_runtime_executes_via_quickjs_bridge_contract() = runBlocking {
+        val tempDir = Files.createTempDirectory("template-sample-runtime").toFile()
         try {
             resetPluginRepositoryForSampleTest(initialized = true)
-            val packageZip = SampleAssetPaths.greetingToolkitPackageZip("1.0.0")
+            val packageZip = SampleAssetPaths.templatePackageZip()
             val installer = PluginInstaller(
                 validator = PluginPackageValidator(hostVersion = "0.4.2", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                clock = { 1234L },
+                clock = { 3456L },
             )
 
             val installed = installer.installFromLocalPackage(packageZip)
@@ -87,8 +82,8 @@ class GreetingToolkitSampleInstallTest {
                         scriptRequests += request
                         val script = File(request.scriptAbsolutePath).readText(Charsets.UTF_8)
                         assertTrue(script.contains("function handleEvent"))
-                        assertTrue(script.contains("Greeting Toolkit"))
-                        return """{"resultType":"text","text":"Greeting Toolkit quickjs runtime"}"""
+                        assertTrue(script.contains("AstrBot Template"))
+                        return """{"resultType":"text","text":"Template quickjs runtime"}"""
                     }
                 },
             )
@@ -106,9 +101,12 @@ class GreetingToolkitSampleInstallTest {
             )
 
             assertTrue(result is TextResult)
-            assertEquals("Greeting Toolkit quickjs runtime", (result as TextResult).text)
+            assertEquals("Template quickjs runtime", (result as TextResult).text)
             assertEquals(1, scriptRequests.size)
-            assertTrue(scriptRequests.single().scriptAbsolutePath.endsWith("runtime\\index.js") || scriptRequests.single().scriptAbsolutePath.endsWith("runtime/index.js"))
+            assertTrue(
+                scriptRequests.single().scriptAbsolutePath.endsWith("runtime\\index.js") ||
+                    scriptRequests.single().scriptAbsolutePath.endsWith("runtime/index.js"),
+            )
             assertEquals("handleEvent", scriptRequests.single().entrySymbol)
         } finally {
             resetPluginRepositoryForSampleTest(initialized = false)

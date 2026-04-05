@@ -7,6 +7,10 @@ internal object SampleAssetPaths {
         return File(findRepoRoot(), "artifacts/plugins/$name")
     }
 
+    fun templatePackageZip(): File {
+        return File(artifactRoot("template-sample"), "packages/astrbot_plugin_template.zip")
+    }
+
     private val rootDir: File by lazy {
         artifactRoot("meme-manager-sample")
     }

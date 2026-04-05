@@ -20,15 +20,15 @@ class ExternalPluginRuntimeBinderTest {
         try {
             val extractedDir = File(tempDir, "plugin").apply { mkdirs() }
             File(extractedDir, "runtime").mkdirs()
-            File(extractedDir, "runtime/entry.py").writeText("print('ready')", Charsets.UTF_8)
+            File(extractedDir, "runtime/index.js").writeText("export function handleEvent() {}", Charsets.UTF_8)
             File(extractedDir, "android-execution.json").writeText(
                 """
                 {
                   "contractVersion": 1,
                   "entryPoint": {
-                    "runtimeKind": "python_main",
-                    "path": "runtime/entry.py",
-                    "entrySymbol": "PluginMain"
+                    "runtimeKind": "js_quickjs",
+                    "path": "runtime/index.js",
+                    "entrySymbol": "handleEvent"
                   },
                   "supportedTriggers": ["on_plugin_entry_click"]
                 }
@@ -41,12 +41,12 @@ class ExternalPluginRuntimeBinderTest {
             assertEquals(ExternalPluginExecutionBindingStatus.READY, binding.status)
             assertEquals("android-execution.json", binding.contractFileName)
             assertEquals(1, binding.contract?.contractVersion)
-            assertEquals("runtime/entry.py", binding.contract?.entryPoint?.path)
+            assertEquals("runtime/index.js", binding.contract?.entryPoint?.path)
             assertEquals(
                 setOf(PluginTriggerSource.OnPluginEntryClick),
                 binding.contract?.supportedTriggers,
             )
-            assertEquals(extractedDir.resolve("runtime/entry.py").absolutePath, binding.entryAbsolutePath)
+            assertEquals(extractedDir.resolve("runtime/index.js").absolutePath, binding.entryAbsolutePath)
         } finally {
             tempDir.deleteRecursively()
         }
@@ -58,16 +58,16 @@ class ExternalPluginRuntimeBinderTest {
         try {
             val extractedDir = File(tempDir, "plugin").apply { mkdirs() }
             File(extractedDir, "runtime").mkdirs()
-            File(extractedDir, "runtime/entry.py").writeText("print('disabled')", Charsets.UTF_8)
+            File(extractedDir, "runtime/index.js").writeText("export function handleEvent() {}", Charsets.UTF_8)
             File(extractedDir, "android-execution.json").writeText(
                 """
                 {
                   "contractVersion": 1,
                   "enabled": false,
                   "entryPoint": {
-                    "runtimeKind": "python_main",
-                    "path": "runtime/entry.py",
-                    "entrySymbol": "PluginMain"
+                    "runtimeKind": "js_quickjs",
+                    "path": "runtime/index.js",
+                    "entrySymbol": "handleEvent"
                   }
                 }
                 """.trimIndent(),
@@ -108,9 +108,9 @@ class ExternalPluginRuntimeBinderTest {
                 {
                   "contractVersion": 1,
                   "entryPoint": {
-                    "runtimeKind": "python_main",
-                    "path": "runtime/missing.py",
-                    "entrySymbol": "PluginMain"
+                    "runtimeKind": "js_quickjs",
+                    "path": "runtime/missing.js",
+                    "entrySymbol": "handleEvent"
                   }
                 }
                 """.trimIndent(),
@@ -120,7 +120,7 @@ class ExternalPluginRuntimeBinderTest {
             val binding = ExternalPluginRuntimeBinder().bind(installedRecord(extractedDir))
 
             assertEquals(ExternalPluginExecutionBindingStatus.MISSING_ENTRY, binding.status)
-            assertTrue(binding.errorSummary.contains("runtime/missing.py"))
+            assertTrue(binding.errorSummary.contains("runtime/missing.js"))
         } finally {
             tempDir.deleteRecursively()
         }
@@ -136,9 +136,9 @@ class ExternalPluginRuntimeBinderTest {
                 {
                   "contractVersion": 1,
                   "entryPoint": {
-                    "runtimeKind": "python_main",
-                    "path": "../escape.py",
-                    "entrySymbol": "PluginMain"
+                    "runtimeKind": "js_quickjs",
+                    "path": "../escape.js",
+                    "entrySymbol": "handleEvent"
                   }
                 }
                 """.trimIndent(),
@@ -148,7 +148,7 @@ class ExternalPluginRuntimeBinderTest {
             val binding = ExternalPluginRuntimeBinder().bind(installedRecord(extractedDir))
 
             assertEquals(ExternalPluginExecutionBindingStatus.INVALID_CONTRACT, binding.status)
-            assertTrue(binding.errorSummary.contains("../escape.py"))
+            assertTrue(binding.errorSummary.contains("../escape.js"))
         } finally {
             tempDir.deleteRecursively()
         }
@@ -164,9 +164,9 @@ class ExternalPluginRuntimeBinderTest {
                 {
                   "contractVersion": 2,
                   "entryPoint": {
-                    "runtimeKind": "python_main",
-                    "path": "runtime/entry.py",
-                    "entrySymbol": "PluginMain"
+                    "runtimeKind": "js_quickjs",
+                    "path": "runtime/index.js",
+                    "entrySymbol": "handleEvent"
                   }
                 }
                 """.trimIndent(),

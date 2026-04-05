@@ -202,6 +202,7 @@ afterEvaluate {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     val okHttpVersion = "4.12.0"
+    val quickJsVersion = "3.2.3"
     val roomVersion = "2.6.1"
 
     implementation("androidx.core:core-ktx:1.13.1")
@@ -223,6 +224,7 @@ dependencies {
     implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
     implementation("com.squareup.okhttp3:okhttp:$okHttpVersion")
     implementation(files("libs/sherpa-onnx-1.12.31-static-jni-only.aar"))
+    implementation("wang.harlon.quickjs:wrapper-android:$quickJsVersion")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -241,6 +243,7 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:$okHttpVersion")
     testImplementation("org.json:json:20240303")
+    testImplementation("wang.harlon.quickjs:wrapper-java:$quickJsVersion")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

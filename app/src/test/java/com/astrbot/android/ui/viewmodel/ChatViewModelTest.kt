@@ -31,15 +31,24 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.EngineBackedAppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
+import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
+import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
+import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
+import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.runtime.plugin.InMemoryPluginFailureStateStore
 import com.astrbot.android.runtime.plugin.PluginExecutionBatchResult
 import com.astrbot.android.runtime.plugin.PluginExecutionEngine
+import com.astrbot.android.runtime.plugin.PluginDispatchSkip
+import com.astrbot.android.runtime.plugin.PluginDispatchSkipReason
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimeHandler
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import java.nio.file.Files
+import org.json.JSONObject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +67,11 @@ class ChatViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(dispatcher)
+
+    @org.junit.After
+    fun tearDown() {
+        PluginRuntimeRegistry.reset()
+    }
 
     @Test
     fun init_prefers_non_default_restored_session() = runTest(dispatcher) {
@@ -292,6 +306,137 @@ class ChatViewModelTest {
         assertEquals("/plugin hello", batch.outcomes.single().context.message.contentPreview)
         assertEquals(0, deps.sentChatRequests)
         assertEquals("plugin command reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_dispatches_external_catalog_quickjs_command_without_model_dispatch() = runTest(dispatcher) {
+        val tempDir = Files.createTempDirectory("chat-external-quickjs-command").toFile()
+        try {
+            val record = createQuickJsExternalPluginInstallRecord(
+                extractedDir = tempDir,
+                pluginId = "external-command-plugin",
+                supportedTriggers = listOf("on_command"),
+            )
+            PluginRuntimeRegistry.registerExternalProvider {
+                ExternalPluginRuntimeCatalog.plugins(
+                    records = listOf(record),
+                    bridgeRuntime = ExternalPluginBridgeRuntime(
+                        scriptExecutor = RecordingExternalPluginScriptExecutor(
+                            outputs = listOf(
+                                JSONObject(
+                                    mapOf(
+                                        "resultType" to "text",
+                                        "text" to "external quickjs command reply",
+                                    ),
+                                ).toString(),
+                            ),
+                        ),
+                    ),
+                )
+            }
+
+            val deps = FakeChatDependencies(
+                sessions = listOf(defaultSession()),
+                bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+                providers = listOf(defaultChatProvider("provider-1")),
+            )
+            val viewModel = ChatViewModel(
+                dependencies = deps,
+                appChatPluginRuntime = DefaultAppChatPluginRuntime,
+                ioDispatcher = dispatcher,
+            )
+            advanceUntilIdle()
+            deps.clearRecordedSignals()
+
+            viewModel.sendMessage("/external hello")
+            advanceUntilIdle()
+
+            assertEquals(0, deps.sentChatRequests)
+            assertEquals("external quickjs command reply", deps.latestAssistantMessage()?.content)
+        } finally {
+            PluginRuntimeRegistry.reset()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun send_message_reports_plugin_command_runtime_failure_without_model_dispatch() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                throw IllegalStateException("runtime exploded")
+            }
+        }
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/plugin fail")
+        advanceUntilIdle()
+
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals("插件命令执行失败：runtime exploded", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_reports_suspended_plugin_command_without_model_dispatch() = runTest(dispatcher) {
+        val plugin = runtimePlugin(
+            pluginId = "command-plugin",
+            supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+        ) {
+            TextResult("should not run")
+        }
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                return PluginExecutionBatchResult(
+                    trigger = trigger,
+                    outcomes = emptyList(),
+                    skipped = listOf(
+                        PluginDispatchSkip(
+                            plugin = plugin,
+                            reason = PluginDispatchSkipReason.FailureSuspended,
+                        ),
+                    ),
+                ).also {
+                    contextFactory(plugin)
+                }
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/plugin suspended")
+        advanceUntilIdle()
+
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals(
+            "插件 command-plugin 因连续失败已被暂时熔断，请稍后再试。",
+            deps.latestAssistantMessage()?.content,
+        )
     }
 
     @Test
