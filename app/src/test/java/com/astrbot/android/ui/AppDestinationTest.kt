@@ -18,6 +18,12 @@ class AppDestinationTest {
     }
 
     @Test
+    fun `plugin market detail route exposes independent secondary route string`() {
+        assertEquals("plugins/market/detail/{pluginId}", AppDestination.PluginMarketDetail.route)
+        assertEquals("plugins/market/detail/weather-toolkit", AppDestination.PluginMarketDetail.routeFor("weather-toolkit"))
+    }
+
+    @Test
     fun `plugin workspace route exposes parameterized route string`() {
         assertEquals("plugins/detail/{pluginId}/workspace", AppDestination.PluginWorkspace.route)
         assertEquals(
@@ -29,6 +35,7 @@ class AppDestinationTest {
     @Test
     fun `plugin detail route is treated as a detail motion level`() {
         assertEquals(NavigationMotionLevel.Detail, classifyNavigationMotionLevel(AppDestination.PluginDetail.route))
+        assertEquals(NavigationMotionLevel.Detail, classifyNavigationMotionLevel(AppDestination.PluginMarketDetail.route))
     }
 
     @Test

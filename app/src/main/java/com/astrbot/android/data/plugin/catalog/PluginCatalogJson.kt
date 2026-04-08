@@ -5,12 +5,26 @@ import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.runtime.RuntimeLogRepository
 import org.json.JSONArray
 import org.json.JSONObject
 
 object PluginCatalogJson {
     fun decodeRepositorySource(json: String): PluginRepositorySource {
-        return decodeRepositorySource(JSONObject(json))
+        RuntimeLogRepository.append("Plugin market parse start: chars=${json.length}")
+        return runCatching {
+            decodeRepositorySource(JSONObject(json))
+        }.onSuccess { source ->
+            RuntimeLogRepository.append(
+                "Plugin market parse success: " +
+                    "sourceId=${source.sourceId} " +
+                    "plugins=${source.plugins.size} " +
+                    "versions=${source.plugins.sumOf { it.versions.size }} " +
+                    "preview=${source.plugins.take(3).joinToString(separator = ",") { it.pluginId }.ifBlank { "-" }}",
+            )
+        }.onFailure { error ->
+            RuntimeLogRepository.append("Plugin market parse failed: error=${error.toRuntimeLogSummary()}")
+        }.getOrThrow()
     }
 
     fun decodeRepositorySource(json: JSONObject): PluginRepositorySource {
@@ -111,4 +125,8 @@ object PluginCatalogJson {
         }
         return value
     }
+}
+
+private fun Throwable.toRuntimeLogSummary(): String {
+    return message?.trim().takeUnless { it.isNullOrBlank() } ?: javaClass.simpleName
 }

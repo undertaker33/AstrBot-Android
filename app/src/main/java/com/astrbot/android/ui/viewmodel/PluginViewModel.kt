@@ -28,6 +28,7 @@ import com.astrbot.android.model.plugin.PluginExecutionResult
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginHostAction
+import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
@@ -63,7 +64,9 @@ import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.compareVersions
+import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.ui.screen.PluginLocalFilter
+import com.astrbot.android.ui.screen.buildPluginMarketVersionOptions
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -93,6 +96,17 @@ data class PluginCatalogEntryCardUiState(
     val latestVersion: String = "",
     val repositoryUrl: String = "",
     val sourceName: String = "",
+    val versions: List<PluginCatalogEntryVersionUiState> = emptyList(),
+)
+
+data class PluginCatalogEntryVersionUiState(
+    val version: String,
+    val packageUrl: String,
+    val publishedAt: Long,
+    val protocolVersion: Int,
+    val minHostVersion: String,
+    val maxHostVersion: String = "",
+    val changelog: String = "",
 )
 
 data class PluginSourceBadgeUiState(
@@ -153,6 +167,9 @@ data class PluginScreenUiState(
     val repositoryUrlDraft: String = "",
     val directPackageUrlDraft: String = "",
     val isInstallActionRunning: Boolean = false,
+    val downloadProgress: PluginDownloadProgress? = null,
+    val isMarketRefreshRunning: Boolean = false,
+    val marketRefreshFeedback: PluginActionFeedback? = null,
     val selectedPluginId: String? = null,
     val selectedPlugin: PluginInstallRecord? = null,
     val isShowingDetail: Boolean = false,
@@ -163,6 +180,9 @@ data class PluginScreenUiState(
     val staticConfigUiState: PluginStaticConfigUiState? = null,
     val schemaUiState: PluginSchemaUiState = PluginSchemaUiState.None,
     val hostWorkspaceState: PluginHostWorkspaceUiState = PluginHostWorkspaceUiState(),
+    val hostVersion: String = "0.0.0",
+    val supportedPluginProtocolVersion: Int = 1,
+    val selectedMarketVersionKeys: Map<String, String> = emptyMap(),
 )
 
 data class PluginDetailActionState(
@@ -171,7 +191,6 @@ data class PluginDetailActionState(
     val updateBlockedReason: PluginActionFeedback? = null,
     val updateAvailability: PluginUpdateAvailability? = null,
     val manageAvailability: PluginDetailManageActionAvailability = PluginDetailManageActionAvailability(),
-    val uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
     val lastActionMessage: PluginActionFeedback? = null,
     val failureState: PluginFailureUiState? = null,
 ) {
@@ -190,14 +209,10 @@ data class PluginDetailManageActionAvailability(
     val canDisable: Boolean = false,
     val canUpgrade: Boolean = false,
     val canUninstall: Boolean = false,
-    val canOpenWorkspace: Boolean = false,
     val canViewLogs: Boolean = false,
-    val canManageTriggers: Boolean = false,
     val canOpenConfig: Boolean = false,
-    val canRetryRecovery: Boolean = false,
     val canRestoreDefaults: Boolean = false,
     val canClearCache: Boolean = false,
-    val canCopyDiagnostics: Boolean = false,
 )
 
 data class PluginInstallFollowUpGuideState(
@@ -324,11 +339,16 @@ class PluginViewModel(
     private val repositoryUrlDraft = MutableStateFlow("")
     private val directPackageUrlDraft = MutableStateFlow("")
     private val installActionRunning = MutableStateFlow(false)
+    private val downloadProgress = MutableStateFlow<PluginDownloadProgress?>(null)
     private val installFollowUpGuide = MutableStateFlow<PluginInstallFollowUpGuideState?>(null)
+    private val marketRefreshRunning = MutableStateFlow(false)
+    private val marketRefreshFeedback = MutableStateFlow<PluginActionFeedback?>(null)
     private val upgradeDialogState = MutableStateFlow<PluginUpgradeDialogState?>(null)
     private val localSearchQuery = MutableStateFlow("")
     private val marketSearchQuery = MutableStateFlow("")
     private val selectedLocalFilter = MutableStateFlow(PluginLocalFilter.ALL)
+    private val selectedMarketVersionKeys = MutableStateFlow<Map<String, String>>(emptyMap())
+    private var officialMarketBootstrapAttempted = false
     private var currentConfigBoundary: PluginConfigStorageBoundary? = null
 
     val uiState: StateFlow<PluginScreenUiState> = combine(
@@ -378,6 +398,8 @@ class PluginViewModel(
             ),
             staticConfigUiState = staticSchemaState,
             schemaUiState = schemaState,
+            hostVersion = dependencies.getHostVersion(),
+            supportedPluginProtocolVersion = 1,
         )
     }.combine(
         combine(
@@ -417,8 +439,16 @@ class PluginViewModel(
         state.copy(directPackageUrlDraft = directDraft)
     }.combine(installActionRunning) { state, isInstallRunning ->
         state.copy(isInstallActionRunning = isInstallRunning)
+    }.combine(downloadProgress) { state, progress ->
+        state.copy(downloadProgress = progress)
     }.combine(installFollowUpGuide) { state, followUpGuide ->
         state.copy(installFollowUpGuide = followUpGuide)
+    }.combine(marketRefreshRunning) { state, isMarketRefreshRunning ->
+        state.copy(isMarketRefreshRunning = isMarketRefreshRunning)
+    }.combine(marketRefreshFeedback) { state, feedback ->
+        state.copy(marketRefreshFeedback = feedback)
+    }.combine(selectedMarketVersionKeys) { state, versionKeys ->
+        state.copy(selectedMarketVersionKeys = versionKeys)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
@@ -443,6 +473,33 @@ class PluginViewModel(
                 }
                 if (resolvedSelection == null && showingDetail.value) {
                     showingDetail.value = false
+                }
+            }
+        }
+        viewModelScope.launch {
+            dependencies.repositorySources.collect { sources ->
+                if (officialMarketBootstrapAttempted) return@collect
+                if (sources.isNotEmpty()) {
+                    officialMarketBootstrapAttempted = true
+                    RuntimeLogRepository.append(
+                        "Plugin market bootstrap skipped: sourceCount=${sources.size}",
+                    )
+                    return@collect
+                }
+                officialMarketBootstrapAttempted = true
+                RuntimeLogRepository.append("Plugin market bootstrap requested: sourceCount=0")
+                runCatching {
+                    dependencies.ensureOfficialMarketCatalogSubscribed()
+                }.onSuccess { syncState ->
+                    RuntimeLogRepository.append(
+                        "Plugin market bootstrap finished: " +
+                            "sourceId=${syncState.sourceId} " +
+                            "status=${syncState.lastSyncStatus.name}",
+                    )
+                }.onFailure { error ->
+                    RuntimeLogRepository.append(
+                        "Plugin market bootstrap failed: error=${error.toRuntimeLogSummary()}",
+                    )
                 }
             }
         }
@@ -525,6 +582,16 @@ class PluginViewModel(
         directPackageUrlDraft.value = value
     }
 
+    fun selectMarketPluginVersion(pluginId: String, versionKey: String) {
+        selectedMarketVersionKeys.value = selectedMarketVersionKeys.value.toMutableMap().apply {
+            if (versionKey.isBlank()) {
+                remove(pluginId)
+            } else {
+                put(pluginId, versionKey)
+            }
+        }
+    }
+
     fun submitRepositoryUrl() {
         submitInstallIntent(
             buildIntent = { PluginInstallIntent.repositoryUrl(repositoryUrlDraft.value) },
@@ -545,9 +612,39 @@ class PluginViewModel(
 
     fun installOrUpdateCatalogPlugin(pluginId: String) {
         submitInstallIntent(
-            buildIntent = { buildCatalogVersionIntent(pluginId) },
+            buildIntent = { buildCatalogVersionIntent(pluginId, selectedMarketVersionKeys.value[pluginId]) },
             onSuccess = {},
         )
+    }
+
+    fun refreshMarketCatalog() {
+        if (marketRefreshRunning.value) return
+        viewModelScope.launch {
+            marketRefreshRunning.value = true
+            marketRefreshFeedback.value = null
+            RuntimeLogRepository.append(
+                "Plugin market refresh requested: sourceCount=${dependencies.repositorySources.value.size}",
+            )
+            runCatching {
+                dependencies.refreshMarketCatalog()
+            }.onSuccess { states ->
+                RuntimeLogRepository.append(
+                    "Plugin market refresh finished: " +
+                        "resultCount=${states.size} " +
+                        "statuses=${states.joinToString(separator = ",") { "${it.sourceId}:${it.lastSyncStatus.name}" }}",
+                )
+            }.onFailure {
+                RuntimeLogRepository.append(
+                    "Plugin market refresh failed: error=${it.toRuntimeLogSummary()}",
+                )
+                marketRefreshFeedback.value = PluginActionFeedback.Resource(R.string.plugin_market_refresh_failed)
+            }
+            marketRefreshRunning.value = false
+        }
+    }
+
+    fun clearMarketRefreshFeedback() {
+        marketRefreshFeedback.value = null
     }
 
     fun submitLocalPackageUri(uri: String) {
@@ -576,7 +673,7 @@ class PluginViewModel(
         val selected = uiState.value.selectedPlugin ?: return
         val availability = uiState.value.updateAvailabilitiesByPluginId[selected.pluginId]
         if (availability == null || !availability.updateAvailable) {
-            lastActionMessage.value = PluginActionFeedback.Text("No update is available for this plugin.")
+            lastActionMessage.value = PluginActionFeedback.Resource(R.string.plugin_action_feedback_no_update_available)
             return
         }
         if (!availability.canUpgrade) {
@@ -689,7 +786,6 @@ class PluginViewModel(
             draftValues = current.draftValues + (fieldId to draftValue),
         )
         schemaUiState.value = updated
-        persistRuntimeConfig(updated)
     }
 
     fun updateHostWorkspaceSettingsDraft(
@@ -713,27 +809,18 @@ class PluginViewModel(
             draftValues = current.draftValues + (fieldKey to draftValue),
         )
         staticConfigUiState.value = updated
-        persistStaticConfig(updated)
     }
 
-    fun updateSelectedUninstallPolicy(policy: PluginUninstallPolicy) {
-        val selected = uiState.value.selectedPlugin ?: return
-        runCatching {
-            dependencies.updatePluginUninstallPolicy(selected.pluginId, policy)
-        }.onSuccess {
-            lastActionMessage.value = PluginActionFeedback.Resource(
-                resId = policy.feedbackResId(),
-            )
-        }.onFailure { error ->
-            lastActionMessage.value = error.message?.let(PluginActionFeedback::Text)
-                ?: PluginActionFeedback.Resource(R.string.plugin_action_feedback_update_uninstall_policy_failed)
-        }
+    fun saveSelectedPluginConfig() {
+        staticConfigUiState.value?.let(::persistStaticConfig)
+        (schemaUiState.value as? PluginSchemaUiState.Settings)?.let(::persistRuntimeConfig)
+        lastActionMessage.value = PluginActionFeedback.Resource(R.string.common_saved)
     }
 
     fun uninstallSelectedPlugin() {
         val selected = uiState.value.selectedPlugin ?: return
         runCatching {
-            dependencies.uninstallPlugin(selected.pluginId, selected.uninstallPolicy)
+            dependencies.uninstallPlugin(selected.pluginId, PluginUninstallPolicy.REMOVE_DATA)
         }.onSuccess { result ->
             lastActionMessage.value = result.toUserMessage()
         }.onFailure { error ->
@@ -767,8 +854,14 @@ class PluginViewModel(
         if (installActionRunning.value) return
         viewModelScope.launch {
             installActionRunning.value = true
+            downloadProgress.value = null
             runCatching {
-                dependencies.handleInstallIntent(intent)
+                dependencies.handleInstallIntent(
+                    intent = intent,
+                    onDownloadProgress = { progress ->
+                        downloadProgress.value = progress
+                    },
+                )
             }.onSuccess { result ->
                 onSuccess()
                 installFollowUpGuide.value = result.toInstallFollowUpGuide()
@@ -778,6 +871,7 @@ class PluginViewModel(
                     error.message ?: "Plugin install action failed.",
                 )
             }
+            downloadProgress.value = null
             installActionRunning.value = false
         }
     }
@@ -843,14 +937,10 @@ class PluginViewModel(
             canDisable = record.enabled,
             canUpgrade = updateAvailability?.updateAvailable == true && updateAvailability.canUpgrade,
             canUninstall = true,
-            canOpenWorkspace = true,
             canViewLogs = true,
-            canManageTriggers = true,
             canOpenConfig = true,
-            canRetryRecovery = true,
             canRestoreDefaults = true,
             canClearCache = true,
-            canCopyDiagnostics = true,
         )
         return PluginDetailActionState(
             compatibilityNotes = record.compatibilityState.notes,
@@ -862,7 +952,6 @@ class PluginViewModel(
                 ?.let(PluginActionFeedback::Text),
             updateAvailability = updateAvailability,
             manageAvailability = manageAvailability,
-            uninstallPolicy = record.uninstallPolicy,
             lastActionMessage = actionMessage,
             failureState = failureState,
         )
@@ -1105,26 +1194,6 @@ class PluginViewModel(
         }
     }
 
-    fun retrySelectedPlugin() {
-        val selected = uiState.value.selectedPlugin ?: return
-        runCatching {
-            val recovered = dependencies.clearPluginFailureState(selected.pluginId)
-            if (!recovered.enabled) {
-                dependencies.setPluginEnabled(selected.pluginId, true)
-            } else {
-                recovered
-            }
-        }.onSuccess { record ->
-            lastActionMessage.value = PluginActionFeedback.Text(
-                "Recovery retry started for ${record.manifestSnapshot.title}.",
-            )
-        }.onFailure { error ->
-            lastActionMessage.value = PluginActionFeedback.Text(
-                error.message ?: "Recovery retry failed.",
-            )
-        }
-    }
-
     fun restoreSelectedPluginDefaultConfig() {
         val selectedPluginId = uiState.value.selectedPluginId ?: return
         val staticResetState = staticConfigUiState.value?.schema?.toUiState(emptyMap())
@@ -1167,23 +1236,7 @@ class PluginViewModel(
             }
         }.onSuccess { snapshot ->
             hostWorkspaceSnapshot.value = snapshot
-            val recoveryRecord = if (selected.failureState.hasFailures) {
-                val recovered = dependencies.clearPluginFailureState(pluginId)
-                if (!recovered.enabled) {
-                    dependencies.setPluginEnabled(pluginId, true)
-                } else {
-                    recovered
-                }
-            } else {
-                null
-            }
-            val feedback = if (recoveryRecord != null) {
-                PluginActionFeedback.Text(
-                    "Plugin cache cleared. Recovery retry started for ${recoveryRecord.manifestSnapshot.title}.",
-                )
-            } else {
-                PluginActionFeedback.Text("Plugin cache cleared.")
-            }
+            val feedback = PluginActionFeedback.Text("Plugin cache cleared.")
             hostWorkspaceActionMessage.value = feedback
             lastActionMessage.value = feedback
         }.onFailure { error ->
@@ -1193,28 +1246,6 @@ class PluginViewModel(
             hostWorkspaceActionMessage.value = feedback
             lastActionMessage.value = feedback
         }
-    }
-
-    fun buildSelectedPluginDiagnosticsReport(): String {
-        val selected = uiState.value.selectedPlugin ?: return "No plugin selected."
-        val update = uiState.value.updateAvailabilitiesByPluginId[selected.pluginId]
-        val failure = selected.failureState
-        return buildString {
-            appendLine("pluginId=${selected.pluginId}")
-            appendLine("title=${selected.manifestSnapshot.title}")
-            appendLine("installedVersion=${selected.installedVersion}")
-            appendLine("enabled=${selected.enabled}")
-            appendLine("sourceType=${selected.source.sourceType}")
-            appendLine("compatibility=${selected.compatibilityState.status}")
-            appendLine("compatibilityNotes=${selected.compatibilityState.notes}")
-            appendLine("failureCount=${failure.consecutiveFailureCount}")
-            appendLine("lastError=${failure.lastErrorSummary}")
-            appendLine("suspendedUntil=${failure.suspendedUntilEpochMillis ?: "none"}")
-            appendLine("updateAvailable=${update?.updateAvailable == true}")
-            appendLine("latestVersion=${update?.latestVersion.orEmpty()}")
-            appendLine("upgradeBlockedReason=${update?.incompatibilityReason.orEmpty()}")
-            appendLine("workspaceCache=${hostWorkspaceSnapshot.value.cachePath}")
-        }.trim()
     }
 
     private fun PluginSettingsSchema.defaultDraftValues(): Map<String, PluginSettingDraftValue> {
@@ -1455,7 +1486,16 @@ class PluginViewModel(
             dependencies.setPluginEnabled(selected.pluginId, enabled)
         }.onSuccess {
             lastActionMessage.value = PluginActionFeedback.Resource(
-                if (enabled) R.string.plugin_action_feedback_enabled else R.string.plugin_action_feedback_disabled,
+                resId = if (enabled) {
+                    R.string.plugin_action_feedback_enabled_with_name
+                } else {
+                    R.string.plugin_action_feedback_disabled
+                },
+                formatArgs = if (enabled) {
+                    listOf(selected.manifestSnapshot.title)
+                } else {
+                    emptyList()
+                },
             )
         }.onFailure { error ->
             lastActionMessage.value = error.message?.let(PluginActionFeedback::Text)
@@ -1558,11 +1598,8 @@ class PluginViewModel(
         }
     }
 
-    private fun PluginUninstallPolicy.feedbackResId(): Int {
-        return when (this) {
-            PluginUninstallPolicy.KEEP_DATA -> R.string.plugin_action_feedback_uninstall_policy_keep_data
-            PluginUninstallPolicy.REMOVE_DATA -> R.string.plugin_action_feedback_uninstall_policy_remove_data
-        }
+    private fun Throwable.toRuntimeLogSummary(): String {
+        return message?.trim().takeUnless { it.isNullOrBlank() } ?: javaClass.simpleName
     }
 
     private fun toRepositorySourceCardUiState(
@@ -1595,21 +1632,45 @@ class PluginViewModel(
                 packageUrl = latestVersion?.resolvePackageUrl(record.catalogUrl).orEmpty(),
             ),
             sourceName = record.sourceTitle,
+            versions = record.entry.versions.map { version ->
+                PluginCatalogEntryVersionUiState(
+                    version = version.version,
+                    packageUrl = version.resolvePackageUrl(record.catalogUrl),
+                    publishedAt = version.publishedAt,
+                    protocolVersion = version.protocolVersion,
+                    minHostVersion = version.minHostVersion,
+                    maxHostVersion = version.maxHostVersion,
+                    changelog = version.changelog,
+                )
+            },
         )
     }
 
-    private fun buildCatalogVersionIntent(pluginId: String): PluginInstallIntent.CatalogVersion {
-        val record = dependencies.catalogEntries.value.firstOrNull { it.entry.pluginId == pluginId }
-            ?: error("Plugin $pluginId is not available in the current market source.")
-        val latestVersion = record.entry.versions
-            .sortedWith { left, right -> compareVersions(right.version, left.version) }
-            .firstOrNull()
-            ?: error("Plugin $pluginId does not expose any installable versions.")
+    private fun buildCatalogVersionIntent(
+        pluginId: String,
+        selectedVersionKey: String?,
+    ): PluginInstallIntent.CatalogVersion {
+        val entries = dependencies.catalogEntries.value
+            .filter { record -> record.entry.pluginId == pluginId }
+            .map(::toCatalogEntryCardUiState)
+        if (entries.isEmpty()) {
+            error("Plugin $pluginId is not available in the current market source.")
+        }
+        val options = buildPluginMarketVersionOptions(
+            entries = entries,
+            pluginId = pluginId,
+            hostVersion = dependencies.getHostVersion(),
+            supportedProtocolVersion = 1,
+        )
+        val selectedVersion = selectedVersionKey
+            ?.let { key -> options.firstOrNull { option -> option.stableKey == key && option.isSelectable } }
+            ?: options.firstOrNull { option -> option.isSelectable }
+            ?: error("Plugin $pluginId does not expose any compatible installable versions.")
         return PluginInstallIntent.catalogVersion(
-            pluginId = record.entry.pluginId,
-            version = latestVersion.version,
-            packageUrl = latestVersion.resolvePackageUrl(record.catalogUrl),
-            catalogSourceId = record.sourceId,
+            pluginId = pluginId,
+            version = selectedVersion.versionLabel,
+            packageUrl = selectedVersion.packageUrl,
+            catalogSourceId = selectedVersion.sourceId,
         )
     }
 
@@ -1681,7 +1742,13 @@ class PluginViewModel(
     ): String {
         explicitRepositoryUrl.trim().takeIf { it.isNotBlank() }?.let { return it }
         val uri = runCatching { java.net.URI(packageUrl) }.getOrNull() ?: return ""
-        if (!uri.host.equals("github.com", ignoreCase = true)) return ""
+        val host = uri.host.orEmpty()
+        if (
+            !host.equals("github.com", ignoreCase = true) &&
+            !host.equals("raw.githubusercontent.com", ignoreCase = true)
+        ) {
+            return ""
+        }
         val segments = uri.path.split('/').filter { it.isNotBlank() }
         if (segments.size < 2) return ""
         return "https://github.com/${segments[0]}/${segments[1]}"

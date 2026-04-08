@@ -16,6 +16,7 @@ import com.astrbot.android.data.db.toModel
 import com.astrbot.android.data.db.toSyncState
 import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.db.toWriteModel
+import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
@@ -65,6 +66,20 @@ object NoOpPluginDataRemover : PluginDataRemover {
     override fun removePluginData(record: PluginInstallRecord) = Unit
 }
 
+class PluginFileDataRemover(
+    private val storagePaths: PluginStoragePaths,
+) : PluginDataRemover {
+    override fun removePluginData(record: PluginInstallRecord) {
+        cleanupPath(storagePaths.privateDir(record.pluginId))
+    }
+
+    private fun cleanupPath(path: File) {
+        if (path.exists()) {
+            path.deleteRecursively()
+        }
+    }
+}
+
 data class PluginUninstallResult(
     val pluginId: String,
     val policy: PluginUninstallPolicy,
@@ -91,7 +106,9 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
 
     fun initialize(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
-        appContext = context.applicationContext
+        val applicationContext = context.applicationContext
+        appContext = applicationContext
+        pluginDataRemover = PluginFileDataRemover(PluginStoragePaths.fromFilesDir(applicationContext.filesDir))
         val database = AstrBotDatabase.get(context)
         val dao = database.pluginInstallAggregateDao()
         pluginCatalogDao = database.pluginCatalogDao()
@@ -270,22 +287,6 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         )
     }
 
-    fun updateUninstallPolicy(
-        pluginId: String,
-        policy: PluginUninstallPolicy,
-    ): PluginInstallRecord {
-        requireInitialized()
-        val current = requireRecord(pluginId)
-        if (current.uninstallPolicy == policy) {
-            return current
-        }
-        return persistUpdatedRecord(
-            current = current,
-            uninstallPolicy = policy,
-            lastUpdatedAt = timeProvider(),
-        )
-    }
-
     fun updateFailureState(
         pluginId: String,
         failureState: PluginFailureState,
@@ -317,6 +318,10 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         val current = requireRecord(pluginId)
         if (policy == PluginUninstallPolicy.REMOVE_DATA) {
             pluginDataRemover.removePluginData(current)
+            removeInstalledPluginFiles(current)
+            runBlocking(Dispatchers.IO) {
+                requireConfigDao().delete(pluginId)
+            }
         }
         delete(pluginId)
         return PluginUninstallResult(
@@ -324,6 +329,19 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
             policy = policy,
             removedData = policy == PluginUninstallPolicy.REMOVE_DATA,
         )
+    }
+
+    private fun removeInstalledPluginFiles(record: PluginInstallRecord) {
+        listOf(
+            record.localPackagePath,
+            record.extractedDir,
+        ).filter(String::isNotBlank)
+            .map(::File)
+            .forEach { path ->
+                if (path.exists()) {
+                    path.deleteRecursively()
+                }
+            }
     }
 
     fun resolveConfigSnapshot(
@@ -438,22 +456,28 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     ): PluginUpdateAvailability? {
         val sourceId = record.catalogSourceId?.takeIf { it.isNotBlank() } ?: return null
         val versions = listCatalogVersions(sourceId = sourceId, pluginId = record.pluginId)
-        val candidate = versions
+        val candidates = versions
             .filter { version -> compareVersions(version.version, record.installedVersion) > 0 }
             .sortedWith { left, right -> compareVersions(right.version, left.version) }
-            .firstOrNull()
+            .map { candidate ->
+                candidate to PluginCompatibilityState.fromChecks(
+                    protocolSupported = candidate.protocolVersion == supportedProtocolVersion,
+                    minHostVersionSatisfied = compareVersions(hostVersion, candidate.minHostVersion) >= 0,
+                    maxHostVersionSatisfied = candidate.maxHostVersion.isBlank() ||
+                        compareVersions(hostVersion, candidate.maxHostVersion) <= 0,
+                    notes = buildCompatibilityNotes(
+                        hostVersion = hostVersion,
+                        supportedProtocolVersion = supportedProtocolVersion,
+                        version = candidate,
+                    ),
+                )
+            }
+        val (candidate, compatibilityState) = candidates
+            .firstOrNull { (_, compatibilityState) ->
+                compatibilityState.status != PluginCompatibilityStatus.INCOMPATIBLE
+            }
+            ?: candidates.firstOrNull()
             ?: return null
-        val compatibilityState = PluginCompatibilityState.fromChecks(
-            protocolSupported = candidate.protocolVersion == supportedProtocolVersion,
-            minHostVersionSatisfied = compareVersions(hostVersion, candidate.minHostVersion) >= 0,
-            maxHostVersionSatisfied = candidate.maxHostVersion.isBlank() ||
-                compareVersions(hostVersion, candidate.maxHostVersion) <= 0,
-            notes = buildCompatibilityNotes(
-                hostVersion = hostVersion,
-                supportedProtocolVersion = supportedProtocolVersion,
-                version = candidate,
-            ),
-        )
         val source = getRepositorySource(sourceId)
         return PluginUpdateAvailability(
             pluginId = record.pluginId,

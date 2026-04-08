@@ -78,6 +78,7 @@ class PluginConfigurationStructureTest {
     @Test
     fun `config and workspace tertiary pages use unified action button styling`() {
         assertTrue(pluginConfigUsesUnifiedActionButtons())
+        assertTrue(pluginConfigUsesExplicitSaveFab())
         assertTrue(pluginWorkspaceUsesUnifiedActionButtons())
     }
 

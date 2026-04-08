@@ -2,6 +2,7 @@ package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.data.PluginInstallStore
 import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSource
@@ -14,11 +15,19 @@ import java.util.UUID
 import java.util.zip.ZipInputStream
 
 fun interface RemotePluginPackageDownloader {
-    suspend fun download(packageUrl: String, destinationFile: File)
+    suspend fun download(
+        packageUrl: String,
+        destinationFile: File,
+        onProgress: (PluginDownloadProgress) -> Unit,
+    )
 }
 
 class UrlConnectionRemotePluginPackageDownloader : RemotePluginPackageDownloader {
-    override suspend fun download(packageUrl: String, destinationFile: File) {
+    override suspend fun download(
+        packageUrl: String,
+        destinationFile: File,
+        onProgress: (PluginDownloadProgress) -> Unit,
+    ) {
         val connection = (URL(packageUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 15_000
@@ -26,11 +35,42 @@ class UrlConnectionRemotePluginPackageDownloader : RemotePluginPackageDownloader
             doInput = true
         }
         destinationFile.parentFile?.mkdirs()
+        val totalBytes = connection.contentLengthLong
+        val startedAtNanos = System.nanoTime()
+        var bytesDownloaded = 0L
+        onProgress(
+            PluginDownloadProgress.downloading(
+                bytesDownloaded = bytesDownloaded,
+                totalBytes = totalBytes,
+                bytesPerSecond = 0L,
+            ),
+        )
         connection.inputStream.use { input ->
             destinationFile.outputStream().use { output ->
-                input.copyTo(output)
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    bytesDownloaded += read
+                    onProgress(
+                        PluginDownloadProgress.downloading(
+                            bytesDownloaded = bytesDownloaded,
+                            totalBytes = totalBytes,
+                            bytesPerSecond = calculateBytesPerSecond(
+                                bytesDownloaded = bytesDownloaded,
+                                startedAtNanos = startedAtNanos,
+                            ),
+                        ),
+                    )
+                }
             }
         }
+    }
+
+    private fun calculateBytesPerSecond(bytesDownloaded: Long, startedAtNanos: Long): Long {
+        val elapsedNanos = (System.nanoTime() - startedAtNanos).coerceAtLeast(1L)
+        return (bytesDownloaded * 1_000_000_000L) / elapsedNanos
     }
 }
 
@@ -52,21 +92,29 @@ class PluginInstaller(
         )
     }
 
-    suspend fun install(intent: PluginInstallIntent.DirectPackageUrl): PluginInstallRecord {
+    suspend fun install(
+        intent: PluginInstallIntent.DirectPackageUrl,
+        onProgress: (PluginDownloadProgress) -> Unit = {},
+    ): PluginInstallRecord {
         return installFromRemotePackage(
             sourceType = PluginSourceType.DIRECT_LINK,
             packageUrl = intent.url,
             catalogSourceId = null,
             lastCatalogCheckAtEpochMillis = null,
+            onProgress = onProgress,
         )
     }
 
-    suspend fun install(intent: PluginInstallIntent.CatalogVersion): PluginInstallRecord {
+    suspend fun install(
+        intent: PluginInstallIntent.CatalogVersion,
+        onProgress: (PluginDownloadProgress) -> Unit = {},
+    ): PluginInstallRecord {
         return installFromRemotePackage(
             sourceType = PluginSourceType.REPOSITORY,
             packageUrl = intent.packageUrl,
             catalogSourceId = intent.catalogSourceId,
             lastCatalogCheckAtEpochMillis = clock(),
+            onProgress = onProgress,
         )
     }
 
@@ -96,11 +144,18 @@ class PluginInstaller(
         packageUrl: String,
         catalogSourceId: String?,
         lastCatalogCheckAtEpochMillis: Long? = null,
+        onProgress: (PluginDownloadProgress) -> Unit,
     ): PluginInstallRecord {
         storagePaths.ensureBaseDirectories()
         val tempFile = File(storagePaths.rootDir, "tmp/${UUID.randomUUID()}.zip")
         try {
-            remotePackageDownloader.download(packageUrl, tempFile)
+            remotePackageDownloader.download(packageUrl, tempFile, onProgress)
+            onProgress(
+                PluginDownloadProgress.installing(
+                    bytesDownloaded = tempFile.length(),
+                    totalBytes = tempFile.length(),
+                ),
+            )
             return installPackage(
                 packageFile = tempFile,
                 sourceType = sourceType,

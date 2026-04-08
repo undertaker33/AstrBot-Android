@@ -267,7 +267,7 @@ class MemeManagerSampleRuntimeAndAdminPathTest {
             validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
             storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
             installStore = PluginRepository,
-            remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+            remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
                 zip.copyTo(destinationFile, overwrite = true)
             },
             clock = { 2000L },
@@ -408,12 +408,27 @@ private class MinimalPluginViewModelDeps(
     override val repositorySources: StateFlow<List<PluginRepositorySource>> = sourcesFlow
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = catalogEntriesFlow
 
-    override suspend fun handleInstallIntent(intent: PluginInstallIntent): PluginInstallIntentResult {
+    override suspend fun handleInstallIntent(
+        intent: PluginInstallIntent,
+        onDownloadProgress: (com.astrbot.android.model.plugin.PluginDownloadProgress) -> Unit,
+    ): PluginInstallIntentResult {
         error("Not needed for this sample test: $intent")
     }
 
     override suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult {
         return PluginInstallIntentResult.Ignored
+    }
+
+    override suspend fun ensureOfficialMarketCatalogSubscribed(): com.astrbot.android.model.plugin.PluginCatalogSyncState {
+        return com.astrbot.android.model.plugin.PluginCatalogSyncState(
+            sourceId = "official-market",
+            lastSyncAtEpochMillis = 0L,
+            lastSyncStatus = com.astrbot.android.model.plugin.PluginCatalogSyncStatus.SUCCESS,
+        )
+    }
+
+    override suspend fun refreshMarketCatalog(): List<com.astrbot.android.model.plugin.PluginCatalogSyncState> {
+        return emptyList()
     }
 
     override fun getUpdateAvailability(pluginId: String) = null
@@ -509,13 +524,6 @@ private class MinimalPluginViewModelDeps(
         )
         recordsFlow.value = recordsFlow.value.map { if (it.pluginId == pluginId) updated else it }
         return updated
-    }
-
-    override fun updatePluginUninstallPolicy(
-        pluginId: String,
-        policy: com.astrbot.android.model.plugin.PluginUninstallPolicy,
-    ): PluginInstallRecord {
-        error("Not needed for this sample test")
     }
 
     override fun uninstallPlugin(pluginId: String, policy: com.astrbot.android.model.plugin.PluginUninstallPolicy): com.astrbot.android.data.PluginUninstallResult {

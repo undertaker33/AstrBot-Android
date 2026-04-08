@@ -187,7 +187,7 @@ class PluginScreenSmokeTest {
     }
 
     @Test
-    fun pluginScreenSupportsPolicyToggleAndDisableFeedback() {
+    fun pluginScreenSupportsDisableFeedback() {
         val dependencies = FakePluginViewModelDependencies()
 
         composeRule.setContent {
@@ -198,16 +198,6 @@ class PluginScreenSmokeTest {
 
         composeRule.onNodeWithTag(PluginUiSpec.installedLibraryCardTag("weather-toolkit")).performClick()
         composeRule.onNodeWithTag(PluginUiSpec.DetailPanelTag).assertIsDisplayed()
-        composeRule.onNodeWithTag(PluginUiSpec.DetailRemoveDataPolicyTag).performClick()
-        composeRule.waitForIdle()
-
-        composeRule.runOnIdle {
-            check(dependencies.records.value.single().uninstallPolicy == PluginUninstallPolicy.REMOVE_DATA)
-        }
-
-        composeRule.onNodeWithText(
-            composeRule.activity.getString(R.string.plugin_action_feedback_uninstall_policy_remove_data),
-        ).assertIsDisplayed()
 
         composeRule.onNodeWithTag(PluginUiSpec.DetailDisableActionTag).performClick()
         composeRule.waitForIdle()
@@ -340,9 +330,7 @@ private fun PluginRouteHost(dependencies: FakePluginViewModelDependencies) {
                 PluginDetailScreenRoute(
                     pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty(),
                     onBack = { navController.popBackStack() },
-                    onOpenWorkspace = { pluginId ->
-                        navController.navigate(AppDestination.PluginWorkspace.routeFor(pluginId))
-                    },
+                    onOpenLogs = {},
                     onOpenConfig = { pluginId ->
                         navController.navigate(AppDestination.PluginConfig.routeFor(pluginId))
                     },
@@ -393,6 +381,24 @@ private class FakePluginViewModelDependencies(
 
     override suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult {
         return PluginInstallIntentResult.Ignored
+    }
+
+    override suspend fun ensureOfficialMarketCatalogSubscribed(): PluginCatalogSyncState {
+        return PluginCatalogSyncState(
+            sourceId = "repo-1",
+            lastSyncAtEpochMillis = 1L,
+            lastSyncStatus = PluginCatalogSyncStatus.SUCCESS,
+        )
+    }
+
+    override suspend fun refreshMarketCatalog(): List<PluginCatalogSyncState> {
+        return repositorySourcesState.value.map { source ->
+            PluginCatalogSyncState(
+                sourceId = source.sourceId,
+                lastSyncAtEpochMillis = 1L,
+                lastSyncStatus = PluginCatalogSyncStatus.SUCCESS,
+            )
+        }
     }
 
     override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
@@ -467,19 +473,6 @@ private class FakePluginViewModelDependencies(
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         val updated = requireNotNull(recordsState.value.firstOrNull { it.pluginId == pluginId }).copyWith(
             enabled = enabled,
-        )
-        recordsState.value = recordsState.value.map { record ->
-            if (record.pluginId == pluginId) updated else record
-        }
-        return updated
-    }
-
-    override fun updatePluginUninstallPolicy(
-        pluginId: String,
-        policy: PluginUninstallPolicy,
-    ): PluginInstallRecord {
-        val updated = requireNotNull(recordsState.value.firstOrNull { it.pluginId == pluginId }).copyWith(
-            uninstallPolicy = policy,
         )
         recordsState.value = recordsState.value.map { record ->
             if (record.pluginId == pluginId) updated else record

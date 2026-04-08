@@ -10,6 +10,7 @@ import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginCardAction
 import com.astrbot.android.model.plugin.PluginCardSchema
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntent
@@ -56,9 +57,11 @@ import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
+import com.astrbot.android.runtime.RuntimeLogRepository
 import java.lang.reflect.Method
 import java.nio.file.Files
 import org.json.JSONObject
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +85,7 @@ class PluginViewModelTest {
     @org.junit.After
     fun tearDown() {
         PluginRuntimeRegistry.reset()
+        RuntimeLogRepository.clear()
     }
 
     @Test
@@ -124,6 +128,89 @@ class PluginViewModelTest {
         assertFalse(viewModel.uiState.value.isShowingDetail)
         assertEquals(1, viewModel.uiState.value.repositorySources.size)
         assertEquals(2, viewModel.uiState.value.catalogEntries.size)
+    }
+
+    @Test
+    fun init_with_empty_repository_sources_bootstraps_official_market_once() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(records = emptyList())
+
+        PluginViewModel(deps)
+        advanceUntilIdle()
+
+        assertEquals(1, deps.officialCatalogBootstrapRequests)
+        assertEquals(1, deps.repositorySources.value.size)
+        assertEquals(
+            "https://raw.githubusercontent.com/undertaker33/astrbot-android-plugin-market/main/catalog.json",
+            deps.repositorySources.value.single().catalogUrl,
+        )
+    }
+
+    @Test
+    fun refresh_market_catalog_invokes_dependency_and_resets_running_state() = runTest(dispatcher) {
+        RuntimeLogRepository.clear()
+        val deps = FakePluginDependencies(
+            records = emptyList(),
+            repositorySources = listOf(repositorySource(sourceId = "repo-1", title = "Repo 1")),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.refreshMarketCatalog()
+        advanceUntilIdle()
+
+        assertEquals(1, deps.marketRefreshRequests)
+        assertFalse(viewModel.uiState.value.isMarketRefreshRunning)
+        assertNull(viewModel.uiState.value.marketRefreshFeedback)
+        assertTrue(
+            RuntimeLogRepository.logs.value.any {
+                it.contains("Plugin market refresh requested") &&
+                    it.contains("sourceCount=1")
+            },
+        )
+        assertTrue(
+            RuntimeLogRepository.logs.value.any {
+                it.contains("Plugin market refresh finished") &&
+                    it.contains("resultCount=1")
+            },
+        )
+    }
+
+    @Test
+    fun refresh_market_catalog_with_empty_sources_bootstraps_official_market() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(records = emptyList())
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        deps.updateRepositorySources(emptyList())
+        viewModel.refreshMarketCatalog()
+        advanceUntilIdle()
+
+        assertEquals(1, deps.marketRefreshRequests)
+        assertEquals(2, deps.officialCatalogBootstrapRequests)
+        assertEquals(1, deps.repositorySources.value.size)
+        assertFalse(viewModel.uiState.value.isMarketRefreshRunning)
+        assertNull(viewModel.uiState.value.marketRefreshFeedback)
+    }
+
+    @Test
+    fun refresh_market_catalog_failure_exposes_failed_feedback() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = emptyList(),
+            repositorySources = listOf(repositorySource(sourceId = "repo-1", title = "Repo 1")),
+        )
+        deps.marketRefreshError = IllegalStateException("network down")
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.refreshMarketCatalog()
+        advanceUntilIdle()
+
+        assertEquals(1, deps.marketRefreshRequests)
+        assertFalse(viewModel.uiState.value.isMarketRefreshRunning)
+        assertEquals(
+            PluginActionFeedback.Resource(R.string.plugin_market_refresh_failed),
+            viewModel.uiState.value.marketRefreshFeedback,
+        )
     }
 
     @Test
@@ -480,36 +567,6 @@ class PluginViewModelTest {
     }
 
     @Test
-    fun retry_selected_plugin_clears_failure_state_and_reenables_plugin() = runTest(dispatcher) {
-        val deps = FakePluginDependencies(
-            listOf(
-                pluginRecord(
-                    pluginId = "plugin-1",
-                    enabled = false,
-                    failureState = PluginFailureState(
-                        consecutiveFailureCount = 3,
-                        lastFailureAtEpochMillis = 1_000L,
-                        lastErrorSummary = "socket timeout",
-                        suspendedUntilEpochMillis = 4_102_444_800_000L,
-                    ),
-                ),
-            ),
-        )
-        val viewModel = PluginViewModel(deps)
-        advanceUntilIdle()
-
-        viewModel.selectPlugin("plugin-1")
-        advanceUntilIdle()
-
-        pluginViewModelMethod("retrySelectedPlugin").invoke(viewModel)
-        advanceUntilIdle()
-
-        assertEquals(listOf("plugin-1"), deps.clearedFailurePluginIds)
-        assertEquals(listOf("plugin-1" to true), deps.enableRequests)
-        assertNull(viewModel.uiState.value.detailActionState.failureState)
-    }
-
-    @Test
     fun restore_selected_plugin_default_config_resets_static_and_runtime_drafts() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
             records = listOf(pluginRecord(pluginId = "plugin-1")),
@@ -566,7 +623,7 @@ class PluginViewModelTest {
         viewModel.selectPluginForConfig("plugin-1")
         advanceUntilIdle()
 
-        pluginViewModelMethod("restoreSelectedPluginDefaultConfig").invoke(viewModel)
+        viewModel.restoreSelectedPluginDefaultConfig()
         advanceUntilIdle()
 
         val staticConfigState = requireNotNull(viewModel.uiState.value.staticConfigUiState)
@@ -614,7 +671,7 @@ class PluginViewModelTest {
         viewModel.selectPluginForWorkspace("plugin-1")
         advanceUntilIdle()
 
-        pluginViewModelMethod("clearSelectedPluginCache").invoke(viewModel)
+        viewModel.clearSelectedPluginCache()
         advanceUntilIdle()
 
         assertEquals(listOf("cache/runtime/state.json"), deps.deletedWorkspaceFiles)
@@ -625,7 +682,7 @@ class PluginViewModelTest {
     }
 
     @Test
-    fun clear_selected_plugin_cache_retries_recoverable_plugin_after_cleanup() = runTest(dispatcher) {
+    fun clear_selected_plugin_cache_does_not_retry_recoverable_plugin_after_cleanup() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
             records = listOf(
                 pluginRecord(
@@ -658,64 +715,20 @@ class PluginViewModelTest {
         viewModel.selectPluginForWorkspace("plugin-1")
         advanceUntilIdle()
 
-        pluginViewModelMethod("clearSelectedPluginCache").invoke(viewModel)
+        viewModel.clearSelectedPluginCache()
         advanceUntilIdle()
 
         assertEquals(listOf("cache/runtime/state.json"), deps.deletedWorkspaceFiles)
-        assertEquals(listOf("plugin-1"), deps.clearedFailurePluginIds)
-        assertEquals(listOf("plugin-1" to true), deps.enableRequests)
+        assertEquals(emptyList<String>(), deps.clearedFailurePluginIds)
+        assertEquals(emptyList<Pair<String, Boolean>>(), deps.enableRequests)
         val feedback = viewModel.uiState.value.detailActionState.lastActionMessage
         assertTrue(feedback is PluginActionFeedback.Text)
         feedback as PluginActionFeedback.Text
         assertTrue(feedback.value.contains("cache cleared", ignoreCase = true))
-        assertTrue(feedback.value.contains("retry", ignoreCase = true))
     }
 
     @Test
-    fun selected_plugin_diagnostics_report_contains_failure_and_update_context() = runTest(dispatcher) {
-        val deps = FakePluginDependencies(
-            records = listOf(
-                pluginRecord(
-                    pluginId = "plugin-1",
-                    enabled = false,
-                    failureState = PluginFailureState(
-                        consecutiveFailureCount = 2,
-                        lastFailureAtEpochMillis = 1_000L,
-                        lastErrorSummary = "socket timeout",
-                        suspendedUntilEpochMillis = null,
-                    ),
-                ),
-            ),
-            updateAvailabilities = mapOf(
-                "plugin-1" to PluginUpdateAvailability(
-                    pluginId = "plugin-1",
-                    installedVersion = "1.0.0",
-                    latestVersion = "1.1.0",
-                    updateAvailable = true,
-                    canUpgrade = false,
-                    changelogSummary = "Adds recovery summary",
-                    incompatibilityReason = "Host version is below required minimum 2.0.0.",
-                    catalogSourceId = "repo-1",
-                    packageUrl = "https://repo.example.com/packages/plugin-1-1.1.0.zip",
-                ),
-            ),
-        )
-        val viewModel = PluginViewModel(deps)
-        advanceUntilIdle()
-
-        viewModel.selectPlugin("plugin-1")
-        advanceUntilIdle()
-
-        val report = pluginViewModelMethod("buildSelectedPluginDiagnosticsReport").invoke(viewModel) as String
-
-        assertTrue(report.contains("plugin-1"))
-        assertTrue(report.contains("socket timeout"))
-        assertTrue(report.contains("1.1.0"))
-        assertTrue(report.contains("Host version is below required minimum 2.0.0."))
-    }
-
-    @Test
-    fun update_uninstall_policy_persists_selection_and_uninstall_uses_selected_policy() = runTest(dispatcher) {
+    fun uninstall_selected_plugin_always_removes_plugin_data() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
             listOf(pluginRecord(pluginId = "plugin-1", uninstallPolicy = PluginUninstallPolicy.KEEP_DATA)),
         )
@@ -724,11 +737,6 @@ class PluginViewModelTest {
 
         viewModel.selectPlugin("plugin-1")
         advanceUntilIdle()
-        viewModel.updateSelectedUninstallPolicy(PluginUninstallPolicy.REMOVE_DATA)
-        advanceUntilIdle()
-
-        assertEquals(PluginUninstallPolicy.REMOVE_DATA, deps.lastUpdatedPolicy)
-        assertEquals(PluginUninstallPolicy.REMOVE_DATA, viewModel.uiState.value.detailActionState.uninstallPolicy)
 
         viewModel.uninstallSelectedPlugin()
         advanceUntilIdle()
@@ -760,7 +768,8 @@ class PluginViewModelTest {
         assertTrue(viewModel.uiState.value.detailActionState.isDisableActionEnabled)
         assertResourceFeedback(
             feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
-            resId = R.string.plugin_action_feedback_enabled,
+            resId = R.string.plugin_action_feedback_enabled_with_name,
+            expectedArg = "plugin-1",
         )
 
         viewModel.disableSelectedPlugin()
@@ -772,6 +781,32 @@ class PluginViewModelTest {
         assertResourceFeedback(
             feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
             resId = R.string.plugin_action_feedback_disabled,
+        )
+    }
+
+    @Test
+    fun request_upgrade_without_available_update_surfaces_no_update_feedback() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    sourceType = PluginSourceType.REPOSITORY,
+                    catalogSourceId = "official",
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        viewModel.requestUpgradeForSelectedPlugin()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.upgradeDialogState)
+        assertResourceFeedback(
+            feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
+            resId = R.string.plugin_action_feedback_no_update_available,
         )
     }
 
@@ -818,6 +853,17 @@ class PluginViewModelTest {
                         ),
                     ),
                 ),
+                catalogEntryRecord(
+                    sourceId = "repo-1",
+                    pluginId = "raw-derived-repo",
+                    catalogUrl = "https://raw.githubusercontent.com/example/raw-derived-repo/main/publish/0.1.0/repository/catalog.json",
+                    versions = listOf(
+                        catalogVersion(
+                            version = "0.1.0",
+                            packageUrl = "packages/raw-derived-repo-0.1.0.zip",
+                        ),
+                    ),
+                ),
             ),
         )
         val viewModel = PluginViewModel(deps)
@@ -831,6 +877,10 @@ class PluginViewModelTest {
         assertEquals(
             "https://github.com/example/derived-repo",
             cardsByPluginId.getValue("derived-repo").repositoryUrl,
+        )
+        assertEquals(
+            "https://github.com/example/raw-derived-repo",
+            cardsByPluginId.getValue("raw-derived-repo").repositoryUrl,
         )
     }
 
@@ -865,6 +915,92 @@ class PluginViewModelTest {
                     version = "1.2.0",
                     packageUrl = "https://repo.example.com/packages/plugin-1-1.2.0.zip",
                     catalogSourceId = "repo-1",
+                ),
+            ),
+            deps.handledInstallIntents,
+        )
+    }
+
+    @Test
+    fun install_or_update_catalog_plugin_exposes_download_progress_until_install_finishes() = runTest(dispatcher) {
+        val installGate = CompletableDeferred<Unit>()
+        val progress = PluginDownloadProgress.downloading(
+            bytesDownloaded = 1_048_576L,
+            totalBytes = 2_097_152L,
+            bytesPerSecond = 524_288L,
+        )
+        val deps = FakePluginDependencies(
+            records = emptyList(),
+            catalogEntries = listOf(
+                catalogEntryRecord(
+                    sourceId = "repo-1",
+                    pluginId = "plugin-1",
+                    versions = listOf(catalogVersion(version = "1.0.0")),
+                ),
+            ),
+        ).apply {
+            nextInstallProgress = progress
+            installIntentGate = installGate
+        }
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.installOrUpdateCatalogPlugin("plugin-1")
+        advanceUntilIdle()
+
+        assertEquals(progress, viewModel.uiState.value.downloadProgress)
+        installGate.complete(Unit)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.downloadProgress)
+    }
+
+    @Test
+    fun install_or_update_catalog_plugin_uses_selected_market_version() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = emptyList(),
+            hostVersion = "0.4.6",
+            catalogEntries = listOf(
+                catalogEntryRecord(
+                    sourceId = "repo-stable",
+                    pluginId = "weather",
+                    versions = listOf(
+                        catalogVersion(
+                            version = "0.1.5",
+                            packageUrl = "https://repo.example.com/weather-0.1.5.zip",
+                            minHostVersion = "0.1.0",
+                        ),
+                    ),
+                ),
+                catalogEntryRecord(
+                    sourceId = "repo-legacy",
+                    pluginId = "weather",
+                    versions = listOf(
+                        catalogVersion(
+                            version = "0.1.0",
+                            packageUrl = "https://repo.example.com/weather-0.1.0.zip",
+                            minHostVersion = "0.1.0",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectMarketPluginVersion(
+            pluginId = "weather",
+            versionKey = "weather|repo-legacy|0.1.0|https://repo.example.com/weather-0.1.0.zip",
+        )
+        viewModel.installOrUpdateCatalogPlugin("weather")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                PluginInstallIntent.catalogVersion(
+                    pluginId = "weather",
+                    version = "0.1.0",
+                    packageUrl = "https://repo.example.com/weather-0.1.0.zip",
+                    catalogSourceId = "repo-legacy",
                 ),
             ),
             deps.handledInstallIntents,
@@ -1627,7 +1763,7 @@ class PluginViewModelTest {
     }
 
     @Test
-    fun config_draft_updates_persist_core_and_extension_values() = runTest(dispatcher) {
+    fun config_draft_updates_only_change_ui_state_until_explicit_save() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
             records = listOf(pluginRecord(pluginId = "plugin-1")),
             staticSchemas = mapOf(
@@ -1676,6 +1812,65 @@ class PluginViewModelTest {
         viewModel.updateSettingsDraft("enabled", PluginSettingDraftValue.Toggle(true))
         advanceUntilIdle()
 
+        val staticConfigState = requireNotNull(viewModel.uiState.value.staticConfigUiState)
+        assertEquals(PluginSettingDraftValue.Text("sk-live"), staticConfigState.draftValues["token"])
+        val runtimeState = viewModel.uiState.value.schemaUiState as PluginSchemaUiState.Settings
+        assertEquals(PluginSettingDraftValue.Toggle(true), runtimeState.draftValues["enabled"])
+        assertEquals(emptyMap<String, PluginStaticConfigValue>(), deps.lastSavedCoreValues)
+        assertEquals(emptyMap<String, PluginStaticConfigValue>(), deps.lastSavedExtensionValues)
+    }
+
+    @Test
+    fun save_selected_plugin_config_persists_core_and_extension_values_and_sets_saved_feedback() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+            staticSchemas = mapOf(
+                "plugin-1" to PluginStaticConfigSchema(
+                    fields = listOf(
+                        PluginStaticConfigField(
+                            fieldKey = "token",
+                            fieldType = PluginStaticConfigFieldType.StringField,
+                            defaultValue = PluginStaticConfigValue.StringValue("sk-demo"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    SettingsUiRequest(
+                        schema = PluginSettingsSchema(
+                            title = "Runtime Settings",
+                            sections = listOf(
+                                PluginSettingsSection(
+                                    sectionId = "general",
+                                    title = "General",
+                                    fields = listOf(
+                                        ToggleSettingField(
+                                            fieldId = "enabled",
+                                            label = "Enabled",
+                                            defaultValue = false,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPluginForConfig("plugin-1")
+        advanceUntilIdle()
+        viewModel.updateStaticConfigDraft("token", PluginSettingDraftValue.Text("sk-live"))
+        viewModel.updateSettingsDraft("enabled", PluginSettingDraftValue.Toggle(true))
+        viewModel.saveSelectedPluginConfig()
+        advanceUntilIdle()
+
         assertEquals(
             mapOf("token" to PluginStaticConfigValue.StringValue("sk-live")),
             deps.lastSavedCoreValues,
@@ -1683,6 +1878,10 @@ class PluginViewModelTest {
         assertEquals(
             mapOf("enabled" to PluginStaticConfigValue.BoolValue(true)),
             deps.lastSavedExtensionValues,
+        )
+        assertResourceFeedback(
+            feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
+            resId = R.string.common_saved,
         )
     }
 
@@ -1923,6 +2122,7 @@ class PluginViewModelTest {
         staticSchemas: Map<String, PluginStaticConfigSchema> = emptyMap(),
         configSnapshots: Map<String, PluginConfigStoreSnapshot> = emptyMap(),
         workspaceSnapshots: Map<String, PluginHostWorkspaceSnapshot> = emptyMap(),
+        private val hostVersion: String = "9.9.9",
     ) : PluginViewModelDependencies {
         private val recordsFlow = MutableStateFlow(records)
         private val repositorySourcesFlow = MutableStateFlow(repositorySources)
@@ -1938,7 +2138,6 @@ class PluginViewModelTest {
         val workspaceImportUris = mutableListOf<String>()
         val clearedFailurePluginIds = mutableListOf<String>()
         val deletedWorkspaceFiles = mutableListOf<String>()
-        var lastUpdatedPolicy: PluginUninstallPolicy? = null
         var lastUninstallPolicy: PluginUninstallPolicy? = null
         var localPackageInstallError: Throwable? = null
         var nextLocalPackageInstallResult: PluginInstallIntentResult? = null
@@ -1946,13 +2145,25 @@ class PluginViewModelTest {
         var lastResolvedConfigPluginId: String? = null
         var lastSavedCoreValues: Map<String, PluginStaticConfigValue> = emptyMap()
         var lastSavedExtensionValues: Map<String, PluginStaticConfigValue> = emptyMap()
+        var marketRefreshRequests: Int = 0
+        var officialCatalogBootstrapRequests: Int = 0
+        var marketRefreshError: Throwable? = null
+        var officialCatalogBootstrapError: Throwable? = null
+        var nextInstallProgress: PluginDownloadProgress? = null
+        var installIntentGate: CompletableDeferred<Unit>? = null
 
         override val records: StateFlow<List<PluginInstallRecord>> = recordsFlow
         override val repositorySources: StateFlow<List<com.astrbot.android.model.plugin.PluginRepositorySource>> = repositorySourcesFlow
         override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = catalogEntriesFlow
 
+        override fun getHostVersion(): String = hostVersion
+
         fun updateRecords(records: List<PluginInstallRecord>) {
             recordsFlow.value = records
+        }
+
+        fun updateRepositorySources(sources: List<com.astrbot.android.model.plugin.PluginRepositorySource>) {
+            repositorySourcesFlow.value = sources
         }
 
         override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
@@ -2054,21 +2265,6 @@ class PluginViewModelTest {
             return updated
         }
 
-        override fun updatePluginUninstallPolicy(
-            pluginId: String,
-            policy: PluginUninstallPolicy,
-        ): PluginInstallRecord {
-            lastUpdatedPolicy = policy
-            val updated = requireNotNull(recordsFlow.value.firstOrNull { it.pluginId == pluginId }).withOverrides(
-                uninstallPolicy = policy,
-                lastUpdatedAt = 30L,
-            )
-            recordsFlow.value = recordsFlow.value.map { record ->
-                if (record.pluginId == pluginId) updated else record
-            }
-            return updated
-        }
-
         override fun uninstallPlugin(
             pluginId: String,
             policy: PluginUninstallPolicy,
@@ -2082,8 +2278,13 @@ class PluginViewModelTest {
             )
         }
 
-        override suspend fun handleInstallIntent(intent: PluginInstallIntent): PluginInstallIntentResult {
+        override suspend fun handleInstallIntent(
+            intent: PluginInstallIntent,
+            onDownloadProgress: (PluginDownloadProgress) -> Unit,
+        ): PluginInstallIntentResult {
             handledInstallIntents += intent
+            nextInstallProgress?.let(onDownloadProgress)
+            installIntentGate?.await()
             return when (intent) {
                 is PluginInstallIntent.RepositoryUrl -> PluginInstallIntentResult.RepositorySynced(
                     syncState = PluginCatalogSyncState(
@@ -2101,6 +2302,41 @@ class PluginViewModelTest {
             localPackageUris += uri
             localPackageInstallError?.let { throw it }
             return nextLocalPackageInstallResult ?: PluginInstallIntentResult.Ignored
+        }
+
+        override suspend fun ensureOfficialMarketCatalogSubscribed(): PluginCatalogSyncState {
+            officialCatalogBootstrapRequests += 1
+            officialCatalogBootstrapError?.let { throw it }
+            if (repositorySourcesFlow.value.isEmpty()) {
+                repositorySourcesFlow.value = listOf(
+                    com.astrbot.android.model.plugin.PluginRepositorySource(
+                        sourceId = "official-market",
+                        title = "AstrBot Android Plugin Market",
+                        catalogUrl = "https://raw.githubusercontent.com/undertaker33/astrbot-android-plugin-market/main/catalog.json",
+                        updatedAt = 1_700_000_000_000L,
+                    ),
+                )
+            }
+            return PluginCatalogSyncState(
+                sourceId = repositorySourcesFlow.value.first().sourceId,
+                lastSyncAtEpochMillis = 1L,
+                lastSyncStatus = PluginCatalogSyncStatus.SUCCESS,
+            )
+        }
+
+        override suspend fun refreshMarketCatalog(): List<PluginCatalogSyncState> {
+            marketRefreshRequests += 1
+            marketRefreshError?.let { throw it }
+            if (repositorySourcesFlow.value.isEmpty()) {
+                return listOf(ensureOfficialMarketCatalogSubscribed())
+            }
+            return repositorySourcesFlow.value.map { source ->
+                PluginCatalogSyncState(
+                    sourceId = source.sourceId,
+                    lastSyncAtEpochMillis = 1L,
+                    lastSyncStatus = PluginCatalogSyncStatus.SUCCESS,
+                )
+            }
         }
 
         override suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord {
@@ -2196,6 +2432,7 @@ class PluginViewModelTest {
         sourceId: String,
         pluginId: String,
         repositoryUrl: String = "",
+        catalogUrl: String = "https://repo.example.com/catalog.json",
         versions: List<PluginCatalogVersion> = listOf(
             catalogVersion(version = "1.0.0"),
         ),
@@ -2203,7 +2440,7 @@ class PluginViewModelTest {
         return PluginCatalogEntryRecord(
             sourceId = sourceId,
             sourceTitle = "AstrBot Repo",
-            catalogUrl = "https://repo.example.com/catalog.json",
+            catalogUrl = catalogUrl,
             entry = PluginCatalogEntry(
                 pluginId = pluginId,
                 title = pluginId,
@@ -2221,13 +2458,16 @@ class PluginViewModelTest {
         packageUrl: String = "https://repo.example.com/$version.zip",
         publishedAt: Long = 1_700_000_000_000L,
         changelog: String = "",
+        minHostVersion: String = "1.0.0",
+        maxHostVersion: String = "",
     ): PluginCatalogVersion {
         return PluginCatalogVersion(
             version = version,
             packageUrl = packageUrl,
             publishedAt = publishedAt,
             protocolVersion = 1,
-            minHostVersion = "1.0.0",
+            minHostVersion = minHostVersion,
+            maxHostVersion = maxHostVersion,
             changelog = changelog,
         )
     }

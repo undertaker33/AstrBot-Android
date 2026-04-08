@@ -12,6 +12,8 @@ import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntent
+import com.astrbot.android.model.plugin.PluginDownloadProgress
+import com.astrbot.android.model.plugin.PluginDownloadProgressStage
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
@@ -47,7 +49,7 @@ class PluginInstallerTest {
                 validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                remotePackageDownloader = RemotePluginPackageDownloader { packageUrl, destinationFile ->
+                remotePackageDownloader = RemotePluginPackageDownloader { packageUrl, destinationFile, _ ->
                     downloadRequests += packageUrl to destinationFile
                     remotePackage.copyTo(destinationFile, overwrite = true)
                 },
@@ -86,7 +88,7 @@ class PluginInstallerTest {
                 validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
                     remotePackage.copyTo(destinationFile, overwrite = true)
                 },
                 clock = { 400L },
@@ -107,6 +109,54 @@ class PluginInstallerTest {
             assertEquals("https://repo.example.com/packages/demo-1.3.0.zip", installed.installedPackageUrl)
             assertEquals("official", installed.catalogSourceId)
             assertEquals(400L, installed.lastUpdatedAt)
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_reports_remote_download_progress_and_installing_stage() = runBlocking {
+        val tempDir = Files.createTempDirectory("plugin-installer-download-progress").toFile()
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val remotePackage = createPluginPackage(
+                directory = tempDir,
+                fileName = "progress.zip",
+                manifest = validManifest(version = "1.4.0"),
+            )
+            val progressEvents = mutableListOf<PluginDownloadProgress>()
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, onProgress ->
+                    onProgress(
+                        PluginDownloadProgress.downloading(
+                            bytesDownloaded = 1_024L,
+                            totalBytes = 2_048L,
+                            bytesPerSecond = 4_096L,
+                        ),
+                    )
+                    remotePackage.copyTo(destinationFile, overwrite = true)
+                },
+            )
+
+            installer.install(
+                intent = PluginInstallIntent.catalogVersion(
+                    pluginId = "com.example.demo",
+                    version = "1.4.0",
+                    packageUrl = "https://repo.example.com/packages/demo-1.4.0.zip",
+                    catalogSourceId = "official",
+                ),
+                onProgress = progressEvents::add,
+            )
+
+            assertTrue(progressEvents.any { it.stage == PluginDownloadProgressStage.DOWNLOADING })
+            val installing = progressEvents.last()
+            assertEquals(PluginDownloadProgressStage.INSTALLING, installing.stage)
+            assertEquals(remotePackage.length(), installing.bytesDownloaded)
+            assertEquals(remotePackage.length(), installing.totalBytes)
         } finally {
             resetPluginRepositoryForTest()
             tempDir.deleteRecursively()
@@ -351,7 +401,7 @@ class PluginInstallerTest {
                 validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
                     remotePackage.copyTo(destinationFile, overwrite = true)
                 },
             )
@@ -418,7 +468,7 @@ class PluginInstallerTest {
                 validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
                     remotePackage.copyTo(destinationFile, overwrite = true)
                 },
                 clock = { 500L },
@@ -476,7 +526,7 @@ class PluginInstallerTest {
                 validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
                     remotePackage.copyTo(destinationFile, overwrite = true)
                 },
                 clock = { 650L },

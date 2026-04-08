@@ -17,6 +17,7 @@ import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
 import com.astrbot.android.ui.viewmodel.PluginCatalogEntryCardUiState
+import com.astrbot.android.ui.viewmodel.PluginCatalogEntryVersionUiState
 import com.astrbot.android.ui.viewmodel.PluginFailureUiState
 import com.astrbot.android.ui.viewmodel.PluginRepositorySourceCardUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
@@ -26,6 +27,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginScreenPresentationTest {
+
+    @Test
+    fun `download progress dialog exposes reusable test tag`() {
+        assertEquals("download-progress-dialog", PluginUiSpec.DownloadProgressDialogTag)
+    }
 
     @Test
     fun `local workspace presentation filters cards by search and local status`() {
@@ -134,6 +140,127 @@ class PluginScreenPresentationTest {
     }
 
     @Test
+    fun `market workspace presentation deduplicates repeated plugin ids from multiple sources`() {
+        val uiState = PluginScreenUiState(
+            catalogEntries = listOf(
+                PluginCatalogEntryCardUiState(
+                    sourceId = "repo-raw",
+                    pluginId = "cc.astrbot.android.plugin.meme_manager.native",
+                    title = "Meme Manager",
+                    author = "AstrBot",
+                    summary = "Ready to install",
+                    latestVersion = "1.0.0",
+                    repositoryUrl = "https://github.com/example/meme/raw",
+                    sourceName = "Raw",
+                ),
+                PluginCatalogEntryCardUiState(
+                    sourceId = "repo-blob",
+                    pluginId = "cc.astrbot.android.plugin.meme_manager.native",
+                    title = "Meme Manager",
+                    author = "AstrBot",
+                    summary = "Duplicate entry",
+                    latestVersion = "1.0.0",
+                    repositoryUrl = "https://github.com/example/meme/blob",
+                    sourceName = "Blob",
+                ),
+            ),
+        )
+
+        val presentationMethod = pluginPresentationMethod(
+            "buildPluginMarketWorkspacePresentation",
+            PluginScreenUiState::class.java,
+            String::class.java,
+        )
+        val presentation = presentationMethod.invoke(null, uiState, "")
+        val cards = propertyValue<List<*>>(presentation, "cards")
+
+        assertEquals(listOf("cc.astrbot.android.plugin.meme_manager.native"), cards.map { propertyValue<String>(it, "pluginId") })
+        assertEquals(listOf("repo-raw:cc.astrbot.android.plugin.meme_manager.native"), cards.map { propertyValue<String>(it, "stableKey") })
+    }
+
+    @Test
+    fun `market version options default to highest compatible version across sources`() {
+        val entries = listOf(
+            PluginCatalogEntryCardUiState(
+                sourceId = "repo-new",
+                pluginId = "weather",
+                title = "Weather",
+                author = "AstrBot",
+                summary = "Weather tools",
+                latestVersion = "0.2.0",
+                sourceName = "Nightly",
+                versions = listOf(
+                    catalogEntryVersion(
+                        version = "0.2.0",
+                        packageUrl = "https://repo.example.com/weather-0.2.0.zip",
+                        publishedAt = 200L,
+                        minHostVersion = "9.9.9",
+                    ),
+                ),
+            ),
+            PluginCatalogEntryCardUiState(
+                sourceId = "repo-stable",
+                pluginId = "weather",
+                title = "Weather",
+                author = "AstrBot",
+                summary = "Weather tools",
+                latestVersion = "0.1.5",
+                sourceName = "Stable",
+                versions = listOf(
+                    catalogEntryVersion(
+                        version = "0.1.5",
+                        packageUrl = "https://repo.example.com/weather-0.1.5.zip",
+                        publishedAt = 150L,
+                        minHostVersion = "0.1.0",
+                    ),
+                    catalogEntryVersion(
+                        version = "0.1.5",
+                        packageUrl = "https://repo.example.com/weather-0.1.5.zip",
+                        publishedAt = 140L,
+                        minHostVersion = "0.1.0",
+                    ),
+                ),
+            ),
+        )
+
+        val options = buildPluginMarketVersionOptions(
+            entries = entries,
+            pluginId = "weather",
+            hostVersion = "0.4.6",
+            supportedProtocolVersion = 1,
+        )
+
+        assertEquals(listOf("0.1.5", "0.2.0"), options.map { it.versionLabel })
+        assertEquals("0.1.5", options.first().versionLabel)
+        assertTrue(options.first().isSelectable)
+        assertFalse(options.last().isSelectable)
+        assertEquals("INCOMPATIBLE", options.last().compatibilityState.status.name)
+    }
+
+    @Test
+    fun `market list and detail use default compatible version option`() {
+        val uiState = PluginScreenUiState(
+            hostVersion = "0.4.6",
+            catalogEntries = marketVersionEntries(),
+        )
+
+        val workspace = buildPluginMarketWorkspacePresentation(uiState, "")
+        val card = workspace.cards.single()
+
+        assertEquals("0.1.5", card.versionLabel)
+        assertEquals("repo-stable:weather", card.stableKey)
+
+        val detail = buildPluginMarketDetailPresentation(uiState, "weather")
+        val versionOptions = propertyValue<List<*>>(detail, "versionOptions")
+        val selectedVersionKey = propertyValue<String>(detail, "selectedVersionKey")
+
+        assertEquals("0.1.5", propertyValue<String>(detail, "selectedVersionLabel"))
+        assertEquals(listOf("0.1.5", "0.2.0"), versionOptions.map { propertyValue<String>(it, "versionLabel") })
+        assertEquals(propertyValue<String>(versionOptions.first(), "stableKey"), selectedVersionKey)
+        assertEquals("COMPATIBLE", propertyValue<PluginCompatibilityState>(detail, "selectedVersionCompatibility").status.name)
+    }
+
+    @Test
     fun `market detail presentation exposes detail metadata and primary action state`() {
         val uiState = PluginScreenUiState(
             records = listOf(
@@ -199,6 +326,50 @@ class PluginScreenPresentationTest {
         assertEquals("", propertyValue<String>(cloudOnly, "installedVersionLabel"))
 
         assertEquals(null, missing)
+    }
+
+    @Test
+    fun `market pagination uses fixed two cards and does not add filler cards`() {
+        val cards = (1..5).map { index -> marketCard("plugin-$index") }
+
+        val page1 = buildPluginMarketPagePresentation(cards, requestedPage = 1)
+        val page2 = buildPluginMarketPagePresentation(cards, requestedPage = 2)
+        val page3 = buildPluginMarketPagePresentation(cards, requestedPage = 3)
+
+        assertEquals(1, page1.currentPage)
+        assertEquals(3, page1.totalPages)
+        assertEquals(listOf("plugin-1", "plugin-2"), page1.visibleCards.map { it.pluginId })
+        assertFalse(page1.canGoPrevious)
+        assertTrue(page1.canGoNext)
+
+        assertEquals(listOf("plugin-3", "plugin-4"), page2.visibleCards.map { it.pluginId })
+        assertTrue(page2.canGoPrevious)
+        assertTrue(page2.canGoNext)
+
+        assertEquals(listOf("plugin-5"), page3.visibleCards.map { it.pluginId })
+        assertTrue(page3.canGoPrevious)
+        assertFalse(page3.canGoNext)
+    }
+
+    @Test
+    fun `market pagination clamps requested page bounds and keeps empty list stable`() {
+        val cards = (1..3).map { index -> marketCard("plugin-$index") }
+
+        val belowFirst = buildPluginMarketPagePresentation(cards, requestedPage = 0)
+        val beyondLast = buildPluginMarketPagePresentation(cards, requestedPage = 99)
+        val empty = buildPluginMarketPagePresentation(emptyList(), requestedPage = 3)
+
+        assertEquals(1, belowFirst.currentPage)
+        assertEquals(listOf("plugin-1", "plugin-2"), belowFirst.visibleCards.map { it.pluginId })
+
+        assertEquals(2, beyondLast.currentPage)
+        assertEquals(listOf("plugin-3"), beyondLast.visibleCards.map { it.pluginId })
+
+        assertEquals(1, empty.currentPage)
+        assertEquals(1, empty.totalPages)
+        assertTrue(empty.visibleCards.isEmpty())
+        assertFalse(empty.canGoPrevious)
+        assertFalse(empty.canGoNext)
     }
 
     @Test
@@ -699,6 +870,78 @@ class PluginScreenPresentationTest {
                 suspendedUntilEpochMillis = null,
             ),
             lastUpdatedAt = 1L,
+        )
+    }
+
+    private fun marketCard(pluginId: String): PluginMarketCardPresentation {
+        return PluginMarketCardPresentation(
+            sourceId = "repo-$pluginId",
+            pluginId = pluginId,
+            title = pluginId,
+            description = "Description for $pluginId",
+            author = "AstrBot",
+            versionLabel = "1.0.0",
+            status = PluginMarketStatus.NOT_INSTALLED,
+            repositoryUrl = "",
+        )
+    }
+
+    private fun marketVersionEntries(): List<PluginCatalogEntryCardUiState> {
+        return listOf(
+            PluginCatalogEntryCardUiState(
+                sourceId = "repo-new",
+                pluginId = "weather",
+                title = "Weather",
+                author = "AstrBot",
+                summary = "Weather tools",
+                latestVersion = "0.2.0",
+                sourceName = "Nightly",
+                versions = listOf(
+                    catalogEntryVersion(
+                        version = "0.2.0",
+                        packageUrl = "https://repo.example.com/weather-0.2.0.zip",
+                        publishedAt = 200L,
+                        minHostVersion = "9.9.9",
+                    ),
+                ),
+            ),
+            PluginCatalogEntryCardUiState(
+                sourceId = "repo-stable",
+                pluginId = "weather",
+                title = "Weather",
+                author = "AstrBot",
+                summary = "Weather tools",
+                latestVersion = "0.1.5",
+                sourceName = "Stable",
+                versions = listOf(
+                    catalogEntryVersion(
+                        version = "0.1.5",
+                        packageUrl = "https://repo.example.com/weather-0.1.5.zip",
+                        publishedAt = 150L,
+                        minHostVersion = "0.1.0",
+                    ),
+                ),
+            ),
+        )
+    }
+
+    private fun catalogEntryVersion(
+        version: String,
+        packageUrl: String,
+        publishedAt: Long,
+        protocolVersion: Int = 1,
+        minHostVersion: String = "0.0.0",
+        maxHostVersion: String = "",
+        changelog: String = "",
+    ): PluginCatalogEntryVersionUiState {
+        return PluginCatalogEntryVersionUiState(
+            version = version,
+            packageUrl = packageUrl,
+            publishedAt = publishedAt,
+            protocolVersion = protocolVersion,
+            minHostVersion = minHostVersion,
+            maxHostVersion = maxHostVersion,
+            changelog = changelog,
         )
     }
 

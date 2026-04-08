@@ -30,7 +30,7 @@ class MemeManagerSampleInstallAndUpgradeTest {
                 validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
                     packageZip.copyTo(destinationFile, overwrite = true)
                 },
                 clock = { 1234L },
@@ -73,7 +73,7 @@ class MemeManagerSampleInstallAndUpgradeTest {
                 validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
-                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
                     packageZip.copyTo(destinationFile, overwrite = true)
                 },
                 clock = { 1000L },

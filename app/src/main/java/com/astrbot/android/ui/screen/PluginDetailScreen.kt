@@ -18,8 +18,6 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -30,12 +28,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
@@ -47,13 +46,11 @@ import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSourceType
-import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
 import com.astrbot.android.ui.viewmodel.PluginDetailActionState
 import com.astrbot.android.ui.viewmodel.PluginDetailMetadataState
-import com.astrbot.android.ui.viewmodel.PluginFailureUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginViewModel
 import java.text.DateFormat
@@ -64,9 +61,7 @@ import java.util.Locale
 fun PluginDetailScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
-    onOpenWorkspace: (String) -> Unit,
     onOpenLogs: (String) -> Unit,
-    onOpenTriggers: (String) -> Unit,
     onOpenConfig: (String) -> Unit,
     pluginViewModel: PluginViewModel = astrBotViewModel(),
 ) {
@@ -86,19 +81,14 @@ fun PluginDetailScreenRoute(
         if (uiState.selectedPlugin != null) {
             PluginDetailRouteWorkspace(
                 uiState = uiState,
-                onOpenWorkspace = onOpenWorkspace,
                 onOpenLogs = onOpenLogs,
-                onOpenTriggers = onOpenTriggers,
                 onOpenConfig = onOpenConfig,
                 onEnable = pluginViewModel::enableSelectedPlugin,
                 onDisable = pluginViewModel::disableSelectedPlugin,
                 onRequestUpgrade = pluginViewModel::requestUpgradeForSelectedPlugin,
-                onSelectPolicy = pluginViewModel::updateSelectedUninstallPolicy,
                 onUninstall = pluginViewModel::uninstallSelectedPlugin,
-                onRetryRecovery = pluginViewModel::retrySelectedPlugin,
                 onRestoreDefaults = pluginViewModel::restoreSelectedPluginDefaultConfig,
                 onClearCache = pluginViewModel::clearSelectedPluginCache,
-                buildDiagnosticsReport = pluginViewModel::buildSelectedPluginDiagnosticsReport,
             )
         }
         uiState.upgradeDialogState?.let { dialogState ->
@@ -114,19 +104,14 @@ fun PluginDetailScreenRoute(
 @Composable
 private fun PluginDetailRouteWorkspace(
     uiState: PluginScreenUiState,
-    onOpenWorkspace: (String) -> Unit,
     onOpenLogs: (String) -> Unit,
-    onOpenTriggers: (String) -> Unit,
     onOpenConfig: (String) -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
     onRequestUpgrade: () -> Unit,
-    onSelectPolicy: (PluginUninstallPolicy) -> Unit,
     onUninstall: () -> Unit,
-    onRetryRecovery: () -> Unit,
     onRestoreDefaults: () -> Unit,
     onClearCache: () -> Unit,
-    buildDiagnosticsReport: () -> String,
 ) {
     val record = uiState.selectedPlugin ?: return
 
@@ -149,25 +134,16 @@ private fun PluginDetailRouteWorkspace(
             when (section) {
                 PluginDetailSection.TopSummary -> PluginDetailTopSummarySection(record)
                 PluginDetailSection.ManagePlugin -> PluginDetailManageSection(
+                    pluginTitle = record.manifestSnapshot.title,
                     actionState = uiState.detailActionState,
-                    onOpenWorkspace = { onOpenWorkspace(record.pluginId) },
                     onOpenLogs = { onOpenLogs(record.pluginId) },
-                    onOpenTriggers = { onOpenTriggers(record.pluginId) },
                     onOpenConfig = { onOpenConfig(record.pluginId) },
                     onEnable = onEnable,
                     onDisable = onDisable,
                     onRequestUpgrade = onRequestUpgrade,
-                    onSelectPolicy = onSelectPolicy,
                     onUninstall = onUninstall,
-                )
-                PluginDetailSection.RecoveryAndUpgrade -> PluginDetailRecoveryAndUpgradeSection(
-                    record = record,
-                    actionState = uiState.detailActionState,
-                    metadata = uiState.detailMetadataState,
-                    onRetryRecovery = onRetryRecovery,
                     onRestoreDefaults = onRestoreDefaults,
                     onClearCache = onClearCache,
-                    buildDiagnosticsReport = buildDiagnosticsReport,
                 )
                 PluginDetailSection.UnderstandPlugin -> PluginDetailUnderstandSection(
                     record = record,
@@ -300,17 +276,20 @@ private fun PluginDetailUnderstandSection(
 
 @Composable
 private fun PluginDetailManageSection(
+    pluginTitle: String,
     actionState: PluginDetailActionState,
-    onOpenWorkspace: () -> Unit,
     onOpenLogs: () -> Unit,
-    onOpenTriggers: () -> Unit,
     onOpenConfig: () -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
     onRequestUpgrade: () -> Unit,
-    onSelectPolicy: (PluginUninstallPolicy) -> Unit,
     onUninstall: () -> Unit,
+    onRestoreDefaults: () -> Unit,
+    onClearCache: () -> Unit,
 ) {
+    var pendingConfirmAction by rememberSaveable(pluginTitle) {
+        mutableStateOf<PluginDetailConfirmAction?>(null)
+    }
     PluginSectionCard(
         title = stringResource(R.string.plugin_detail_manage_title),
         tag = PluginUiSpec.DetailManageTag,
@@ -327,7 +306,7 @@ private fun PluginDetailManageSection(
                 label = stringResource(R.string.plugin_action_enable),
             )
             PluginDetailManageButton(
-                onClick = onDisable,
+                onClick = { pendingConfirmAction = PluginDetailConfirmAction.Disable },
                 enabled = actionState.manageAvailability.canDisable,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailDisableActionTag),
                 label = stringResource(R.string.plugin_action_disable),
@@ -338,155 +317,64 @@ private fun PluginDetailManageSection(
                 onClick = onRequestUpgrade,
                 enabled = actionState.manageAvailability.canUpgrade,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailUpgradeActionTag),
-                label = stringResource(R.string.plugin_action_update),
+                label = stringResource(R.string.plugin_action_check_update),
             )
             PluginDetailManageButton(
-                onClick = onUninstall,
+                onClick = { pendingConfirmAction = PluginDetailConfirmAction.Uninstall },
                 enabled = actionState.manageAvailability.canUninstall,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailUninstallActionTag),
                 label = stringResource(R.string.plugin_action_uninstall),
             )
         }
-        PluginDetailManageButton(
-            onClick = onOpenWorkspace,
-            enabled = actionState.manageAvailability.canOpenWorkspace,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(PluginUiSpec.DetailOpenWorkspaceActionTag),
-            label = stringResource(R.string.plugin_action_open_workspace),
-        )
-        PluginDetailManageButton(
-            onClick = onOpenLogs,
-            enabled = actionState.manageAvailability.canViewLogs,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(PluginUiSpec.DetailOpenLogsActionTag),
-            label = stringResource(R.string.plugin_action_view_logs),
-        )
-        PluginDetailManageButton(
-            onClick = onOpenTriggers,
-            enabled = actionState.manageAvailability.canManageTriggers,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(PluginUiSpec.DetailOpenTriggersActionTag),
-            label = stringResource(R.string.plugin_action_manage_triggers),
-        )
-        PluginDetailManageButton(
-            onClick = onOpenConfig,
-            enabled = actionState.manageAvailability.canOpenConfig,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(PluginUiSpec.DetailOpenConfigActionTag),
-            label = stringResource(R.string.plugin_action_open_config),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = actionState.uninstallPolicy == PluginUninstallPolicy.KEEP_DATA,
-                onClick = { onSelectPolicy(PluginUninstallPolicy.KEEP_DATA) },
-                label = { Text(stringResource(R.string.plugin_action_uninstall_policy_keep_data)) },
-                modifier = Modifier.testTag(PluginUiSpec.DetailKeepDataPolicyTag),
-                colors = FilterChipDefaults.filterChipColors(),
-            )
-            FilterChip(
-                selected = actionState.uninstallPolicy == PluginUninstallPolicy.REMOVE_DATA,
-                onClick = { onSelectPolicy(PluginUninstallPolicy.REMOVE_DATA) },
-                label = { Text(stringResource(R.string.plugin_action_uninstall_policy_remove_data)) },
-                modifier = Modifier.testTag(PluginUiSpec.DetailRemoveDataPolicyTag),
-                colors = FilterChipDefaults.filterChipColors(),
-            )
-        }
-    }
-}
-
-@Composable
-private fun PluginDetailRecoveryAndUpgradeSection(
-    record: PluginInstallRecord,
-    actionState: PluginDetailActionState,
-    metadata: PluginDetailMetadataState,
-    onRetryRecovery: () -> Unit,
-    onRestoreDefaults: () -> Unit,
-    onClearCache: () -> Unit,
-    buildDiagnosticsReport: () -> String,
-) {
-    val clipboardManager = LocalClipboardManager.current
-    PluginSectionCard(
-        title = stringResource(R.string.plugin_detail_recovery_title),
-        tag = PluginUiSpec.DetailRecoveryTag,
-    ) {
-        var hasRecoveryContent = false
-
-        actionState.enableBlockedReason?.let { blockedReason ->
-            hasRecoveryContent = true
-            detailHintCard(blockedReason.asText())
-        }
-        actionState.updateBlockedReason?.let { blockedReason ->
-            hasRecoveryContent = true
-            detailHintCard(blockedReason.asText())
-        }
-        metadata.updateHint?.let { updateHint ->
-            hasRecoveryContent = true
-            PluginKeyValueSection(
-                title = stringResource(R.string.plugin_detail_update_readiness_group_title),
-                items = listOf(
-                    stringResource(R.string.plugin_action_update) to updateHint.latestVersion,
-                    stringResource(R.string.plugin_field_changelog_summary) to updateHint.changelogSummary.ifBlank {
-                        stringResource(R.string.plugin_value_no_changelog)
-                    },
-                    stringResource(R.string.plugin_detail_upgrade_readiness_label) to updateHint.blockedReason.ifBlank {
-                        stringResource(R.string.plugin_detail_upgrade_ready)
-                    },
-                ),
-            )
-        }
-        metadata.permissionDiffHint?.let { permissionDiff ->
-            hasRecoveryContent = true
-            PluginPermissionDiffSection(permissionDiff)
-        }
-        if (record.failureState.hasFailures) {
-            hasRecoveryContent = true
-            actionState.failureState?.let { PluginFailureBanner(it) }
-        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PluginDetailManageButton(
-                onClick = onRetryRecovery,
-                enabled = actionState.manageAvailability.canRetryRecovery,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag(PluginUiSpec.DetailRetryActionTag),
-                label = stringResource(R.string.plugin_action_retry),
+                onClick = onOpenConfig,
+                enabled = actionState.manageAvailability.canOpenConfig,
+                modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailOpenConfigActionTag),
+                label = stringResource(R.string.plugin_action_open_config),
             )
             PluginDetailManageButton(
-                onClick = onRestoreDefaults,
-                enabled = actionState.manageAvailability.canRestoreDefaults,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag(PluginUiSpec.DetailRestoreDefaultsActionTag),
-                label = stringResource(R.string.plugin_action_restore_defaults),
+                onClick = onOpenLogs,
+                enabled = actionState.manageAvailability.canViewLogs,
+                modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailOpenLogsActionTag),
+                label = stringResource(R.string.plugin_action_view_logs),
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PluginDetailManageButton(
-                onClick = onClearCache,
+                onClick = { pendingConfirmAction = PluginDetailConfirmAction.ClearCache },
                 enabled = actionState.manageAvailability.canClearCache,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag(PluginUiSpec.DetailClearCacheActionTag),
+                modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailClearCacheActionTag),
                 label = stringResource(R.string.plugin_action_clear_cache),
             )
             PluginDetailManageButton(
-                onClick = {
-                    clipboardManager.setText(AnnotatedString(buildDiagnosticsReport()))
-                },
-                enabled = actionState.manageAvailability.canCopyDiagnostics,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag(PluginUiSpec.DetailCopyDiagnosticsActionTag),
-                label = stringResource(R.string.plugin_action_copy_diagnostics),
+                onClick = { pendingConfirmAction = PluginDetailConfirmAction.RestoreDefaults },
+                enabled = actionState.manageAvailability.canRestoreDefaults,
+                modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailRestoreDefaultsActionTag),
+                label = stringResource(R.string.plugin_action_restore_defaults),
             )
         }
-        if (!hasRecoveryContent) {
-            detailHintCard(stringResource(R.string.plugin_detail_recovery_clear))
-        }
+    }
+
+    pendingConfirmAction?.let { action ->
+        PluginDetailConfirmationDialog(
+            spec = buildPluginDetailConfirmationDialogSpec(
+                action = action,
+                pluginTitle = pluginTitle,
+            ),
+            onConfirm = {
+                when (action) {
+                    PluginDetailConfirmAction.Disable -> onDisable()
+                    PluginDetailConfirmAction.Uninstall -> onUninstall()
+                    PluginDetailConfirmAction.ClearCache -> onClearCache()
+                    PluginDetailConfirmAction.RestoreDefaults -> onRestoreDefaults()
+                }
+                pendingConfirmAction = null
+            },
+            onDismiss = {
+                pendingConfirmAction = null
+            },
+        )
     }
 }
 
@@ -506,6 +394,79 @@ private fun PluginDetailManageButton(
 }
 
 internal fun pluginDetailUsesUnifiedManageButtonStyle(): Boolean = true
+
+internal enum class PluginDetailConfirmAction {
+    Disable,
+    Uninstall,
+    ClearCache,
+    RestoreDefaults,
+}
+
+internal data class PluginDetailConfirmationDialogSpec(
+    val titleRes: Int,
+    val messageRes: Int,
+    val pluginTitle: String,
+)
+
+internal fun buildPluginDetailConfirmationDialogSpec(
+    action: PluginDetailConfirmAction,
+    pluginTitle: String,
+): PluginDetailConfirmationDialogSpec {
+    return when (action) {
+        PluginDetailConfirmAction.Disable -> PluginDetailConfirmationDialogSpec(
+            titleRes = R.string.plugin_action_confirm_disable_title,
+            messageRes = R.string.plugin_action_confirm_disable_message,
+            pluginTitle = pluginTitle,
+        )
+        PluginDetailConfirmAction.Uninstall -> PluginDetailConfirmationDialogSpec(
+            titleRes = R.string.plugin_action_confirm_uninstall_title,
+            messageRes = R.string.plugin_action_confirm_uninstall_message,
+            pluginTitle = pluginTitle,
+        )
+        PluginDetailConfirmAction.ClearCache -> PluginDetailConfirmationDialogSpec(
+            titleRes = R.string.plugin_action_confirm_clear_cache_title,
+            messageRes = R.string.plugin_action_confirm_clear_cache_message,
+            pluginTitle = pluginTitle,
+        )
+        PluginDetailConfirmAction.RestoreDefaults -> PluginDetailConfirmationDialogSpec(
+            titleRes = R.string.plugin_action_confirm_restore_defaults_title,
+            messageRes = R.string.plugin_action_confirm_restore_defaults_message,
+            pluginTitle = pluginTitle,
+        )
+    }
+}
+
+internal fun pluginDetailUsesConfirmationDialogs(): Boolean = true
+
+@Composable
+private fun PluginDetailConfirmationDialog(
+    spec: PluginDetailConfirmationDialogSpec,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag(PluginUiSpec.DetailConfirmDialogTag),
+        title = {
+            Text(text = stringResource(spec.titleRes))
+        },
+        text = {
+            Text(
+                text = stringResource(spec.messageRes, spec.pluginTitle),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = stringResource(R.string.common_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.common_cancel))
+            }
+        },
+    )
+}
 
 @Composable
 private fun PluginDetailTechnicalMetadataSection(
@@ -551,35 +512,6 @@ private fun PluginDetailTechnicalMetadataSection(
             ),
         )
     }
-}
-
-@Composable
-private fun PluginPermissionDiffSection(permissionDiff: com.astrbot.android.ui.viewmodel.PluginPermissionDiffHintUiState) {
-    PluginKeyValueSection(
-        title = stringResource(R.string.plugin_detail_permission_diff_group_title),
-        items = buildList {
-            if (permissionDiff.addedPermissions.isNotEmpty()) {
-                add(
-                    stringResource(R.string.plugin_permission_diff_added) to permissionDiff.addedPermissions.joinToString(),
-                )
-            }
-            if (permissionDiff.removedPermissions.isNotEmpty()) {
-                add(
-                    stringResource(R.string.plugin_permission_diff_removed) to permissionDiff.removedPermissions.joinToString(),
-                )
-            }
-            if (permissionDiff.changedPermissions.isNotEmpty()) {
-                add(
-                    stringResource(R.string.plugin_permission_diff_changed) to permissionDiff.changedPermissions.joinToString(),
-                )
-            }
-            if (permissionDiff.upgradedPermissions.isNotEmpty()) {
-                add(
-                    stringResource(R.string.plugin_permission_diff_upgraded) to permissionDiff.upgradedPermissions.joinToString(),
-                )
-            }
-        },
-    )
 }
 
 @Composable
@@ -641,38 +573,6 @@ private fun PluginKeyValueSection(
 }
 
 @Composable
-private fun PluginFailureBanner(failureState: PluginFailureUiState) {
-    val palette = PluginUiSpec.failureBannerPalette(failureState.isSuspended)
-    Surface(
-        shape = PluginUiSpec.SectionShape,
-        color = palette.containerColor,
-        border = BorderStroke(1.dp, palette.contentColor.copy(alpha = 0.18f)),
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = failureState.statusMessage.asText(),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = palette.contentColor,
-            )
-            Text(
-                text = failureState.summaryMessage.asText(),
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.contentColor,
-            )
-            Text(
-                text = failureState.recoveryMessage.asText(),
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.contentColor,
-            )
-        }
-    }
-}
-
-@Composable
 private fun detailHintCard(message: String) {
     Surface(
         shape = PluginUiSpec.SectionShape,
@@ -711,25 +611,89 @@ private fun PluginUpgradeDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val permissionDiff = state.availability.permissionDiff
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(R.string.plugin_upgrade_confirm_title)) },
-        text = {
+        title = {
             Text(
-                text = stringResource(
-                    R.string.plugin_update_available_summary,
-                    state.availability.installedVersion,
-                    state.availability.latestVersion,
-                ),
+                text = if (state.isSecondaryConfirmationStep) {
+                    stringResource(R.string.plugin_upgrade_confirm_secondary_title)
+                } else {
+                    stringResource(R.string.plugin_update_available_dialog_title)
+                },
             )
         },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(
+                        R.string.plugin_update_available_summary,
+                        state.availability.installedVersion,
+                        state.availability.latestVersion,
+                    ),
+                )
+                state.availability.publishedAt?.let { publishedAt ->
+                    Text(
+                        text = stringResource(R.string.plugin_upgrade_published_at, publishedAt.toString()),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+                state.availability.changelogSummary.takeIf { it.isNotBlank() }?.let { summary ->
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+                if (permissionDiff.added.isNotEmpty()) {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_upgrade_added_permissions,
+                            permissionDiff.added.joinToString { permission -> permission.title },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+                if (permissionDiff.riskUpgraded.isNotEmpty()) {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_upgrade_upgraded_permissions,
+                            permissionDiff.riskUpgraded.joinToString { upgrade -> upgrade.to.title },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+                state.message?.let { message ->
+                    Text(
+                        text = message.asText(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+            }
+        },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(text = stringResource(R.string.plugin_action_update))
+            TextButton(
+                onClick = onConfirm,
+                enabled = !state.isInstalling,
+            ) {
+                Text(
+                    text = if (state.requiresSecondaryConfirmation && !state.isSecondaryConfirmationStep) {
+                        stringResource(R.string.plugin_upgrade_continue)
+                    } else {
+                        stringResource(R.string.plugin_action_update)
+                    },
+                )
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !state.isInstalling,
+            ) {
                 Text(text = stringResource(R.string.common_cancel))
             }
         },

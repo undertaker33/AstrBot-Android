@@ -249,6 +249,63 @@ class PluginModelsTest {
     }
 
     @Test
+    fun plugin_install_intent_normalizes_github_blob_catalog_url_to_raw_url() {
+        val intent = PluginInstallIntent.repositoryUrl(
+            " https://github.com/undertaker33/astrbot_android_plugin_memes/blob/main/publish/0.1.0/repository/catalog.json ",
+        )
+
+        assertEquals(
+            "https://raw.githubusercontent.com/undertaker33/astrbot_android_plugin_memes/main/publish/0.1.0/repository/catalog.json",
+            intent.url,
+        )
+    }
+
+    @Test
+    fun plugin_download_progress_formats_known_total_download_state() {
+        val progress = PluginDownloadProgress.downloading(
+            bytesDownloaded = 1_048_576L,
+            totalBytes = 3_145_728L,
+            bytesPerSecond = 2_097_152L,
+        )
+
+        assertEquals(PluginDownloadProgressStage.DOWNLOADING, progress.stage)
+        assertEquals(0.333f, progress.progressFraction ?: -1f, 0.001f)
+        assertEquals("1.0 MB", progress.downloadedMegabytesLabel)
+        assertEquals("3.0 MB", progress.totalMegabytesLabel)
+        assertEquals("2.0 MB/s", progress.speedLabel)
+        assertFalse(progress.isIndeterminate)
+    }
+
+    @Test
+    fun plugin_download_progress_formats_unknown_total_download_state() {
+        val progress = PluginDownloadProgress.downloading(
+            bytesDownloaded = 524_288L,
+            totalBytes = -1L,
+            bytesPerSecond = 0L,
+        )
+
+        assertNull(progress.progressFraction)
+        assertTrue(progress.isIndeterminate)
+        assertEquals("0.5 MB", progress.downloadedMegabytesLabel)
+        assertEquals("-- MB", progress.totalMegabytesLabel)
+        assertEquals("-- MB/s", progress.speedLabel)
+    }
+
+    @Test
+    fun plugin_download_progress_formats_installing_state_as_complete_when_total_is_known() {
+        val progress = PluginDownloadProgress.installing(
+            bytesDownloaded = 4_194_304L,
+            totalBytes = 4_194_304L,
+        )
+
+        assertEquals(PluginDownloadProgressStage.INSTALLING, progress.stage)
+        assertEquals(1f, progress.progressFraction ?: -1f, 0.001f)
+        assertEquals("4.0 MB", progress.downloadedMegabytesLabel)
+        assertEquals("4.0 MB", progress.totalMegabytesLabel)
+        assertEquals("-- MB/s", progress.speedLabel)
+    }
+
+    @Test
     fun plugin_install_record_makes_manifest_permissions_and_permission_snapshot_independent() {
         val manifestPermissions = mutableListOf(
             PluginPermissionDeclaration(

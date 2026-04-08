@@ -1,5 +1,7 @@
 package com.astrbot.android.model.plugin
 
+import java.util.Locale
+
 enum class PluginSourceType {
     LOCAL_FILE,
     MANUAL_IMPORT,
@@ -68,6 +70,78 @@ enum class PluginCatalogSyncStatus {
     SUCCESS,
     EMPTY,
     FAILED,
+}
+
+enum class PluginDownloadProgressStage {
+    DOWNLOADING,
+    INSTALLING,
+}
+
+data class PluginDownloadProgress(
+    val stage: PluginDownloadProgressStage,
+    val bytesDownloaded: Long,
+    val totalBytes: Long,
+    val bytesPerSecond: Long,
+) {
+    val progressFraction: Float?
+        get() = if (totalBytes > 0L) {
+            (bytesDownloaded.coerceIn(0L, totalBytes).toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+        } else {
+            null
+        }
+
+    val isIndeterminate: Boolean
+        get() = progressFraction == null
+
+    val downloadedMegabytesLabel: String
+        get() = formatMegabytes(bytesDownloaded.coerceAtLeast(0L))
+
+    val totalMegabytesLabel: String
+        get() = if (totalBytes > 0L) {
+            formatMegabytes(totalBytes)
+        } else {
+            "-- MB"
+        }
+
+    val speedLabel: String
+        get() = if (bytesPerSecond > 0L && stage == PluginDownloadProgressStage.DOWNLOADING) {
+            "${formatMegabytes(bytesPerSecond)}/s"
+        } else {
+            "-- MB/s"
+        }
+
+    companion object {
+        fun downloading(
+            bytesDownloaded: Long,
+            totalBytes: Long,
+            bytesPerSecond: Long,
+        ): PluginDownloadProgress {
+            return PluginDownloadProgress(
+                stage = PluginDownloadProgressStage.DOWNLOADING,
+                bytesDownloaded = bytesDownloaded,
+                totalBytes = totalBytes,
+                bytesPerSecond = bytesPerSecond,
+            )
+        }
+
+        fun installing(
+            bytesDownloaded: Long,
+            totalBytes: Long,
+        ): PluginDownloadProgress {
+            return PluginDownloadProgress(
+                stage = PluginDownloadProgressStage.INSTALLING,
+                bytesDownloaded = bytesDownloaded,
+                totalBytes = totalBytes,
+                bytesPerSecond = 0L,
+            )
+        }
+
+        private fun formatMegabytes(bytes: Long): String {
+            return String.format(Locale.US, "%.1f MB", bytes.toDouble() / BYTES_PER_MEGABYTE)
+        }
+
+        private const val BYTES_PER_MEGABYTE = 1_048_576.0
+    }
 }
 
 data class PluginCatalogSyncState(
@@ -496,5 +570,16 @@ private fun normalizeRemotePluginUrl(rawValue: String): String {
     require(scheme == "http" || scheme == "https") {
         "Remote URL must use http or https."
     }
-    return uri.toString()
+    return uri.toGithubRawUrlIfBlob() ?: uri.toString()
+}
+
+private fun java.net.URI.toGithubRawUrlIfBlob(): String? {
+    if (!host.equals("github.com", ignoreCase = true)) return null
+    val segments = path.split('/').filter(String::isNotBlank)
+    if (segments.size < 5 || segments[2] != "blob") return null
+    val owner = segments[0]
+    val repo = segments[1]
+    val branch = segments[3]
+    val filePath = segments.drop(4).joinToString(separator = "/")
+    return "https://raw.githubusercontent.com/$owner/$repo/$branch/$filePath"
 }

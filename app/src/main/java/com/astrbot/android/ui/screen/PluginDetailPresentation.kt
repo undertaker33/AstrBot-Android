@@ -11,7 +11,6 @@ enum class PluginDetailSection {
     TopSummary,
     UnderstandPlugin,
     ManagePlugin,
-    RecoveryAndUpgrade,
     TechnicalMetadata,
 }
 
@@ -26,7 +25,6 @@ internal fun buildPluginDetailSections(
     return buildList {
         add(PluginDetailSection.TopSummary)
         add(PluginDetailSection.ManagePlugin)
-        add(PluginDetailSection.RecoveryAndUpgrade)
         add(PluginDetailSection.UnderstandPlugin)
         add(PluginDetailSection.TechnicalMetadata)
     }

@@ -29,10 +29,13 @@ import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.plugin.ExternalPluginWorkspacePolicy
+import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginCatalogSyncState
+import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
@@ -427,9 +430,18 @@ interface PluginViewModelDependencies {
     val repositorySources: StateFlow<List<PluginRepositorySource>>
     val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
 
-    suspend fun handleInstallIntent(intent: PluginInstallIntent): PluginInstallIntentResult
+    suspend fun handleInstallIntent(
+        intent: PluginInstallIntent,
+        onDownloadProgress: (PluginDownloadProgress) -> Unit = {},
+    ): PluginInstallIntentResult
 
     suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult
+
+    suspend fun ensureOfficialMarketCatalogSubscribed(): PluginCatalogSyncState
+
+    suspend fun refreshMarketCatalog(): List<PluginCatalogSyncState>
+
+    fun getHostVersion(): String = "0.0.0"
 
     fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability?
 
@@ -470,8 +482,6 @@ interface PluginViewModelDependencies {
 
     fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
 
-    fun updatePluginUninstallPolicy(pluginId: String, policy: PluginUninstallPolicy): PluginInstallRecord
-
     fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): com.astrbot.android.data.PluginUninstallResult
 }
 
@@ -480,9 +490,15 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
     override val repositorySources: StateFlow<List<PluginRepositorySource>> = PluginRepository.repositorySources
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = PluginRepository.catalogEntries
 
-    override suspend fun handleInstallIntent(intent: PluginInstallIntent): PluginInstallIntentResult {
+    override suspend fun handleInstallIntent(
+        intent: PluginInstallIntent,
+        onDownloadProgress: (PluginDownloadProgress) -> Unit,
+    ): PluginInstallIntentResult {
         return withContext(Dispatchers.IO) {
-            defaultPluginInstallIntentHandler().handle(intent)
+            defaultPluginInstallIntentHandler().handle(
+                intent = intent,
+                onDownloadProgress = onDownloadProgress,
+            )
         }
     }
 
@@ -509,16 +525,74 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         }
     }
 
+    override suspend fun ensureOfficialMarketCatalogSubscribed(): PluginCatalogSyncState {
+        return withContext(Dispatchers.IO) {
+            val existing = repositorySources.value.firstOrNull { source ->
+                source.catalogUrl == OFFICIAL_MARKET_CATALOG_URL
+            }
+            RuntimeLogRepository.append(
+                "Plugin market ensure-official start: " +
+                    "existing=${existing != null} " +
+                    "sourceCount=${repositorySources.value.size} " +
+                    "url=$OFFICIAL_MARKET_CATALOG_URL",
+            )
+            val syncState = if (existing != null) {
+                defaultPluginCatalogSynchronizer().sync(existing.sourceId)
+            } else {
+                defaultPluginRepositorySubscriptionManager()
+                    .subscribeAndSync(OFFICIAL_MARKET_CATALOG_URL)
+                    .syncState
+            }
+            RuntimeLogRepository.append(
+                "Plugin market ensure-official finished: " +
+                    "sourceId=${syncState.sourceId} " +
+                    "status=${syncState.lastSyncStatus.name}",
+            )
+            syncState
+        }
+    }
+
+    override suspend fun refreshMarketCatalog(): List<PluginCatalogSyncState> {
+        return withContext(Dispatchers.IO) {
+            val existingSources = repositorySources.value
+            RuntimeLogRepository.append(
+                "Plugin market refresh flow start: sourceCount=${existingSources.size}",
+            )
+            val states = if (existingSources.isEmpty()) {
+                listOf(ensureOfficialMarketCatalogSubscribed())
+            } else {
+                val synchronizer = defaultPluginCatalogSynchronizer()
+                existingSources.map { source ->
+                    synchronizer.sync(source.sourceId)
+                }
+            }
+            RuntimeLogRepository.append(
+                "Plugin market refresh flow finished: " +
+                    "resultCount=${states.size} " +
+                    "statuses=${states.joinToString(separator = ",") { "${it.sourceId}:${it.lastSyncStatus.name}" }}",
+            )
+            if (states.any { it.lastSyncStatus == PluginCatalogSyncStatus.FAILED }) {
+                RuntimeLogRepository.append("Plugin market refresh flow failed: at least one source sync failed")
+                error("Market catalog refresh failed.")
+            }
+            states
+        }
+    }
+
     override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
-        val appContext = PluginRepository.requireAppContext()
-        val hostVersion = runCatching {
-            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
-        }.getOrNull().orEmpty().ifBlank { "0.0.0" }
+        val hostVersion = getHostVersion()
         return PluginRepository.getUpdateAvailability(
             pluginId = pluginId,
             hostVersion = hostVersion,
             supportedProtocolVersion = 1,
         )
+    }
+
+    override fun getHostVersion(): String {
+        val appContext = PluginRepository.requireAppContext()
+        return runCatching {
+            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+        }.getOrNull().orEmpty().ifBlank { "0.0.0" }
     }
 
     override suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord {
@@ -635,13 +709,6 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         return PluginRepository.setEnabled(pluginId, enabled)
     }
 
-    override fun updatePluginUninstallPolicy(
-        pluginId: String,
-        policy: PluginUninstallPolicy,
-    ): PluginInstallRecord {
-        return PluginRepository.updateUninstallPolicy(pluginId, policy)
-    }
-
     override fun uninstallPlugin(
         pluginId: String,
         policy: PluginUninstallPolicy,
@@ -649,6 +716,9 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         return PluginRepository.uninstall(pluginId, policy)
     }
 }
+
+private const val OFFICIAL_MARKET_CATALOG_URL =
+    "https://raw.githubusercontent.com/undertaker33/astrbot-android-plugin-market/main/catalog.json"
 
 private fun queryDisplayName(
     appContext: android.content.Context,
@@ -1042,17 +1112,23 @@ object DefaultMainActivityDependencies : MainActivityDependencies {
 }
 
 private fun defaultPluginInstallIntentHandler(): PluginInstallIntentHandler {
-    val synchronizer = PluginCatalogSynchronizer(
+    return PluginInstallIntentHandler(
+        installer = defaultPluginInstaller(),
+        repositorySubscriptionManager = defaultPluginRepositorySubscriptionManager(),
+    )
+}
+
+private fun defaultPluginCatalogSynchronizer(): PluginCatalogSynchronizer {
+    return PluginCatalogSynchronizer(
         store = PluginRepository,
         fetcher = UrlConnectionPluginCatalogFetcher(),
     )
-    val repositorySubscriptionManager = PluginRepositorySubscriptionManager(
+}
+
+private fun defaultPluginRepositorySubscriptionManager(): PluginRepositorySubscriptionManager {
+    return PluginRepositorySubscriptionManager(
         store = PluginRepository,
-        synchronizer = synchronizer,
-    )
-    return PluginInstallIntentHandler(
-        installer = defaultPluginInstaller(),
-        repositorySubscriptionManager = repositorySubscriptionManager,
+        synchronizer = defaultPluginCatalogSynchronizer(),
     )
 }
 

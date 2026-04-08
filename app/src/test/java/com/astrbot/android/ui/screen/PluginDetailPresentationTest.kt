@@ -10,6 +10,7 @@ import com.astrbot.android.ui.viewmodel.PluginDetailActionState
 import com.astrbot.android.ui.viewmodel.PluginDetailManageActionAvailability
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
+import java.io.File
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -18,7 +19,7 @@ import org.junit.Test
 class PluginDetailPresentationTest {
 
     @Test
-    fun `detail section builder keeps top summary manage recovery understand metadata order`() {
+    fun `detail section builder keeps top summary manage understand metadata order`() {
         val sectionsWithRuntimeSchema = buildPluginDetailSections(
             uiState = PluginScreenUiState(
                 schemaUiState = PluginSchemaUiState.Settings(
@@ -34,7 +35,6 @@ class PluginDetailPresentationTest {
             listOf(
                 "TopSummary",
                 "ManagePlugin",
-                "RecoveryAndUpgrade",
                 "UnderstandPlugin",
                 "TechnicalMetadata",
             ),
@@ -44,7 +44,6 @@ class PluginDetailPresentationTest {
             listOf(
                 "TopSummary",
                 "ManagePlugin",
-                "RecoveryAndUpgrade",
                 "UnderstandPlugin",
                 "TechnicalMetadata",
             ),
@@ -99,5 +98,77 @@ class PluginDetailPresentationTest {
     @Test
     fun `plugin detail uses unified manage button styling helper`() {
         assertTrue(pluginDetailUsesUnifiedManageButtonStyle())
+    }
+
+    @Test
+    fun `detail confirmation spec maps manage actions to stable resources`() {
+        val disable = buildPluginDetailConfirmationDialogSpec(
+            action = PluginDetailConfirmAction.Disable,
+            pluginTitle = "Weather Toolkit",
+        )
+        val uninstall = buildPluginDetailConfirmationDialogSpec(
+            action = PluginDetailConfirmAction.Uninstall,
+            pluginTitle = "Weather Toolkit",
+        )
+        val clearCache = buildPluginDetailConfirmationDialogSpec(
+            action = PluginDetailConfirmAction.ClearCache,
+            pluginTitle = "Weather Toolkit",
+        )
+        val restoreDefaults = buildPluginDetailConfirmationDialogSpec(
+            action = PluginDetailConfirmAction.RestoreDefaults,
+            pluginTitle = "Weather Toolkit",
+        )
+
+        assertEquals(R.string.plugin_action_confirm_disable_title, disable.titleRes)
+        assertEquals(R.string.plugin_action_confirm_disable_message, disable.messageRes)
+        assertEquals("Weather Toolkit", disable.pluginTitle)
+
+        assertEquals(R.string.plugin_action_confirm_uninstall_title, uninstall.titleRes)
+        assertEquals(R.string.plugin_action_confirm_uninstall_message, uninstall.messageRes)
+        assertEquals("Weather Toolkit", uninstall.pluginTitle)
+
+        assertEquals(R.string.plugin_action_confirm_clear_cache_title, clearCache.titleRes)
+        assertEquals(R.string.plugin_action_confirm_clear_cache_message, clearCache.messageRes)
+        assertEquals("Weather Toolkit", clearCache.pluginTitle)
+
+        assertEquals(R.string.plugin_action_confirm_restore_defaults_title, restoreDefaults.titleRes)
+        assertEquals(R.string.plugin_action_confirm_restore_defaults_message, restoreDefaults.messageRes)
+        assertEquals("Weather Toolkit", restoreDefaults.pluginTitle)
+    }
+
+    @Test
+    fun `plugin detail manage section no longer renders uninstall policy chips`() {
+        val source = listOf(
+            File("app/src/main/java/com/astrbot/android/ui/screen/PluginDetailScreen.kt"),
+            File("src/main/java/com/astrbot/android/ui/screen/PluginDetailScreen.kt"),
+        ).first(File::exists).readText()
+
+        assertFalse(source.contains("DetailKeepDataPolicyTag"))
+        assertFalse(source.contains("DetailRemoveDataPolicyTag"))
+        assertFalse(source.contains("plugin_action_uninstall_policy_keep_data"))
+        assertFalse(source.contains("plugin_action_uninstall_policy_remove_data"))
+    }
+
+    @Test
+    fun `plugin detail removes recovery card and unlisted manage entries`() {
+        val source = listOf(
+            File("app/src/main/java/com/astrbot/android/ui/screen/PluginDetailScreen.kt"),
+            File("src/main/java/com/astrbot/android/ui/screen/PluginDetailScreen.kt"),
+        ).first(File::exists).readText()
+
+        assertFalse(source.contains("PluginDetailRecoveryAndUpgradeSection"))
+        assertFalse(source.contains("RecoveryAndUpgrade"))
+        assertFalse(source.contains("DetailRecoveryTag"))
+        assertFalse(source.contains("DetailOpenWorkspaceActionTag"))
+        assertFalse(source.contains("DetailOpenTriggersActionTag"))
+        assertFalse(source.contains("DetailRetryActionTag"))
+        assertFalse(source.contains("DetailCopyDiagnosticsActionTag"))
+        assertTrue(source.contains("PluginDetailConfirmAction.ClearCache"))
+        assertTrue(source.contains("PluginDetailConfirmAction.RestoreDefaults"))
+    }
+
+    @Test
+    fun `plugin detail uses confirmation dialogs for destructive actions`() {
+        assertTrue(pluginDetailUsesConfirmationDialogs())
     }
 }

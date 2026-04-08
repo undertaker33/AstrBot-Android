@@ -1,5 +1,6 @@
 package com.astrbot.android.ui.screen
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -35,6 +36,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -46,6 +48,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +61,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -67,9 +75,13 @@ import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSourceType
-import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.ui.AppDestination
 import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.RegisterSecondaryTopBar
+import com.astrbot.android.ui.SecondaryTopBarSpec
+import com.astrbot.android.ui.SecondaryTopBarPlaceholder
+import com.astrbot.android.ui.component.DownloadProgressDialog
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
@@ -94,6 +106,7 @@ fun PluginScreen(
     pluginViewModel: PluginViewModel = astrBotViewModel(),
     workspaceTab: PluginWorkspaceTab = PluginWorkspaceTab.LOCAL,
     onOpenPluginDetail: (String) -> Unit = {},
+    onOpenMarketPluginDetail: (String) -> Unit = {},
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     val localPackagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -125,7 +138,80 @@ fun PluginScreen(
                 uiState = uiState,
                 onSearchQueryChange = pluginViewModel::updateMarketSearchQuery,
                 onInstallOrUpdate = pluginViewModel::installOrUpdateCatalogPlugin,
+                onOpenMarketPluginDetail = onOpenMarketPluginDetail,
+                onRefreshMarketCatalog = pluginViewModel::refreshMarketCatalog,
+                onMarketRefreshFeedbackShown = pluginViewModel::clearMarketRefreshFeedback,
             )
+        }
+        uiState.downloadProgress?.let { progress ->
+            DownloadProgressDialog(progress = progress)
+        }
+    }
+}
+
+@Composable
+fun PluginMarketDetailScreenRoute(
+    pluginId: String,
+    onBack: () -> Unit,
+    pluginViewModel: PluginViewModel = astrBotViewModel(),
+) {
+    val uiState by pluginViewModel.uiState.collectAsState()
+    val uriHandler = LocalUriHandler.current
+    val detailPresentation = buildPluginMarketDetailPresentation(
+        uiState = uiState,
+        pluginId = pluginId,
+    )
+    RegisterSecondaryTopBar(
+        route = AppDestination.PluginMarketDetail.route,
+        spec = SecondaryTopBarSpec.SubPage(
+            title = detailPresentation?.title ?: stringResource(R.string.plugin_workspace_tab_market),
+            onBack = onBack,
+        ),
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MonochromeUi.pageBackground),
+    ) {
+        if (detailPresentation != null) {
+            PluginMarketDetailPage(
+                detail = detailPresentation,
+                lastActionMessage = uiState.detailActionState.lastActionMessage,
+                isInstallActionRunning = uiState.isInstallActionRunning,
+                onBack = onBack,
+                onOpenRepository = {
+                    detailPresentation.repositoryUrl.takeIf { it.isNotBlank() }?.let(uriHandler::openUri)
+                },
+                onSelectVersion = { versionKey ->
+                    pluginViewModel.selectMarketPluginVersion(detailPresentation.pluginId, versionKey)
+                },
+                onInstallOrUpdate = { pluginViewModel.installOrUpdateCatalogPlugin(detailPresentation.pluginId) },
+                showInlineBackAction = false,
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = PluginUiSpec.ScreenHorizontalPadding)
+                    .testTag(PluginUiSpec.MarketDetailPageTag),
+                contentPadding = PaddingValues(
+                    top = PluginUiSpec.ScreenVerticalPadding,
+                    bottom = PluginUiSpec.ListContentBottomPadding,
+                ),
+            ) {
+                item {
+                    SecondaryTopBarPlaceholder()
+                }
+                item {
+                    PluginSectionEmptyState(
+                        message = stringResource(R.string.plugin_market_empty_message),
+                    )
+                }
+            }
+        }
+        uiState.downloadProgress?.let { progress ->
+            DownloadProgressDialog(progress = progress)
         }
     }
 }
@@ -562,96 +648,242 @@ private fun PluginInstallActionFields(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PluginMarketWorkspace(
     uiState: PluginScreenUiState,
     onSearchQueryChange: (String) -> Unit,
     onInstallOrUpdate: (String) -> Unit,
+    onOpenMarketPluginDetail: (String) -> Unit,
+    onRefreshMarketCatalog: () -> Unit,
+    onMarketRefreshFeedbackShown: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
     val uriHandler = LocalUriHandler.current
-    var selectedMarketPluginId by rememberSaveable { mutableStateOf<String?>(null) }
+    val pullToRefreshState = rememberPullToRefreshState()
+    val refreshOffsetPx = with(density) { PullToRefreshDefaults.PositionalThreshold.toPx() }
+    var requestedPage by rememberSaveable { mutableStateOf(1) }
+    var showPageJumpDialog by rememberSaveable { mutableStateOf(false) }
+    var pageJumpDraft by rememberSaveable { mutableStateOf("") }
+    var pageJumpHasError by rememberSaveable { mutableStateOf(false) }
     val presentation = buildPluginMarketWorkspacePresentation(
         uiState = uiState,
         searchQuery = uiState.marketSearchQuery,
     )
-    val detailPresentation = selectedMarketPluginId?.let {
-        buildPluginMarketDetailPresentation(
-            uiState = uiState,
-            pluginId = it,
-        )
+    val pagePresentation = buildPluginMarketPagePresentation(
+        cards = presentation.cards,
+        requestedPage = requestedPage,
+    )
+    val refreshFeedbackText = uiState.marketRefreshFeedback?.asText()
+
+    LaunchedEffect(uiState.marketSearchQuery, presentation.cards.size) {
+        requestedPage = buildPluginMarketPagePresentation(
+            cards = presentation.cards,
+            requestedPage = requestedPage,
+        ).currentPage
     }
 
-    LaunchedEffect(selectedMarketPluginId, detailPresentation) {
-        if (selectedMarketPluginId != null && detailPresentation == null) {
-            selectedMarketPluginId = null
+    LaunchedEffect(refreshFeedbackText) {
+        if (!refreshFeedbackText.isNullOrBlank()) {
+            Toast.makeText(context, refreshFeedbackText, Toast.LENGTH_SHORT).show()
+            onMarketRefreshFeedbackShown()
         }
     }
 
-    if (detailPresentation != null) {
-        PluginMarketDetailPage(
-            detail = detailPresentation,
-            lastActionMessage = uiState.detailActionState.lastActionMessage,
-            isInstallActionRunning = uiState.isInstallActionRunning,
-            onBack = { selectedMarketPluginId = null },
-            onOpenRepository = {
-                detailPresentation.repositoryUrl.takeIf { it.isNotBlank() }?.let(uriHandler::openUri)
+    if (showPageJumpDialog) {
+        AlertDialog(
+            onDismissRequest = { showPageJumpDialog = false },
+            modifier = Modifier.testTag(PluginUiSpec.MarketPagerJumpDialogTag),
+            title = {
+                Text(text = stringResource(R.string.plugin_market_page_jump_title))
             },
-            onInstallOrUpdate = { onInstallOrUpdate(detailPresentation.pluginId) },
+            text = {
+                OutlinedTextField(
+                    value = pageJumpDraft,
+                    onValueChange = { value ->
+                        pageJumpDraft = value
+                        pageJumpHasError = false
+                    },
+                    label = { Text(stringResource(R.string.plugin_market_page_jump_label)) },
+                    singleLine = true,
+                    isError = pageJumpHasError,
+                    supportingText = {
+                        if (pageJumpHasError) {
+                            Text(stringResource(R.string.plugin_market_page_jump_error, pagePresentation.totalPages))
+                        }
+                    },
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val targetPage = pageJumpDraft.trim().toIntOrNull()
+                        if (targetPage != null && targetPage in 1..pagePresentation.totalPages) {
+                            requestedPage = targetPage
+                            showPageJumpDialog = false
+                            pageJumpHasError = false
+                        } else {
+                            pageJumpHasError = true
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.common_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPageJumpDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
         )
-        return
     }
 
-    LazyColumn(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = PluginUiSpec.ScreenHorizontalPadding)
+            .pullToRefresh(
+                isRefreshing = uiState.isMarketRefreshRunning,
+                state = pullToRefreshState,
+                onRefresh = onRefreshMarketCatalog,
+            )
             .testTag(PluginUiSpec.MarketPageTag),
-        contentPadding = PaddingValues(
-            top = PluginUiSpec.ScreenVerticalPadding,
-            bottom = PluginUiSpec.ListContentBottomPadding,
-        ),
-        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
     ) {
-        item {
-            OutlinedTextField(
-                value = uiState.marketSearchQuery,
-                onValueChange = onSearchQueryChange,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = PluginUiSpec.SummaryShape,
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = null,
-                        tint = MonochromeUi.textSecondary,
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = pullToRefreshState.distanceFraction.coerceIn(0f, 1f) * refreshOffsetPx
+                }
+                .padding(horizontal = PluginUiSpec.ScreenHorizontalPadding),
+            contentPadding = PaddingValues(
+                top = PluginUiSpec.ScreenVerticalPadding,
+                bottom = PluginUiSpec.ListContentBottomPadding,
+            ),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
+        ) {
+            item {
+                OutlinedTextField(
+                    value = uiState.marketSearchQuery,
+                    onValueChange = onSearchQueryChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = PluginUiSpec.SummaryShape,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = MonochromeUi.textSecondary,
+                        )
+                    },
+                    placeholder = {
+                        Text(
+                            text = stringResource(R.string.plugin_market_search_placeholder),
+                            color = MonochromeUi.textSecondary,
+                        )
+                    },
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+            }
+            if (presentation.cards.isEmpty()) {
+                item {
+                    PluginSectionEmptyState(
+                        message = stringResource(R.string.plugin_market_empty_message),
                     )
-                },
-                placeholder = {
-                    Text(
-                        text = stringResource(R.string.plugin_market_search_placeholder),
-                        color = MonochromeUi.textSecondary,
+                }
+            } else {
+                items(pagePresentation.visibleCards, key = { it.stableKey }) { card ->
+                    PluginMarketCard(
+                        card = card,
+                        onOpenDetail = { onOpenMarketPluginDetail(card.pluginId) },
+                        onOpenRepository = {
+                            card.repositoryUrl.takeIf { it.isNotBlank() }?.let(uriHandler::openUri)
+                        },
+                        onInstallOrUpdate = { onInstallOrUpdate(card.pluginId) },
                     )
-                },
-                colors = monochromeOutlinedTextFieldColors(),
+                }
+                item {
+                    PluginMarketPager(
+                        page = pagePresentation,
+                        onPrevious = { requestedPage = (pagePresentation.currentPage - 1).coerceAtLeast(1) },
+                        onNext = {
+                            requestedPage = (pagePresentation.currentPage + 1).coerceAtMost(pagePresentation.totalPages)
+                        },
+                        onJump = {
+                            pageJumpDraft = pagePresentation.currentPage.toString()
+                            pageJumpHasError = false
+                            showPageJumpDialog = true
+                        },
+                    )
+                }
+            }
+        }
+        Box(modifier = Modifier.align(Alignment.TopCenter)) {
+            PullToRefreshDefaults.Indicator(
+                state = pullToRefreshState,
+                isRefreshing = uiState.isMarketRefreshRunning,
             )
         }
-        if (presentation.cards.isEmpty()) {
-            item {
-                PluginSectionEmptyState(
-                    message = stringResource(R.string.plugin_market_empty_message),
-                )
-            }
-        } else {
-            items(presentation.cards, key = { it.pluginId }) { card ->
-                PluginMarketCard(
-                    card = card,
-                    onOpenDetail = { selectedMarketPluginId = card.pluginId },
-                    onOpenRepository = {
-                        card.repositoryUrl.takeIf { it.isNotBlank() }?.let(uriHandler::openUri)
-                    },
-                    onInstallOrUpdate = { onInstallOrUpdate(card.pluginId) },
-                )
-            }
+    }
+}
+
+@Composable
+private fun PluginMarketPager(
+    page: PluginMarketPagePresentation,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onJump: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.MarketPagerTag),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = onPrevious,
+            enabled = page.canGoPrevious,
+            modifier = Modifier
+                .weight(1f)
+                .testTag(PluginUiSpec.MarketPagerPreviousActionTag),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = MonochromeUi.cardBackground,
+                contentColor = MonochromeUi.textPrimary,
+                disabledContentColor = MonochromeUi.textSecondary,
+            ),
+        ) {
+            Text(stringResource(R.string.plugin_market_pager_previous))
+        }
+        TextButton(
+            onClick = onJump,
+            modifier = Modifier
+                .weight(1f)
+                .testTag(PluginUiSpec.MarketPagerJumpActionTag),
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.plugin_market_pager_label,
+                    page.currentPage,
+                    page.totalPages,
+                ),
+                color = MonochromeUi.textPrimary,
+            )
+        }
+        OutlinedButton(
+            onClick = onNext,
+            enabled = page.canGoNext,
+            modifier = Modifier
+                .weight(1f)
+                .testTag(PluginUiSpec.MarketPagerNextActionTag),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = MonochromeUi.cardBackground,
+                contentColor = MonochromeUi.textPrimary,
+                disabledContentColor = MonochromeUi.textSecondary,
+            ),
+        ) {
+            Text(stringResource(R.string.plugin_market_pager_next))
         }
     }
 }
@@ -663,7 +895,9 @@ private fun PluginMarketDetailPage(
     isInstallActionRunning: Boolean,
     onBack: () -> Unit,
     onOpenRepository: () -> Unit,
+    onSelectVersion: (String) -> Unit,
     onInstallOrUpdate: () -> Unit,
+    showInlineBackAction: Boolean = true,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -676,21 +910,28 @@ private fun PluginMarketDetailPage(
         ),
         verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
     ) {
-        item {
-            TextButton(
-                onClick = onBack,
-                modifier = Modifier.testTag(PluginUiSpec.MarketDetailBackActionTag),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.ArrowBack,
-                    contentDescription = null,
-                    tint = MonochromeUi.textPrimary,
-                )
-                Text(
-                    text = stringResource(R.string.plugin_market_detail_back),
-                    color = MonochromeUi.textPrimary,
-                )
+        if (!showInlineBackAction) {
+            item {
+                SecondaryTopBarPlaceholder()
+            }
+        }
+        if (showInlineBackAction) {
+            item {
+                TextButton(
+                    onClick = onBack,
+                    modifier = Modifier.testTag(PluginUiSpec.MarketDetailBackActionTag),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ArrowBack,
+                        contentDescription = null,
+                        tint = MonochromeUi.textPrimary,
+                    )
+                    Text(
+                        text = stringResource(R.string.plugin_market_detail_back),
+                        color = MonochromeUi.textPrimary,
+                    )
+                }
             }
         }
         item {
@@ -776,6 +1017,58 @@ private fun PluginMarketDetailPage(
                 )
             }
         }
+        if (detail.versionOptions.isNotEmpty()) {
+            item {
+                PluginMarketSectionCard(
+                    title = stringResource(R.string.plugin_market_detail_version_options_title),
+                    tag = PluginUiSpec.MarketDetailVersionOptionsTag,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        detail.versionOptions.forEach { option ->
+                            FilterChip(
+                                selected = option.stableKey == detail.selectedVersionKey,
+                                onClick = { onSelectVersion(option.stableKey) },
+                                enabled = option.isSelectable,
+                                label = {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.plugin_market_version_option_label,
+                                            option.versionLabel,
+                                            option.sourceName.ifBlank { option.sourceId },
+                                            if (option.isSelectable) {
+                                                stringResource(R.string.plugin_market_version_option_compatible)
+                                            } else {
+                                                stringResource(R.string.plugin_market_version_option_incompatible)
+                                            },
+                                        ),
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MonochromeUi.fabBackground.copy(alpha = 0.16f),
+                                    selectedLabelColor = MonochromeUi.textPrimary,
+                                    labelColor = MonochromeUi.textPrimary,
+                                    disabledLabelColor = MonochromeUi.textSecondary,
+                                ),
+                            )
+                        }
+                    }
+                    if (!detail.selectedVersionIsSelectable) {
+                        Text(
+                            text = detail.selectedVersionCompatibility.notes.ifBlank {
+                                stringResource(R.string.plugin_market_no_compatible_version)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MonochromeUi.textSecondary,
+                        )
+                    }
+                }
+            }
+        }
         item {
             PluginMarketSectionCard(
                 title = stringResource(R.string.plugin_market_detail_actions_title),
@@ -796,7 +1089,9 @@ private fun PluginMarketDetailPage(
                     MonochromePrimaryActionButton(
                         label = marketPrimaryActionLabel(detail.primaryAction),
                         onClick = onInstallOrUpdate,
-                        enabled = detail.primaryAction != PluginMarketPrimaryAction.INSTALLED && !isInstallActionRunning,
+                        enabled = detail.selectedVersionIsSelectable &&
+                            detail.primaryAction != PluginMarketPrimaryAction.INSTALLED &&
+                            !isInstallActionRunning,
                         modifier = Modifier
                             .weight(1f)
                             .testTag(PluginUiSpec.MarketDetailPrimaryActionTag),
@@ -1963,7 +2258,6 @@ private fun PluginActionSection(
     onEnable: () -> Unit,
     onDisable: () -> Unit,
     onRequestUpgrade: () -> Unit,
-    onSelectPolicy: (PluginUninstallPolicy) -> Unit,
     onUninstall: () -> Unit,
 ) {
     val incompatiblePalette = PluginUiSpec.compatibilityBadgePalette(PluginCompatibilityStatus.INCOMPATIBLE)
@@ -2021,25 +2315,6 @@ private fun PluginActionSection(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MonochromeUi.textSecondary,
             )
-            Text(
-                text = stringResource(R.string.plugin_action_uninstall_policy_title),
-                style = MaterialTheme.typography.labelMedium,
-                color = MonochromeUi.textSecondary,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PolicyToggleButton(
-                    label = stringResource(R.string.plugin_action_uninstall_policy_keep_data),
-                    selected = actionState.uninstallPolicy == PluginUninstallPolicy.KEEP_DATA,
-                    tag = PluginUiSpec.DetailKeepDataPolicyTag,
-                    onClick = { onSelectPolicy(PluginUninstallPolicy.KEEP_DATA) },
-                )
-                PolicyToggleButton(
-                    label = stringResource(R.string.plugin_action_uninstall_policy_remove_data),
-                    selected = actionState.uninstallPolicy == PluginUninstallPolicy.REMOVE_DATA,
-                    tag = PluginUiSpec.DetailRemoveDataPolicyTag,
-                    onClick = { onSelectPolicy(PluginUninstallPolicy.REMOVE_DATA) },
-                )
-            }
             actionState.lastActionMessage?.let { message ->
                 PluginActionFeedbackCard(message = message)
             }
@@ -2433,7 +2708,7 @@ private fun PluginUpgradeDialog(
                 text = if (state.isSecondaryConfirmationStep) {
                     stringResource(R.string.plugin_upgrade_confirm_secondary_title)
                 } else {
-                    stringResource(R.string.plugin_upgrade_confirm_title)
+                    stringResource(R.string.plugin_update_available_dialog_title)
                 },
             )
         },

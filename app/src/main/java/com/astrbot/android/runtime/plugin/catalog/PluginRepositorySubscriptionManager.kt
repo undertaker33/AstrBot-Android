@@ -4,6 +4,7 @@ import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginRepositorySource
+import com.astrbot.android.runtime.RuntimeLogRepository
 import java.net.URI
 import java.security.MessageDigest
 
@@ -19,6 +20,7 @@ class PluginRepositorySubscriptionManager(
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun subscribeAndSync(rawCatalogUrl: String): PluginRepositorySubscriptionResult {
+        RuntimeLogRepository.append("Plugin market subscribe start: rawUrl=$rawCatalogUrl")
         val intent = PluginInstallIntent.repositoryUrl(rawCatalogUrl)
         val catalogUrl = intent.url
         val existing = store.listRepositorySources().firstOrNull { it.catalogUrl == catalogUrl }
@@ -28,9 +30,21 @@ class PluginRepositorySubscriptionManager(
             catalogUrl = catalogUrl,
             updatedAt = now(),
         )
+        RuntimeLogRepository.append(
+            "Plugin market subscribe normalized: " +
+                "catalogUrl=$catalogUrl " +
+                "existing=${existing != null} " +
+                "sourceId=${source.sourceId}",
+        )
         store.upsertRepositorySource(source)
         val syncState = synchronizer.sync(source.sourceId)
         val refreshed = store.getRepositorySource(source.sourceId) ?: source
+        RuntimeLogRepository.append(
+            "Plugin market subscribe finished: " +
+                "sourceId=${refreshed.sourceId} " +
+                "status=${syncState.lastSyncStatus.name} " +
+                "plugins=${refreshed.plugins.size}",
+        )
         return PluginRepositorySubscriptionResult(
             source = refreshed,
             syncState = syncState,

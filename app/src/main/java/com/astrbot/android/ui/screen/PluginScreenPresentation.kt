@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.screen
 
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
+import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginPermissionDiff
@@ -9,6 +10,8 @@ import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.runtime.plugin.compareVersions
 import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
+import com.astrbot.android.ui.viewmodel.PluginCatalogEntryCardUiState
+import com.astrbot.android.ui.viewmodel.PluginCatalogEntryVersionUiState
 import com.astrbot.android.ui.viewmodel.PluginFailureUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.MonochromeUi
@@ -157,7 +160,28 @@ enum class PluginMarketPrimaryAction {
     INSTALLED,
 }
 
+data class PluginMarketVersionOptionPresentation(
+    val stableKey: String,
+    val sourceId: String,
+    val sourceName: String,
+    val versionLabel: String,
+    val packageUrl: String,
+    val publishedAt: Long,
+    val protocolVersion: Int,
+    val minHostVersion: String,
+    val maxHostVersion: String,
+    val changelogSummary: String,
+    val compatibilityState: PluginCompatibilityState,
+    val isSelectable: Boolean,
+)
+
+private data class PluginMarketVersionOptionWithSourceOrder(
+    val option: PluginMarketVersionOptionPresentation,
+    val sourceOrder: Int,
+)
+
 data class PluginMarketCardPresentation(
+    val sourceId: String,
     val pluginId: String,
     val title: String,
     val description: String,
@@ -165,10 +189,20 @@ data class PluginMarketCardPresentation(
     val versionLabel: String,
     val status: PluginMarketStatus,
     val repositoryUrl: String,
-)
+) {
+    val stableKey: String = "$sourceId:$pluginId"
+}
 
 data class PluginMarketWorkspacePresentation(
     val cards: List<PluginMarketCardPresentation>,
+)
+
+data class PluginMarketPagePresentation(
+    val currentPage: Int,
+    val totalPages: Int,
+    val visibleCards: List<PluginMarketCardPresentation>,
+    val canGoPrevious: Boolean,
+    val canGoNext: Boolean,
 )
 
 data class PluginMarketDetailPresentation(
@@ -183,6 +217,11 @@ data class PluginMarketDetailPresentation(
     val repositoryUrl: String,
     val repositoryHost: String,
     val sourceName: String,
+    val versionOptions: List<PluginMarketVersionOptionPresentation> = emptyList(),
+    val selectedVersionKey: String = "",
+    val selectedVersionLabel: String = "",
+    val selectedVersionCompatibility: PluginCompatibilityState = PluginCompatibilityState.unknown(),
+    val selectedVersionIsSelectable: Boolean = true,
 )
 
 data class PluginHealthOverviewPresentation(
@@ -280,17 +319,30 @@ internal fun buildPluginMarketWorkspacePresentation(
 ): PluginMarketWorkspacePresentation {
     val normalizedQuery = searchQuery.trim()
     val cards = uiState.catalogEntries
-        .map { entry ->
-            val installedRecord = uiState.records.firstOrNull { it.pluginId == entry.pluginId }
+        .groupBy { entry -> entry.pluginId }
+        .mapNotNull { (pluginId, entries) ->
+            val defaultOption = buildPluginMarketVersionOptions(
+                entries = entries,
+                pluginId = pluginId,
+                hostVersion = uiState.hostVersion,
+                supportedProtocolVersion = uiState.supportedPluginProtocolVersion,
+            ).firstOrNull()
+            val entry = defaultOption?.let { option ->
+                entries.firstOrNull { it.sourceId == option.sourceId }
+            } ?: entries.minWithOrNull(compareBy<PluginCatalogEntryCardUiState> { it.title.lowercase() }.thenBy { it.sourceId })
+                ?: return@mapNotNull null
+            val versionLabel = defaultOption?.versionLabel ?: entry.latestVersion
+            val installedRecord = uiState.records.firstOrNull { it.pluginId == pluginId }
             PluginMarketCardPresentation(
-                pluginId = entry.pluginId,
+                sourceId = defaultOption?.sourceId ?: entry.sourceId,
+                pluginId = pluginId,
                 title = entry.title,
                 description = entry.summary,
                 author = entry.author,
-                versionLabel = entry.latestVersion,
+                versionLabel = versionLabel,
                 status = when {
                     installedRecord == null -> PluginMarketStatus.NOT_INSTALLED
-                    compareVersions(entry.latestVersion, installedRecord.installedVersion) > 0 ->
+                    compareVersions(versionLabel, installedRecord.installedVersion) > 0 ->
                         PluginMarketStatus.UPDATE_AVAILABLE
                     else -> PluginMarketStatus.INSTALLED
                 },
@@ -302,15 +354,100 @@ internal fun buildPluginMarketWorkspacePresentation(
     return PluginMarketWorkspacePresentation(cards = cards)
 }
 
+internal fun buildPluginMarketVersionOptions(
+    entries: List<PluginCatalogEntryCardUiState>,
+    pluginId: String,
+    hostVersion: String,
+    supportedProtocolVersion: Int,
+): List<PluginMarketVersionOptionPresentation> {
+    return entries
+        .withIndex()
+        .asSequence()
+        .filter { (_, entry) -> entry.pluginId == pluginId }
+        .flatMap { (sourceOrder, entry) ->
+            entry.effectiveMarketVersions().asSequence().map { version ->
+                val compatibilityState = evaluateCatalogVersionCompatibility(
+                    version = version,
+                    hostVersion = hostVersion,
+                    supportedProtocolVersion = supportedProtocolVersion,
+                )
+                PluginMarketVersionOptionWithSourceOrder(
+                    option = PluginMarketVersionOptionPresentation(
+                        stableKey = listOf(entry.pluginId, entry.sourceId, version.version, version.packageUrl)
+                            .joinToString(separator = "|"),
+                        sourceId = entry.sourceId,
+                        sourceName = entry.sourceName,
+                        versionLabel = version.version,
+                        packageUrl = version.packageUrl,
+                        publishedAt = version.publishedAt,
+                        protocolVersion = version.protocolVersion,
+                        minHostVersion = version.minHostVersion,
+                        maxHostVersion = version.maxHostVersion,
+                        changelogSummary = summarizeVersionChangelog(version.changelog),
+                        compatibilityState = compatibilityState,
+                        isSelectable = compatibilityState.status == PluginCompatibilityStatus.COMPATIBLE,
+                    ),
+                    sourceOrder = sourceOrder,
+                )
+            }
+        }
+        .sortedWith(
+            compareByDescending<PluginMarketVersionOptionWithSourceOrder> { it.option.isSelectable }
+                .thenComparator { left, right ->
+                    compareVersions(right.option.versionLabel, left.option.versionLabel)
+                }
+                .thenByDescending { it.option.publishedAt }
+                .thenBy { it.sourceOrder }
+                .thenBy { it.option.sourceId },
+        )
+        .distinctBy { wrapped -> listOf(pluginId, wrapped.option.versionLabel, wrapped.option.packageUrl) }
+        .map { wrapped -> wrapped.option }
+        .toList()
+}
+
+internal fun buildPluginMarketPagePresentation(
+    cards: List<PluginMarketCardPresentation>,
+    requestedPage: Int,
+    pageSize: Int = 2,
+): PluginMarketPagePresentation {
+    require(pageSize > 0) { "pageSize must be greater than 0." }
+    val totalPages = maxOf(1, (cards.size + pageSize - 1) / pageSize)
+    val currentPage = requestedPage.coerceIn(1, totalPages)
+    val startIndex = (currentPage - 1) * pageSize
+    val visibleCards = cards.drop(startIndex).take(pageSize)
+    return PluginMarketPagePresentation(
+        currentPage = currentPage,
+        totalPages = totalPages,
+        visibleCards = visibleCards,
+        canGoPrevious = currentPage > 1,
+        canGoNext = currentPage < totalPages,
+    )
+}
+
 internal fun buildPluginMarketDetailPresentation(
     uiState: PluginScreenUiState,
     pluginId: String,
 ): PluginMarketDetailPresentation? {
-    val entry = uiState.catalogEntries.firstOrNull { it.pluginId == pluginId } ?: return null
+    val entries = uiState.catalogEntries.filter { it.pluginId == pluginId }
+    if (entries.isEmpty()) return null
+    val versionOptions = buildPluginMarketVersionOptions(
+        entries = entries,
+        pluginId = pluginId,
+        hostVersion = uiState.hostVersion,
+        supportedProtocolVersion = uiState.supportedPluginProtocolVersion,
+    )
+    val selectedVersion = uiState.selectedMarketVersionKeys[pluginId]
+        ?.let { key -> versionOptions.firstOrNull { it.stableKey == key && it.isSelectable } }
+        ?: versionOptions.firstOrNull { it.isSelectable }
+        ?: versionOptions.firstOrNull()
+    val entry = selectedVersion?.let { option ->
+        entries.firstOrNull { it.sourceId == option.sourceId }
+    } ?: entries.first()
+    val selectedVersionLabel = selectedVersion?.versionLabel ?: entry.latestVersion
     val installedRecord = uiState.records.firstOrNull { it.pluginId == pluginId }
     val status = when {
         installedRecord == null -> PluginMarketStatus.NOT_INSTALLED
-        compareVersions(entry.latestVersion, installedRecord.installedVersion) > 0 ->
+        compareVersions(selectedVersionLabel, installedRecord.installedVersion) > 0 ->
             PluginMarketStatus.UPDATE_AVAILABLE
         else -> PluginMarketStatus.INSTALLED
     }
@@ -319,7 +456,7 @@ internal fun buildPluginMarketDetailPresentation(
         title = entry.title,
         author = entry.author,
         summary = entry.summary,
-        latestVersionLabel = entry.latestVersion,
+        latestVersionLabel = selectedVersionLabel,
         installedVersionLabel = installedRecord?.installedVersion.orEmpty(),
         status = status,
         primaryAction = when (status) {
@@ -330,7 +467,72 @@ internal fun buildPluginMarketDetailPresentation(
         repositoryUrl = entry.repositoryUrl,
         repositoryHost = entry.repositoryUrl.toRepositoryHost(),
         sourceName = entry.sourceName,
+        versionOptions = versionOptions,
+        selectedVersionKey = selectedVersion?.stableKey.orEmpty(),
+        selectedVersionLabel = selectedVersionLabel,
+        selectedVersionCompatibility = selectedVersion?.compatibilityState ?: PluginCompatibilityState.unknown(),
+        selectedVersionIsSelectable = selectedVersion?.isSelectable ?: true,
     )
+}
+
+private fun PluginCatalogEntryCardUiState.effectiveMarketVersions(): List<PluginCatalogEntryVersionUiState> {
+    if (versions.isNotEmpty()) return versions
+    if (latestVersion.isBlank()) return emptyList()
+    return listOf(
+        PluginCatalogEntryVersionUiState(
+            version = latestVersion,
+            packageUrl = "",
+            publishedAt = 0L,
+            protocolVersion = 1,
+            minHostVersion = "0.0.0",
+            maxHostVersion = "",
+        ),
+    )
+}
+
+private fun evaluateCatalogVersionCompatibility(
+    version: PluginCatalogEntryVersionUiState,
+    hostVersion: String,
+    supportedProtocolVersion: Int,
+): PluginCompatibilityState {
+    return PluginCompatibilityState.fromChecks(
+        protocolSupported = version.protocolVersion == supportedProtocolVersion,
+        minHostVersionSatisfied = version.minHostVersion.isBlank() ||
+            compareVersions(hostVersion, version.minHostVersion) >= 0,
+        maxHostVersionSatisfied = version.maxHostVersion.isBlank() ||
+            compareVersions(hostVersion, version.maxHostVersion) <= 0,
+        notes = buildCatalogVersionCompatibilityNotes(
+            version = version,
+            hostVersion = hostVersion,
+            supportedProtocolVersion = supportedProtocolVersion,
+        ),
+    )
+}
+
+private fun buildCatalogVersionCompatibilityNotes(
+    version: PluginCatalogEntryVersionUiState,
+    hostVersion: String,
+    supportedProtocolVersion: Int,
+): String {
+    val notes = mutableListOf<String>()
+    if (version.protocolVersion != supportedProtocolVersion) {
+        notes += "Protocol version ${version.protocolVersion} is not supported."
+    }
+    if (version.minHostVersion.isNotBlank() && compareVersions(hostVersion, version.minHostVersion) < 0) {
+        notes += "Host version $hostVersion is below required minimum ${version.minHostVersion}."
+    }
+    if (version.maxHostVersion.isNotBlank() && compareVersions(hostVersion, version.maxHostVersion) > 0) {
+        notes += "Host version $hostVersion exceeds supported maximum ${version.maxHostVersion}."
+    }
+    return notes.joinToString(separator = " ")
+}
+
+private fun summarizeVersionChangelog(changelog: String): String {
+    return changelog
+        .lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.isNotBlank() }
+        .orEmpty()
 }
 
 internal fun buildPluginInstalledLibraryPresentation(

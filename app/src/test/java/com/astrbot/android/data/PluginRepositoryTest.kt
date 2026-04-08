@@ -318,23 +318,6 @@ class PluginRepositoryTest {
     }
 
     @Test
-    fun repository_updates_uninstall_policy_and_persists_it() {
-        val dao = InMemoryPluginInstallAggregateDao()
-        val record = sampleRecord(version = "1.0.0", uninstallPolicy = PluginUninstallPolicy.KEEP_DATA, lastUpdatedAt = 10L)
-        dao.seed(record)
-        resetPluginRepositoryForTest(dao = dao, initialized = true, now = 800L)
-
-        val updated = PluginRepository.updateUninstallPolicy(record.pluginId, PluginUninstallPolicy.REMOVE_DATA)
-
-        assertEquals(PluginUninstallPolicy.REMOVE_DATA, updated.uninstallPolicy)
-        assertEquals(800L, updated.lastUpdatedAt)
-        assertEquals(
-            PluginUninstallPolicy.REMOVE_DATA,
-            runBlocking { dao.getPluginInstallAggregate(record.pluginId) }!!.toInstallRecord().uninstallPolicy,
-        )
-    }
-
-    @Test
     fun repository_updates_failure_state_and_persists_it() {
         val dao = InMemoryPluginInstallAggregateDao()
         val record = sampleRecord(version = "1.0.0", lastUpdatedAt = 10L)
@@ -408,10 +391,35 @@ class PluginRepositoryTest {
     @Test
     fun repository_uninstall_remove_data_triggers_cleanup_and_removes_record() {
         val dao = InMemoryPluginInstallAggregateDao()
-        val record = sampleRecord(version = "1.0.0", uninstallPolicy = PluginUninstallPolicy.KEEP_DATA)
+        val configDao = InMemoryPluginConfigSnapshotDao()
+        val packageFile = Files.createTempFile("plugin-package-", ".zip").toFile().apply {
+            writeText("package")
+        }
+        val extractedDir = Files.createTempDirectory("plugin-extracted-").toFile().apply {
+            File(this, "manifest.json").writeText("{}")
+        }
+        val record = sampleRecord(
+            version = "1.0.0",
+            uninstallPolicy = PluginUninstallPolicy.KEEP_DATA,
+            localPackagePath = packageFile.absolutePath,
+            extractedDir = extractedDir.absolutePath,
+        )
         dao.seed(record)
+        configDao.seed(
+            PluginConfigSnapshotEntity(
+                pluginId = record.pluginId,
+                coreConfigJson = """{"enabled":true}""",
+                extensionConfigJson = """{"token":"demo"}""",
+                updatedAt = 123L,
+            ),
+        )
         val remover = FakePluginDataRemover()
-        resetPluginRepositoryForTest(dao = dao, initialized = true, dataRemover = remover)
+        resetPluginRepositoryForTest(
+            dao = dao,
+            configDao = configDao,
+            initialized = true,
+            dataRemover = remover,
+        )
 
         val result = PluginRepository.uninstall(record.pluginId, PluginUninstallPolicy.REMOVE_DATA)
 
@@ -419,6 +427,9 @@ class PluginRepositoryTest {
         assertEquals(PluginUninstallPolicy.REMOVE_DATA, result.policy)
         assertEquals(true, result.removedData)
         assertEquals(listOf(record.pluginId), remover.removedRecords.map { it.pluginId })
+        assertEquals(false, packageFile.exists())
+        assertEquals(false, extractedDir.exists())
+        assertEquals(null, runBlocking { configDao.get(record.pluginId) })
         assertEquals(null, runBlocking { dao.getPluginInstallAggregate(record.pluginId) })
     }
 
@@ -749,6 +760,58 @@ class PluginRepositoryTest {
     }
 
     @Test
+    fun repository_prefers_highest_compatible_update_when_newest_version_is_incompatible() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        val dao = InMemoryPluginInstallAggregateDao()
+        resetPluginRepositoryForTest(
+            dao = dao,
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        PluginRepository.upsert(
+            sampleRecord(
+                version = "1.0.0",
+                sourceType = PluginSourceType.REPOSITORY,
+                catalogSourceId = "official",
+                installedPackageUrl = "https://repo.example.com/packages/demo-1.0.0.zip",
+            ),
+        )
+        PluginRepository.replaceRepositoryCatalog(
+            sampleRepositorySource(
+                pluginId = "com.example.demo",
+                versions = listOf(
+                    catalogVersion(version = "1.0.0"),
+                    catalogVersion(
+                        version = "1.5.0",
+                        packageUrl = "https://repo.example.com/packages/demo-1.5.0.zip",
+                        minHostVersion = "0.3.0",
+                        changelog = "Latest compatible build",
+                    ),
+                    catalogVersion(
+                        version = "2.0.0",
+                        packageUrl = "https://repo.example.com/packages/demo-2.0.0.zip",
+                        minHostVersion = "9.0.0",
+                        changelog = "Requires newer host",
+                    ),
+                ),
+            ),
+        )
+
+        val availability = PluginRepository.getUpdateAvailability(
+            pluginId = "com.example.demo",
+            hostVersion = "0.3.6",
+            supportedProtocolVersion = 1,
+        )
+
+        assertEquals(true, availability?.updateAvailable)
+        assertEquals(true, availability?.canUpgrade)
+        assertEquals("1.5.0", availability?.latestVersion)
+        assertEquals("https://repo.example.com/packages/demo-1.5.0.zip", availability?.packageUrl)
+        assertEquals("Latest compatible build", availability?.changelogSummary)
+        assertEquals("", availability?.incompatibilityReason)
+    }
+
+    @Test
     fun repository_permission_diff_detects_risk_upgrades_and_secondary_confirmation() {
         val catalogDao = InMemoryPluginCatalogDao()
         val dao = InMemoryPluginInstallAggregateDao()
@@ -960,6 +1023,7 @@ private fun sampleRecord(
     catalogSourceId: String? = null,
     installedPackageUrl: String = "",
     lastCatalogCheckAtEpochMillis: Long? = null,
+    localPackagePath: String = "/tmp/$version.zip",
 ): PluginInstallRecord {
     val manifest = PluginManifest(
         pluginId = "com.example.demo",
@@ -992,7 +1056,7 @@ private fun sampleRecord(
         enabled = enabled,
         installedAt = installedAt,
         lastUpdatedAt = lastUpdatedAt,
-        localPackagePath = "/tmp/$version.zip",
+        localPackagePath = localPackagePath,
         extractedDir = extractedDir,
     )
 }

@@ -23,6 +23,8 @@ internal fun classifyNavigationMotionLevel(route: String?): NavigationMotionLeve
     return when {
         normalizedRoute in setOf("bots", "plugins", "chat", "config", "me") -> NavigationMotionLevel.TopLevel
         normalizedRoute.startsWith("plugins/detail/") || normalizedRoute == "plugins/detail/{pluginId}" -> NavigationMotionLevel.Detail
+        normalizedRoute.startsWith("plugins/market/detail/") ||
+            normalizedRoute == "plugins/market/detail/{pluginId}" -> NavigationMotionLevel.Detail
         normalizedRoute.startsWith("config/detail/") || normalizedRoute == "config/detail/{configId}" -> NavigationMotionLevel.Detail
         normalizedRoute.startsWith("asset-management/") && normalizedRoute != "asset-management" -> NavigationMotionLevel.Detail
         normalizedRoute in setOf(

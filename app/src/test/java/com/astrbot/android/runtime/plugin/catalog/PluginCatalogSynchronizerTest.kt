@@ -9,6 +9,7 @@ import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -17,6 +18,7 @@ import org.junit.Test
 class PluginCatalogSynchronizerTest {
     @Test
     fun sync_persists_normalized_catalog_and_marks_source_success() = runBlocking {
+        RuntimeLogRepository.clear()
         val store = FakePluginCatalogSyncStore(
             source = subscribedSource(),
         )
@@ -43,6 +45,20 @@ class PluginCatalogSynchronizerTest {
         assertEquals(
             PluginCatalogSyncStatus.SUCCESS,
             store.sources.single().lastSyncStatus,
+        )
+        assertTrue(
+            RuntimeLogRepository.logs.value.any {
+                it.contains("Plugin market sync start") &&
+                    it.contains("sourceId=official")
+            },
+        )
+        assertTrue(
+            RuntimeLogRepository.logs.value.any {
+                it.contains("Plugin market sync success") &&
+                    it.contains("sourceId=official") &&
+                    it.contains("plugins=1") &&
+                    it.contains("versions=1")
+            },
         )
     }
 
@@ -119,13 +135,39 @@ class PluginCatalogSynchronizerTest {
         assertTrue(store.replacedCatalogs.isEmpty())
         assertEquals(listOf(sampleEntry()), store.sources.single().plugins)
     }
+
+    @Test
+    fun sync_normalizes_github_blob_catalog_url_before_fetching_existing_source() = runBlocking {
+        val blobSource = subscribedSource().copy(
+            catalogUrl = "https://github.com/undertaker33/astrbot_android_plugin_memes/blob/main/publish/0.1.0/repository/catalog.json",
+        )
+        val rawUrl = "https://raw.githubusercontent.com/undertaker33/astrbot_android_plugin_memes/main/publish/0.1.0/repository/catalog.json"
+        val store = FakePluginCatalogSyncStore(source = blobSource)
+        val fetcher = FakePluginCatalogFetcher(
+            responseByUrl = mapOf(rawUrl to successCatalogJson()),
+        )
+        val synchronizer = PluginCatalogSynchronizer(
+            store = store,
+            fetcher = fetcher,
+            now = { 9_999L },
+        )
+
+        val result = synchronizer.sync(blobSource.sourceId)
+
+        assertEquals(PluginCatalogSyncStatus.SUCCESS, result.lastSyncStatus)
+        assertEquals(rawUrl, fetcher.requestedUrls.single())
+        assertEquals(rawUrl, store.sources.single().catalogUrl)
+    }
 }
 
 private class FakePluginCatalogFetcher(
     private val responseByUrl: Map<String, String> = emptyMap(),
     private val failureByUrl: Map<String, Throwable> = emptyMap(),
 ) : PluginCatalogFetcher {
+    val requestedUrls = mutableListOf<String>()
+
     override suspend fun fetch(catalogUrl: String): String {
+        requestedUrls += catalogUrl
         failureByUrl[catalogUrl]?.let { throw it }
         return responseByUrl[catalogUrl] ?: error("No fake response for $catalogUrl")
     }

@@ -50,6 +50,7 @@ import com.astrbot.android.ui.screen.MeScreen
 import com.astrbot.android.ui.screen.ModuleBackupScreen
 import com.astrbot.android.ui.screen.PersonaScreen
 import com.astrbot.android.ui.screen.PluginDetailScreenRoute
+import com.astrbot.android.ui.screen.PluginMarketDetailScreenRoute
 import com.astrbot.android.ui.screen.PluginRuntimeLogScreenRoute
 import com.astrbot.android.ui.screen.PluginTriggerManagementScreenRoute
 import com.astrbot.android.ui.screen.PluginWorkspaceScreenRoute
@@ -235,6 +236,9 @@ internal fun AstrBotAppNavGraph(
                 onOpenPluginDetail = { pluginId ->
                     AppNavigator.open(navController, AppDestination.PluginDetail.routeFor(pluginId))
                 },
+                onOpenMarketPluginDetail = { pluginId ->
+                    AppNavigator.open(navController, AppDestination.PluginMarketDetail.routeFor(pluginId))
+                },
                 botWorkspaceTab = botWorkspaceTab,
                 onBotWorkspaceTabChange = onBotWorkspaceTabChange,
                 pluginWorkspaceTab = pluginWorkspaceTab,
@@ -252,18 +256,19 @@ internal fun AstrBotAppNavGraph(
             PluginDetailScreenRoute(
                 pluginId = pluginId,
                 onBack = { AppNavigator.back(navController) },
-                onOpenWorkspace = {
-                    AppNavigator.open(navController, AppDestination.PluginWorkspace.routeFor(pluginId))
-                },
                 onOpenLogs = {
                     AppNavigator.open(navController, AppDestination.PluginLogs.routeFor(pluginId))
-                },
-                onOpenTriggers = {
-                    AppNavigator.open(navController, AppDestination.PluginTriggers.routeFor(pluginId))
                 },
                 onOpenConfig = {
                     AppNavigator.open(navController, AppDestination.PluginConfig.routeFor(pluginId))
                 },
+            )
+        }
+        composable(AppDestination.PluginMarketDetail.route) { backStackEntry ->
+            val pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty()
+            PluginMarketDetailScreenRoute(
+                pluginId = pluginId,
+                onBack = { AppNavigator.back(navController) },
             )
         }
         composable(AppDestination.PluginWorkspace.route) { backStackEntry ->
@@ -503,6 +508,7 @@ private fun MainTopLevelRail(
     onConfigSelectedIdsChange: (Set<String>) -> Unit,
     qqLoginViewModel: QQLoginViewModel,
     onOpenPluginDetail: (String) -> Unit = {},
+    onOpenMarketPluginDetail: (String) -> Unit = {},
 ) {
     val safeDrawingTopPadding = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
     Box(
@@ -540,7 +546,7 @@ private fun MainTopLevelRail(
                 MainSwipePage.PLUGINS_MARKET to {
                     PluginScreen(
                         workspaceTab = PluginWorkspaceTab.MARKET,
-                        onOpenPluginDetail = onOpenPluginDetail,
+                        onOpenMarketPluginDetail = onOpenMarketPluginDetail,
                     )
                 },
                 MainSwipePage.CHAT to {
