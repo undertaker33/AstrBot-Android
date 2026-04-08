@@ -11,7 +11,7 @@ import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.UUID
+import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
 fun interface RemotePluginPackageDownloader {
@@ -147,7 +147,7 @@ class PluginInstaller(
         onProgress: (PluginDownloadProgress) -> Unit,
     ): PluginInstallRecord {
         storagePaths.ensureBaseDirectories()
-        val tempFile = File(storagePaths.rootDir, "tmp/${UUID.randomUUID()}.zip")
+        val tempFile = remoteTempFile(packageUrl)
         try {
             remotePackageDownloader.download(packageUrl, tempFile, onProgress)
             onProgress(
@@ -169,6 +169,13 @@ class PluginInstaller(
                 tempFile.delete()
             }
         }
+    }
+
+    private fun remoteTempFile(packageUrl: String): File {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(packageUrl.toByteArray())
+            .joinToString(separator = "") { byte -> "%02x".format(byte) }
+        return File(storagePaths.rootDir, "tmp/$digest.zip")
     }
 
     private fun installPackage(

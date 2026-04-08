@@ -86,6 +86,16 @@ object SherpaOnnxAssetManager {
 
     fun kokoroDir(context: Context): File = File(frameworkDir(context), "tts/kokoro")
 
+    fun sttArchiveFile(context: Context): File = File(
+        File(context.filesDir, TEMP_DIR),
+        "sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2",
+    )
+
+    fun kokoroArchiveFile(context: Context): File = File(
+        File(context.filesDir, TEMP_DIR),
+        "kokoro-int8-multi-lang-v1_1.tar.bz2",
+    )
+
     fun ensureFrameworkActivated(context: Context) {
         val frameworkDir = frameworkDir(context)
         if (!frameworkDir.exists()) {
@@ -106,9 +116,8 @@ object SherpaOnnxAssetManager {
             "Download the Sherpa ONNX framework asset first."
         }
         downloadAndExtract(
-            context = context,
             url = STT_URL,
-            tempName = "sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2",
+            archiveFile = sttArchiveFile(context),
             targetDir = sttDir(context),
         )
     }
@@ -123,9 +132,8 @@ object SherpaOnnxAssetManager {
             "Download the Sherpa ONNX framework asset first."
         }
         downloadAndExtract(
-            context = context,
             url = KOKORO_URL,
-            tempName = "kokoro-int8-multi-lang-v1_1.tar.bz2",
+            archiveFile = kokoroArchiveFile(context),
             targetDir = kokoroDir(context),
         )
     }
@@ -157,18 +165,50 @@ object SherpaOnnxAssetManager {
 
     private fun kokoroVoicesFile(context: Context): File = File(kokoroDir(context), "voices.bin")
 
-    private fun downloadAndExtract(
+    fun installSttAssetsFromArchive(
         context: Context,
+        archiveFile: File = sttArchiveFile(context),
+    ) {
+        require(frameworkState(context).installed) {
+            "Download the Sherpa ONNX framework asset first."
+        }
+        extractArchiveToTarget(
+            archiveFile = archiveFile,
+            targetDir = sttDir(context),
+        )
+    }
+
+    fun installKokoroAssetsFromArchive(
+        context: Context,
+        archiveFile: File = kokoroArchiveFile(context),
+    ) {
+        require(frameworkState(context).installed) {
+            "Download the Sherpa ONNX framework asset first."
+        }
+        extractArchiveToTarget(
+            archiveFile = archiveFile,
+            targetDir = kokoroDir(context),
+        )
+    }
+
+    private fun downloadAndExtract(
         url: String,
-        tempName: String,
+        archiveFile: File,
         targetDir: File,
     ) {
-        val tempDir = File(context.filesDir, TEMP_DIR).apply { mkdirs() }
-        val archiveFile = File(tempDir, tempName)
+        downloadFile(url = url, outputFile = archiveFile)
+        extractArchiveToTarget(archiveFile = archiveFile, targetDir = targetDir)
+    }
+
+    private fun extractArchiveToTarget(
+        archiveFile: File,
+        targetDir: File,
+    ) {
+        val tempDir = archiveFile.parentFile ?: targetDir.parentFile ?: targetDir
+        tempDir.mkdirs()
         val stagingDir = File(tempDir, "${targetDir.name}.staging")
         stagingDir.deleteRecursively()
         stagingDir.mkdirs()
-        downloadFile(url = url, outputFile = archiveFile)
         extractTarBz2(archiveFile, stagingDir)
         targetDir.parentFile?.mkdirs()
         targetDir.deleteRecursively()

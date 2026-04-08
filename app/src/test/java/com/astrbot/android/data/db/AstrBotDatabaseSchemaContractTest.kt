@@ -69,8 +69,17 @@ class AstrBotDatabaseSchemaContractTest {
     }
 
     @Test
-    fun latestMigration_targetsVersion14() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 14)
+    fun migrations_include14To15Step() {
+        assertTrue(
+            AstrBotDatabase.allMigrations.any { migration ->
+                migration.startVersion == 14 && migration.endVersion == 15
+            },
+        )
+    }
+
+    @Test
+    fun latestMigration_targetsVersion15() {
+        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 15)
     }
 
     @Test
@@ -203,6 +212,29 @@ class AstrBotDatabaseSchemaContractTest {
             "updatedAt",
         ).forEach { token ->
             assertTrue("Expected $token to exist in v14 schema", token in schema)
+        }
+    }
+
+    @Test
+    fun version15Schema_containsDownloadTasksTable() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/15.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/15.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v15 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "download_tasks",
+            "taskKey",
+            "ownerType",
+            "url",
+            "targetFilePath",
+            "status",
+            "etag",
+            "downloadedBytes",
+            "totalBytes",
+        ).forEach { token ->
+            assertTrue("Expected $token to exist in v15 schema", token in schema)
         }
     }
 

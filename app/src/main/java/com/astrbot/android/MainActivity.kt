@@ -1,8 +1,12 @@
 package com.astrbot.android
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.core.Animatable
@@ -25,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
@@ -45,6 +50,12 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
     private val appDependencies: MainActivityDependencies
         get() = (application as AstrBotApplication).appContainer.mainActivityDependencies
+    private var notificationPermissionRequested = false
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { _ ->
+        notificationPermissionRequested = true
+    }
 
     companion object {
         private val LightTransitionColor = Color(0xFFF7F7F7)
@@ -175,6 +186,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        maybeRequestNotificationPermission()
         lifecycleScope.launch {
             maybeAutoStartBridge()
         }
@@ -191,6 +203,19 @@ class MainActivity : AppCompatActivity() {
 
         appDependencies.log("Bridge auto-start triggered from app launch")
         appDependencies.startBridge(applicationContext)
+    }
+
+    private fun maybeRequestNotificationPermission() {
+        if (notificationPermissionRequested) return
+        val permissionGranted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!shouldRequestNotificationPermissionForTests(Build.VERSION.SDK_INT, permissionGranted)) {
+            notificationPermissionRequested = permissionGranted
+            return
+        }
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun handlePluginDeepLink(rawDeepLink: String?) {
@@ -223,6 +248,13 @@ internal fun shouldAutoStartBridgeForTests(
     runtimeState: NapCatRuntimeState,
 ): Boolean {
     return autoStartEnabled && !runtimeState.blocksAutoStart()
+}
+
+internal fun shouldRequestNotificationPermissionForTests(
+    sdkInt: Int,
+    permissionGranted: Boolean,
+): Boolean {
+    return sdkInt >= Build.VERSION_CODES.TIRAMISU && !permissionGranted
 }
 
 internal fun parsePluginInstallIntentFromDeepLink(rawDeepLink: String?): PluginInstallIntent? {

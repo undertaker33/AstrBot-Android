@@ -96,3 +96,31 @@ internal val migration13To14 = object : Migration(13, 14) {
         db.createPluginConfigTablesV14()
     }
 }
+
+internal val migration14To15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS download_tasks (
+                taskKey TEXT NOT NULL PRIMARY KEY,
+                url TEXT NOT NULL,
+                targetFilePath TEXT NOT NULL,
+                partialFilePath TEXT NOT NULL,
+                displayName TEXT NOT NULL,
+                ownerType TEXT NOT NULL,
+                ownerId TEXT NOT NULL,
+                status TEXT NOT NULL,
+                downloadedBytes INTEGER NOT NULL,
+                totalBytes INTEGER,
+                bytesPerSecond INTEGER NOT NULL,
+                etag TEXT,
+                lastModified TEXT,
+                errorMessage TEXT NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                completedAt INTEGER
+            )
+            """.trimIndent(),
+        )
+    }
+}

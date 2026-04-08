@@ -2,6 +2,9 @@ package com.astrbot.android.data
 
 import android.content.Context
 import com.astrbot.android.R
+import com.astrbot.android.download.AppDownloadManager
+import com.astrbot.android.download.DownloadOwnerType
+import com.astrbot.android.download.DownloadRequest
 import com.astrbot.android.model.RuntimeAssetCatalogItem
 import com.astrbot.android.model.RuntimeAssetEntryState
 import com.astrbot.android.model.RuntimeAssetId
@@ -15,6 +18,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 object RuntimeAssetRepository {
+    private const val STT_DOWNLOAD_TASK_KEY = "asset:stt:paraformer-zh-small-2024-03-09"
+    private const val STT_DOWNLOAD_URL =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2"
+    private const val KOKORO_DOWNLOAD_TASK_KEY = "asset:tts:kokoro-int8-multi-lang-v1_1"
+    private const val KOKORO_DOWNLOAD_URL =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2"
+
     private val assetCatalog = listOf(
         RuntimeAssetCatalogItem(
             id = RuntimeAssetId.TTS,
@@ -259,7 +269,20 @@ object RuntimeAssetRepository {
             details = "Downloading Sherpa ONNX STT assets.",
         )
         try {
-            SherpaOnnxAssetManager.downloadSttAssets(context)
+            val archiveFile = SherpaOnnxAssetManager.sttArchiveFile(context)
+            AppDownloadManager.initialize(context)
+            AppDownloadManager.enqueue(
+                DownloadRequest(
+                    taskKey = STT_DOWNLOAD_TASK_KEY,
+                    url = STT_DOWNLOAD_URL,
+                    targetFilePath = archiveFile.absolutePath,
+                    displayName = "Sherpa STT",
+                    ownerType = DownloadOwnerType.RUNTIME_ASSET,
+                    ownerId = RuntimeAssetId.ON_DEVICE_STT.value,
+                ),
+            )
+            AppDownloadManager.awaitCompletion(STT_DOWNLOAD_TASK_KEY)
+            SherpaOnnxAssetManager.installSttAssetsFromArchive(context, archiveFile)
             refresh(context)
             updateAsset(RuntimeAssetId.ON_DEVICE_STT, lastAction = "Downloaded")
         } catch (error: Exception) {
@@ -302,7 +325,20 @@ object RuntimeAssetRepository {
             details = "Downloading kokoro local TTS assets.",
         )
         try {
-            SherpaOnnxAssetManager.downloadKokoroAssets(context)
+            val archiveFile = SherpaOnnxAssetManager.kokoroArchiveFile(context)
+            AppDownloadManager.initialize(context)
+            AppDownloadManager.enqueue(
+                DownloadRequest(
+                    taskKey = KOKORO_DOWNLOAD_TASK_KEY,
+                    url = KOKORO_DOWNLOAD_URL,
+                    targetFilePath = archiveFile.absolutePath,
+                    displayName = "Kokoro TTS",
+                    ownerType = DownloadOwnerType.RUNTIME_ASSET,
+                    ownerId = RuntimeAssetId.ON_DEVICE_TTS.value,
+                ),
+            )
+            AppDownloadManager.awaitCompletion(KOKORO_DOWNLOAD_TASK_KEY)
+            SherpaOnnxAssetManager.installKokoroAssetsFromArchive(context, archiveFile)
             check(SherpaOnnxAssetManager.ttsState(context).kokoro.installed) {
                 "Kokoro assets are still missing after download."
             }

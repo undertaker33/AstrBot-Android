@@ -12,6 +12,7 @@ import com.astrbot.android.data.db.core.migration10To11
 import com.astrbot.android.data.db.core.migration11To12
 import com.astrbot.android.data.db.core.migration12To13
 import com.astrbot.android.data.db.core.migration13To14
+import com.astrbot.android.data.db.core.migration14To15
 
 @Database(
     entities = [
@@ -42,12 +43,13 @@ import com.astrbot.android.data.db.core.migration13To14
         PluginManifestPermissionEntity::class,
         PluginPermissionSnapshotEntity::class,
         PluginConfigSnapshotEntity::class,
+        DownloadTaskEntity::class,
         SavedQqAccountEntity::class,
         TtsVoiceAssetEntity::class,
         TtsVoiceClipEntity::class,
         TtsVoiceProviderBindingEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -60,6 +62,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
     abstract fun pluginInstallAggregateDao(): PluginInstallAggregateDao
     abstract fun pluginCatalogDao(): PluginCatalogDao
     abstract fun pluginConfigSnapshotDao(): PluginConfigSnapshotDao
+    abstract fun downloadTaskDao(): DownloadTaskDao
     abstract fun savedQqAccountDao(): SavedQqAccountDao
     abstract fun ttsVoiceAssetAggregateDao(): TtsVoiceAssetAggregateDao
 
@@ -326,6 +329,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration11To12,
             migration12To13,
             migration13To14,
+            migration14To15,
         )
 
         fun get(context: Context): AstrBotDatabase {

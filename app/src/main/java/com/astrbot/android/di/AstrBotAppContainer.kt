@@ -18,6 +18,7 @@ import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.SherpaOnnxBridge
 import com.astrbot.android.data.TtsVoiceAssetRepository
+import com.astrbot.android.download.AppDownloadManager
 import com.astrbot.android.runtime.ContainerRuntimeInstaller
 import com.astrbot.android.runtime.OneBotBridgeServer
 import com.astrbot.android.runtime.RuntimeLogRepository
@@ -85,6 +86,9 @@ class AstrBotAppContainer(
         ChatCompletionService.initialize(application)
         OneBotBridgeServer.initialize(application)
         TencentSilkEncoder.initialize(application)
+        appScope.launch(Dispatchers.IO) {
+            AppDownloadManager.initialize(application)
+        }
         NapCatBridgeRepository.initialize(application)
         NapCatLoginRepository.initialize(application)
         RuntimeAssetRepository.initialize(application)

@@ -16,6 +16,10 @@ import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.SherpaOnnxBridge
 import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.download.AppDownloadManager
+import com.astrbot.android.download.DownloadOwnerType
+import com.astrbot.android.download.DownloadRequest
+import com.astrbot.android.download.DownloadTaskRecord
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.NapCatBridgeConfig
@@ -49,12 +53,12 @@ import com.astrbot.android.runtime.ConversationSessionLockManager
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.runtime.plugin.PluginInstaller
 import com.astrbot.android.runtime.plugin.PluginPackageValidator
-import com.astrbot.android.runtime.plugin.UrlConnectionRemotePluginPackageDownloader
 import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
 import com.astrbot.android.runtime.plugin.catalog.PluginInstallIntentHandler
 import com.astrbot.android.runtime.plugin.catalog.PluginRepositorySubscriptionManager
 import com.astrbot.android.runtime.plugin.catalog.UrlConnectionPluginCatalogFetcher
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -1144,6 +1148,42 @@ private fun defaultPluginInstaller(): PluginInstaller {
         ),
         storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir),
         installStore = PluginRepository,
-        remotePackageDownloader = UrlConnectionRemotePluginPackageDownloader(),
+        remotePackageDownloader = com.astrbot.android.runtime.plugin.RemotePluginPackageDownloader { packageUrl, destinationFile, onProgress ->
+            AppDownloadManager.initialize(appContext)
+            val taskKey = "plugin:${packageUrl.sha256Hex()}"
+            AppDownloadManager.enqueue(
+                DownloadRequest(
+                    taskKey = taskKey,
+                    url = packageUrl,
+                    targetFilePath = destinationFile.absolutePath,
+                    displayName = destinationFile.name,
+                    ownerType = DownloadOwnerType.PLUGIN_PACKAGE,
+                    ownerId = destinationFile.nameWithoutExtension,
+                ),
+            )
+            AppDownloadManager.awaitCompletion(taskKey) { task ->
+                task.toPluginDownloadProgress()?.let(onProgress)
+            }
+        },
     )
+}
+
+private fun DownloadTaskRecord.toPluginDownloadProgress(): PluginDownloadProgress? {
+    return when (status) {
+        com.astrbot.android.download.DownloadTaskStatus.QUEUED,
+        com.astrbot.android.download.DownloadTaskStatus.RUNNING,
+        com.astrbot.android.download.DownloadTaskStatus.PAUSED,
+        -> PluginDownloadProgress.downloading(
+            bytesDownloaded = downloadedBytes,
+            totalBytes = totalBytes ?: -1L,
+            bytesPerSecond = bytesPerSecond,
+        )
+        else -> null
+    }
+}
+
+private fun String.sha256Hex(): String {
+    return MessageDigest.getInstance("SHA-256")
+        .digest(toByteArray())
+        .joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
