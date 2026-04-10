@@ -7,6 +7,9 @@
 
 目标不是把桌面端的 Python 后端、Node WebUI、插件生态和协议栈原封不动搬进 Android，而是提炼其中适合手机场景的核心管理能力，并以 Kotlin + Compose + Android 前台服务的方式重建。
 
+## 特别注意 
+**<u>插件v1（截止v0.4.8）整体设计过于简单，已经开放的四个trigger后续将不再支持，建议插件作者(如果有的话)等v2完全发布后再进行开发</u>**
+
 ## 为什么要做 AstrBot-Android
 刷到AstrBot的宣传视频，我寻思闲置设备可以拿来部署一个玩玩，但看了一圈下来发现我只有闲置的安卓手机。
 通过AstrBot官方文档我找到了[AstrBot-Android-App](https://github.com/zz6zz666/AstrBot-Android-App),但奈何我的老手机比较掘，死活部署不上，所以打算写一个能兼容我老手机的安卓工程
@@ -29,29 +32,123 @@ ps:有空我会一直更新的
 
 具体教程：https://b23.tv/AdJrQ77 更新在分p里
 
-## 目前已经支持的功能：
-- QQ登录和快捷登录
-- 大模型对话：人格定义，持久化数据，语音转文字，文字转语音，图片转述，流式输出，现实世界时间感知
-- 模型提供商支持：
+## 功能一览：
+### Bot配置
 
-| chat模型 | STT模型 | TTS模型 |
+| 功能项 | 说明 |
+|---|---|
+| 模型配置 | 配置对话、图片转述、STT、TTS 模型 |
+| STT / TTS 支持 | 支持语音输入与语音输出配置 |
+| 流式输出 | 支持文字、语音流式输出 |
+| TTS音色 | 支持音色克隆、音色选择 |
+| 速率限制 | 正常对话速率限制、流式输出速率限制 |
+| 时间感知 | 支持现实世界时间感知 |
+| 管理员配置 | 支持管理员配置 |
+| 群聊隔离 | 支持群聊会话隔离 |
+| 唤醒词配置 | 支持唤醒词配置 |
+| 回复前缀配置 | 支持回复文本前缀配置 |
+| 引用与@ | 支持引用、@发送者 |
+| 白名单配置 | 支持白名单配置 |
+| 忽略与权限 | 支持忽略与权限配置 |
+| 关键词配置 | 支持关键词配置 |
+| skills | 准备开发 |
+| MCP Server | 准备开发 |
+| 知识库支持 | 准备开发 |
+| 上下文策略 | 准备开发 |
+| 网页搜索 | 准备开发 |
+| 主动能力 | 设计阶段 |
+
+### 模型支持
+
+| 模型分类 | 模型支持 |
+|---|---|
+| Chat模型 | OpenAI Compatible、DeepSeek、Gemini、Ollama、Qwen、Zhipu、xAI |
+| STT模型 | Whisper API、Xinference STT、Alibaba Bailian STT（含 Qwen）、Sherpa ONNX STT（内置） |
+| TTS模型 | OpenAI TTS、Alibaba Bailian TTS（含 Qwen）、MiniMax TTS、Sherpa ONNX TTS（内置） |
+
+### 人格
+
+| 功能项 | 说明 |
+|---|---|
+| 标签分类 | 按标签分类 |
+| 系统提示词 | 支持自定义系统提示词 |
+| 上下文配置 | 支持自定义最大上下文（后续并入 Bot 配置上下文策略） |
+
+### 对话
+
+| 功能项 | 说明 |
+|---|---|
+| 对话管理 | 页面左滑进行对话管理 |
+| 对话设置 | 侧边导航栏左滑进行对话设置：置顶 / 删除 / 重命名 |
+| 图片发送 | 支持图片发送 |
+| 自动同步 | 自动同步非应用内对话绑定的 Bot 和人格 |
+
+### 指令支持
+
+| 指令 | 说明 |
+|---|---|
+| /help | 查看指令帮助 |
+| /stop、/start | 停用、启用 Agent |
+| /agent | 列出当前 Agent 列表 |
+| /ls、/switch | 对话查看、切换操作 |
+| /new、/del | 创建、删除对话 |
+| /rename、/reset | 重命名、重置当前对话 |
+| /sid | 获取会话 ID 和管理员 UID |
+| /wl、/dwl | 白名单管理 |
+| /deop、/op | 管理员管理 |
+| /provider 系列 | 提供商管理 |
+| /model | 提供商模型管理 |
+| /llm | 启停大语言模型对话功能 |
+| /persona 系列 | 人格管理 |
+| /stt、/tts | 启停 STT、TTS |
+
+### 应用内支持
+
+| 功能项 | 说明 |
+|---|---|
+| 语言切换 | 中英文切换 |
+| 深色模式 | 深色模式切换 |
+| NapCat | NapCat 开屏自启动 |
+| 缓存清理 | 支持缓存清理 |
+| 日志 | 日志查看（偏调试）、日志定时清理 |
+| 资产管理 | 端侧资产管理（TTS / STT 相关支持） |
+| 全局资产断点续传 | 仅对网络波动造成的断点生效，进程被删、缓存被清不生效 |
+
+### 数据备份和导入
+
+| 功能项 | 说明 |
+|---|---|
+| Bot备份 | 支持 Bot 备份 |
+| TTS音色备份 | 支持 TTS 音色备份 |
+| 人格备份 | 支持人格备份 |
+| 对话备份 | 支持对话备份（支持定时备份） |
+| 模型备份 | 支持模型备份（包括 API Key） |
+| 配置备份 | 支持配置备份 |
+| 完整备份 | 支持完整备份（除插件） |
+| 插件备份 | 暂不支持 |
+
+### 平台支持
+
+| 功能项 | 说明 |
+|---|---|
+| QQ | 已支持 |
+| telegram | 设计阶段 |
+| 微信ClawBot | 设计阶段 |
+
+### 插件
+
+| 功能项 | 说明 | 进度 |
 |---|---|---|
-| OpenAi Compatible | Whisper API | OpenAi TTS |
-| Deepseek | Xinference STT | Alibaba Bailian TTS（包括 Qwen） |
-| Gemini | Alibaba Bailian STT（包括 Qwen） | MiniMax TTS |
-| Ollama | Sherpa ONNX STT（内置支持） | Sherpa ONNX TTS（内置支持） |
-| Qwen | — | — |
-| Zhipu | — | — |
-| xAI | — | — |
-- 中英语言切换
-- 深色模式切换
+| 包结构定义、安装校验 | 定义插件结构和安装校验 | 开发完成 |
+| 启用、升级、卸载 runtime lifecycle管理 | 插件安全，启停状态管理 | 开发完成 |
+| 消息入口 | `adapter_message_handler`、`command`、 `command_group`、`regex`| 开发完成 |
+| 过滤器 | `event_message_type`、`permission_type`、`platform_adapter_type`、`custom_filter`| 开发中 |
+| 生命周期 | `on_astrbot_loaded`、`on_platform_loaded`、`on_plugin_loaded`、`on_plugin_unloaded`、`on_plugin_error`| 开发中 |
+| LLM 流水线 | `on_waiting_llm_request`、`on_llm_request`、`on_llm_response`、`on_decorating_result`、`after_message_sent`| 设计完成 |
+| 工具体系 | `llm_tool`、`on_using_llm_tool`、`on_llm_tool_respond`| 设计完成 |
+| 市场接入 | 采用中央仓库 + 分仓库管理安卓端可拿到的插件 | 设计完成 |
 
-## 准备更新的功能：
-- [ ] 云端自定义声音克隆
-- [ ] 知识库支持
-- [ ] 上下文策略
-- [ ] 网页搜索能力
-- [ ] 白名单以及回复速度，长度自定义
+
 
 ## 当前工程结构概览
 
@@ -81,7 +178,9 @@ app/
 - Android Build Tools 与 AGP 8.5+ 兼容
 
 ## 已知问题
-1. 
+1. napcat runtime 进度卡 96%。多次点击启动安卓进程冲突导致，临时解决：开始下了就别点启动了，我发现下载不是最大的问题，安装才是；安装取决于手机性能，以8Elite Gen5为基准(约三分钟)，cpu性能每弱20%约慢5分钟(瞎说的，我就两台手机没法测)。
+2. 插件v1（截止v0.4.8）整体设计过于简单，已经开放的四个trigger后续将不再支持，建议插件作者(如果有的话)等v2完全发布后再进行开发
+
 ## 差异说明
 
 `AstrBot-Android` 基于 `AstrBot-master` 与 `NapCatQQ-main` 的核心能力思路构建，但并不是两者的 Android 直接移植版。
@@ -99,4 +198,4 @@ app/
 - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)：轻量化的安卓端侧TTS框架
 
 ## 许可证说明
-本项目采用AGPL3.0
+本项目采用AGPL3.0开源协议
