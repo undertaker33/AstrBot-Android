@@ -1,5 +1,7 @@
 package com.astrbot.android.model.plugin
 
+import java.io.Serializable
+
 enum class PluginTrustLevel {
     LOCAL_PACKAGE,
     DIRECT_SOURCE,
@@ -17,6 +19,20 @@ data class PluginGovernanceSnapshot(
     val trustLevel: PluginTrustLevel,
     val reviewState: PluginReviewState,
 )
+
+enum class DiagnosticSeverity : Serializable {
+    Error,
+    Warning,
+}
+
+data class PluginV2CompilerDiagnostic(
+    val severity: DiagnosticSeverity,
+    val code: String,
+    val message: String,
+    val pluginId: String,
+    val registrationKind: String? = null,
+    val registrationKey: String? = null,
+) : Serializable
 
 fun PluginInstallRecord.resolveGovernanceSnapshot(): PluginGovernanceSnapshot {
     val declaredRisk = manifestSnapshot.riskLevel

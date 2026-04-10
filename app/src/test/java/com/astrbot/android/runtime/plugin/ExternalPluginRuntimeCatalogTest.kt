@@ -2,11 +2,14 @@ package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
+import com.astrbot.android.model.plugin.ExternalPluginExecutionBindingStatus
 import java.io.File
 import java.nio.file.Files
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,5 +69,20 @@ class ExternalPluginRuntimeCatalogTest {
         } finally {
             extractedDir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun runtime_catalog_skips_plugin_v2_records_and_legacy_binder_marks_them_not_applicable() {
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.astrbot.samples.v2_catalog_skip",
+        )
+
+        val binding = ExternalPluginRuntimeBinder().bind(record)
+        val plugin = ExternalPluginRuntimeCatalog.createRuntimePlugin(record)
+
+        assertFalse(binding.isReady)
+        assertEquals(ExternalPluginExecutionBindingStatus.INVALID_CONTRACT, binding.status)
+        assertEquals("Plugin v2 records are skipped by the legacy external runtime binder.", binding.errorSummary)
+        assertNull(plugin)
     }
 }

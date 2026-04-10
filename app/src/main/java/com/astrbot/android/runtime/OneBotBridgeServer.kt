@@ -47,6 +47,8 @@ import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
 import com.astrbot.android.runtime.plugin.PluginExecutionEngine
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
+import com.astrbot.android.runtime.plugin.PluginV2DispatchEngineProvider
+import com.astrbot.android.runtime.plugin.PluginV2InternalStage
 import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
@@ -691,6 +693,9 @@ object OneBotBridgeServer {
         val pluginFailureGuard = PluginFailureGuard(
             store = PluginRuntimeFailureStateStoreProvider.store(),
         )
+        PluginV2DispatchEngineProvider.engine().dispatch(
+            stage = PluginV2InternalStage.AdapterMessage,
+        )
         val pluginEngine = PluginExecutionEngine(
             dispatcher = PluginRuntimeDispatcher(pluginFailureGuard),
             failureGuard = pluginFailureGuard,
@@ -878,6 +883,9 @@ object OneBotBridgeServer {
         val batch = runCatching {
             val pluginFailureGuard = PluginFailureGuard(
                 store = PluginRuntimeFailureStateStoreProvider.store(),
+            )
+            PluginV2DispatchEngineProvider.engine().dispatch(
+                stage = PluginV2InternalStage.AdapterMessage,
             )
             PluginExecutionEngine(
                 dispatcher = PluginRuntimeDispatcher(pluginFailureGuard),

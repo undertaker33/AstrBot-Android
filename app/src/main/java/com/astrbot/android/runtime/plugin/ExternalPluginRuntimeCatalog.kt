@@ -26,6 +26,9 @@ object ExternalPluginRuntimeCatalog {
         binder: ExternalPluginRuntimeBinder = ExternalPluginRuntimeBinder(),
         bridgeRuntime: ExternalPluginBridgeRuntime = ExternalPluginBridgeRuntime(),
     ): PluginRuntimePlugin? {
+        if (record.packageContractSnapshot?.protocolVersion == 2) {
+            return null
+        }
         val binding = binder.bind(record)
         if (!binding.isReady) {
             return null

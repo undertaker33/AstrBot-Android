@@ -58,6 +58,7 @@ import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
+import com.astrbot.android.runtime.plugin.samplePluginV2InstallRecord
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.data.PluginCatalogVersionGateResult
 import java.lang.reflect.Method
@@ -2184,6 +2185,25 @@ class PluginViewModelTest {
             PluginRuntimeRegistry.reset()
             extractedDir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun v2_plugin_entry_click_is_blocked_instead_of_falling_back_to_legacy_execute() = runTest(dispatcher) {
+        val record = samplePluginV2InstallRecord(
+            pluginId = "plugin-v2-entry-block",
+        )
+        val viewModel = PluginViewModel(FakePluginDependencies(records = listOf(record)))
+        advanceUntilIdle()
+
+        val schemaState = pluginViewModelMethod(
+            "executePluginEntry",
+            PluginInstallRecord::class.java,
+            String::class.java,
+        ).invoke(viewModel, record, "entry-click")
+
+        assertTrue(schemaState is PluginSchemaUiState.Error)
+        schemaState as PluginSchemaUiState.Error
+        assertTrue(schemaState.message.contains("Plugin v2 entry click is blocked"))
     }
 
     private class FakePluginDependencies(

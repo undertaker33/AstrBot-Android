@@ -1,0 +1,436 @@
+package com.astrbot.android.runtime.plugin
+
+import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
+
+data class PluginV2BootstrapPluginMetadata(
+    val pluginId: String,
+    val installedVersion: String,
+    val runtimeKind: String,
+    val runtimeApiVersion: Int,
+    val runtimeBootstrap: String,
+)
+
+class PluginV2BootstrapHostApi(
+    private val session: PluginV2RuntimeSession,
+    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    fun registerMessageHandler(
+        descriptor: MessageHandlerRegistrationInput,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerMessageHandler",
+            registrationType = "message",
+            normalizeDescriptor = { validateMessageHandler(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendMessageHandler(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
+    fun registerCommandHandler(
+        descriptor: CommandHandlerRegistrationInput,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerCommandHandler",
+            registrationType = "command",
+            normalizeDescriptor = { validateCommandHandler(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendCommandHandler(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
+    fun registerRegexHandler(
+        descriptor: RegexHandlerRegistrationInput,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerRegexHandler",
+            registrationType = "regex",
+            normalizeDescriptor = { validateRegexHandler(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendRegexHandler(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
+    fun registerLifecycleHandler(
+        descriptor: LifecycleHandlerRegistrationInput,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerLifecycleHandler",
+            registrationType = "lifecycle",
+            normalizeDescriptor = { validateLifecycleHandler(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendLifecycleHandler(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
+    fun registerLlmHook(
+        descriptor: LlmHookRegistrationInput,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerLlmHook",
+            registrationType = "llm_hook",
+            normalizeDescriptor = { validateLlmHook(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendLlmHook(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
+    fun registerTool(
+        descriptor: ToolRegistrationInput,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerTool",
+            registrationType = "tool",
+            normalizeDescriptor = { validateTool(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendTool(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
+    fun registerToolLifecycleHook(
+        descriptor: ToolLifecycleHookRegistrationInput,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerToolLifecycleHook",
+            registrationType = "tool_lifecycle_hook",
+            normalizeDescriptor = { validateToolLifecycleHook(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendToolLifecycleHook(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
+    fun log(
+        level: PluginRuntimeLogLevel,
+        message: String,
+        metadata: Map<String, String> = emptyMap(),
+    ) {
+        require(message.isNotBlank()) { "message must not be blank." }
+        val normalizedMetadata = normalizeMetadata(metadata)
+        publishBootstrapLog(
+            level = level,
+            code = "bootstrap_log",
+            message = message.trim(),
+            metadata = normalizedMetadata,
+        )
+    }
+
+    fun log(
+        level: String,
+        message: String,
+        metadata: Map<String, String> = emptyMap(),
+    ) {
+        val resolvedLevel = PluginRuntimeLogLevel.entries.firstOrNull { candidate ->
+            candidate.wireValue.equals(level.trim(), ignoreCase = true)
+        } ?: throw IllegalArgumentException("Unsupported log level: $level")
+        log(
+            level = resolvedLevel,
+            message = message,
+            metadata = metadata,
+        )
+    }
+
+    fun getPluginMetadata(): PluginV2BootstrapPluginMetadata {
+        val installRecord = session.installRecord
+        val runtimeSnapshot = session.packageContractSnapshot.runtime
+        return PluginV2BootstrapPluginMetadata(
+            pluginId = installRecord.pluginId,
+            installedVersion = installRecord.installedVersion,
+            runtimeKind = runtimeSnapshot.kind,
+            runtimeApiVersion = runtimeSnapshot.apiVersion,
+            runtimeBootstrap = runtimeSnapshot.bootstrap,
+        )
+    }
+
+    private fun <T> register(
+        operation: String,
+        registrationType: String,
+        normalizeDescriptor: () -> T,
+        extractHandler: (T) -> PluginV2CallbackHandle,
+        appendRegistration: (PluginV2RawRegistry, PluginV2CallbackToken, T) -> Unit,
+    ): PluginV2CallbackToken {
+        return try {
+            val normalizedDescriptor = normalizeDescriptor()
+            val rawRegistry = session.requireBootstrapRawRegistry()
+            val callbackToken = session.allocateCallbackToken(extractHandler(normalizedDescriptor))
+            appendRegistration(rawRegistry, callbackToken, normalizedDescriptor)
+            callbackToken
+        } catch (error: IllegalArgumentException) {
+            logRegistrationRejected(
+                operation = operation,
+                registrationType = registrationType,
+                message = error.message ?: "Invalid registration input.",
+                exception = error,
+            )
+        } catch (error: IllegalStateException) {
+            logRegistrationRejected(
+                operation = operation,
+                registrationType = registrationType,
+                message = error.message ?: "Registration attempted in invalid runtime state.",
+                exception = error,
+            )
+        }
+    }
+
+    private fun validateMessageHandler(
+        descriptor: MessageHandlerRegistrationInput,
+    ): MessageHandlerRegistrationInput {
+        return descriptor.copy(
+            base = normalizeBase(descriptor.base),
+        )
+    }
+
+    private fun validateCommandHandler(
+        descriptor: CommandHandlerRegistrationInput,
+    ): CommandHandlerRegistrationInput {
+        return descriptor.copy(
+            base = normalizeBase(descriptor.base),
+            command = requireTrimmedValue(
+                value = descriptor.command,
+                fieldName = "command",
+            ),
+            aliases = normalizeStringList(
+                values = descriptor.aliases,
+                fieldName = "aliases",
+            ),
+            groupPath = normalizeStringList(
+                values = descriptor.groupPath,
+                fieldName = "groupPath",
+            ),
+        )
+    }
+
+    private fun validateRegexHandler(
+        descriptor: RegexHandlerRegistrationInput,
+    ): RegexHandlerRegistrationInput {
+        return descriptor.copy(
+            base = normalizeBase(descriptor.base),
+            pattern = requireTrimmedValue(
+                value = descriptor.pattern,
+                fieldName = "pattern",
+            ),
+            flags = normalizeStringSet(
+                values = descriptor.flags,
+                fieldName = "flags",
+            ),
+        )
+    }
+
+    private fun validateLifecycleHandler(
+        descriptor: LifecycleHandlerRegistrationInput,
+    ): LifecycleHandlerRegistrationInput {
+        rejectFiltersIfPresent(descriptor.declaredFilters)
+        return descriptor.copy(
+            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
+            hook = requireTrimmedValue(
+                value = descriptor.hook,
+                fieldName = "hook",
+            ),
+            metadata = normalizeMetadata(descriptor.metadata),
+        )
+    }
+
+    private fun validateLlmHook(
+        descriptor: LlmHookRegistrationInput,
+    ): LlmHookRegistrationInput {
+        rejectFiltersIfPresent(descriptor.declaredFilters)
+        return descriptor.copy(
+            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
+            hook = requireTrimmedValue(
+                value = descriptor.hook,
+                fieldName = "hook",
+            ),
+            metadata = normalizeMetadata(descriptor.metadata),
+        )
+    }
+
+    private fun validateTool(
+        descriptor: ToolRegistrationInput,
+    ): ToolRegistrationInput {
+        rejectFiltersIfPresent(descriptor.declaredFilters)
+        return descriptor.copy(
+            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
+            toolDescriptor = normalizeToolDescriptor(descriptor.toolDescriptor),
+            metadata = normalizeMetadata(descriptor.metadata),
+        )
+    }
+
+    private fun validateToolLifecycleHook(
+        descriptor: ToolLifecycleHookRegistrationInput,
+    ): ToolLifecycleHookRegistrationInput {
+        rejectFiltersIfPresent(descriptor.declaredFilters)
+        return descriptor.copy(
+            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
+            hook = requireTrimmedValue(
+                value = descriptor.hook,
+                fieldName = "hook",
+            ),
+            metadata = normalizeMetadata(descriptor.metadata),
+        )
+    }
+
+    private fun normalizeBase(
+        descriptor: BaseHandlerRegistrationInput,
+    ): BaseHandlerRegistrationInput {
+        return descriptor.copy(
+            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
+            declaredFilters = normalizeDeclaredFilters(descriptor.declaredFilters),
+            metadata = normalizeMetadata(descriptor.metadata),
+        )
+    }
+
+    private fun normalizeToolDescriptor(
+        descriptor: PluginV2ToolDescriptor,
+    ): PluginV2ToolDescriptor {
+        return descriptor.copy(
+            name = requireTrimmedValue(
+                value = descriptor.name,
+                fieldName = "toolDescriptor.name",
+            ),
+            description = descriptor.description.trim(),
+        )
+    }
+
+    private fun normalizeRegistrationKey(value: String?): String? {
+        return value?.let {
+            requireTrimmedValue(
+                value = it,
+                fieldName = "registrationKey",
+            )
+        }
+    }
+
+    private fun normalizeDeclaredFilters(
+        declaredFilters: List<BootstrapFilterDescriptor>,
+    ): List<BootstrapFilterDescriptor> {
+        return declaredFilters.map { filter ->
+            BootstrapFilterDescriptor(
+                kind = filter.kind,
+                value = requireTrimmedValue(
+                    value = filter.value,
+                    fieldName = "declaredFilters.value",
+                ),
+            )
+        }
+    }
+
+    private fun normalizeStringList(
+        values: List<String>,
+        fieldName: String,
+    ): List<String> {
+        return values.mapIndexed { index, value ->
+            requireTrimmedValue(
+                value = value,
+                fieldName = "$fieldName[$index]",
+            )
+        }
+    }
+
+    private fun normalizeStringSet(
+        values: Set<String>,
+        fieldName: String,
+    ): Set<String> {
+        return values.mapIndexed { index, value ->
+            requireTrimmedValue(
+                value = value,
+                fieldName = "$fieldName[$index]",
+            )
+        }.toSet()
+    }
+
+    private fun rejectFiltersIfPresent(
+        declaredFilters: List<BootstrapFilterDescriptor>,
+    ) {
+        require(declaredFilters.isEmpty()) {
+            "declaredFilters are only allowed on message/command/regex registrations."
+        }
+    }
+
+    private fun normalizeMetadata(
+        metadata: BootstrapRegistrationMetadata,
+    ): BootstrapRegistrationMetadata {
+        return metadata.copy(
+            values = normalizeMetadata(metadata.values),
+        )
+    }
+
+    private fun normalizeMetadata(
+        metadata: Map<String, String>,
+    ): Map<String, String> {
+        return metadata.entries.associate { (key, value) ->
+            require(key.isNotBlank()) { "metadata keys must not be blank." }
+            key.trim() to value.trim()
+        }
+    }
+
+    private fun requireTrimmedValue(
+        value: String,
+        fieldName: String,
+    ): String {
+        return value.trim().also { trimmed ->
+            require(trimmed.isNotEmpty()) { "$fieldName must not be blank." }
+        }
+    }
+
+    private fun logRegistrationRejected(
+        operation: String,
+        registrationType: String,
+        message: String,
+        exception: RuntimeException,
+    ): Nothing {
+        publishBootstrapLog(
+            level = PluginRuntimeLogLevel.Error,
+            code = "bootstrap_registration_rejected",
+            message = message,
+            metadata = linkedMapOf(
+                "operation" to operation,
+                "registrationType" to registrationType,
+            ),
+        )
+        throw exception
+    }
+
+    private fun publishBootstrapLog(
+        level: PluginRuntimeLogLevel,
+        code: String,
+        message: String,
+        metadata: Map<String, String>,
+    ) {
+        logBus.publishBootstrapRecord(
+            pluginId = session.pluginId,
+            pluginVersion = session.installRecord.installedVersion,
+            occurredAtEpochMillis = clock(),
+            level = level,
+            code = code,
+            message = message,
+            metadata = metadata,
+        )
+    }
+}
