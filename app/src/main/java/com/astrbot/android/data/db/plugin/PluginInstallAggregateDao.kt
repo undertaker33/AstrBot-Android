@@ -31,6 +31,9 @@ abstract class PluginInstallAggregateDao {
     protected abstract suspend fun upsertManifestSnapshots(entities: List<PluginManifestSnapshotEntity>)
 
     @Upsert
+    protected open suspend fun upsertPackageContractSnapshots(entities: List<PluginPackageContractSnapshotEntity>) = Unit
+
+    @Upsert
     protected abstract suspend fun upsertManifestPermissions(entities: List<PluginManifestPermissionEntity>)
 
     @Upsert
@@ -38,6 +41,9 @@ abstract class PluginInstallAggregateDao {
 
     @Query("DELETE FROM plugin_manifest_permissions WHERE pluginId = :pluginId")
     protected abstract suspend fun deleteManifestPermissions(pluginId: String)
+
+    @Query("DELETE FROM plugin_package_contract_snapshots WHERE pluginId = :pluginId")
+    protected open suspend fun deletePackageContractSnapshots(pluginId: String) = Unit
 
     @Query("DELETE FROM plugin_permission_snapshots WHERE pluginId = :pluginId")
     protected abstract suspend fun deletePermissionSnapshots(pluginId: String)
@@ -52,6 +58,10 @@ abstract class PluginInstallAggregateDao {
     open suspend fun upsertRecord(writeModel: PluginInstallWriteModel) {
         upsertRecords(listOf(writeModel.record))
         upsertManifestSnapshots(listOf(writeModel.manifestSnapshot))
+        deletePackageContractSnapshots(writeModel.record.pluginId)
+        writeModel.packageContractSnapshot?.let { snapshot ->
+            upsertPackageContractSnapshots(listOf(snapshot))
+        }
         deleteManifestPermissions(writeModel.record.pluginId)
         deletePermissionSnapshots(writeModel.record.pluginId)
         if (writeModel.manifestPermissions.isNotEmpty()) {

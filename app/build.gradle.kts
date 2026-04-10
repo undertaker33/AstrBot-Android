@@ -106,8 +106,8 @@ android {
         applicationId = "com.astrbot.android"
         minSdk = 29
         targetSdk = 34
-        versionCode = 27
-        versionName = "0.4.8"
+        versionCode = 28
+        versionName = "0.4.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -2,6 +2,9 @@ package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginManifest
+import com.astrbot.android.model.plugin.PluginPackageContract
+import com.astrbot.android.model.plugin.PluginPackageContractJson
+import com.astrbot.android.model.plugin.PluginPackageValidationIssue
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginSourceType
@@ -13,6 +16,9 @@ import org.json.JSONObject
 data class PluginPackageValidationResult(
     val manifest: PluginManifest,
     val compatibilityState: PluginCompatibilityState,
+    val installable: Boolean,
+    val packageContract: PluginPackageContract? = null,
+    val validationIssues: List<PluginPackageValidationIssue> = emptyList(),
 )
 
 class PluginPackageValidator(
@@ -23,46 +29,115 @@ class PluginPackageValidator(
         require(packageFile.exists() && packageFile.isFile) {
             "Plugin package file was not found: ${packageFile.absolutePath}"
         }
-        val manifest = parseManifest(readManifestJson(packageFile))
+
+        val archiveEntries = readArchiveEntries(packageFile)
+        val manifest = parseManifest(readJsonEntry(archiveEntries, MANIFEST_FILE))
+        val androidPluginJson = archiveEntries[ANDROID_PLUGIN_FILE_NAME]?.let(::JSONObject)
+        val legacyContractPresent = archiveEntries.containsKey(LEGACY_EXECUTION_FILE_NAME)
+
+        if (androidPluginJson == null) {
+            if (legacyContractPresent && manifest.protocolVersion == LEGACY_PROTOCOL_VERSION) {
+                return buildLegacyValidationResult(manifest)
+            }
+            throw IllegalArgumentException("Plugin package is missing android-plugin.json")
+        }
+
+        val packageContract = PluginPackageContractJson.decode(androidPluginJson)
+        val validationIssues = mutableListOf<PluginPackageValidationIssue>()
+
+        if (legacyContractPresent) {
+            validationIssues += issue(
+                code = LEGACY_CONTRACT_ISSUE_CODE,
+                message = "android-execution.json is legacy and is no longer the installation truth source.",
+            )
+        }
+
+        if (manifest.protocolVersion != packageContract.protocolVersion) {
+            validationIssues += issue(
+                code = MANIFEST_PROTOCOL_MISMATCH_ISSUE_CODE,
+                message = "manifest.protocolVersion must match android-plugin.json protocolVersion.",
+            )
+        }
+
+        if (!archiveContains(archiveEntries, packageContract.runtime.bootstrap)) {
+            validationIssues += issue(
+                code = MISSING_RUNTIME_BOOTSTRAP_ISSUE_CODE,
+                message = "Missing runtime bootstrap file: ${packageContract.runtime.bootstrap}",
+            )
+        }
+
+        packageContract.config.staticSchema.takeIf(String::isNotBlank)?.let { schemaPath ->
+            if (!archiveContains(archiveEntries, schemaPath)) {
+                validationIssues += issue(
+                    code = MISSING_SCHEMA_FILE_ISSUE_CODE,
+                    message = "Missing declared schema file: $schemaPath",
+                )
+            }
+        }
+
+        packageContract.config.settingsSchema.takeIf(String::isNotBlank)?.let { schemaPath ->
+            if (!archiveContains(archiveEntries, schemaPath)) {
+                validationIssues += issue(
+                    code = MISSING_SCHEMA_FILE_ISSUE_CODE,
+                    message = "Missing declared schema file: $schemaPath",
+                )
+            }
+        }
+
+        val minHostVersionSatisfied = compareVersions(hostVersion, manifest.minHostVersion) >= 0
+        val maxHostVersionSatisfied = manifest.maxHostVersion.isBlank() ||
+            compareVersions(hostVersion, manifest.maxHostVersion) <= 0
+
+        val protocolSupported = manifest.protocolVersion == supportedProtocolVersion
+        val compatibilityNotes = buildCompatibilityNotes(
+            manifest = manifest,
+            protocolSupported = protocolSupported,
+            minHostVersionSatisfied = minHostVersionSatisfied,
+            maxHostVersionSatisfied = maxHostVersionSatisfied,
+        )
+        val compatibilityState = PluginCompatibilityState.fromChecks(
+            protocolSupported = protocolSupported,
+            minHostVersionSatisfied = minHostVersionSatisfied,
+            maxHostVersionSatisfied = maxHostVersionSatisfied,
+            notes = compatibilityNotes,
+        )
+
         return PluginPackageValidationResult(
             manifest = manifest,
-            compatibilityState = PluginCompatibilityState.fromChecks(
-                protocolSupported = manifest.protocolVersion == supportedProtocolVersion,
-                minHostVersionSatisfied = compareVersions(hostVersion, manifest.minHostVersion) >= 0,
-                maxHostVersionSatisfied = manifest.maxHostVersion.isBlank() ||
-                    compareVersions(hostVersion, manifest.maxHostVersion) <= 0,
-                notes = buildCompatibilityNotes(manifest),
-            ),
+            compatibilityState = compatibilityState,
+            installable = validationIssues.isEmpty() &&
+                protocolSupported &&
+                minHostVersionSatisfied &&
+                maxHostVersionSatisfied,
+            packageContract = packageContract,
+            validationIssues = validationIssues.toList(),
         )
     }
 
-    private fun buildCompatibilityNotes(manifest: PluginManifest): String {
-        val notes = mutableListOf<String>()
-        if (manifest.protocolVersion != supportedProtocolVersion) {
-            notes += "Protocol version ${manifest.protocolVersion} is not supported."
-        }
-        if (compareVersions(hostVersion, manifest.minHostVersion) < 0) {
-            notes += "Host version $hostVersion is below required minimum ${manifest.minHostVersion}."
-        }
-        if (manifest.maxHostVersion.isNotBlank() && compareVersions(hostVersion, manifest.maxHostVersion) > 0) {
-            notes += "Host version $hostVersion exceeds supported maximum ${manifest.maxHostVersion}."
-        }
-        return notes.joinToString(separator = " ")
-    }
-
-    private fun readManifestJson(packageFile: File): JSONObject {
-        var manifestText: String? = null
+    private fun readArchiveEntries(packageFile: File): Map<String, String> {
+        val entries = linkedMapOf<String, String>()
         ZipInputStream(packageFile.inputStream().buffered()).use { input ->
             var entry = input.nextEntry
             while (entry != null) {
                 val normalizedName = normalizeArchiveEntryName(entry.name)
-                if (!entry.isDirectory && normalizedName == "manifest.json") {
-                    manifestText = input.readBytes().toString(Charsets.UTF_8)
+                if (!entry.isDirectory) {
+                    entries[normalizedName] = input.readBytes().toString(Charsets.UTF_8)
                 }
                 entry = input.nextEntry
             }
         }
-        return JSONObject(manifestText ?: throw IllegalArgumentException("Plugin package is missing manifest.json"))
+        return entries
+    }
+
+    private fun readJsonEntry(entries: Map<String, String>, entryName: String): JSONObject {
+        val manifestText = entries[entryName]
+            ?: throw IllegalArgumentException("Plugin package is missing $entryName")
+        return JSONObject(manifestText)
+    }
+
+    private fun archiveContains(entries: Map<String, String>, path: String): Boolean {
+        val normalizedPath = normalizeArchiveEntryName(path)
+        return entries.containsKey(normalizedPath)
     }
 
     private fun parseManifest(json: JSONObject): PluginManifest {
@@ -149,6 +224,70 @@ class PluginPackageValidator(
             is Boolean -> rawValue
             else -> throw IllegalArgumentException("Manifest field $key must be a boolean")
         }
+    }
+
+    private fun issue(code: String, message: String): PluginPackageValidationIssue {
+        return PluginPackageValidationIssue(code = code, message = message)
+    }
+
+    private fun buildCompatibilityNotes(
+        manifest: PluginManifest,
+        protocolSupported: Boolean,
+        minHostVersionSatisfied: Boolean,
+        maxHostVersionSatisfied: Boolean,
+    ): String {
+        val notes = mutableListOf<String>()
+        if (!protocolSupported) {
+            notes += "Protocol version ${manifest.protocolVersion} is not supported."
+        }
+        if (!minHostVersionSatisfied) {
+            notes += "Host version $hostVersion is below required minimum ${manifest.minHostVersion}."
+        }
+        if (!maxHostVersionSatisfied) {
+            notes += "Host version $hostVersion exceeds supported maximum ${manifest.maxHostVersion}."
+        }
+        return notes.joinToString(separator = " ")
+    }
+
+    private fun buildLegacyValidationResult(manifest: PluginManifest): PluginPackageValidationResult {
+        val protocolSupported = manifest.protocolVersion == supportedProtocolVersion
+        val minHostVersionSatisfied = compareVersions(hostVersion, manifest.minHostVersion) >= 0
+        val maxHostVersionSatisfied = manifest.maxHostVersion.isBlank() ||
+            compareVersions(hostVersion, manifest.maxHostVersion) <= 0
+        val compatibilityState = PluginCompatibilityState.fromChecks(
+            protocolSupported = protocolSupported,
+            minHostVersionSatisfied = minHostVersionSatisfied,
+            maxHostVersionSatisfied = maxHostVersionSatisfied,
+            notes = buildCompatibilityNotes(
+                manifest = manifest,
+                protocolSupported = protocolSupported,
+                minHostVersionSatisfied = minHostVersionSatisfied,
+                maxHostVersionSatisfied = maxHostVersionSatisfied,
+            ),
+        )
+        return PluginPackageValidationResult(
+            manifest = manifest,
+            compatibilityState = compatibilityState,
+            installable = false,
+            packageContract = null,
+            validationIssues = listOf(
+                issue(
+                    code = LEGACY_CONTRACT_ISSUE_CODE,
+                    message = "android-execution.json is legacy and is no longer the installation truth source.",
+                ),
+            ),
+        )
+    }
+
+    private companion object {
+        const val MANIFEST_FILE = "manifest.json"
+        const val ANDROID_PLUGIN_FILE_NAME = "android-plugin.json"
+        const val LEGACY_EXECUTION_FILE_NAME = "android-execution.json"
+        const val LEGACY_PROTOCOL_VERSION = 1
+        const val LEGACY_CONTRACT_ISSUE_CODE = "legacy_contract"
+        const val MANIFEST_PROTOCOL_MISMATCH_ISSUE_CODE = "manifest_protocol_mismatch"
+        const val MISSING_RUNTIME_BOOTSTRAP_ISSUE_CODE = "missing_runtime_bootstrap"
+        const val MISSING_SCHEMA_FILE_ISSUE_CODE = "missing_schema_file"
     }
 }
 

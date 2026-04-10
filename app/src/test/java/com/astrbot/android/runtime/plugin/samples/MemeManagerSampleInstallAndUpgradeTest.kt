@@ -3,6 +3,7 @@ package com.astrbot.android.runtime.plugin.samples
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginInstallIntent
+import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.runtime.plugin.PluginInstaller
 import com.astrbot.android.runtime.plugin.PluginPackageValidator
@@ -11,6 +12,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,7 +29,7 @@ class MemeManagerSampleInstallAndUpgradeTest {
             assertTrue("Missing sample zip: ${packageZip.absolutePath}", packageZip.exists())
             val expectedUrl = "https://samples.astrbot.local/catalog/packages/meme-manager-1.0.0.zip"
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
@@ -49,7 +51,20 @@ class MemeManagerSampleInstallAndUpgradeTest {
             assertEquals(expectedUrl, installed.source.location)
             assertEquals(expectedUrl, installed.installedPackageUrl)
             assertEquals("sample", installed.catalogSourceId)
+            assertEquals(2, installed.manifestSnapshot.protocolVersion)
+            assertEquals(2, installed.packageContractSnapshot?.protocolVersion)
+            assertEquals(
+                PluginRuntimeDeclarationSnapshot(
+                    kind = "js_quickjs",
+                    bootstrap = "runtime/index.js",
+                    apiVersion = 1,
+                ),
+                installed.packageContractSnapshot?.runtime,
+            )
             assertTrue(File(installed.localPackagePath).exists())
+            assertTrue(File(installed.extractedDir, "android-plugin.json").exists())
+            assertTrue(File(installed.extractedDir, "runtime/index.js").exists())
+            assertFalse(File(installed.extractedDir, "android-execution.json").exists())
             assertTrue(File(installed.extractedDir, "assets/readme.txt").exists())
             assertTrue(File(installed.extractedDir, "resources/memes/index.json").exists())
             assertTrue(
@@ -70,7 +85,7 @@ class MemeManagerSampleInstallAndUpgradeTest {
             val packageZip = SampleAssetPaths.packageZip("1.0.0")
             assertTrue("Missing sample zip: ${packageZip.absolutePath}", packageZip.exists())
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
@@ -100,7 +115,7 @@ class MemeManagerSampleInstallAndUpgradeTest {
             val availability = PluginRepository.getUpdateAvailability(
                 pluginId = SAMPLE_PLUGIN_ID,
                 hostVersion = "0.3.6",
-                supportedProtocolVersion = 1,
+                supportedProtocolVersion = 2,
             )
 
             assertNotNull(availability)
@@ -108,6 +123,8 @@ class MemeManagerSampleInstallAndUpgradeTest {
             assertEquals("1.1.0", availability.latestVersion)
             assertEquals("sample", availability.catalogSourceId)
             assertTrue(availability.packageUrl.contains("meme-manager-1.1.0.zip"))
+            assertEquals(true, availability.canUpgrade)
+            assertTrue(availability.compatibilityState.isCompatible())
         } finally {
             resetPluginRepositoryForSampleTest(initialized = false)
             tempDir.deleteRecursively()

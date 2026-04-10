@@ -17,7 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -26,14 +25,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
 import com.astrbot.android.di.astrBotViewModel
-import com.astrbot.android.model.plugin.ExternalPluginExecutionBindingStatus
-import com.astrbot.android.model.plugin.ExternalPluginRuntimeKind
-import com.astrbot.android.model.plugin.ExternalPluginRuntimeBinding
-import com.astrbot.android.model.plugin.ExternalPluginTriggerAvailability
-import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
+import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginTriggerSource
-import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeBinder
 import com.astrbot.android.ui.AppDestination
 import com.astrbot.android.ui.RegisterSecondaryTopBar
 import com.astrbot.android.ui.SecondaryTopBarPlaceholder
@@ -41,34 +35,27 @@ import com.astrbot.android.ui.SecondaryTopBarSpec
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 private enum class PluginTriggerManagementSection {
     Summary,
     Readiness,
-    OpenTriggers,
-    ClosedTriggers,
     Notes,
 }
 
 internal enum class PluginTriggerManagementStatus {
-    Ready,
-    Disabled,
-    MissingContract,
-    MissingEntry,
+    Unsupported,
+    NotReady,
     InvalidContract,
 }
 
 internal data class PluginTriggerItemUiState(
     val trigger: PluginTriggerSource,
-    val availability: ExternalPluginTriggerAvailability,
 )
 
 internal data class PluginTriggerManagementState(
     val status: PluginTriggerManagementStatus,
     val statusDetail: String = "",
-    val runtimeLabel: String = "js_quickjs",
+    val runtimeLabel: String = "-",
     val entryPath: String = "",
     val contractVersion: String = "-",
     val canManualOpen: Boolean = false,
@@ -97,21 +84,13 @@ fun PluginTriggerManagementScreenRoute(
     )
 
     val record = uiState.selectedPlugin
-    val triggerState by produceState<PluginTriggerManagementState?>(initialValue = null, record) {
-        value = record?.let { selectedRecord ->
-            withContext(Dispatchers.IO) {
-                buildPluginTriggerManagementState(
-                    binding = ExternalPluginRuntimeBinder().bind(selectedRecord),
-                )
-            }
-        }
-    }
+    val triggerState = record?.let(::buildPluginTriggerManagementState)
 
     BoxWithTriggerPageBackground {
         if (record != null && triggerState != null) {
             PluginTriggerManagementWorkspace(
                 record = record,
-                state = triggerState!!,
+                state = triggerState,
             )
         }
     }
@@ -185,52 +164,10 @@ private fun PluginTriggerManagementWorkspace(
                     }
                 }
 
-                PluginTriggerManagementSection.OpenTriggers -> {
-                    TriggerSectionCard(title = stringResource(R.string.plugin_trigger_open_title)) {
-                        if (state.openTriggers.isEmpty()) {
-                            Text(
-                                text = stringResource(R.string.plugin_trigger_open_empty),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MonochromeUi.textSecondary,
-                            )
-                        } else {
-                            state.openTriggers.forEach { item ->
-                                TriggerKeyValue(
-                                    label = triggerLabel(item.trigger),
-                                    value = stringResource(R.string.plugin_trigger_status_open),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                PluginTriggerManagementSection.ClosedTriggers -> {
-                    TriggerSectionCard(title = stringResource(R.string.plugin_trigger_closed_title)) {
-                        if (state.closedTriggers.isEmpty()) {
-                            Text(
-                                text = stringResource(R.string.plugin_trigger_closed_empty),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MonochromeUi.textSecondary,
-                            )
-                        } else {
-                            state.closedTriggers.forEach { item ->
-                                TriggerKeyValue(
-                                    label = triggerLabel(item.trigger),
-                                    value = stringResource(R.string.plugin_trigger_status_closed),
-                                )
-                            }
-                        }
-                    }
-                }
-
                 PluginTriggerManagementSection.Notes -> {
                     TriggerSectionCard(title = stringResource(R.string.plugin_trigger_notes_title)) {
                         Text(
-                            text = if (state.canManualOpen) {
-                                stringResource(R.string.plugin_trigger_notes_entry_enabled)
-                            } else {
-                                stringResource(R.string.plugin_trigger_notes_entry_disabled)
-                            },
+                            text = state.statusDetail,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MonochromeUi.textPrimary,
                         )
@@ -247,46 +184,73 @@ private fun PluginTriggerManagementWorkspace(
 }
 
 internal fun buildPluginTriggerManagementState(
-    binding: ExternalPluginRuntimeBinding,
+    record: PluginInstallRecord,
 ): PluginTriggerManagementState {
-    val status = when (binding.status) {
-        ExternalPluginExecutionBindingStatus.READY -> PluginTriggerManagementStatus.Ready
-        ExternalPluginExecutionBindingStatus.DISABLED -> PluginTriggerManagementStatus.Disabled
-        ExternalPluginExecutionBindingStatus.MISSING_CONTRACT -> PluginTriggerManagementStatus.MissingContract
-        ExternalPluginExecutionBindingStatus.MISSING_ENTRY -> PluginTriggerManagementStatus.MissingEntry
-        ExternalPluginExecutionBindingStatus.INVALID_CONTRACT -> PluginTriggerManagementStatus.InvalidContract
+    val packageContract = record.packageContractSnapshot
+    val runtimeKind = packageContract?.runtime?.kind?.takeIf { it.isNotBlank() }
+    val bootstrapPath = packageContract?.runtime?.bootstrap?.takeIf { it.isNotBlank() }
+    val status = when {
+        record.compatibilityState.status == PluginCompatibilityStatus.INCOMPATIBLE -> {
+            PluginTriggerManagementStatus.Unsupported
+        }
+
+        packageContract == null ||
+            runtimeKind == null ||
+            bootstrapPath == null -> {
+            PluginTriggerManagementStatus.InvalidContract
+        }
+
+        else -> PluginTriggerManagementStatus.NotReady
     }
-    val declaredTriggers = binding.contract
-        ?.supportedTriggers
-        ?.toList()
-        ?.sortedBy { it.ordinal }
-        .orEmpty()
-    val grouped = declaredTriggers.map { trigger ->
-        PluginTriggerItemUiState(
-            trigger = trigger,
-            availability = ExternalPluginTriggerPolicy.availability(trigger),
-        )
+    val statusDetail = when (status) {
+        PluginTriggerManagementStatus.Unsupported -> {
+            record.compatibilityState.notes.takeIf { it.isNotBlank() }
+                ?: "Legacy v1 trigger contracts are unsupported in phase 1."
+        }
+
+        PluginTriggerManagementStatus.InvalidContract -> {
+            "This plugin is missing a valid protocol v2 package contract snapshot."
+        }
+
+        PluginTriggerManagementStatus.NotReady -> {
+            "This legacy trigger page is not ready for protocol v2 runtime execution in phase 1."
+        }
     }
-    val openTriggers = grouped.filter { it.availability == ExternalPluginTriggerAvailability.OPEN_V1 }
-    val closedTriggers = grouped.filter { it.availability == ExternalPluginTriggerAvailability.DECLARED_BUT_CLOSED }
+    val runtimeLabel = when (status) {
+        PluginTriggerManagementStatus.NotReady -> pluginRuntimeDisplayLabel(runtimeKind)
+        PluginTriggerManagementStatus.Unsupported,
+        PluginTriggerManagementStatus.InvalidContract,
+        -> "-"
+    }
+    val entryPath = when (status) {
+        PluginTriggerManagementStatus.NotReady -> bootstrapPath ?: "-"
+        PluginTriggerManagementStatus.Unsupported,
+        PluginTriggerManagementStatus.InvalidContract,
+        -> "-"
+    }
+    val contractVersion = when (status) {
+        PluginTriggerManagementStatus.NotReady -> packageContract?.protocolVersion?.toString() ?: "-"
+        PluginTriggerManagementStatus.Unsupported,
+        PluginTriggerManagementStatus.InvalidContract,
+        -> "-"
+    }
     return PluginTriggerManagementState(
         status = status,
-        statusDetail = binding.errorSummary,
-        runtimeLabel = pluginRuntimeDisplayLabel(binding.contract?.entryPoint?.runtimeKind),
-        entryPath = binding.entryAbsolutePath.ifBlank {
-            binding.contract?.entryPoint?.path.orEmpty()
-        },
-        contractVersion = binding.contract?.contractVersion?.toString() ?: "-",
-        canManualOpen = openTriggers.any { it.trigger == PluginTriggerSource.OnPluginEntryClick },
-        openTriggers = openTriggers,
-        closedTriggers = closedTriggers,
+        statusDetail = statusDetail,
+        runtimeLabel = runtimeLabel,
+        entryPath = entryPath,
+        contractVersion = contractVersion,
+        canManualOpen = false,
+        openTriggers = emptyList(),
+        closedTriggers = emptyList(),
     )
 }
 
-internal fun pluginRuntimeDisplayLabel(runtimeKind: ExternalPluginRuntimeKind?): String {
+internal fun pluginRuntimeDisplayLabel(runtimeKind: String?): String {
     return when (runtimeKind) {
-        ExternalPluginRuntimeKind.JsQuickJs -> "JavaScript (QuickJS)"
-        null -> "JavaScript (QuickJS)"
+        "js_quickjs" -> "JavaScript (QuickJS)"
+        null, "" -> "-"
+        else -> runtimeKind
     }
 }
 
@@ -295,8 +259,6 @@ private fun buildTriggerManagementSections(
     return buildList {
         add(PluginTriggerManagementSection.Summary)
         add(PluginTriggerManagementSection.Readiness)
-        add(PluginTriggerManagementSection.OpenTriggers)
-        add(PluginTriggerManagementSection.ClosedTriggers)
         add(PluginTriggerManagementSection.Notes)
     }
 }
@@ -349,24 +311,9 @@ private fun TriggerKeyValue(
 @Composable
 private fun triggerStatusLabel(status: PluginTriggerManagementStatus): String {
     return when (status) {
-        PluginTriggerManagementStatus.Ready -> stringResource(R.string.plugin_trigger_binding_ready)
-        PluginTriggerManagementStatus.Disabled -> stringResource(R.string.plugin_trigger_binding_disabled)
-        PluginTriggerManagementStatus.MissingContract -> stringResource(R.string.plugin_trigger_binding_missing_contract)
-        PluginTriggerManagementStatus.MissingEntry -> stringResource(R.string.plugin_trigger_binding_missing_entry)
+        PluginTriggerManagementStatus.Unsupported -> "Unsupported"
+        PluginTriggerManagementStatus.NotReady -> "Not ready"
         PluginTriggerManagementStatus.InvalidContract -> stringResource(R.string.plugin_trigger_binding_invalid_contract)
-    }
-}
-
-@Composable
-private fun triggerLabel(trigger: PluginTriggerSource): String {
-    return when (trigger) {
-        PluginTriggerSource.OnMessageReceived -> stringResource(R.string.plugin_trigger_on_message_received)
-        PluginTriggerSource.BeforeSendMessage -> stringResource(R.string.plugin_trigger_before_send_message)
-        PluginTriggerSource.AfterModelResponse -> stringResource(R.string.plugin_trigger_after_model_response)
-        PluginTriggerSource.OnSchedule -> stringResource(R.string.plugin_trigger_on_schedule)
-        PluginTriggerSource.OnPluginEntryClick -> stringResource(R.string.plugin_trigger_on_plugin_entry_click)
-        PluginTriggerSource.OnCommand -> stringResource(R.string.plugin_trigger_on_command)
-        PluginTriggerSource.OnConversationEnter -> stringResource(R.string.plugin_trigger_on_conversation_enter)
     }
 }
 

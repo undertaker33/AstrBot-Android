@@ -324,8 +324,6 @@ internal fun buildPluginMarketWorkspacePresentation(
             val defaultOption = buildPluginMarketVersionOptions(
                 entries = entries,
                 pluginId = pluginId,
-                hostVersion = uiState.hostVersion,
-                supportedProtocolVersion = uiState.supportedPluginProtocolVersion,
             ).firstOrNull()
             val entry = defaultOption?.let { option ->
                 entries.firstOrNull { it.sourceId == option.sourceId }
@@ -357,8 +355,6 @@ internal fun buildPluginMarketWorkspacePresentation(
 internal fun buildPluginMarketVersionOptions(
     entries: List<PluginCatalogEntryCardUiState>,
     pluginId: String,
-    hostVersion: String,
-    supportedProtocolVersion: Int,
 ): List<PluginMarketVersionOptionPresentation> {
     return entries
         .withIndex()
@@ -366,11 +362,6 @@ internal fun buildPluginMarketVersionOptions(
         .filter { (_, entry) -> entry.pluginId == pluginId }
         .flatMap { (sourceOrder, entry) ->
             entry.effectiveMarketVersions().asSequence().map { version ->
-                val compatibilityState = evaluateCatalogVersionCompatibility(
-                    version = version,
-                    hostVersion = hostVersion,
-                    supportedProtocolVersion = supportedProtocolVersion,
-                )
                 PluginMarketVersionOptionWithSourceOrder(
                     option = PluginMarketVersionOptionPresentation(
                         stableKey = listOf(entry.pluginId, entry.sourceId, version.version, version.packageUrl)
@@ -384,8 +375,8 @@ internal fun buildPluginMarketVersionOptions(
                         minHostVersion = version.minHostVersion,
                         maxHostVersion = version.maxHostVersion,
                         changelogSummary = summarizeVersionChangelog(version.changelog),
-                        compatibilityState = compatibilityState,
-                        isSelectable = compatibilityState.status == PluginCompatibilityStatus.COMPATIBLE,
+                        compatibilityState = version.compatibilityState,
+                        isSelectable = version.installable,
                     ),
                     sourceOrder = sourceOrder,
                 )
@@ -433,8 +424,6 @@ internal fun buildPluginMarketDetailPresentation(
     val versionOptions = buildPluginMarketVersionOptions(
         entries = entries,
         pluginId = pluginId,
-        hostVersion = uiState.hostVersion,
-        supportedProtocolVersion = uiState.supportedPluginProtocolVersion,
     )
     val selectedVersion = uiState.selectedMarketVersionKeys[pluginId]
         ?.let { key -> versionOptions.firstOrNull { it.stableKey == key && it.isSelectable } }
@@ -483,48 +472,13 @@ private fun PluginCatalogEntryCardUiState.effectiveMarketVersions(): List<Plugin
             version = latestVersion,
             packageUrl = "",
             publishedAt = 0L,
-            protocolVersion = 1,
+            protocolVersion = 0,
             minHostVersion = "0.0.0",
             maxHostVersion = "",
+            compatibilityState = PluginCompatibilityState.unknown(),
+            installable = false,
         ),
     )
-}
-
-private fun evaluateCatalogVersionCompatibility(
-    version: PluginCatalogEntryVersionUiState,
-    hostVersion: String,
-    supportedProtocolVersion: Int,
-): PluginCompatibilityState {
-    return PluginCompatibilityState.fromChecks(
-        protocolSupported = version.protocolVersion == supportedProtocolVersion,
-        minHostVersionSatisfied = version.minHostVersion.isBlank() ||
-            compareVersions(hostVersion, version.minHostVersion) >= 0,
-        maxHostVersionSatisfied = version.maxHostVersion.isBlank() ||
-            compareVersions(hostVersion, version.maxHostVersion) <= 0,
-        notes = buildCatalogVersionCompatibilityNotes(
-            version = version,
-            hostVersion = hostVersion,
-            supportedProtocolVersion = supportedProtocolVersion,
-        ),
-    )
-}
-
-private fun buildCatalogVersionCompatibilityNotes(
-    version: PluginCatalogEntryVersionUiState,
-    hostVersion: String,
-    supportedProtocolVersion: Int,
-): String {
-    val notes = mutableListOf<String>()
-    if (version.protocolVersion != supportedProtocolVersion) {
-        notes += "Protocol version ${version.protocolVersion} is not supported."
-    }
-    if (version.minHostVersion.isNotBlank() && compareVersions(hostVersion, version.minHostVersion) < 0) {
-        notes += "Host version $hostVersion is below required minimum ${version.minHostVersion}."
-    }
-    if (version.maxHostVersion.isNotBlank() && compareVersions(hostVersion, version.maxHostVersion) > 0) {
-        notes += "Host version $hostVersion exceeds supported maximum ${version.maxHostVersion}."
-    }
-    return notes.joinToString(separator = " ")
 }
 
 private fun summarizeVersionChangelog(changelog: String): String {

@@ -8,6 +8,8 @@ data class PluginInstallAggregate(
     @Relation(parentColumn = "pluginId", entityColumn = "pluginId")
     val manifestSnapshots: List<PluginManifestSnapshotEntity>,
     @Relation(parentColumn = "pluginId", entityColumn = "pluginId")
+    val packageContractSnapshots: List<PluginPackageContractSnapshotEntity> = emptyList(),
+    @Relation(parentColumn = "pluginId", entityColumn = "pluginId")
     val manifestPermissions: List<PluginManifestPermissionEntity>,
     @Relation(parentColumn = "pluginId", entityColumn = "pluginId")
     val permissionSnapshots: List<PluginPermissionSnapshotEntity>,
@@ -16,6 +18,7 @@ data class PluginInstallAggregate(
 data class PluginInstallWriteModel(
     val record: PluginInstallRecordEntity,
     val manifestSnapshot: PluginManifestSnapshotEntity,
+    val packageContractSnapshot: PluginPackageContractSnapshotEntity? = null,
     val manifestPermissions: List<PluginManifestPermissionEntity>,
     val permissionSnapshots: List<PluginPermissionSnapshotEntity>,
 )

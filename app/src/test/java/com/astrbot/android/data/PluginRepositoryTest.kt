@@ -12,9 +12,11 @@ import com.astrbot.android.data.db.PluginConfigSnapshotDao
 import com.astrbot.android.data.db.PluginConfigSnapshotEntity
 import com.astrbot.android.data.db.PluginManifestPermissionEntity
 import com.astrbot.android.data.db.PluginManifestSnapshotEntity
+import com.astrbot.android.data.db.PluginPackageContractSnapshotEntity
 import com.astrbot.android.data.db.PluginPermissionSnapshotEntity
 import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.db.toWriteModel
+import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginCatalogEntry
@@ -22,6 +24,7 @@ import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginConfigEntryPointsSnapshot
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginStaticConfigField
 import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
@@ -30,13 +33,17 @@ import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.toStorageBoundary
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginManifest
+import com.astrbot.android.model.plugin.PluginPackageContractSnapshot
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginRepositorySource
+import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.model.plugin.PluginPackageValidationIssue
+import com.astrbot.android.runtime.plugin.PluginPackageValidationResult
 import com.astrbot.android.model.plugin.PluginStaticConfigJson
 import java.io.File
 import java.nio.file.Files
@@ -84,6 +91,31 @@ class PluginRepositoryTest {
         val found = PluginRepository.findByPluginId(record.pluginId)
 
         assertEquals(record, found)
+    }
+
+    @Test
+    fun repository_reprojects_legacy_v1_record_from_store_as_incompatible() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val legacyRecord = sampleRecord(
+            version = "1.0.0",
+            protocolVersion = 1,
+            enabled = false,
+            compatibilityState = PluginCompatibilityState.evaluated(
+                protocolSupported = true,
+                minHostVersionSatisfied = true,
+                maxHostVersionSatisfied = true,
+            ),
+            packageContractSnapshot = null,
+        )
+        dao.seed(legacyRecord)
+        resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+        val projected = PluginRepository.findByPluginId(legacyRecord.pluginId)
+
+        assertEquals(PluginCompatibilityStatus.INCOMPATIBLE, projected?.compatibilityState?.status)
+        assertEquals(false, projected?.compatibilityState?.protocolSupported)
+        assertTrue(projected?.compatibilityState?.notes?.contains("Protocol version 1 is not supported.") == true)
+        assertEquals(projected, PluginRepository.records.value.single())
     }
 
     @Test
@@ -318,6 +350,82 @@ class PluginRepositoryTest {
     }
 
     @Test
+    fun repository_blocks_enabling_legacy_v1_record_even_if_persisted_as_compatible() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val legacyRecord = sampleRecord(
+            version = "1.0.0",
+            protocolVersion = 1,
+            enabled = false,
+            compatibilityState = PluginCompatibilityState.evaluated(
+                protocolSupported = true,
+                minHostVersionSatisfied = true,
+                maxHostVersionSatisfied = true,
+            ),
+            packageContractSnapshot = null,
+        )
+        dao.seed(legacyRecord)
+        resetPluginRepositoryForTest(dao = dao, initialized = true, now = 750L)
+
+        val failure = runCatching {
+            PluginRepository.setEnabled(legacyRecord.pluginId, true)
+        }.exceptionOrNull()
+        val projected = PluginRepository.findByPluginId(legacyRecord.pluginId)
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message?.contains("Protocol version 1 is not supported.") == true)
+        assertEquals(PluginCompatibilityStatus.INCOMPATIBLE, projected?.compatibilityState?.status)
+        assertEquals(legacyRecord, runBlocking { dao.getPluginInstallAggregate(legacyRecord.pluginId) }?.toInstallRecord())
+    }
+
+    @Test
+    fun repository_maps_legacy_validation_issue_to_legacy_v1_import_message() {
+        val validation = PluginPackageValidationResult(
+            manifest = sampleRecord(version = "1.0.0").manifestSnapshot,
+            compatibilityState = PluginCompatibilityState.evaluated(
+                protocolSupported = false,
+                minHostVersionSatisfied = true,
+                maxHostVersionSatisfied = true,
+                notes = "Protocol version 1 is not supported.",
+            ),
+            installable = false,
+            validationIssues = listOf(
+                PluginPackageValidationIssue(
+                    code = "legacy_contract",
+                    message = "android-execution.json is legacy and is no longer the installation truth source.",
+                ),
+            ),
+        )
+
+        val failure = PluginRepository.buildLocalPackageInstallBlockedException(validation)
+
+        assertTrue(failure.message?.contains("Legacy v1", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun repository_maps_structure_validation_issue_to_damaged_v2_import_message() {
+        val validation = PluginPackageValidationResult(
+            manifest = sampleRecord(version = "1.0.0").manifestSnapshot,
+            compatibilityState = PluginCompatibilityState.evaluated(
+                protocolSupported = true,
+                minHostVersionSatisfied = true,
+                maxHostVersionSatisfied = true,
+            ),
+            installable = false,
+            validationIssues = listOf(
+                PluginPackageValidationIssue(
+                    code = "missing_runtime_bootstrap",
+                    message = "Missing runtime bootstrap file: runtime/index.js",
+                ),
+            ),
+        )
+
+        val failure = PluginRepository.buildLocalPackageInstallBlockedException(validation)
+
+        assertTrue(failure.message?.contains("Damaged v2", ignoreCase = true) == true)
+        assertTrue(failure.message?.contains("runtime/index.js") == true)
+    }
+
+    @Test
     fun repository_updates_failure_state_and_persists_it() {
         val dao = InMemoryPluginInstallAggregateDao()
         val record = sampleRecord(version = "1.0.0", lastUpdatedAt = 10L)
@@ -450,6 +558,94 @@ class PluginRepositoryTest {
         assertEquals("official", stored.catalogSourceId)
         assertEquals("https://repo.example.com/packages/demo-2.1.0.zip", stored.installedPackageUrl)
         assertEquals(1_234L, stored.lastCatalogCheckAtEpochMillis)
+    }
+
+    @Test
+    fun repository_round_trips_package_contract_snapshot_on_install_records() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val record = sampleRecord(
+            version = "2.2.0",
+            packageContractSnapshot = PluginPackageContractSnapshot(
+                protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+                runtime = PluginRuntimeDeclarationSnapshot(
+                    kind = "js_quickjs",
+                    bootstrap = "runtime/index.js",
+                    apiVersion = 1,
+                ),
+                config = PluginConfigEntryPointsSnapshot(
+                    staticSchema = "schemas/static.schema.json",
+                    settingsSchema = "schemas/settings.schema.json",
+                ),
+            ),
+        )
+        resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+        PluginRepository.upsert(record)
+
+        val stored = runBlocking { dao.getPluginInstallAggregate(record.pluginId) }!!.toInstallRecord()
+        assertEquals(record.packageContractSnapshot, stored.packageContractSnapshot)
+        assertEquals(
+            "runtime/index.js",
+            PluginRepository.findByPluginId(record.pluginId)!!.packageContractSnapshot!!.runtime.bootstrap,
+        )
+    }
+
+    @Test
+    fun repository_preserves_package_contract_snapshot_when_rewriting_enabled_state() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val snapshot = PluginPackageContractSnapshot(
+            protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+            runtime = PluginRuntimeDeclarationSnapshot(
+                kind = "js_quickjs",
+                bootstrap = "runtime/index.js",
+                apiVersion = 1,
+            ),
+            config = PluginConfigEntryPointsSnapshot(
+                staticSchema = "schemas/static.schema.json",
+                settingsSchema = "schemas/settings.schema.json",
+            ),
+        )
+        val record = sampleRecord(
+            version = "2.3.0",
+            enabled = false,
+            lastUpdatedAt = 10L,
+            packageContractSnapshot = snapshot,
+        )
+        dao.seed(record)
+        resetPluginRepositoryForTest(dao = dao, initialized = true, now = 510L)
+
+        val updated = PluginRepository.setEnabled(record.pluginId, true)
+        val stored = runBlocking { dao.getPluginInstallAggregate(record.pluginId) }!!.toInstallRecord()
+
+        assertEquals(snapshot, updated.packageContractSnapshot)
+        assertEquals(snapshot, stored.packageContractSnapshot)
+        assertEquals(snapshot, PluginRepository.findByPluginId(record.pluginId)!!.packageContractSnapshot)
+    }
+
+    @Test
+    fun repository_preserves_legacy_null_package_contract_snapshot_across_rewrite() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val record = sampleRecord(
+            version = "1.9.0",
+            enabled = false,
+            lastUpdatedAt = 15L,
+            packageContractSnapshot = null,
+        )
+        dao.seed(record)
+        resetPluginRepositoryForTest(dao = dao, initialized = true, now = 515L)
+
+        val beforeRewrite = PluginRepository.findByPluginId(record.pluginId)!!
+        val updated = PluginRepository.setEnabled(record.pluginId, true)
+        val stored = runBlocking { dao.getPluginInstallAggregate(record.pluginId) }!!.toInstallRecord()
+
+        assertEquals(null, beforeRewrite.packageContractSnapshot)
+        assertEquals(null, updated.packageContractSnapshot)
+        assertEquals(null, stored.packageContractSnapshot)
+        assertEquals(record.manifestSnapshot, stored.manifestSnapshot)
+        assertEquals(record.permissionSnapshot, stored.permissionSnapshot)
+        assertEquals(record.source, stored.source)
+        assertEquals(true, updated.enabled)
+        assertEquals(515L, updated.lastUpdatedAt)
     }
 
     @Test
@@ -614,7 +810,6 @@ class PluginRepositoryTest {
         val availability = PluginRepository.getUpdateAvailability(
             pluginId = "com.example.demo",
             hostVersion = "0.3.6",
-            supportedProtocolVersion = 1,
         )
 
         assertEquals(
@@ -668,7 +863,6 @@ class PluginRepositoryTest {
         val availability = PluginRepository.getUpdateAvailability(
             pluginId = "com.example.demo",
             hostVersion = "0.3.6",
-            supportedProtocolVersion = 1,
         )
 
         assertEquals(null, availability)
@@ -709,7 +903,6 @@ class PluginRepositoryTest {
         val availability = PluginRepository.getUpdateAvailability(
             pluginId = "com.example.demo",
             hostVersion = "0.3.6",
-            supportedProtocolVersion = 1,
         )
 
         assertEquals("1.1.0", availability?.latestVersion)
@@ -751,7 +944,6 @@ class PluginRepositoryTest {
         val availability = PluginRepository.getUpdateAvailability(
             pluginId = "com.example.demo",
             hostVersion = "0.3.6",
-            supportedProtocolVersion = 1,
         )
 
         assertEquals(true, availability?.updateAvailable)
@@ -800,7 +992,6 @@ class PluginRepositoryTest {
         val availability = PluginRepository.getUpdateAvailability(
             pluginId = "com.example.demo",
             hostVersion = "0.3.6",
-            supportedProtocolVersion = 1,
         )
 
         assertEquals(true, availability?.updateAvailable)
@@ -860,7 +1051,6 @@ class PluginRepositoryTest {
         val availability = PluginRepository.getUpdateAvailability(
             pluginId = "com.example.demo",
             hostVersion = "0.3.6",
-            supportedProtocolVersion = 1,
         )
 
         assertEquals(1, availability?.permissionDiff?.riskUpgraded?.size)
@@ -926,6 +1116,7 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
         aggregates[record.pluginId] = PluginInstallAggregate(
             record = writeModel.record,
             manifestSnapshots = listOf(writeModel.manifestSnapshot),
+            packageContractSnapshots = listOfNotNull(writeModel.packageContractSnapshot),
             manifestPermissions = writeModel.manifestPermissions,
             permissionSnapshots = writeModel.permissionSnapshots,
         )
@@ -946,6 +1137,7 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
         aggregates[writeModel.record.pluginId] = PluginInstallAggregate(
             record = writeModel.record,
             manifestSnapshots = listOf(writeModel.manifestSnapshot),
+            packageContractSnapshots = listOfNotNull(writeModel.packageContractSnapshot),
             manifestPermissions = writeModel.manifestPermissions,
             permissionSnapshots = writeModel.permissionSnapshots,
         )
@@ -956,11 +1148,15 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
 
     override suspend fun upsertManifestSnapshots(entities: List<PluginManifestSnapshotEntity>) = Unit
 
+    override suspend fun upsertPackageContractSnapshots(entities: List<PluginPackageContractSnapshotEntity>) = Unit
+
     override suspend fun upsertManifestPermissions(entities: List<PluginManifestPermissionEntity>) = Unit
 
     override suspend fun upsertPermissionSnapshots(entities: List<PluginPermissionSnapshotEntity>) = Unit
 
     override suspend fun deleteManifestPermissions(pluginId: String) = Unit
+
+    override suspend fun deletePackageContractSnapshots(pluginId: String) = Unit
 
     override suspend fun deletePermissionSnapshots(pluginId: String) = Unit
 
@@ -999,6 +1195,7 @@ private class InMemoryPluginConfigSnapshotDao : PluginConfigSnapshotDao {
 
 private fun sampleRecord(
     version: String,
+    protocolVersion: Int = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
     sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
     enabled: Boolean = false,
     installedAt: Long = 0L,
@@ -1024,11 +1221,24 @@ private fun sampleRecord(
     installedPackageUrl: String = "",
     lastCatalogCheckAtEpochMillis: Long? = null,
     localPackagePath: String = "/tmp/$version.zip",
+    packageContractSnapshot: PluginPackageContractSnapshot? = if (protocolVersion == PluginRepository.SUPPORTED_PROTOCOL_VERSION) {
+        PluginPackageContractSnapshot(
+            protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+            runtime = PluginRuntimeDeclarationSnapshot(
+                kind = "js_quickjs",
+                bootstrap = "runtime/index.js",
+                apiVersion = 1,
+            ),
+            config = PluginConfigEntryPointsSnapshot(),
+        )
+    } else {
+        null
+    },
 ): PluginInstallRecord {
     val manifest = PluginManifest(
         pluginId = "com.example.demo",
         version = version,
-        protocolVersion = 1,
+        protocolVersion = protocolVersion,
         author = "AstrBot",
         title = "Demo Plugin",
         description = "Example plugin",
@@ -1046,6 +1256,7 @@ private fun sampleRecord(
             location = "/tmp/$version.zip",
             importedAt = lastUpdatedAt,
         ),
+        packageContractSnapshot = packageContractSnapshot,
         permissionSnapshot = manifest.permissions,
         compatibilityState = compatibilityState,
         uninstallPolicy = uninstallPolicy,
@@ -1082,7 +1293,7 @@ private fun sampleRepositorySource(
             version = "1.4.0",
             packageUrl = packageUrl,
             publishedAt = 1_700L,
-            protocolVersion = 2,
+            protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
             minHostVersion = "0.3.0",
             maxHostVersion = "0.4.0",
             permissions = listOf(
@@ -1121,7 +1332,7 @@ private fun catalogVersion(
     version: String,
     packageUrl: String = "https://repo.example.com/packages/demo-$version.zip",
     publishedAt: Long = 1_000L,
-    protocolVersion: Int = 1,
+    protocolVersion: Int = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
     minHostVersion: String = "0.3.0",
     maxHostVersion: String = "",
     permissions: List<PluginPermissionDeclaration> = listOf(
@@ -1167,6 +1378,10 @@ private fun resetPluginRepositoryForTest(
     repositoryClass.getDeclaredField("pluginConfigDao").apply {
         isAccessible = true
         set(PluginRepository, configDao)
+    }
+    repositoryClass.getDeclaredField("appContext").apply {
+        isAccessible = true
+        set(PluginRepository, null)
     }
 
     @Suppress("UNCHECKED_CAST")

@@ -28,6 +28,7 @@ import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginPackageValidationIssue
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginPermissionDiff
@@ -39,6 +40,8 @@ import com.astrbot.android.model.plugin.PluginSourceBadge
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.runtime.plugin.PluginPackageValidationResult
+import com.astrbot.android.runtime.plugin.PluginPackageValidator
 import com.astrbot.android.runtime.plugin.compareVersions
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -86,7 +89,26 @@ data class PluginUninstallResult(
     val removedData: Boolean,
 )
 
+data class PluginCatalogVersionGateResult(
+    val compatibilityState: PluginCompatibilityState,
+    val installable: Boolean,
+    val validationIssues: List<PluginPackageValidationIssue> = emptyList(),
+) {
+    val unsupportedReason: String
+        get() = validationIssues.firstOrNull()?.message?.takeIf(String::isNotBlank)
+            ?: compatibilityState.notes
+}
+
+class PluginPackageInstallBlockedException(
+    val installable: Boolean,
+    val compatibilityState: PluginCompatibilityState,
+    val validationIssues: List<PluginPackageValidationIssue>,
+    message: String,
+) : IllegalStateException(message)
+
 object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
+    const val SUPPORTED_PROTOCOL_VERSION = 2
+
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initialized = AtomicBoolean(false)
 
@@ -115,12 +137,16 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         pluginConfigDao = database.pluginConfigSnapshotDao()
         pluginDao = dao
         _records.value = runBlocking(Dispatchers.IO) {
-            dao.listPluginInstallAggregates().map(PluginInstallAggregate::toInstallRecord)
+            dao.listPluginInstallAggregates()
+                .map(PluginInstallAggregate::toInstallRecord)
+                .map(::projectInstallRecordForHost)
         }
         refreshCatalogState()
         repositoryScope.launch {
             dao.observePluginInstallAggregates().collect { aggregates ->
-                _records.value = aggregates.map(PluginInstallAggregate::toInstallRecord)
+                _records.value = aggregates
+                    .map(PluginInstallAggregate::toInstallRecord)
+                    .map(::projectInstallRecordForHost)
             }
         }
     }
@@ -129,7 +155,7 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         requireInitialized()
         _records.value.firstOrNull { record -> record.pluginId == pluginId }?.let { return it }
         return runBlocking(Dispatchers.IO) {
-            requireDao().getPluginInstallAggregate(pluginId)?.toInstallRecord()
+            requireDao().getPluginInstallAggregate(pluginId)?.toInstallRecord()?.let(::projectInstallRecordForHost)
         }?.also { persistedRecord ->
             _records.value = _records.value
                 .filterNot { current -> current.pluginId == persistedRecord.pluginId }
@@ -140,12 +166,13 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
 
     override fun upsert(record: PluginInstallRecord) {
         requireInitialized()
+        val projectedRecord = projectInstallRecordForHost(record)
         runBlocking(Dispatchers.IO) {
-            requireDao().upsertRecord(record.toWriteModel())
+            requireDao().upsertRecord(projectedRecord.toWriteModel())
         }
         _records.value = _records.value
-            .filterNot { current -> current.pluginId == record.pluginId }
-            .plus(record)
+            .filterNot { current -> current.pluginId == projectedRecord.pluginId }
+            .plus(projectedRecord)
             .sortedByDescending { current -> current.lastUpdatedAt }
     }
 
@@ -256,14 +283,23 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     fun getUpdateAvailability(
         pluginId: String,
         hostVersion: String,
-        supportedProtocolVersion: Int,
     ): PluginUpdateAvailability? {
         requireInitialized()
         val record = findByPluginId(pluginId) ?: return null
         return computeUpdateAvailability(
             record = record,
             hostVersion = hostVersion,
-            supportedProtocolVersion = supportedProtocolVersion,
+        )
+    }
+
+    fun getUpdateAvailability(
+        pluginId: String,
+        hostVersion: String,
+        @Suppress("UNUSED_PARAMETER") supportedProtocolVersion: Int,
+    ): PluginUpdateAvailability? {
+        return getUpdateAvailability(
+            pluginId = pluginId,
+            hostVersion = hostVersion,
         )
     }
 
@@ -432,6 +468,7 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         val updated = PluginInstallRecord.restoreFromPersistedState(
             manifestSnapshot = current.manifestSnapshot,
             source = current.source,
+            packageContractSnapshot = current.packageContractSnapshot,
             permissionSnapshot = current.permissionSnapshot,
             compatibilityState = current.compatibilityState,
             uninstallPolicy = uninstallPolicy,
@@ -449,10 +486,95 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         return updated
     }
 
+    internal fun projectInstallRecordForHost(
+        record: PluginInstallRecord,
+        hostVersion: String? = currentHostVersionOrNull(),
+    ): PluginInstallRecord {
+        val projectedCompatibilityState = projectCompatibilityState(
+            record = record,
+            hostVersion = hostVersion,
+        )
+        if (projectedCompatibilityState == record.compatibilityState) {
+            return record
+        }
+        return PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = record.manifestSnapshot,
+            source = record.source,
+            packageContractSnapshot = record.packageContractSnapshot,
+            permissionSnapshot = record.permissionSnapshot,
+            compatibilityState = projectedCompatibilityState,
+            uninstallPolicy = record.uninstallPolicy,
+            enabled = record.enabled,
+            failureState = record.failureState,
+            catalogSourceId = record.catalogSourceId,
+            installedPackageUrl = record.installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = record.lastCatalogCheckAtEpochMillis,
+            installedAt = record.installedAt,
+            lastUpdatedAt = record.lastUpdatedAt,
+            localPackagePath = record.localPackagePath,
+            extractedDir = record.extractedDir,
+        )
+    }
+
+    private fun projectCompatibilityState(
+        record: PluginInstallRecord,
+        hostVersion: String?,
+    ): PluginCompatibilityState {
+        val manifest = record.manifestSnapshot
+        val minHostVersionSatisfied = hostVersion?.let { compareVersions(it, manifest.minHostVersion) >= 0 }
+            ?: record.compatibilityState.minHostVersionSatisfied
+        val maxHostVersionSatisfied = hostVersion?.let { resolvedHostVersion ->
+            manifest.maxHostVersion.isBlank() || compareVersions(resolvedHostVersion, manifest.maxHostVersion) <= 0
+        } ?: record.compatibilityState.maxHostVersionSatisfied
+        val notes = buildProjectedInstallCompatibilityNotes(
+            manifest = manifest,
+            hostVersion = hostVersion,
+            minHostVersionSatisfied = minHostVersionSatisfied,
+            maxHostVersionSatisfied = maxHostVersionSatisfied,
+            existingNotes = record.compatibilityState.notes,
+        )
+        return PluginCompatibilityState.fromChecks(
+            protocolSupported = manifest.protocolVersion == SUPPORTED_PROTOCOL_VERSION,
+            minHostVersionSatisfied = minHostVersionSatisfied,
+            maxHostVersionSatisfied = maxHostVersionSatisfied,
+            notes = notes,
+        )
+    }
+
+    private fun buildProjectedInstallCompatibilityNotes(
+        manifest: com.astrbot.android.model.plugin.PluginManifest,
+        hostVersion: String?,
+        minHostVersionSatisfied: Boolean?,
+        maxHostVersionSatisfied: Boolean?,
+        existingNotes: String,
+    ): String {
+        val notes = mutableListOf<String>()
+        if (manifest.protocolVersion != SUPPORTED_PROTOCOL_VERSION) {
+            notes += "Protocol version ${manifest.protocolVersion} is not supported."
+        }
+        if (hostVersion != null && minHostVersionSatisfied == false) {
+            notes += "Host version $hostVersion is below required minimum ${manifest.minHostVersion}."
+        }
+        if (hostVersion != null && maxHostVersionSatisfied == false) {
+            notes += "Host version $hostVersion exceeds supported maximum ${manifest.maxHostVersion}."
+        }
+        return when {
+            notes.isNotEmpty() -> notes.joinToString(separator = " ")
+            existingNotes.isNotBlank() -> existingNotes
+            else -> ""
+        }
+    }
+
+    private fun currentHostVersionOrNull(): String? {
+        val applicationContext = appContext ?: return null
+        return runCatching {
+            applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0).versionName
+        }.getOrNull().orEmpty().ifBlank { null }
+    }
+
     private fun computeUpdateAvailability(
         record: PluginInstallRecord,
         hostVersion: String,
-        supportedProtocolVersion: Int,
     ): PluginUpdateAvailability? {
         val sourceId = record.catalogSourceId?.takeIf { it.isNotBlank() } ?: return null
         val versions = listCatalogVersions(sourceId = sourceId, pluginId = record.pluginId)
@@ -460,21 +582,14 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
             .filter { version -> compareVersions(version.version, record.installedVersion) > 0 }
             .sortedWith { left, right -> compareVersions(right.version, left.version) }
             .map { candidate ->
-                candidate to PluginCompatibilityState.fromChecks(
-                    protocolSupported = candidate.protocolVersion == supportedProtocolVersion,
-                    minHostVersionSatisfied = compareVersions(hostVersion, candidate.minHostVersion) >= 0,
-                    maxHostVersionSatisfied = candidate.maxHostVersion.isBlank() ||
-                        compareVersions(hostVersion, candidate.maxHostVersion) <= 0,
-                    notes = buildCompatibilityNotes(
-                        hostVersion = hostVersion,
-                        supportedProtocolVersion = supportedProtocolVersion,
-                        version = candidate,
-                    ),
+                candidate to evaluateCatalogVersion(
+                    version = candidate,
+                    hostVersion = hostVersion,
                 )
             }
-        val (candidate, compatibilityState) = candidates
-            .firstOrNull { (_, compatibilityState) ->
-                compatibilityState.status != PluginCompatibilityStatus.INCOMPATIBLE
+        val (candidate, gate) = candidates
+            .firstOrNull { (_, gate) ->
+                gate.installable
             }
             ?: candidates.firstOrNull()
             ?: return null
@@ -484,17 +599,15 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
             installedVersion = record.installedVersion,
             latestVersion = candidate.version,
             updateAvailable = true,
-            canUpgrade = compatibilityState.status != PluginCompatibilityStatus.INCOMPATIBLE,
+            canUpgrade = gate.installable,
             publishedAt = candidate.publishedAt,
             changelogSummary = summarizeChangelog(candidate.changelog),
             permissionDiff = calculatePermissionDiff(
                 current = record.permissionSnapshot,
                 target = candidate.permissions,
             ),
-            compatibilityState = compatibilityState,
-            incompatibilityReason = compatibilityState.notes.takeIf {
-                compatibilityState.status == PluginCompatibilityStatus.INCOMPATIBLE
-            }.orEmpty(),
+            compatibilityState = gate.compatibilityState,
+            incompatibilityReason = gate.unsupportedReason.takeIf { !gate.installable }.orEmpty(),
             catalogSourceId = sourceId,
             packageUrl = candidate.packageUrl,
             sourceBadge = source?.let {
@@ -504,6 +617,93 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
                     highlighted = true,
                 )
             },
+        )
+    }
+
+    fun evaluateCatalogVersion(
+        version: PluginCatalogVersion,
+        hostVersion: String,
+    ): PluginCatalogVersionGateResult {
+        val minHostVersionSatisfied = version.minHostVersion.isBlank() ||
+            compareVersions(hostVersion, version.minHostVersion) >= 0
+        val maxHostVersionSatisfied = version.maxHostVersion.isBlank() ||
+            compareVersions(hostVersion, version.maxHostVersion) <= 0
+        val compatibilityState = PluginCompatibilityState.fromChecks(
+            protocolSupported = version.protocolVersion == SUPPORTED_PROTOCOL_VERSION,
+            minHostVersionSatisfied = minHostVersionSatisfied,
+            maxHostVersionSatisfied = maxHostVersionSatisfied,
+            notes = buildCompatibilityNotes(
+                hostVersion = hostVersion,
+                version = version,
+            ),
+        )
+        return PluginCatalogVersionGateResult(
+            compatibilityState = compatibilityState,
+            installable = compatibilityState.status == PluginCompatibilityStatus.COMPATIBLE,
+        )
+    }
+
+    fun evaluateCatalogVersion(
+        version: PluginCatalogVersion,
+        hostVersion: String,
+        @Suppress("UNUSED_PARAMETER") supportedProtocolVersion: Int,
+    ): PluginCatalogVersionGateResult {
+        return evaluateCatalogVersion(
+            version = version,
+            hostVersion = hostVersion,
+        )
+    }
+
+    fun validateLocalPackage(
+        packageFile: File,
+        hostVersion: String,
+    ): PluginPackageValidationResult {
+        return PluginPackageValidator(
+            hostVersion = hostVersion,
+            supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
+        ).validate(packageFile)
+    }
+
+    fun validateLocalPackage(
+        packageFile: File,
+        hostVersion: String,
+        @Suppress("UNUSED_PARAMETER") supportedProtocolVersion: Int,
+    ): PluginPackageValidationResult {
+        return validateLocalPackage(
+            packageFile = packageFile,
+            hostVersion = hostVersion,
+        )
+    }
+
+    fun buildLocalPackageInstallBlockedException(
+        validation: PluginPackageValidationResult,
+    ): PluginPackageInstallBlockedException {
+        return PluginPackageInstallBlockedException(
+            installable = validation.installable,
+            compatibilityState = validation.compatibilityState,
+            validationIssues = validation.validationIssues,
+            message = describeLocalPackageInstallFailure(
+                compatibilityState = validation.compatibilityState,
+                validationIssues = validation.validationIssues,
+            ),
+        )
+    }
+
+    fun buildLocalPackageInstallBlockedException(
+        error: Throwable,
+    ): PluginPackageInstallBlockedException {
+        val issue = PluginPackageValidationIssue(
+            code = "package_validation_failed",
+            message = error.message ?: "Plugin package validation failed.",
+        )
+        return PluginPackageInstallBlockedException(
+            installable = false,
+            compatibilityState = PluginCompatibilityState.unknown(),
+            validationIssues = listOf(issue),
+            message = describeLocalPackageInstallFailure(
+                compatibilityState = PluginCompatibilityState.unknown(),
+                validationIssues = listOf(issue),
+            ),
         )
     }
 
@@ -554,11 +754,10 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
 
     private fun buildCompatibilityNotes(
         hostVersion: String,
-        supportedProtocolVersion: Int,
         version: PluginCatalogVersion,
     ): String {
         val notes = mutableListOf<String>()
-        if (version.protocolVersion != supportedProtocolVersion) {
+        if (version.protocolVersion != SUPPORTED_PROTOCOL_VERSION) {
             notes += "Protocol version ${version.protocolVersion} is not supported."
         }
         if (compareVersions(hostVersion, version.minHostVersion) < 0) {
@@ -568,6 +767,20 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
             notes += "Host version $hostVersion exceeds supported maximum ${version.maxHostVersion}."
         }
         return notes.joinToString(separator = " ")
+    }
+
+    private fun describeLocalPackageInstallFailure(
+        compatibilityState: PluginCompatibilityState,
+        validationIssues: List<PluginPackageValidationIssue>,
+    ): String {
+        if (validationIssues.any { issue -> issue.code == "legacy_contract" }) {
+            return "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2."
+        }
+        validationIssues.firstOrNull()?.let { issue ->
+            return "Damaged v2 plugin package: ${issue.message}"
+        }
+        return compatibilityState.notes.takeIf(String::isNotBlank)
+            ?: "Plugin package is not installable."
     }
 
     private suspend fun assembleRepositorySource(entity: PluginCatalogSourceEntity): PluginRepositorySource {
