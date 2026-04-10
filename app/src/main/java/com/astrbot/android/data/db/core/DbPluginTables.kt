@@ -158,3 +158,20 @@ internal fun SupportSQLiteDatabase.createPluginConfigTablesV14() {
         """.trimIndent(),
     )
 }
+
+internal fun SupportSQLiteDatabase.createPluginPackageContractTablesV16() {
+    execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS plugin_package_contract_snapshots (
+            pluginId TEXT NOT NULL PRIMARY KEY,
+            protocolVersion INTEGER NOT NULL,
+            runtimeKind TEXT NOT NULL,
+            runtimeBootstrap TEXT NOT NULL,
+            runtimeApiVersion INTEGER NOT NULL,
+            configStaticSchema TEXT NOT NULL,
+            configSettingsSchema TEXT NOT NULL,
+            FOREIGN KEY(pluginId) REFERENCES plugin_install_records(pluginId) ON DELETE CASCADE
+        )
+        """.trimIndent(),
+    )
+}

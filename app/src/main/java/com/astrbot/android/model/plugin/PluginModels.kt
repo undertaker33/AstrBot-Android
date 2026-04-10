@@ -300,6 +300,23 @@ data class PluginManifest(
     val riskLevel: PluginRiskLevel = PluginRiskLevel.LOW,
 )
 
+data class PluginPackageContractSnapshot(
+    val protocolVersion: Int,
+    val runtime: PluginRuntimeDeclarationSnapshot,
+    val config: PluginConfigEntryPointsSnapshot = PluginConfigEntryPointsSnapshot(),
+)
+
+data class PluginRuntimeDeclarationSnapshot(
+    val kind: String,
+    val bootstrap: String,
+    val apiVersion: Int,
+)
+
+data class PluginConfigEntryPointsSnapshot(
+    val staticSchema: String = "",
+    val settingsSchema: String = "",
+)
+
 data class PluginFailureState(
     val consecutiveFailureCount: Int = 0,
     val lastFailureAtEpochMillis: Long? = null,
@@ -415,6 +432,7 @@ data class PluginCompatibilityState private constructor(
 class PluginInstallRecord private constructor(
     val source: PluginSource,
     val manifestSnapshot: PluginManifest,
+    val packageContractSnapshot: PluginPackageContractSnapshot? = null,
     val permissionSnapshot: List<PluginPermissionDeclaration> = emptyList(),
     val compatibilityState: PluginCompatibilityState = PluginCompatibilityState.unknown(),
     val uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
@@ -443,6 +461,7 @@ class PluginInstallRecord private constructor(
 
         return source == other.source &&
             manifestSnapshot == other.manifestSnapshot &&
+            packageContractSnapshot == other.packageContractSnapshot &&
             permissionSnapshot == other.permissionSnapshot &&
             compatibilityState == other.compatibilityState &&
             uninstallPolicy == other.uninstallPolicy &&
@@ -460,6 +479,7 @@ class PluginInstallRecord private constructor(
     override fun hashCode(): Int {
         var result = source.hashCode()
         result = 31 * result + manifestSnapshot.hashCode()
+        result = 31 * result + (packageContractSnapshot?.hashCode() ?: 0)
         result = 31 * result + permissionSnapshot.hashCode()
         result = 31 * result + compatibilityState.hashCode()
         result = 31 * result + uninstallPolicy.hashCode()
@@ -479,6 +499,7 @@ class PluginInstallRecord private constructor(
         return "PluginInstallRecord(" +
             "source=$source, " +
             "manifestSnapshot=$manifestSnapshot, " +
+            "packageContractSnapshot=$packageContractSnapshot, " +
             "permissionSnapshot=$permissionSnapshot, " +
             "compatibilityState=$compatibilityState, " +
             "uninstallPolicy=$uninstallPolicy, " +
@@ -502,6 +523,7 @@ class PluginInstallRecord private constructor(
             return restoreFromPersistedState(
                 manifestSnapshot = manifestSnapshot,
                 source = source,
+                packageContractSnapshot = null,
                 permissionSnapshot = manifestSnapshot.permissions,
                 compatibilityState = PluginCompatibilityState.unknown(),
                 uninstallPolicy = PluginUninstallPolicy.default(),
@@ -520,6 +542,7 @@ class PluginInstallRecord private constructor(
         fun restoreFromPersistedState(
             manifestSnapshot: PluginManifest,
             source: PluginSource,
+            packageContractSnapshot: PluginPackageContractSnapshot? = null,
             permissionSnapshot: List<PluginPermissionDeclaration> = manifestSnapshot.permissions,
             compatibilityState: PluginCompatibilityState = PluginCompatibilityState.unknown(),
             uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
@@ -539,6 +562,10 @@ class PluginInstallRecord private constructor(
             return PluginInstallRecord(
                 source = source,
                 manifestSnapshot = manifestSnapshot.copy(permissions = manifestSnapshot.permissions.toList()),
+                packageContractSnapshot = packageContractSnapshot?.copy(
+                    runtime = packageContractSnapshot.runtime.copy(),
+                    config = packageContractSnapshot.config.copy(),
+                ),
                 permissionSnapshot = permissionSnapshot.toList(),
                 compatibilityState = compatibilityState,
                 uninstallPolicy = uninstallPolicy,
@@ -554,6 +581,21 @@ class PluginInstallRecord private constructor(
             )
         }
     }
+}
+
+fun PluginPackageContract.toSnapshot(): PluginPackageContractSnapshot {
+    return PluginPackageContractSnapshot(
+        protocolVersion = protocolVersion,
+        runtime = PluginRuntimeDeclarationSnapshot(
+            kind = runtime.kind,
+            bootstrap = runtime.bootstrap,
+            apiVersion = runtime.apiVersion,
+        ),
+        config = PluginConfigEntryPointsSnapshot(
+            staticSchema = config.staticSchema,
+            settingsSchema = config.settingsSchema,
+        ),
+    )
 }
 
 fun PluginRiskLevel.isBlocking(): Boolean {

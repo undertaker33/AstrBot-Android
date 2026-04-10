@@ -1,6 +1,8 @@
 package com.astrbot.android.runtime.plugin.samples
 
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
+import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
@@ -11,6 +13,7 @@ import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,7 +22,6 @@ class MemeManagerSampleCatalogTest {
     @Test
     fun sample_catalog_fixture_can_be_synced_and_discovered_with_resolved_package_urls() = runBlocking {
         val fixtureFile = SampleAssetPaths.catalogFixture
-        // RED expectation: this file is added by Task 6 and must exist in-repo.
         assertTrue("Missing fixture: ${fixtureFile.absolutePath}", fixtureFile.exists())
         val fixtureJson = fixtureFile.readText(Charsets.UTF_8)
 
@@ -56,6 +58,40 @@ class MemeManagerSampleCatalogTest {
                 version.packageUrl.startsWith("https://samples.astrbot.local/catalog/packages/")
             },
         )
+    }
+
+    @Test
+    fun sample_catalog_protocol_gate_accepts_v2_versions_and_rejects_legacy_v1_versions() = runBlocking {
+        val fixtureFile = SampleAssetPaths.catalogFixture
+        assertTrue("Missing fixture: ${fixtureFile.absolutePath}", fixtureFile.exists())
+        val fixtureJson = fixtureFile.readText(Charsets.UTF_8)
+
+        val decoded = com.astrbot.android.data.plugin.catalog.PluginCatalogJson.decodeRepositorySource(fixtureJson)
+        val sampleEntry = decoded.plugins.first { it.pluginId == SAMPLE_PLUGIN_ID }
+        val v2Gate = sampleEntry.versions.associateBy({ it.version }) { version ->
+            PluginRepository.evaluateCatalogVersion(
+                version = version,
+                hostVersion = "0.3.6",
+                supportedProtocolVersion = 2,
+            )
+        }
+
+        assertTrue(v2Gate.values.all { gate -> gate.compatibilityState.protocolSupported == true })
+        assertTrue(v2Gate.values.all { gate -> gate.installable })
+
+        val legacyVersion = sampleEntry.versions.first().copy(
+            version = "0.9.0-legacy",
+            protocolVersion = 1,
+        )
+        val legacyGate = PluginRepository.evaluateCatalogVersion(
+            version = legacyVersion,
+            hostVersion = "0.3.6",
+            supportedProtocolVersion = 2,
+        )
+
+        assertEquals(false, legacyGate.compatibilityState.protocolSupported)
+        assertFalse(legacyGate.installable)
+        assertTrue(legacyGate.compatibilityState.notes.contains("Protocol version 1 is not supported."))
     }
 }
 

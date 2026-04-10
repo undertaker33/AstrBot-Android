@@ -21,6 +21,7 @@ import com.astrbot.android.model.plugin.PluginCardAction
 import com.astrbot.android.model.plugin.PluginCardSchema
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginConfigSummary
 import com.astrbot.android.model.plugin.PluginExecutionContext
@@ -33,6 +34,7 @@ import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginMessageSummary
+import com.astrbot.android.model.plugin.PluginPackageValidationIssue
 import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginSettingsField
@@ -107,6 +109,9 @@ data class PluginCatalogEntryVersionUiState(
     val minHostVersion: String,
     val maxHostVersion: String = "",
     val changelog: String = "",
+    val compatibilityState: PluginCompatibilityState = PluginCompatibilityState.unknown(),
+    val installable: Boolean = false,
+    val validationIssues: List<PluginPackageValidationIssue> = emptyList(),
 )
 
 data class PluginSourceBadgeUiState(
@@ -181,7 +186,6 @@ data class PluginScreenUiState(
     val schemaUiState: PluginSchemaUiState = PluginSchemaUiState.None,
     val hostWorkspaceState: PluginHostWorkspaceUiState = PluginHostWorkspaceUiState(),
     val hostVersion: String = "0.0.0",
-    val supportedPluginProtocolVersion: Int = 1,
     val selectedMarketVersionKeys: Map<String, String> = emptyMap(),
 )
 
@@ -399,7 +403,6 @@ class PluginViewModel(
             staticConfigUiState = staticSchemaState,
             schemaUiState = schemaState,
             hostVersion = dependencies.getHostVersion(),
-            supportedPluginProtocolVersion = 1,
         )
     }.combine(
         combine(
@@ -657,9 +660,7 @@ class PluginViewModel(
                 installFollowUpGuide.value = result.toInstallFollowUpGuide()
                 lastActionMessage.value = result.toFeedback()
             }.onFailure { error ->
-                lastActionMessage.value = PluginActionFeedback.Text(
-                    error.message ?: "Plugin local import failed.",
-                )
+                lastActionMessage.value = PluginActionFeedback.Text(localImportFailureMessage(error))
             }
             installActionRunning.value = false
         }
@@ -1598,6 +1599,10 @@ class PluginViewModel(
         }
     }
 
+    private fun localImportFailureMessage(error: Throwable): String {
+        return error.message?.takeIf(String::isNotBlank) ?: "Plugin local import failed."
+    }
+
     private fun Throwable.toRuntimeLogSummary(): String {
         return message?.trim().takeUnless { it.isNullOrBlank() } ?: javaClass.simpleName
     }
@@ -1633,6 +1638,7 @@ class PluginViewModel(
             ),
             sourceName = record.sourceTitle,
             versions = record.entry.versions.map { version ->
+                val gate = dependencies.evaluateCatalogVersion(version)
                 PluginCatalogEntryVersionUiState(
                     version = version.version,
                     packageUrl = version.resolvePackageUrl(record.catalogUrl),
@@ -1641,6 +1647,9 @@ class PluginViewModel(
                     minHostVersion = version.minHostVersion,
                     maxHostVersion = version.maxHostVersion,
                     changelog = version.changelog,
+                    compatibilityState = gate.compatibilityState,
+                    installable = gate.installable,
+                    validationIssues = gate.validationIssues,
                 )
             },
         )
@@ -1659,8 +1668,6 @@ class PluginViewModel(
         val options = buildPluginMarketVersionOptions(
             entries = entries,
             pluginId = pluginId,
-            hostVersion = dependencies.getHostVersion(),
-            supportedProtocolVersion = 1,
         )
         val selectedVersion = selectedVersionKey
             ?.let { key -> options.firstOrNull { option -> option.stableKey == key && option.isSelectable } }

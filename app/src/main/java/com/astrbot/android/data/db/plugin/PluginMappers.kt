@@ -1,11 +1,14 @@
 package com.astrbot.android.data.db
 
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginConfigEntryPointsSnapshot
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginManifest
+import com.astrbot.android.model.plugin.PluginPackageContractSnapshot
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
@@ -16,6 +19,7 @@ fun PluginInstallAggregate.toInstallRecord(): PluginInstallRecord {
     val manifestPermissions = manifestPermissions
         .sortedBy { entity -> entity.sortIndex }
         .map(PluginManifestPermissionEntity::toPermissionDeclaration)
+    val packageContractSnapshot = packageContractSnapshots.singleOrNull()?.toSnapshot()
     val permissionSnapshot = permissionSnapshots
         .sortedBy { entity -> entity.sortIndex }
         .map(PluginPermissionSnapshotEntity::toPermissionDeclaration)
@@ -41,6 +45,7 @@ fun PluginInstallAggregate.toInstallRecord(): PluginInstallRecord {
             location = record.sourceLocation,
             importedAt = record.sourceImportedAt,
         ),
+        packageContractSnapshot = packageContractSnapshot,
         permissionSnapshot = permissionSnapshot,
         compatibilityState = PluginCompatibilityState.fromChecks(
             protocolSupported = record.protocolSupported,
@@ -104,6 +109,7 @@ fun PluginInstallRecord.toWriteModel(): PluginInstallWriteModel {
             entrySummary = manifestSnapshot.entrySummary,
             riskLevel = manifestSnapshot.riskLevel.name,
         ),
+        packageContractSnapshot = packageContractSnapshot?.toEntity(pluginId = pluginId),
         manifestPermissions = manifestSnapshot.permissions.mapIndexed { index, permission ->
             PluginManifestPermissionEntity(
                 pluginId = pluginId,
@@ -126,6 +132,33 @@ fun PluginInstallRecord.toWriteModel(): PluginInstallWriteModel {
                 sortIndex = index,
             )
         },
+    )
+}
+
+private fun PluginPackageContractSnapshotEntity.toSnapshot(): PluginPackageContractSnapshot {
+    return PluginPackageContractSnapshot(
+        protocolVersion = protocolVersion,
+        runtime = PluginRuntimeDeclarationSnapshot(
+            kind = runtimeKind,
+            bootstrap = runtimeBootstrap,
+            apiVersion = runtimeApiVersion,
+        ),
+        config = PluginConfigEntryPointsSnapshot(
+            staticSchema = configStaticSchema,
+            settingsSchema = configSettingsSchema,
+        ),
+    )
+}
+
+private fun PluginPackageContractSnapshot.toEntity(pluginId: String): PluginPackageContractSnapshotEntity {
+    return PluginPackageContractSnapshotEntity(
+        pluginId = pluginId,
+        protocolVersion = protocolVersion,
+        runtimeKind = runtime.kind,
+        runtimeBootstrap = runtime.bootstrap,
+        runtimeApiVersion = runtime.apiVersion,
+        configStaticSchema = config.staticSchema,
+        configSettingsSchema = config.settingsSchema,
     )
 }
 

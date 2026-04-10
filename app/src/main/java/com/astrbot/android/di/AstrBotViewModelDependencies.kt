@@ -10,6 +10,7 @@ import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.NapCatLoginService
 import com.astrbot.android.data.PersonaRepository
+import com.astrbot.android.data.PluginCatalogVersionGateResult
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.RuntimeAssetRepository
@@ -40,6 +41,8 @@ import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
+import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
@@ -447,6 +450,12 @@ interface PluginViewModelDependencies {
 
     fun getHostVersion(): String = "0.0.0"
 
+    fun evaluateCatalogVersion(version: PluginCatalogVersion): PluginCatalogVersionGateResult =
+        PluginCatalogVersionGateResult(
+            compatibilityState = PluginCompatibilityState.unknown(),
+            installable = false,
+        )
+
     fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability?
 
     suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord
@@ -519,6 +528,17 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
                     }
                 } ?: error("Unable to open selected file.")
 
+                val validation = runCatching {
+                    PluginRepository.validateLocalPackage(
+                        packageFile = tempFile,
+                        hostVersion = getHostVersion(),
+                    )
+                }.getOrElse { error ->
+                    throw PluginRepository.buildLocalPackageInstallBlockedException(error)
+                }
+                if (!validation.installable) {
+                    throw PluginRepository.buildLocalPackageInstallBlockedException(validation)
+                }
                 val record = defaultPluginInstaller().installFromLocalPackage(tempFile)
                 PluginInstallIntentResult.Installed(record = record)
             } finally {
@@ -583,20 +603,23 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         }
     }
 
+    override fun evaluateCatalogVersion(version: PluginCatalogVersion): PluginCatalogVersionGateResult {
+        return PluginRepository.evaluateCatalogVersion(
+            version = version,
+            hostVersion = getHostVersion(),
+        )
+    }
+
     override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
         val hostVersion = getHostVersion()
         return PluginRepository.getUpdateAvailability(
             pluginId = pluginId,
             hostVersion = hostVersion,
-            supportedProtocolVersion = 1,
         )
     }
 
     override fun getHostVersion(): String {
-        val appContext = PluginRepository.requireAppContext()
-        return runCatching {
-            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
-        }.getOrNull().orEmpty().ifBlank { "0.0.0" }
+        return currentHostVersion(PluginRepository.requireAppContext())
     }
 
     override suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord {
@@ -1138,13 +1161,10 @@ private fun defaultPluginRepositorySubscriptionManager(): PluginRepositorySubscr
 
 private fun defaultPluginInstaller(): PluginInstaller {
     val appContext = PluginRepository.requireAppContext()
-    val hostVersion = runCatching {
-        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
-    }.getOrNull().orEmpty().ifBlank { "0.0.0" }
     return PluginInstaller(
         validator = PluginPackageValidator(
-            hostVersion = hostVersion,
-            supportedProtocolVersion = 1,
+            hostVersion = currentHostVersion(appContext),
+            supportedProtocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
         ),
         storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir),
         installStore = PluginRepository,
@@ -1180,6 +1200,12 @@ private fun DownloadTaskRecord.toPluginDownloadProgress(): PluginDownloadProgres
         )
         else -> null
     }
+}
+
+private fun currentHostVersion(appContext: android.content.Context): String {
+    return runCatching {
+        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+    }.getOrNull().orEmpty().ifBlank { "0.0.0" }
 }
 
 private fun String.sha256Hex(): String {

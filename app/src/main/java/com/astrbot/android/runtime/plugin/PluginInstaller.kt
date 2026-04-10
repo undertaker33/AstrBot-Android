@@ -8,6 +8,7 @@ import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
+import com.astrbot.android.model.plugin.toSnapshot
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -187,8 +188,12 @@ class PluginInstaller(
         lastCatalogCheckAtEpochMillis: Long?,
     ): PluginInstallRecord {
         val validation = validator.validate(packageFile)
-        check(validation.compatibilityState.isCompatible()) {
-            "Plugin package is incompatible with the current host."
+        check(validation.installable) {
+            if (!validation.compatibilityState.isCompatible()) {
+                "Plugin package is incompatible with the current host."
+            } else {
+                "Plugin package is not installable."
+            }
         }
 
         val existing = installStore.findByPluginId(validation.manifest.pluginId)
@@ -229,6 +234,9 @@ class PluginInstaller(
         }
 
         val manifestSnapshot = validation.manifest.copy(sourceType = sourceType)
+        val packageContractSnapshot = requireNotNull(validation.packageContract) {
+            "Installable plugin package is missing package contract."
+        }.toSnapshot()
         val record = PluginInstallRecord.restoreFromPersistedState(
             manifestSnapshot = manifestSnapshot,
             source = PluginSource(
@@ -236,6 +244,7 @@ class PluginInstaller(
                 location = sourceLocation,
                 importedAt = now,
             ),
+            packageContractSnapshot = packageContractSnapshot,
             permissionSnapshot = validation.manifest.permissions,
             compatibilityState = validation.compatibilityState,
             uninstallPolicy = existing?.uninstallPolicy ?: PluginInstallRecord.installFromManifest(

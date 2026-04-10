@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.screen
 
 import java.lang.reflect.Method
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -195,6 +196,13 @@ class PluginScreenPresentationTest {
                         packageUrl = "https://repo.example.com/weather-0.2.0.zip",
                         publishedAt = 200L,
                         minHostVersion = "9.9.9",
+                        compatibilityState = PluginCompatibilityState.evaluated(
+                            protocolSupported = true,
+                            minHostVersionSatisfied = false,
+                            maxHostVersionSatisfied = true,
+                            notes = "Host version 0.4.6 is below required minimum 9.9.9.",
+                        ),
+                        installable = false,
                     ),
                 ),
             ),
@@ -226,8 +234,6 @@ class PluginScreenPresentationTest {
         val options = buildPluginMarketVersionOptions(
             entries = entries,
             pluginId = "weather",
-            hostVersion = "0.4.6",
-            supportedProtocolVersion = 1,
         )
 
         assertEquals(listOf("0.1.5", "0.2.0"), options.map { it.versionLabel })
@@ -235,6 +241,15 @@ class PluginScreenPresentationTest {
         assertTrue(options.first().isSelectable)
         assertFalse(options.last().isSelectable)
         assertEquals("INCOMPATIBLE", options.last().compatibilityState.status.name)
+    }
+
+    @Test
+    fun `market version options signature no longer exposes host or protocol gate params`() {
+        val method = Class.forName("com.astrbot.android.ui.screen.PluginScreenPresentationKt")
+            .declaredMethods
+            .single { it.name == "buildPluginMarketVersionOptions" }
+
+        assertEquals(2, method.parameterCount)
     }
 
     @Test
@@ -717,6 +732,34 @@ class PluginScreenPresentationTest {
     }
 
     @Test
+    fun `installed library presentation marks projected legacy v1 records as incompatible`() {
+        val legacy = installedPluginRecord(
+            pluginId = "legacy-v1",
+            enabled = false,
+            compatibilityState = PluginCompatibilityState.evaluated(
+                protocolSupported = false,
+                minHostVersionSatisfied = true,
+                maxHostVersionSatisfied = true,
+                notes = "Protocol version 1 is not supported.",
+            ),
+        )
+
+        val presentation = buildPluginInstalledLibraryPresentation(
+            uiState = PluginScreenUiState(records = listOf(legacy)),
+            selectedFilter = PluginInstalledLibraryFilter.All,
+        )
+        val card = presentation.cards.single()
+
+        assertEquals("legacy-v1", card.pluginId)
+        assertEquals(PluginInstalledLibraryPriority.Critical, card.priority)
+        assertEquals(PluginInstalledLibraryStatus.Incompatible, card.status)
+        assertEquals(
+            listOf("Local file", "Incompatible"),
+            buildPluginRecordPresentation(legacy).badges,
+        )
+    }
+
+    @Test
     fun `installed library presentation exposes summary counts and batch shortcuts`() {
         val enabled = installedPluginRecord("enabled", enabled = true)
         val disabled = installedPluginRecord("disabled", enabled = false)
@@ -901,7 +944,15 @@ class PluginScreenPresentationTest {
                         version = "0.2.0",
                         packageUrl = "https://repo.example.com/weather-0.2.0.zip",
                         publishedAt = 200L,
+                        protocolVersion = 1,
                         minHostVersion = "9.9.9",
+                        compatibilityState = PluginCompatibilityState.evaluated(
+                            protocolSupported = false,
+                            minHostVersionSatisfied = false,
+                            maxHostVersionSatisfied = true,
+                            notes = "Protocol version 1 is not supported. Host version 0.4.6 is below required minimum 9.9.9.",
+                        ),
+                        installable = false,
                     ),
                 ),
             ),
@@ -918,6 +969,7 @@ class PluginScreenPresentationTest {
                         version = "0.1.5",
                         packageUrl = "https://repo.example.com/weather-0.1.5.zip",
                         publishedAt = 150L,
+                        protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
                         minHostVersion = "0.1.0",
                     ),
                 ),
@@ -929,10 +981,16 @@ class PluginScreenPresentationTest {
         version: String,
         packageUrl: String,
         publishedAt: Long,
-        protocolVersion: Int = 1,
+        protocolVersion: Int = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
         minHostVersion: String = "0.0.0",
         maxHostVersion: String = "",
         changelog: String = "",
+        compatibilityState: PluginCompatibilityState = PluginCompatibilityState.evaluated(
+            protocolSupported = true,
+            minHostVersionSatisfied = true,
+            maxHostVersionSatisfied = true,
+        ),
+        installable: Boolean = true,
     ): PluginCatalogEntryVersionUiState {
         return PluginCatalogEntryVersionUiState(
             version = version,
@@ -942,6 +1000,8 @@ class PluginScreenPresentationTest {
             minHostVersion = minHostVersion,
             maxHostVersion = maxHostVersion,
             changelog = changelog,
+            compatibilityState = compatibilityState,
+            installable = installable,
         )
     }
 

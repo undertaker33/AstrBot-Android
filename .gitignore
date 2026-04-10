@@ -8,8 +8,9 @@ keystore.properties
 .cxx/
 .externalNativeBuild/
 captures/
-artifacts/
-artifacts/plugins/
+artifacts/*
+!artifacts/plugins/
+!artifacts/plugins/**
 docs/plugins/
 .superpowers/
 .worktrees/

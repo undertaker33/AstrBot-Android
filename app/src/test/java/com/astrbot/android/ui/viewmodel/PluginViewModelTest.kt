@@ -4,6 +4,7 @@ import com.astrbot.android.R
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.data.PluginUninstallResult
 import com.astrbot.android.di.PluginViewModelDependencies
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.model.plugin.CardResult
 import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.NoOp
@@ -58,6 +59,7 @@ import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.data.PluginCatalogVersionGateResult
 import java.lang.reflect.Method
 import java.nio.file.Files
 import org.json.JSONObject
@@ -128,6 +130,28 @@ class PluginViewModelTest {
         assertFalse(viewModel.uiState.value.isShowingDetail)
         assertEquals(1, viewModel.uiState.value.repositorySources.size)
         assertEquals(2, viewModel.uiState.value.catalogEntries.size)
+    }
+
+    @Test
+    fun supported_protocol_version_uses_repository_single_source() {
+        val repositoryField = PluginRepository::class.java.declaredFields.firstOrNull { field ->
+            field.name == "SUPPORTED_PROTOCOL_VERSION"
+        }
+
+        assertTrue(repositoryField != null)
+        assertEquals(PluginRepository.SUPPORTED_PROTOCOL_VERSION, repositoryField!!.getInt(null))
+        assertFalse(
+            Class.forName("com.astrbot.android.di.AstrBotViewModelDependenciesKt")
+                .declaredFields
+                .any { field -> field.name == "SUPPORTED_PLUGIN_PROTOCOL_VERSION" },
+        )
+        assertFalse(
+            runCatching { Class.forName("com.astrbot.android.ui.viewmodel.PluginViewModelKt") }
+                .getOrNull()
+                ?.declaredFields
+                .orEmpty()
+                .any { field -> field.name == "SUPPORTED_PLUGIN_PROTOCOL_VERSION" },
+        )
     }
 
     @Test
@@ -465,6 +489,52 @@ class PluginViewModelTest {
             feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
             resId = R.string.plugin_action_feedback_enable_blocked_incompatible_with_notes,
             expectedArg = "Needs host 2.0.0 or newer.",
+        )
+    }
+
+    @Test
+    fun legacy_v1_installed_plugin_is_projected_as_incompatible_and_enable_stays_blocked() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(
+                pluginRecord(
+                    pluginId = "legacy-v1",
+                    protocolVersion = 1,
+                    enabled = false,
+                    compatibilityState = PluginCompatibilityState.evaluated(
+                        protocolSupported = true,
+                        minHostVersionSatisfied = true,
+                        maxHostVersionSatisfied = true,
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("legacy-v1")
+        advanceUntilIdle()
+
+        val selectedPlugin = viewModel.uiState.value.selectedPlugin
+        val actionState = viewModel.uiState.value.detailActionState
+
+        assertEquals(1, selectedPlugin?.manifestSnapshot?.protocolVersion)
+        assertEquals("INCOMPATIBLE", selectedPlugin?.compatibilityState?.status?.name)
+        assertEquals("Protocol version 1 is not supported.", selectedPlugin?.compatibilityState?.notes)
+        assertFalse(actionState.isEnableActionEnabled)
+        assertResourceFeedback(
+            feedback = actionState.enableBlockedReason,
+            resId = R.string.plugin_action_feedback_enable_blocked_incompatible_with_notes,
+            expectedArg = "Protocol version 1 is not supported.",
+        )
+
+        viewModel.enableSelectedPlugin()
+        advanceUntilIdle()
+
+        assertTrue(deps.enableRequests.isEmpty())
+        assertResourceFeedback(
+            feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
+            resId = R.string.plugin_action_feedback_enable_blocked_incompatible_with_notes,
+            expectedArg = "Protocol version 1 is not supported.",
         )
     }
 
@@ -968,6 +1038,7 @@ class PluginViewModelTest {
                             version = "0.1.5",
                             packageUrl = "https://repo.example.com/weather-0.1.5.zip",
                             minHostVersion = "0.1.0",
+                            protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
                         ),
                     ),
                 ),
@@ -979,6 +1050,7 @@ class PluginViewModelTest {
                             version = "0.1.0",
                             packageUrl = "https://repo.example.com/weather-0.1.0.zip",
                             minHostVersion = "0.1.0",
+                            protocolVersion = 1,
                         ),
                     ),
                 ),
@@ -998,9 +1070,9 @@ class PluginViewModelTest {
             listOf(
                 PluginInstallIntent.catalogVersion(
                     pluginId = "weather",
-                    version = "0.1.0",
-                    packageUrl = "https://repo.example.com/weather-0.1.0.zip",
-                    catalogSourceId = "repo-legacy",
+                    version = "0.1.5",
+                    packageUrl = "https://repo.example.com/weather-0.1.5.zip",
+                    catalogSourceId = "repo-stable",
                 ),
             ),
             deps.handledInstallIntents,
@@ -2124,7 +2196,7 @@ class PluginViewModelTest {
         workspaceSnapshots: Map<String, PluginHostWorkspaceSnapshot> = emptyMap(),
         private val hostVersion: String = "9.9.9",
     ) : PluginViewModelDependencies {
-        private val recordsFlow = MutableStateFlow(records)
+        private val recordsFlow = MutableStateFlow(records.map(::projectInstalledRecord))
         private val repositorySourcesFlow = MutableStateFlow(repositorySources)
         private val catalogEntriesFlow = MutableStateFlow(catalogEntries)
         private val updateAvailabilitiesFlow = MutableStateFlow(updateAvailabilities)
@@ -2158,8 +2230,15 @@ class PluginViewModelTest {
 
         override fun getHostVersion(): String = hostVersion
 
+        override fun evaluateCatalogVersion(version: PluginCatalogVersion): PluginCatalogVersionGateResult {
+            return PluginRepository.evaluateCatalogVersion(
+                version = version,
+                hostVersion = hostVersion,
+            )
+        }
+
         fun updateRecords(records: List<PluginInstallRecord>) {
-            recordsFlow.value = records
+            recordsFlow.value = records.map(::projectInstalledRecord)
         }
 
         fun updateRepositorySources(sources: List<com.astrbot.android.model.plugin.PluginRepositorySource>) {
@@ -2357,12 +2436,20 @@ class PluginViewModelTest {
             return upgraded
         }
 
+        private fun projectInstalledRecord(record: PluginInstallRecord): PluginInstallRecord {
+            return PluginRepository.projectInstallRecordForHost(
+                record = record,
+                hostVersion = null,
+            )
+        }
+
     }
 
     private fun pluginRecord(
         pluginId: String,
         riskLevel: PluginRiskLevel = PluginRiskLevel.LOW,
         sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
+        protocolVersion: Int = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
         catalogSourceId: String? = null,
         enabled: Boolean = false,
         extractedDir: String = "",
@@ -2386,7 +2473,7 @@ class PluginViewModelTest {
             manifestSnapshot = PluginManifest(
                 pluginId = pluginId,
                 version = "1.0.0",
-                protocolVersion = 1,
+                protocolVersion = protocolVersion,
                 author = "AstrBot",
                 title = pluginId,
                 description = "Plugin $pluginId",
@@ -2457,6 +2544,7 @@ class PluginViewModelTest {
         version: String,
         packageUrl: String = "https://repo.example.com/$version.zip",
         publishedAt: Long = 1_700_000_000_000L,
+        protocolVersion: Int = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
         changelog: String = "",
         minHostVersion: String = "1.0.0",
         maxHostVersion: String = "",
@@ -2465,7 +2553,7 @@ class PluginViewModelTest {
             version = version,
             packageUrl = packageUrl,
             publishedAt = publishedAt,
-            protocolVersion = 1,
+            protocolVersion = protocolVersion,
             minHostVersion = minHostVersion,
             maxHostVersion = maxHostVersion,
             changelog = changelog,

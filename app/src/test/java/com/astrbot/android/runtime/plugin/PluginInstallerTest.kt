@@ -7,6 +7,7 @@ import com.astrbot.android.data.db.PluginInstallRecordEntity
 import com.astrbot.android.data.db.PluginInstallWriteModel
 import com.astrbot.android.data.db.PluginManifestPermissionEntity
 import com.astrbot.android.data.db.PluginManifestSnapshotEntity
+import com.astrbot.android.data.db.PluginPackageContractSnapshotEntity
 import com.astrbot.android.data.db.PluginPermissionSnapshotEntity
 import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.plugin.PluginStoragePaths
@@ -14,8 +15,11 @@ import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginDownloadProgressStage
+import com.astrbot.android.model.plugin.PluginConfigEntryPointsSnapshot
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginPackageContractSnapshot
+import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import java.io.File
 import java.nio.file.Files
@@ -46,7 +50,7 @@ class PluginInstallerTest {
             )
             val downloadRequests = mutableListOf<Pair<String, File>>()
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 remotePackageDownloader = RemotePluginPackageDownloader { packageUrl, destinationFile, _ ->
@@ -85,7 +89,7 @@ class PluginInstallerTest {
                 manifest = validManifest(version = "1.3.0"),
             )
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
@@ -127,7 +131,7 @@ class PluginInstallerTest {
             )
             val progressEvents = mutableListOf<PluginDownloadProgress>()
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, onProgress ->
@@ -172,7 +176,7 @@ class PluginInstallerTest {
             PluginRepository.upsert(existingRecord(tempDir, version = "1.0.0"))
 
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
             )
@@ -203,7 +207,7 @@ class PluginInstallerTest {
             PluginRepository.upsert(existingRecord(tempDir, version = "2.0.0"))
 
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
             )
@@ -243,7 +247,7 @@ class PluginInstallerTest {
                 ),
             )
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 clock = { 200L },
@@ -284,7 +288,7 @@ class PluginInstallerTest {
         try {
             resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 clock = { 250L },
@@ -321,7 +325,7 @@ class PluginInstallerTest {
         try {
             resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
             )
@@ -329,7 +333,7 @@ class PluginInstallerTest {
                 directory = tempDir,
                 fileName = "candidate.zip",
                 manifest = validManifest(version = "1.0.0").apply {
-                    put("protocolVersion", 2)
+                    put("minHostVersion", "9.0.0")
                 },
             )
 
@@ -347,12 +351,91 @@ class PluginInstallerTest {
     }
 
     @Test
+    fun installer_persists_package_contract_snapshot_into_install_record_and_store() {
+        val tempDir = Files.createTempDirectory("plugin-installer-contract-snapshot").toFile()
+        try {
+            val repositoryDao = InMemoryPluginInstallAggregateDao()
+            resetPluginRepositoryForTest(dao = repositoryDao, initialized = true)
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                clock = { 275L },
+            )
+            val candidate = createPluginPackage(
+                directory = tempDir,
+                fileName = "candidate.zip",
+                manifest = validManifest(version = "1.1.0"),
+                staticSchemaPath = "schemas/static.schema.json",
+                settingsSchemaPath = "schemas/settings.schema.json",
+                extraEntries = mapOf(
+                    "schemas/static.schema.json" to """{"type":"object"}""",
+                    "schemas/settings.schema.json" to """{"type":"object"}""",
+                ),
+            )
+
+            val installed = installer.installFromLocalPackage(candidate)
+            val stored = runBlocking { repositoryDao.getPluginInstallAggregate(installed.pluginId) }?.toInstallRecord()
+
+            val expectedSnapshot = PluginPackageContractSnapshot(
+                protocolVersion = 2,
+                runtime = PluginRuntimeDeclarationSnapshot(
+                    kind = "js_quickjs",
+                    bootstrap = "runtime/index.js",
+                    apiVersion = 1,
+                ),
+                config = PluginConfigEntryPointsSnapshot(
+                    staticSchema = "schemas/static.schema.json",
+                    settingsSchema = "schemas/settings.schema.json",
+                ),
+            )
+            assertEquals(expectedSnapshot, installed.packageContractSnapshot)
+            assertEquals(expectedSnapshot, PluginRepository.findByPluginId(installed.pluginId)?.packageContractSnapshot)
+            assertEquals(expectedSnapshot, stored?.packageContractSnapshot)
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_rejects_structurally_damaged_but_protocol_and_host_compatible_package() {
+        val tempDir = Files.createTempDirectory("plugin-installer-structural-damage").toFile()
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+            )
+            val candidate = createPluginPackage(
+                directory = tempDir,
+                fileName = "damaged.zip",
+                manifest = validManifest(version = "1.0.0"),
+                includeRuntimeBootstrap = false,
+            )
+
+            val failure = runCatching {
+                installer.installFromLocalPackage(candidate)
+            }.exceptionOrNull()
+
+            assertTrue(failure is IllegalStateException)
+            assertTrue(failure?.message?.contains("installable") == true)
+            assertEquals(null, PluginRepository.findByPluginId("com.example.demo"))
+            assertFalse(File(tempDir, "plugins").exists())
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun installer_rejects_unsafe_archive_entries_before_persisting() {
         val tempDir = Files.createTempDirectory("plugin-installer-unsafe").toFile()
         try {
             resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
             )
@@ -398,7 +481,7 @@ class PluginInstallerTest {
                 },
             )
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
@@ -465,7 +548,7 @@ class PluginInstallerTest {
                 },
             )
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
@@ -523,7 +606,7 @@ class PluginInstallerTest {
                 manifest = validManifest(version = "1.2.0"),
             )
             val installer = PluginInstaller(
-                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
@@ -570,7 +653,7 @@ class PluginInstallerTest {
         return PluginInstallRecord.restoreFromPersistedState(
             manifestSnapshot = PluginPackageValidator(
                 hostVersion = "0.3.6",
-                supportedProtocolVersion = 1,
+                supportedProtocolVersion = 2,
             ).validate(
                 createPluginPackage(
                     directory = tempDir,
@@ -598,7 +681,7 @@ class PluginInstallerTest {
         return JSONObject()
             .put("pluginId", "com.example.demo")
             .put("version", version)
-            .put("protocolVersion", 1)
+            .put("protocolVersion", 2)
             .put("author", "AstrBot")
             .put("title", "Demo Plugin")
             .put("description", "Example plugin")
@@ -624,6 +707,12 @@ class PluginInstallerTest {
         directory: File,
         fileName: String,
         manifest: JSONObject,
+        includeAndroidPlugin: Boolean = true,
+        includeRuntimeBootstrap: Boolean = true,
+        androidPluginProtocolVersion: Int = 2,
+        runtimeBootstrap: String = "runtime/index.js",
+        staticSchemaPath: String = "",
+        settingsSchemaPath: String = "",
         extraEntries: Map<String, String> = mapOf("assets/readme.txt" to "hello"),
     ): File {
         val packageFile = File(directory, fileName)
@@ -631,6 +720,23 @@ class PluginInstallerTest {
             output.putNextEntry(ZipEntry("manifest.json"))
             output.write(manifest.toString(2).toByteArray(Charsets.UTF_8))
             output.closeEntry()
+            if (includeAndroidPlugin) {
+                output.putNextEntry(ZipEntry("android-plugin.json"))
+                output.write(
+                    validAndroidPluginJson(
+                        protocolVersion = androidPluginProtocolVersion,
+                        runtimeBootstrap = runtimeBootstrap,
+                        staticSchemaPath = staticSchemaPath,
+                        settingsSchemaPath = settingsSchemaPath,
+                    ).toString(2).toByteArray(Charsets.UTF_8),
+                )
+                output.closeEntry()
+            }
+            if (includeRuntimeBootstrap) {
+                output.putNextEntry(ZipEntry(runtimeBootstrap))
+                output.write("console.log('hello')".toByteArray(Charsets.UTF_8))
+                output.closeEntry()
+            }
             extraEntries.forEach { (path, content) ->
                 output.putNextEntry(ZipEntry(path))
                 output.write(content.toByteArray(Charsets.UTF_8))
@@ -638,6 +744,31 @@ class PluginInstallerTest {
             }
         }
         return packageFile
+    }
+
+    private fun validAndroidPluginJson(
+        protocolVersion: Int,
+        runtimeBootstrap: String,
+        staticSchemaPath: String = "",
+        settingsSchemaPath: String = "",
+    ): JSONObject {
+        val config = JSONObject()
+        if (staticSchemaPath.isNotBlank()) {
+            config.put("staticSchema", staticSchemaPath)
+        }
+        if (settingsSchemaPath.isNotBlank()) {
+            config.put("settingsSchema", settingsSchemaPath)
+        }
+        return JSONObject()
+            .put("protocolVersion", protocolVersion)
+            .put(
+                "runtime",
+                JSONObject()
+                    .put("kind", "js_quickjs")
+                    .put("bootstrap", runtimeBootstrap)
+                    .put("apiVersion", 1),
+            )
+            .put("config", config)
     }
 }
 
@@ -659,6 +790,7 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
         aggregates[writeModel.record.pluginId] = PluginInstallAggregate(
             record = writeModel.record,
             manifestSnapshots = listOf(writeModel.manifestSnapshot),
+            packageContractSnapshots = listOfNotNull(writeModel.packageContractSnapshot),
             manifestPermissions = writeModel.manifestPermissions,
             permissionSnapshots = writeModel.permissionSnapshots,
         )
@@ -669,11 +801,15 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
 
     override suspend fun upsertManifestSnapshots(entities: List<PluginManifestSnapshotEntity>) = Unit
 
+    override suspend fun upsertPackageContractSnapshots(entities: List<PluginPackageContractSnapshotEntity>) = Unit
+
     override suspend fun upsertManifestPermissions(entities: List<PluginManifestPermissionEntity>) = Unit
 
     override suspend fun upsertPermissionSnapshots(entities: List<PluginPermissionSnapshotEntity>) = Unit
 
     override suspend fun deleteManifestPermissions(pluginId: String) = Unit
+
+    override suspend fun deletePackageContractSnapshots(pluginId: String) = Unit
 
     override suspend fun deletePermissionSnapshots(pluginId: String) = Unit
 
