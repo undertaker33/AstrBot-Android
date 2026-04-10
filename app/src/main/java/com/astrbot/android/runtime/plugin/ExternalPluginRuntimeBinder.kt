@@ -12,6 +12,13 @@ class ExternalPluginRuntimeBinder(
     private val contractFileName: String = ExternalPluginExecutionContract.DEFAULT_FILE_NAME,
 ) {
     fun bind(installRecord: PluginInstallRecord): ExternalPluginRuntimeBinding {
+        if (installRecord.packageContractSnapshot?.protocolVersion == 2) {
+            return binding(
+                installRecord = installRecord,
+                status = ExternalPluginExecutionBindingStatus.INVALID_CONTRACT,
+                errorSummary = "Plugin v2 records are skipped by the legacy external runtime binder.",
+            )
+        }
         val pluginRoot = installRecord.extractedDir.trim()
             .takeIf { it.isNotBlank() }
             ?.let(::File)

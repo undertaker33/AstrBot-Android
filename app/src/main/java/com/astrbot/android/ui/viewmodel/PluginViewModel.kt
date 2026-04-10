@@ -999,6 +999,11 @@ class PluginViewModel(
         record: PluginInstallRecord,
         entryPoint: String,
     ): PluginSchemaUiState {
+        if (record.packageContractSnapshot?.protocolVersion == 2) {
+            return PluginSchemaUiState.Error(
+                "Plugin v2 entry click is blocked until the structured v2 runtime entry is restored: $entryPoint",
+            )
+        }
         val runtime = PluginRuntimeRegistry.plugins()
             .firstOrNull { plugin ->
                 plugin.pluginId == record.pluginId &&

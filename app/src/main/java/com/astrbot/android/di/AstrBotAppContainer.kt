@@ -26,7 +26,10 @@ import com.astrbot.android.runtime.RuntimeSecretRepository
 import com.astrbot.android.runtime.TencentSilkEncoder
 import com.astrbot.android.runtime.plugin.PluginRuntimeLogCleanupRepository
 import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
+import com.astrbot.android.runtime.plugin.PluginV2RuntimeLoaderProvider
+import com.astrbot.android.runtime.plugin.PluginV2RuntimeSyncResult
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
+import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.ui.viewmodel.BotViewModel
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
 import com.astrbot.android.ui.viewmodel.ChatViewModel
@@ -38,16 +41,22 @@ import com.astrbot.android.ui.viewmodel.ProviderViewModel
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import com.astrbot.android.ui.viewmodel.RuntimeAssetViewModel
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class AstrBotAppContainer(
     private val application: Application,
 ) {
     private val bootstrapped = AtomicBoolean(false)
+    private var pluginRuntimeLoaderSyncJob: Job? = null
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         RuntimeLogRepository.append(
             "App scope uncaught exception: ${throwable.message ?: throwable.javaClass.simpleName}",
@@ -103,6 +112,10 @@ class AstrBotAppContainer(
         PluginRuntimeRegistry.registerExternalProvider {
             ExternalPluginRuntimeCatalog.plugins()
         }
+        pluginRuntimeLoaderSyncJob = appScope.observePluginRuntimeRecords(
+            records = PluginRepository.records,
+            sync = { currentRecords -> PluginV2RuntimeLoaderProvider.loader().sync(currentRecords) },
+        )
         ConversationBackupRepository.initialize(application)
         AppBackupRepository.initialize(application)
         OneBotBridgeServer.start()
@@ -111,6 +124,25 @@ class AstrBotAppContainer(
         }
         ContainerRuntimeInstaller.warmUpAsync(application, appScope)
         RuntimeLogRepository.append("App started")
+    }
+}
+
+internal fun CoroutineScope.observePluginRuntimeRecords(
+    records: StateFlow<List<PluginInstallRecord>>,
+    sync: suspend (List<PluginInstallRecord>) -> PluginV2RuntimeSyncResult,
+    dispatcher: CoroutineDispatcher = Dispatchers.IO,
+): Job {
+    return launch(dispatcher) {
+        records.collectLatest { currentRecords ->
+            try {
+                sync(currentRecords)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                RuntimeLogRepository.append(
+                    "Plugin v2 runtime loader sync failed: ${error.message ?: error.javaClass.simpleName}",
+                )
+            }
+        }
     }
 }
 

@@ -63,6 +63,9 @@ object DefaultAppChatPluginRuntime : AppChatPluginRuntime {
         val failureGuard = PluginFailureGuard(
             store = PluginRuntimeFailureStateStoreProvider.store(),
         )
+        PluginV2DispatchEngineProvider.engine().dispatch(
+            stage = PluginV2InternalStage.AdapterMessage,
+        )
         val delegate = EngineBackedAppChatPluginRuntime(
             pluginProvider = { PluginRuntimeRegistry.plugins() },
             engine = PluginExecutionEngine(

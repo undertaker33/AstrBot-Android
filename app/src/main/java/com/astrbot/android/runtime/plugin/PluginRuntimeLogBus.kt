@@ -1,6 +1,7 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
+import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,4 +125,27 @@ object PluginRuntimeLogBusProvider {
     internal fun setBusOverrideForTests(bus: PluginRuntimeLogBus?) {
         busOverrideForTests = bus
     }
+}
+
+internal fun PluginRuntimeLogBus.publishBootstrapRecord(
+    pluginId: String,
+    pluginVersion: String,
+    occurredAtEpochMillis: Long,
+    level: PluginRuntimeLogLevel,
+    code: String,
+    message: String,
+    metadata: Map<String, String> = emptyMap(),
+) {
+    publish(
+        PluginRuntimeLogRecord(
+            occurredAtEpochMillis = occurredAtEpochMillis,
+            pluginId = pluginId,
+            pluginVersion = pluginVersion,
+            category = PluginRuntimeLogCategory.WorkspaceApi,
+            level = level,
+            code = code,
+            message = message,
+            metadata = metadata,
+        ),
+    )
 }
