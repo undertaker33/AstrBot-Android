@@ -36,6 +36,31 @@ class PluginPackageContractJsonTest {
     }
 
     @Test
+    fun decode_normalizes_config_schema_paths_to_package_relative_paths() {
+        val contract = PluginPackageContractJson.decode(
+            JSONObject(
+                """
+                {
+                  "protocolVersion": 2,
+                  "runtime": {
+                    "kind": "js_quickjs",
+                    "bootstrap": "runtime/index.js",
+                    "apiVersion": 1
+                  },
+                  "config": {
+                    "staticSchema": "  schemas//static-config.schema.json  ",
+                    "settingsSchema": "schemas//settings-ui.schema.json"
+                  }
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("schemas/static-config.schema.json", contract.config.staticSchema)
+        assertEquals("schemas/settings-ui.schema.json", contract.config.settingsSchema)
+    }
+
+    @Test
     fun decode_rejects_non_v2_protocol_version() {
         val failure = runCatching {
             PluginPackageContractJson.decode(
@@ -155,6 +180,32 @@ class PluginPackageContractJsonTest {
     }
 
     @Test
+    fun decode_rejects_config_static_schema_with_directory_traversal() {
+        val failure = runCatching {
+            PluginPackageContractJson.decode(
+                JSONObject(
+                    """
+                    {
+                      "protocolVersion": 2,
+                      "runtime": {
+                        "kind": "js_quickjs",
+                        "bootstrap": "runtime/index.js",
+                        "apiVersion": 1
+                      },
+                      "config": {
+                        "staticSchema": "../schemas/static-config.schema.json"
+                      }
+                    }
+                    """.trimIndent(),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message?.contains("config.staticSchema") == true)
+    }
+
+    @Test
     fun decode_rejects_config_settings_schema_when_present_but_not_string() {
         val failure = runCatching {
             PluginPackageContractJson.decode(
@@ -178,5 +229,31 @@ class PluginPackageContractJsonTest {
 
         assertTrue(failure is IllegalArgumentException)
         assertTrue(failure?.message?.contains("config.settingsSchema must be a string") == true)
+    }
+
+    @Test
+    fun decode_rejects_config_settings_schema_with_absolute_path() {
+        val failure = runCatching {
+            PluginPackageContractJson.decode(
+                JSONObject(
+                    """
+                    {
+                      "protocolVersion": 2,
+                      "runtime": {
+                        "kind": "js_quickjs",
+                        "bootstrap": "runtime/index.js",
+                        "apiVersion": 1
+                      },
+                      "config": {
+                        "settingsSchema": "/schemas/settings-ui.schema.json"
+                      }
+                    }
+                    """.trimIndent(),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message?.contains("config.settingsSchema") == true)
     }
 }

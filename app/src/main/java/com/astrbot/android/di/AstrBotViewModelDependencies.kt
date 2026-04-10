@@ -462,6 +462,10 @@ interface PluginViewModelDependencies {
 
     fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema?
 
+    fun resolvePluginStaticConfigSchemaPath(pluginId: String): String? = null
+
+    fun resolvePluginSettingsSchemaPath(pluginId: String): String? = null
+
     fun resolvePluginConfigSnapshot(
         pluginId: String,
         boundary: PluginConfigStorageBoundary,
@@ -630,6 +634,14 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
 
     override fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
         return PluginRepository.getInstalledStaticConfigSchema(pluginId)
+    }
+
+    override fun resolvePluginStaticConfigSchemaPath(pluginId: String): String? {
+        return PluginRepository.resolveInstalledStaticConfigSchemaPath(pluginId)
+    }
+
+    override fun resolvePluginSettingsSchemaPath(pluginId: String): String? {
+        return PluginRepository.resolveInstalledSettingsSchemaPath(pluginId)
     }
 
     override fun resolvePluginConfigSnapshot(

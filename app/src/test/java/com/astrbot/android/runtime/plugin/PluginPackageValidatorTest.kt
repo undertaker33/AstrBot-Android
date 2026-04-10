@@ -190,6 +190,29 @@ class PluginPackageValidatorTest {
     }
 
     @Test
+    fun validator_rejects_config_schema_path_that_escapes_plugin_root() {
+        val tempDir = Files.createTempDirectory("plugin-validator-unsafe-config-path").toFile()
+        try {
+            val packageFile = createV2PluginPackage(
+                directory = tempDir,
+                configStaticSchema = "../schemas/static-config.schema.json",
+            )
+
+            val failure = runCatching {
+                PluginPackageValidator(
+                    hostVersion = "0.4.2",
+                    supportedProtocolVersion = 2,
+                ).validate(packageFile)
+            }.exceptionOrNull()
+
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure?.message?.contains("config.staticSchema") == true)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun validator_reports_protocol_mismatch_when_manifest_protocol_differs_from_android_plugin() {
         val tempDir = Files.createTempDirectory("plugin-validator-protocol-mismatch").toFile()
         try {

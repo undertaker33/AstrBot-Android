@@ -20,6 +20,11 @@ import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginPackageContractSnapshot
 import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
+import com.astrbot.android.model.plugin.PluginStaticConfigField
+import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
+import com.astrbot.android.model.plugin.PluginStaticConfigJson
+import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import java.io.File
 import java.nio.file.Files
@@ -392,6 +397,73 @@ class PluginInstallerTest {
             assertEquals(expectedSnapshot, installed.packageContractSnapshot)
             assertEquals(expectedSnapshot, PluginRepository.findByPluginId(installed.pluginId)?.packageContractSnapshot)
             assertEquals(expectedSnapshot, stored?.packageContractSnapshot)
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_normalizes_snapshot_config_paths_and_repository_reads_schema_from_snapshot_path() {
+        val tempDir = Files.createTempDirectory("plugin-installer-schema-roundtrip").toFile()
+        try {
+            val repositoryDao = InMemoryPluginInstallAggregateDao()
+            resetPluginRepositoryForTest(dao = repositoryDao, initialized = true)
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+            )
+            val expectedSchema = PluginStaticConfigSchema(
+                fields = listOf(
+                    PluginStaticConfigField(
+                        fieldKey = "token",
+                        fieldType = PluginStaticConfigFieldType.StringField,
+                        defaultValue = PluginStaticConfigValue.StringValue("demo"),
+                    ),
+                ),
+            )
+            val candidate = createPluginPackage(
+                directory = tempDir,
+                fileName = "roundtrip.zip",
+                manifest = validManifest(version = "1.2.0"),
+                staticSchemaPath = "schemas//static.schema.json",
+                settingsSchemaPath = "schemas//settings.schema.json",
+                extraEntries = mapOf(
+                    "schemas/static.schema.json" to PluginStaticConfigJson.encodeSchema(expectedSchema).toString(2),
+                    "schemas/settings.schema.json" to """{"title":"Settings"}""",
+                    "_conf_schema.json" to """
+                        {
+                          "legacy_only": {
+                            "type": "string"
+                          }
+                        }
+                    """.trimIndent(),
+                ),
+            )
+
+            val installed = installer.installFromLocalPackage(candidate)
+
+            assertEquals(
+                "schemas/static.schema.json",
+                installed.packageContractSnapshot?.config?.staticSchema,
+            )
+            assertEquals(
+                "schemas/settings.schema.json",
+                installed.packageContractSnapshot?.config?.settingsSchema,
+            )
+            assertEquals(
+                expectedSchema,
+                PluginRepository.getInstalledStaticConfigSchema(installed.pluginId),
+            )
+            assertTrue(
+                PluginRepository.resolveInstalledStaticConfigSchemaPath(installed.pluginId)
+                    ?.endsWith("schemas${File.separator}static.schema.json") == true,
+            )
+            assertTrue(
+                PluginRepository.resolveInstalledSettingsSchemaPath(installed.pluginId)
+                    ?.endsWith("schemas${File.separator}settings.schema.json") == true,
+            )
         } finally {
             resetPluginRepositoryForTest()
             tempDir.deleteRecursively()

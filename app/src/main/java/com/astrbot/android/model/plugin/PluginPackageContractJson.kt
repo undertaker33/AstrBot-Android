@@ -1,5 +1,6 @@
 package com.astrbot.android.model.plugin
 
+import java.io.File
 import org.json.JSONObject
 
 object PluginPackageContractJson {
@@ -36,40 +37,21 @@ object PluginPackageContractJson {
     private fun decodeConfig(json: JSONObject?): PluginConfigEntryPoints {
         if (json == null) return PluginConfigEntryPoints()
         return PluginConfigEntryPoints(
-            staticSchema = readOptionalConfigString(json, "staticSchema", "config.staticSchema"),
-            settingsSchema = readOptionalConfigString(json, "settingsSchema", "config.settingsSchema"),
+            staticSchema = readOptionalConfigPath(json, "staticSchema", "config.staticSchema"),
+            settingsSchema = readOptionalConfigPath(json, "settingsSchema", "config.settingsSchema"),
         )
     }
 
     private fun normalizeRuntimeBootstrap(value: String): String {
-        val trimmed = value.trim()
-        require(trimmed.isNotBlank()) {
-            "runtime.bootstrap is required"
-        }
-        require(!trimmed.startsWith('/')) {
-            "runtime.bootstrap must be a relative path under runtime/"
-        }
-        require(!trimmed.startsWith('\\')) {
-            "runtime.bootstrap must be a relative path under runtime/"
-        }
-        require(!Regex("^[A-Za-z]:").containsMatchIn(trimmed)) {
-            "runtime.bootstrap must be a relative path under runtime/"
-        }
-        require(!trimmed.contains('\\')) {
-            "runtime.bootstrap must use forward slashes"
-        }
-
-        val segments = trimmed.split('/').filter { it.isNotBlank() }
-        require(segments.isNotEmpty()) {
-            "runtime.bootstrap must be a relative path under runtime/"
-        }
-        require(segments.none { it == "." || it == ".." }) {
-            "runtime.bootstrap must be a relative path under runtime/"
-        }
-        require(segments.first() == "runtime") {
+        val normalized = normalizePluginPackageRelativePath(
+            value = value,
+            path = "runtime.bootstrap",
+            relativePathMessage = "runtime.bootstrap must be a relative path under runtime/",
+        )
+        require(normalized.substringBefore('/') == "runtime") {
             "runtime.bootstrap must be under runtime/"
         }
-        return segments.joinToString("/")
+        return normalized
     }
 
     private fun readRequiredInt(json: JSONObject, key: String, path: String): Int {
@@ -102,11 +84,69 @@ object PluginPackageContractJson {
             ?: throw IllegalArgumentException("$key must be an object")
     }
 
-    private fun readOptionalConfigString(json: JSONObject, key: String, path: String): String {
+    private fun readOptionalConfigPath(json: JSONObject, key: String, path: String): String {
         if (!json.has(key) || json.isNull(key)) return ""
         return when (val value = json.get(key)) {
-            is String -> value
+            is String -> normalizeOptionalPluginPackageRelativePath(value, path)
             else -> throw IllegalArgumentException("$path must be a string")
         }
     }
+}
+
+internal fun normalizeOptionalPluginPackageRelativePath(value: String, path: String): String {
+    val trimmed = value.trim()
+    if (trimmed.isBlank()) return ""
+    return normalizePluginPackageRelativePath(
+        value = trimmed,
+        path = path,
+        relativePathMessage = "$path must be a relative path under plugin root",
+    )
+}
+
+internal fun resolvePluginPackageSnapshotFile(rootDir: File, relativePath: String): File? {
+    if (relativePath.isBlank()) return null
+    val normalized = runCatching {
+        normalizePluginPackageRelativePath(
+            value = relativePath,
+            path = "packageContractSnapshot",
+            relativePathMessage = "packageContractSnapshot config path must stay under plugin root",
+        )
+    }.getOrNull() ?: return null
+    val canonicalRoot = runCatching { rootDir.canonicalFile }.getOrNull() ?: return null
+    val canonicalFile = runCatching { File(canonicalRoot, normalized).canonicalFile }.getOrNull() ?: return null
+    return canonicalFile.takeIf { file ->
+        file.isFile && file.toPath().startsWith(canonicalRoot.toPath())
+    }
+}
+
+private fun normalizePluginPackageRelativePath(
+    value: String,
+    path: String,
+    relativePathMessage: String,
+): String {
+    val trimmed = value.trim()
+    require(trimmed.isNotBlank()) {
+        "$path is required"
+    }
+    require(!trimmed.startsWith('/')) {
+        relativePathMessage
+    }
+    require(!trimmed.startsWith('\\')) {
+        relativePathMessage
+    }
+    require(!Regex("^[A-Za-z]:").containsMatchIn(trimmed)) {
+        relativePathMessage
+    }
+    require(!trimmed.contains('\\')) {
+        "$path must use forward slashes"
+    }
+
+    val segments = trimmed.split('/').filter { it.isNotBlank() }
+    require(segments.isNotEmpty()) {
+        relativePathMessage
+    }
+    require(segments.none { it == "." || it == ".." }) {
+        relativePathMessage
+    }
+    return segments.joinToString("/")
 }

@@ -239,11 +239,35 @@ class PluginRepositoryTest {
             writeStaticSchemaFile(
                 directory = tempDir,
                 schema = expectedSchema,
+                relativePath = "schemas/static.schema.json",
+            )
+            writeStaticSchemaFile(
+                directory = tempDir,
+                schema = PluginStaticConfigSchema(
+                    fields = listOf(
+                        PluginStaticConfigField(
+                            fieldKey = "legacy_only",
+                            fieldType = PluginStaticConfigFieldType.StringField,
+                        ),
+                    ),
+                ),
             )
             val record = sampleRecord(
                 version = "1.0.0",
                 enabled = true,
                 extractedDir = tempDir.absolutePath,
+                packageContractSnapshot = PluginPackageContractSnapshot(
+                    protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+                    runtime = PluginRuntimeDeclarationSnapshot(
+                        kind = "js_quickjs",
+                        bootstrap = "runtime/index.js",
+                        apiVersion = 1,
+                    ),
+                    config = PluginConfigEntryPointsSnapshot(
+                        staticSchema = "schemas/static.schema.json",
+                        settingsSchema = "",
+                    ),
+                ),
             )
             dao.seed(record)
             resetPluginRepositoryForTest(dao = dao, initialized = true)
@@ -262,10 +286,30 @@ class PluginRepositoryTest {
         val tempDir = Files.createTempDirectory("plugin-static-schema-missing").toFile()
         try {
             val dao = InMemoryPluginInstallAggregateDao()
+            writeStaticSchemaFile(
+                directory = tempDir,
+                schema = PluginStaticConfigSchema(
+                    fields = listOf(
+                        PluginStaticConfigField(
+                            fieldKey = "legacy_only",
+                            fieldType = PluginStaticConfigFieldType.StringField,
+                        ),
+                    ),
+                ),
+            )
             val record = sampleRecord(
                 version = "1.0.0",
                 enabled = true,
                 extractedDir = tempDir.absolutePath,
+                packageContractSnapshot = PluginPackageContractSnapshot(
+                    protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+                    runtime = PluginRuntimeDeclarationSnapshot(
+                        kind = "js_quickjs",
+                        bootstrap = "runtime/index.js",
+                        apiVersion = 1,
+                    ),
+                    config = PluginConfigEntryPointsSnapshot(),
+                ),
             )
             dao.seed(record)
             resetPluginRepositoryForTest(dao = dao, initialized = true)
@@ -273,6 +317,7 @@ class PluginRepositoryTest {
             val schema = PluginRepository.getInstalledStaticConfigSchema(record.pluginId)
 
             assertEquals(null, schema)
+            assertEquals(null, PluginRepository.resolveInstalledStaticConfigSchemaPath(record.pluginId))
         } finally {
             resetPluginRepositoryForTest(initialized = false)
             tempDir.deleteRecursively()
@@ -297,6 +342,18 @@ class PluginRepositoryTest {
                 version = "1.0.0",
                 enabled = true,
                 extractedDir = tempDir.absolutePath,
+                packageContractSnapshot = PluginPackageContractSnapshot(
+                    protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+                    runtime = PluginRuntimeDeclarationSnapshot(
+                        kind = "js_quickjs",
+                        bootstrap = "runtime/index.js",
+                        apiVersion = 1,
+                    ),
+                    config = PluginConfigEntryPointsSnapshot(
+                        staticSchema = "_conf_schema.json",
+                        settingsSchema = "",
+                    ),
+                ),
             )
             dao.seed(record)
             resetPluginRepositoryForTest(dao = dao, initialized = true)
@@ -307,6 +364,103 @@ class PluginRepositoryTest {
         } finally {
             resetPluginRepositoryForTest(initialized = false)
             tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun repository_resolves_settings_schema_path_from_snapshot_under_extracted_dir() {
+        val tempDir = Files.createTempDirectory("plugin-settings-schema-path").toFile()
+        try {
+            val dao = InMemoryPluginInstallAggregateDao()
+            val settingsFile = File(tempDir, "schemas/settings-ui.schema.json").apply {
+                parentFile?.mkdirs()
+                writeText("""{"title":"Plugin Settings"}""")
+            }
+            val record = sampleRecord(
+                version = "1.0.0",
+                enabled = true,
+                extractedDir = tempDir.absolutePath,
+                packageContractSnapshot = PluginPackageContractSnapshot(
+                    protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+                    runtime = PluginRuntimeDeclarationSnapshot(
+                        kind = "js_quickjs",
+                        bootstrap = "runtime/index.js",
+                        apiVersion = 1,
+                    ),
+                    config = PluginConfigEntryPointsSnapshot(
+                        staticSchema = "",
+                        settingsSchema = "schemas/settings-ui.schema.json",
+                    ),
+                ),
+            )
+            dao.seed(record)
+            resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+            assertEquals(
+                settingsFile.absolutePath,
+                PluginRepository.resolveInstalledSettingsSchemaPath(record.pluginId),
+            )
+        } finally {
+            resetPluginRepositoryForTest(initialized = false)
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun repository_rejects_snapshot_schema_path_that_escapes_extracted_dir_without_fallback() {
+        val tempDir = Files.createTempDirectory("plugin-static-schema-escape").toFile()
+        val outsideFile = Files.createTempFile("plugin-static-schema-outside", ".json").toFile()
+        try {
+            val dao = InMemoryPluginInstallAggregateDao()
+            outsideFile.writeText(
+                PluginStaticConfigJson.encodeSchema(
+                    PluginStaticConfigSchema(
+                        fields = listOf(
+                            PluginStaticConfigField(
+                                fieldKey = "outside",
+                                fieldType = PluginStaticConfigFieldType.StringField,
+                            ),
+                        ),
+                    ),
+                ).toString(2),
+            )
+            writeStaticSchemaFile(
+                directory = tempDir,
+                schema = PluginStaticConfigSchema(
+                    fields = listOf(
+                        PluginStaticConfigField(
+                            fieldKey = "legacy_only",
+                            fieldType = PluginStaticConfigFieldType.StringField,
+                        ),
+                    ),
+                ),
+            )
+            val record = sampleRecord(
+                version = "1.0.0",
+                enabled = true,
+                extractedDir = tempDir.absolutePath,
+                packageContractSnapshot = PluginPackageContractSnapshot(
+                    protocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+                    runtime = PluginRuntimeDeclarationSnapshot(
+                        kind = "js_quickjs",
+                        bootstrap = "runtime/index.js",
+                        apiVersion = 1,
+                    ),
+                    config = PluginConfigEntryPointsSnapshot(
+                        staticSchema = "../${outsideFile.name}",
+                        settingsSchema = "",
+                    ),
+                ),
+            )
+            dao.seed(record)
+            resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+            assertEquals(null, PluginRepository.resolveInstalledStaticConfigSchemaPath(record.pluginId))
+            assertEquals(null, PluginRepository.getInstalledStaticConfigSchema(record.pluginId))
+        } finally {
+            resetPluginRepositoryForTest(initialized = false)
+            tempDir.deleteRecursively()
+            outsideFile.delete()
         }
     }
 
@@ -1275,10 +1429,12 @@ private fun sampleRecord(
 private fun writeStaticSchemaFile(
     directory: File,
     schema: PluginStaticConfigSchema,
+    relativePath: String = "_conf_schema.json",
 ) {
-    File(directory, "_conf_schema.json").writeText(
-        PluginStaticConfigJson.encodeSchema(schema).toString(2),
-    )
+    File(directory, relativePath).apply {
+        parentFile?.mkdirs()
+        writeText(PluginStaticConfigJson.encodeSchema(schema).toString(2))
+    }
 }
 
 private fun sampleRepositorySource(

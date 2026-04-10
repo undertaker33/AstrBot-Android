@@ -40,6 +40,7 @@ import com.astrbot.android.model.plugin.PluginSourceBadge
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.model.plugin.resolvePluginPackageSnapshotFile
 import com.astrbot.android.runtime.plugin.PluginPackageValidationResult
 import com.astrbot.android.runtime.plugin.PluginPackageValidator
 import com.astrbot.android.runtime.plugin.compareVersions
@@ -398,17 +399,30 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
 
     fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
         requireInitialized()
-        val record = requireRecord(pluginId)
-        val extractedDir = record.extractedDir.takeIf { it.isNotBlank() } ?: return null
-        val schemaFile = File(extractedDir, "_conf_schema.json")
-        if (!schemaFile.isFile) {
-            return null
-        }
+        val schemaPath = resolveInstalledStaticConfigSchemaPath(pluginId) ?: return null
         return runCatching {
             PluginStaticConfigJson.decodeSchema(
-                JSONObject(schemaFile.readText()),
+                JSONObject(File(schemaPath).readText()),
             )
         }.getOrNull()
+    }
+
+    fun resolveInstalledStaticConfigSchemaPath(pluginId: String): String? {
+        requireInitialized()
+        val record = requireRecord(pluginId)
+        return resolveInstalledSnapshotConfigFile(
+            record = record,
+            relativePath = record.packageContractSnapshot?.config?.staticSchema.orEmpty(),
+        )?.absolutePath
+    }
+
+    fun resolveInstalledSettingsSchemaPath(pluginId: String): String? {
+        requireInitialized()
+        val record = requireRecord(pluginId)
+        return resolveInstalledSnapshotConfigFile(
+            record = record,
+            relativePath = record.packageContractSnapshot?.config?.settingsSchema.orEmpty(),
+        )?.absolutePath
     }
 
     fun saveCoreConfig(
@@ -456,6 +470,17 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     private fun requireRecord(pluginId: String): PluginInstallRecord {
         return findByPluginId(pluginId)
             ?: error("Plugin install record not found for pluginId=$pluginId")
+    }
+
+    private fun resolveInstalledSnapshotConfigFile(
+        record: PluginInstallRecord,
+        relativePath: String,
+    ): File? {
+        val extractedDir = record.extractedDir.takeIf { it.isNotBlank() }?.let(::File) ?: return null
+        return resolvePluginPackageSnapshotFile(
+            rootDir = extractedDir,
+            relativePath = relativePath,
+        )
     }
 
     private fun persistUpdatedRecord(
