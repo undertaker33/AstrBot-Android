@@ -2,6 +2,18 @@ package com.astrbot.android.model.plugin
 
 import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.chat.MessageType
+import com.astrbot.android.runtime.plugin.AllowedValue
+import com.astrbot.android.runtime.plugin.JsonLikeMap
+import com.astrbot.android.runtime.plugin.LlmPipelineAdmission
+import com.astrbot.android.runtime.plugin.PluginLlmResponse
+import com.astrbot.android.runtime.plugin.PluginLlmUsageSnapshot
+import com.astrbot.android.runtime.plugin.PluginMessageEventResult
+import com.astrbot.android.runtime.plugin.PluginProviderMessageDto
+import com.astrbot.android.runtime.plugin.PluginProviderMessagePartDto
+import com.astrbot.android.runtime.plugin.PluginProviderMessageRole
+import com.astrbot.android.runtime.plugin.PluginProviderRequest
+import com.astrbot.android.runtime.plugin.PluginV2AfterSentView
+import com.astrbot.android.runtime.plugin.PluginV2ValueSanitizer
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -611,5 +623,541 @@ object PluginExecutionProtocolJson {
 
     private fun readOptionalArray(json: JSONObject, key: String): JSONArray? {
         return json.optJSONArray(key)
+    }
+
+    fun encodePluginExecutionStage(stage: PluginExecutionStage): String {
+        return stage.wireValue
+    }
+
+    fun decodePluginExecutionStage(value: String): PluginExecutionStage {
+        return PluginExecutionStage.fromWireValue(value)
+            ?: throw IllegalArgumentException("stage has unsupported value")
+    }
+
+    fun encodePluginV2LlmStage(stage: PluginV2LlmStage): String {
+        return stage.wireValue
+    }
+
+    fun decodePluginV2LlmStage(value: String): PluginV2LlmStage {
+        return PluginV2LlmStage.fromWireValue(value)
+            ?: throw IllegalArgumentException("stage has unsupported value")
+    }
+
+    fun encodePluginV2StreamingMode(mode: PluginV2StreamingMode): String {
+        return mode.wireValue
+    }
+
+    fun decodePluginV2StreamingMode(value: String): PluginV2StreamingMode {
+        return PluginV2StreamingMode.fromWireValue(value)
+            ?: throw IllegalArgumentException("streamingMode has unsupported value")
+    }
+
+    fun encodeAppChatLlm(target: AppChatLlm): String {
+        return target.wireValue
+    }
+
+    fun decodeAppChatLlm(value: String): AppChatLlm {
+        return AppChatLlm.fromWireValue(value)
+            ?: throw IllegalArgumentException("routingTarget has unsupported value")
+    }
+
+    fun encodePluginProviderRequest(request: PluginProviderRequest): JSONObject {
+        return JSONObject().apply {
+            put("requestId", request.requestId)
+            put(
+                "availableProviderIds",
+                JSONArray().apply {
+                    request.availableProviderIds.forEach { put(it) }
+                },
+            )
+            put(
+                "availableModelIdsByProvider",
+                JSONObject().apply {
+                    request.availableModelIdsByProvider.forEach { (providerId, modelIds) ->
+                        put(
+                            providerId,
+                            JSONArray().apply { modelIds.forEach { put(it) } },
+                        )
+                    }
+                },
+            )
+            put("conversationId", request.conversationId)
+            put(
+                "messageIds",
+                JSONArray().apply {
+                    request.messageIds.forEach { put(it) }
+                },
+            )
+            put("llmInputSnapshot", request.llmInputSnapshot)
+            put("selectedProviderId", request.selectedProviderId)
+            put("selectedModelId", request.selectedModelId)
+            put("systemPrompt", request.systemPrompt?.let(::encodeJsonLikeValue) ?: JSONObject.NULL)
+            put(
+                "messages",
+                JSONArray().apply {
+                    request.messages.forEach { put(encodePluginProviderMessageDto(it)) }
+                },
+            )
+            put("temperature", request.temperature ?: JSONObject.NULL)
+            put("topP", request.topP ?: JSONObject.NULL)
+            put("maxTokens", request.maxTokens ?: JSONObject.NULL)
+            put("streamingEnabled", request.streamingEnabled)
+            put("metadata", request.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodePluginProviderRequest(json: JSONObject): PluginProviderRequest {
+        return PluginProviderRequest(
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            availableProviderIds = readStringArray(readRequiredArray(json, "availableProviderIds", "availableProviderIds"), "availableProviderIds"),
+            availableModelIdsByProvider = decodeStringListMap(
+                readRequiredObject(json, "availableModelIdsByProvider", "availableModelIdsByProvider"),
+                "availableModelIdsByProvider",
+            ),
+            conversationId = readRequiredString(json, "conversationId", "conversationId"),
+            messageIds = readStringArray(readRequiredArray(json, "messageIds", "messageIds"), "messageIds"),
+            llmInputSnapshot = readRequiredString(json, "llmInputSnapshot", "llmInputSnapshot"),
+            selectedProviderId = readOptionalString(json, "selectedProviderId").orEmpty(),
+            selectedModelId = readOptionalString(json, "selectedModelId").orEmpty(),
+            systemPrompt = readOptionalString(json, "systemPrompt"),
+            messages = decodeProviderMessages(readOptionalArray(json, "messages"), "messages"),
+            temperature = readOptionalNumber(json, "temperature")?.toDouble(),
+            topP = readOptionalNumber(json, "topP")?.toDouble(),
+            maxTokens = readOptionalNumber(json, "maxTokens")?.toInt(),
+            streamingEnabled = json.optBoolean("streamingEnabled", false),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodePluginProviderMessageDto(message: PluginProviderMessageDto): JSONObject {
+        return JSONObject().apply {
+            put("role", message.role.wireValue)
+            put("name", message.name?.let(::encodeJsonLikeValue) ?: JSONObject.NULL)
+            put(
+                "parts",
+                JSONArray().apply {
+                    message.parts.forEach { put(encodePluginProviderMessagePartDto(it)) }
+                },
+            )
+            put("metadata", message.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodePluginProviderMessageDto(json: JSONObject): PluginProviderMessageDto {
+        val role = decodePluginProviderMessageRole(readRequiredString(json, "role", "role"))
+        return PluginProviderMessageDto(
+            role = role,
+            parts = decodeProviderMessageParts(readRequiredArray(json, "parts", "parts"), "parts"),
+            name = readOptionalString(json, "name"),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodePluginProviderMessagePartDto(part: PluginProviderMessagePartDto): JSONObject {
+        return when (part) {
+            is PluginProviderMessagePartDto.TextPart -> JSONObject().apply {
+                put("partType", "text")
+                put("text", part.text)
+            }
+
+            is PluginProviderMessagePartDto.MediaRefPart -> JSONObject().apply {
+                put("partType", "media_ref")
+                put("uri", part.uri)
+                put("mimeType", part.mimeType)
+            }
+        }
+    }
+
+    fun decodePluginProviderMessagePartDto(json: JSONObject): PluginProviderMessagePartDto {
+        return when (readRequiredString(json, "partType", "partType")) {
+            "text" -> PluginProviderMessagePartDto.TextPart(
+                text = readRequiredString(json, "text", "text"),
+            )
+
+            "media_ref" -> PluginProviderMessagePartDto.MediaRefPart(
+                uri = readRequiredString(json, "uri", "uri"),
+                mimeType = readRequiredString(json, "mimeType", "mimeType"),
+            )
+
+            else -> throw IllegalArgumentException("partType has unsupported value")
+        }
+    }
+
+    fun encodePluginLlmUsageSnapshot(usage: PluginLlmUsageSnapshot): JSONObject {
+        return JSONObject().apply {
+            put("promptTokens", usage.promptTokens ?: JSONObject.NULL)
+            put("completionTokens", usage.completionTokens ?: JSONObject.NULL)
+            put("totalTokens", usage.totalTokens ?: JSONObject.NULL)
+            put("inputCostMicros", usage.inputCostMicros ?: JSONObject.NULL)
+            put("outputCostMicros", usage.outputCostMicros ?: JSONObject.NULL)
+            put("currencyCode", usage.normalizedCurrencyCode?.let(::encodeJsonLikeValue) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodePluginLlmUsageSnapshot(json: JSONObject): PluginLlmUsageSnapshot {
+        return PluginLlmUsageSnapshot(
+            promptTokens = readOptionalInt(json, "promptTokens"),
+            completionTokens = readOptionalInt(json, "completionTokens"),
+            totalTokens = readOptionalInt(json, "totalTokens"),
+            inputCostMicros = readOptionalLong(json, "inputCostMicros"),
+            outputCostMicros = readOptionalLong(json, "outputCostMicros"),
+            currencyCode = readOptionalString(json, "currencyCode"),
+        )
+    }
+
+    fun encodePluginLlmResponse(response: PluginLlmResponse): JSONObject {
+        return JSONObject().apply {
+            put("requestId", response.requestId)
+            put("providerId", response.providerId)
+            put("modelId", response.modelId)
+            put("usage", response.usage?.let(::encodePluginLlmUsageSnapshot) ?: JSONObject.NULL)
+            put("finishReason", response.finishReason?.let(::encodeJsonLikeValue) ?: JSONObject.NULL)
+            put("text", response.text)
+            put("markdown", response.markdown)
+            put("metadata", response.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodePluginLlmResponse(json: JSONObject): PluginLlmResponse {
+        return PluginLlmResponse(
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            providerId = readRequiredString(json, "providerId", "providerId"),
+            modelId = readRequiredString(json, "modelId", "modelId"),
+            usage = readOptionalObject(json, "usage")?.let(::decodePluginLlmUsageSnapshot),
+            finishReason = readOptionalString(json, "finishReason"),
+            text = readOptionalString(json, "text").orEmpty(),
+            markdown = json.optBoolean("markdown", false),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodePluginMessageEventResult(result: PluginMessageEventResult): JSONObject {
+        return JSONObject().apply {
+            put("requestId", result.requestId)
+            put("conversationId", result.conversationId)
+            put("text", result.text)
+            put("markdown", result.markdown)
+            put(
+                "attachments",
+                JSONArray().apply {
+                    result.attachments.forEach { put(encodePluginMessageEventResultAttachment(it)) }
+                },
+            )
+            put("shouldSend", result.shouldSend)
+            put("isStopped", result.isStopped)
+            put("attachmentMutationIntent", result.attachmentMutationIntent.name)
+        }
+    }
+
+    fun decodePluginMessageEventResult(json: JSONObject): PluginMessageEventResult {
+        val attachments = decodePluginMessageEventResultAttachments(
+            readOptionalArray(json, "attachments"),
+            "attachments",
+        )
+        val result = PluginMessageEventResult(
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            conversationId = readRequiredString(json, "conversationId", "conversationId"),
+            text = readOptionalString(json, "text").orEmpty(),
+            markdown = json.optBoolean("markdown", false),
+            attachments = attachments,
+            shouldSend = json.optBoolean("shouldSend", true),
+            attachmentMutationIntent = decodePluginMessageEventResultAttachmentMutationIntent(
+                readOptionalString(json, "attachmentMutationIntent"),
+                attachments,
+            ),
+        )
+        if (json.optBoolean("isStopped", false)) {
+            result.stop()
+        }
+        return result
+    }
+
+    fun encodePluginV2AfterSentView(view: PluginV2AfterSentView): JSONObject {
+        return JSONObject().apply {
+            put("requestId", view.requestId)
+            put("conversationId", view.conversationId)
+            put("sendAttemptId", view.sendAttemptId)
+            put("platformAdapterType", view.platformAdapterType)
+            put("platformInstanceKey", view.platformInstanceKey)
+            put("sentAtEpochMs", view.sentAtEpochMs)
+            put("deliveryStatus", view.deliveryStatus.wireValue)
+            put("deliveredEntryCount", view.deliveredEntryCount)
+            put(
+                "receiptIds",
+                JSONArray().apply {
+                    view.receiptIds.forEach { put(it) }
+                },
+            )
+            put(
+                "deliveredEntries",
+                JSONArray().apply {
+                    view.deliveredEntries.forEach { put(encodePluginV2AfterSentEntry(it)) }
+                },
+            )
+            put("usage", view.usage?.let(::encodePluginLlmUsageSnapshot) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodePluginV2AfterSentView(json: JSONObject): PluginV2AfterSentView {
+        val deliveredEntries = decodePluginV2AfterSentEntries(
+            readOptionalArray(json, "deliveredEntries"),
+            "deliveredEntries",
+        )
+        return PluginV2AfterSentView(
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            conversationId = readRequiredString(json, "conversationId", "conversationId"),
+            sendAttemptId = readRequiredString(json, "sendAttemptId", "sendAttemptId"),
+            platformAdapterType = readRequiredString(json, "platformAdapterType", "platformAdapterType"),
+            platformInstanceKey = readRequiredString(json, "platformInstanceKey", "platformInstanceKey"),
+            sentAtEpochMs = json.optLong("sentAtEpochMs"),
+            deliveryStatus = decodePluginV2AfterSentDeliveryStatus(
+                readRequiredString(json, "deliveryStatus", "deliveryStatus"),
+            ),
+            receiptIds = readStringArray(readOptionalArray(json, "receiptIds"), "receiptIds"),
+            deliveredEntries = deliveredEntries,
+            usage = readOptionalObject(json, "usage")?.let(::decodePluginLlmUsageSnapshot),
+            deliveredEntryCount = json.optInt("deliveredEntryCount", deliveredEntries.size),
+        )
+    }
+
+    private fun encodePluginV2AfterSentEntry(entry: PluginV2AfterSentView.DeliveredEntry): JSONObject {
+        return JSONObject().apply {
+            put("entryId", entry.entryId)
+            put("entryType", entry.entryType)
+            put("textPreview", entry.textPreview)
+            put("attachmentCount", entry.attachmentCount)
+        }
+    }
+
+    private fun decodePluginV2AfterSentEntries(array: JSONArray?, path: String): List<PluginV2AfterSentView.DeliveredEntry> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val json = array.optJSONObject(index)
+                    ?: throw IllegalArgumentException("$path[$index] must be an object")
+                add(
+                    PluginV2AfterSentView.DeliveredEntry(
+                        entryId = readRequiredString(json, "entryId", "$path[$index].entryId"),
+                        entryType = readRequiredString(json, "entryType", "$path[$index].entryType"),
+                        textPreview = json.optString("textPreview"),
+                        attachmentCount = json.optInt("attachmentCount", 0),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun encodePluginMessageEventResultAttachment(attachment: PluginMessageEventResult.Attachment): JSONObject {
+        return JSONObject().apply {
+            put("uri", attachment.uri)
+            put("mimeType", attachment.mimeType)
+        }
+    }
+
+    private fun decodePluginMessageEventResultAttachments(array: JSONArray?, path: String): List<PluginMessageEventResult.Attachment> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val json = array.optJSONObject(index)
+                    ?: throw IllegalArgumentException("$path[$index] must be an object")
+                add(
+                    PluginMessageEventResult.Attachment(
+                        uri = readRequiredString(json, "uri", "$path[$index].uri"),
+                        mimeType = json.optString("mimeType"),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun decodePluginMessageEventResultAttachmentMutationIntent(
+        value: String?,
+        attachments: List<PluginMessageEventResult.Attachment>,
+    ): PluginMessageEventResult.AttachmentMutationIntent {
+        if (value.isNullOrBlank()) {
+            return if (attachments.isEmpty()) {
+                PluginMessageEventResult.AttachmentMutationIntent.UNTOUCHED
+            } else {
+                PluginMessageEventResult.AttachmentMutationIntent.REPLACED
+            }
+        }
+        return try {
+            PluginMessageEventResult.AttachmentMutationIntent.valueOf(value)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalArgumentException("attachmentMutationIntent has unsupported value", error)
+        }
+    }
+
+    private fun encodeJsonLikeObject(map: JsonLikeMap): JSONObject {
+        return JSONObject().apply {
+            map.forEach { (key, value) ->
+                put(key, encodeJsonLikeValue(value))
+            }
+        }
+    }
+
+    private fun decodeJsonLikeObject(json: JSONObject?, path: String): JsonLikeMap? {
+        if (json == null) return null
+        val result = linkedMapOf<String, AllowedValue>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            result[key] = decodeJsonLikeValue(json.opt(key), "$path.$key")
+        }
+        return PluginV2ValueSanitizer.requireAllowedMap(result)
+    }
+
+    private fun encodeJsonLikeValue(value: AllowedValue): Any? {
+        return when (value) {
+            null -> JSONObject.NULL
+            is String,
+            is Boolean,
+            is Int,
+            is Long,
+            is Double,
+            -> value
+
+            is Float -> value.toDouble()
+
+            is List<*> -> JSONArray().apply {
+                value.forEach { put(encodeJsonLikeValue(it)) }
+            }
+
+            is Map<*, *> -> JSONObject().apply {
+                value.forEach { (key, item) ->
+                    require(key is String) { "JSON-like map keys must be strings." }
+                    put(key, encodeJsonLikeValue(item))
+                }
+            }
+
+            else -> throw IllegalArgumentException("Unsupported JSON-like value type: ${value::class.java.name}")
+        }
+    }
+
+    private fun decodeJsonLikeValue(value: Any?, path: String): AllowedValue {
+        return when (value) {
+            null,
+            JSONObject.NULL,
+            -> null
+
+            is String,
+            is Boolean,
+            is Int,
+            is Long,
+            is Double,
+            -> value
+
+            is Number -> when (value) {
+                is java.lang.Integer -> value.toInt()
+                is java.lang.Long -> value.toLong()
+                is java.lang.Double -> value.toDouble()
+                is java.lang.Float -> value.toDouble()
+                else -> value.toDouble()
+            }
+
+            is JSONArray -> buildList {
+                for (index in 0 until value.length()) {
+                    add(decodeJsonLikeValue(value.opt(index), "$path[$index]"))
+                }
+            }
+
+            is JSONObject -> decodeJsonLikeObject(value, path)
+                ?: throw IllegalArgumentException("$path must be an object")
+
+            else -> throw IllegalArgumentException("$path contains unsupported value type: ${value::class.java.name}")
+        }
+    }
+
+    private fun readRequiredArray(json: JSONObject, key: String, path: String): JSONArray {
+        return json.optJSONArray(key)
+            ?: throw IllegalArgumentException("$path must be an array")
+    }
+
+    private fun readStringArray(array: JSONArray?, path: String): List<String> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val value = array.optString(index)
+                require(value.isNotBlank()) {
+                    "$path[$index] must be a non-blank string"
+                }
+                add(value)
+            }
+        }
+    }
+
+    private fun decodeStringListMap(json: JSONObject, path: String): Map<String, List<String>> {
+        val result = linkedMapOf<String, List<String>>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val value = json.optJSONArray(key)
+                ?: throw IllegalArgumentException("$path.$key must be an array")
+            result[key] = readStringArray(value, "$path.$key")
+        }
+        return result
+    }
+
+    private fun decodeProviderMessages(array: JSONArray?, path: String): List<PluginProviderMessageDto> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val json = array.optJSONObject(index)
+                    ?: throw IllegalArgumentException("$path[$index] must be an object")
+                add(decodePluginProviderMessageDto(json))
+            }
+        }
+    }
+
+    private fun decodeProviderMessageParts(array: JSONArray, path: String): List<PluginProviderMessagePartDto> {
+        return buildList {
+            for (index in 0 until array.length()) {
+                val json = array.optJSONObject(index)
+                    ?: throw IllegalArgumentException("$path[$index] must be an object")
+                add(decodePluginProviderMessagePartDto(json))
+            }
+        }
+    }
+
+    private fun decodePluginProviderMessageRole(value: String): PluginProviderMessageRole {
+        return PluginProviderMessageRole.fromWireValue(value)
+            ?: throw IllegalArgumentException("role has unsupported value")
+    }
+
+    private fun decodePluginV2AfterSentDeliveryStatus(value: String): PluginV2AfterSentView.DeliveryStatus {
+        return PluginV2AfterSentView.DeliveryStatus.fromWireValue(value)
+            ?: throw IllegalArgumentException("deliveryStatus has unsupported value")
+    }
+
+    private fun readOptionalString(json: JSONObject, key: String): String? {
+        val value = json.opt(key)
+        return when (value) {
+            null,
+            JSONObject.NULL,
+            -> null
+
+            is String -> value.takeIf { it.isNotBlank() }
+            else -> throw IllegalArgumentException("$key must be a string")
+        }
+    }
+
+    private fun readOptionalInt(json: JSONObject, key: String): Int? {
+        return readOptionalNumber(json, key)?.toInt()
+    }
+
+    private fun readOptionalLong(json: JSONObject, key: String): Long? {
+        return readOptionalNumber(json, key)?.toLong()
+    }
+
+    private fun readOptionalNumber(json: JSONObject, key: String): Number? {
+        val value = json.opt(key)
+        return when (value) {
+            null,
+            JSONObject.NULL,
+            -> null
+
+            is Number -> value
+            else -> throw IllegalArgumentException("$key must be a number")
+        }
     }
 }

@@ -18,8 +18,8 @@ docs/plugins/
 .android-sdk/
 .codex-home/
 .gradle-user-home/
-.docs/plugins/
-.docs/superpowers/
+docs/plugins/*
+docs/superpowers/*
 __pycache__/
 *.pyc
 app/src/main/assets/runtime/assets/offline-rootfs-overlay.tar.xz

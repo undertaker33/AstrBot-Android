@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.plugin
 
+import com.astrbot.android.model.plugin.projectRegisteredLlmHooks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -363,7 +364,7 @@ class PluginV2RegistryCompilerTest {
     }
 
     @Test
-    fun compiler_ignores_post_phase3_surfaces_in_active_registry() {
+    fun compiler_compiles_llm_hooks_into_registry_and_keeps_tool_surfaces_inactive() {
         val session = bootstrappedSession()
         val rawRegistry = PluginV2RawRegistry(session.pluginId)
         rawRegistry.appendLlmHook(
@@ -394,17 +395,126 @@ class PluginV2RegistryCompilerTest {
         val result = PluginV2RegistryCompiler().compile(rawRegistry)
 
         assertTrue(result.compiledRegistry != null)
-        assertEquals(0, result.compiledRegistry!!.handlerRegistry.totalHandlerCount)
-        assertTrue(result.compiledRegistry!!.dispatchIndex.handlerIdsByStage.isEmpty())
+        assertEquals(1, result.compiledRegistry!!.handlerRegistry.totalHandlerCount)
+        assertEquals(1, result.compiledRegistry!!.handlerRegistry.llmHookHandlers.size)
+        assertEquals(
+            listOf("hdl::com.example.v2.compiler::llm_hook::llm.future"),
+            result.compiledRegistry!!.dispatchIndex.handlerIdsByStage[PluginV2InternalStage.LlmRequest],
+        )
         assertEquals(
             listOf(
-                "inactive_phase_registration_ignored",
                 "inactive_phase_registration_ignored",
                 "inactive_phase_registration_ignored",
             ),
             result.diagnostics.map { it.code },
         )
         assertTrue(result.diagnostics.all { it.severity == DiagnosticSeverity.Warning })
+    }
+
+    @Test
+    fun plugin_v2_internal_stage_and_dispatch_index_include_all_phase4_llm_stages() {
+        val session = bootstrappedSession()
+        val rawRegistry = PluginV2RawRegistry(session.pluginId)
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "wait",
+                hook = "on_waiting_llm_request",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "request",
+                hook = "on_llm_request",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "response",
+                hook = "on_llm_response",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "decorating",
+                hook = "on_decorating_result",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "afterSent",
+                hook = "after_message_sent",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+
+        val result = PluginV2RegistryCompiler().compile(rawRegistry)
+        val compiledRegistry = result.compiledRegistry!!
+
+        assertTrue(result.diagnostics.none { it.severity == DiagnosticSeverity.Error })
+        assertEquals(5, compiledRegistry.handlerRegistry.llmHookHandlers.size)
+        assertEquals(
+            setOf(
+                PluginV2InternalStage.LlmWaiting,
+                PluginV2InternalStage.LlmRequest,
+                PluginV2InternalStage.LlmResponse,
+                PluginV2InternalStage.ResultDecorating,
+                PluginV2InternalStage.AfterMessageSent,
+            ),
+            compiledRegistry.dispatchIndex.handlerIdsByStage.keys,
+        )
+    }
+
+    @Test
+    fun governance_projection_reports_registered_llm_hooks_from_compiled_registry() {
+        val session = bootstrappedSession()
+        val rawRegistry = PluginV2RawRegistry(session.pluginId)
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "request.one",
+                hook = "on_llm_request",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "request.two",
+                hook = "on_llm_request",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "decorating.one",
+                hook = "on_decorating_result",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+
+        val compiledRegistry = PluginV2RegistryCompiler()
+            .compile(rawRegistry)
+            .compiledRegistry!!
+        val projection = compiledRegistry.projectRegisteredLlmHooks()
+
+        assertEquals(3, projection.totalCount)
+        assertEquals(2, projection.byStage[PluginV2InternalStage.LlmRequest])
+        assertEquals(1, projection.byStage[PluginV2InternalStage.ResultDecorating])
+        assertTrue(
+            projection.handlerIds.containsAll(
+                compiledRegistry.handlerRegistry.llmHookHandlers.map { it.handlerId },
+            ),
+        )
     }
 
     private fun rawRegistryWithMessageHandlers(

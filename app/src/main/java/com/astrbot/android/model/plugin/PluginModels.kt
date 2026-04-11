@@ -2,6 +2,48 @@ package com.astrbot.android.model.plugin
 
 import java.util.Locale
 
+enum class AppChatLlm(
+    val wireValue: String,
+) {
+    AppChat("app_chat");
+
+    companion object {
+        fun fromWireValue(value: String): AppChatLlm? {
+            return entries.firstOrNull { it.wireValue == value }
+        }
+    }
+}
+
+enum class PluginV2LlmStage(
+    val wireValue: String,
+) {
+    LlmWaiting("llm_waiting"),
+    LlmRequest("llm_request"),
+    LlmResponse("llm_response"),
+    ResultDecorating("result_decorating"),
+    AfterMessageSent("after_message_sent");
+
+    companion object {
+        fun fromWireValue(value: String): PluginV2LlmStage? {
+            return entries.firstOrNull { it.wireValue == value }
+        }
+    }
+}
+
+enum class PluginV2StreamingMode(
+    val wireValue: String,
+) {
+    NON_STREAM("non_stream"),
+    PSEUDO_STREAM("pseudo_stream"),
+    NATIVE_STREAM("native_stream");
+
+    companion object {
+        fun fromWireValue(value: String): PluginV2StreamingMode? {
+            return entries.firstOrNull { it.wireValue == value }
+        }
+    }
+}
+
 enum class PluginSourceType {
     LOCAL_FILE,
     MANUAL_IMPORT,

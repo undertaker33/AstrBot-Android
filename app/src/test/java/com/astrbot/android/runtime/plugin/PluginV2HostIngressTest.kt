@@ -1,26 +1,46 @@
 package com.astrbot.android.runtime.plugin
 
+import com.astrbot.android.data.BotRepository
+import com.astrbot.android.data.ConfigRepository
+import com.astrbot.android.data.ConversationRepository
+import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
+import com.astrbot.android.model.FeatureSupportState
+import com.astrbot.android.model.ProviderCapability
+import com.astrbot.android.model.ProviderProfile
+import com.astrbot.android.model.ProviderType
+import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.chat.MessageType
+import com.astrbot.android.model.plugin.AppChatLlm
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginBotSummary
 import com.astrbot.android.model.plugin.PluginConfigSummary
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginMessageSummary
+import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.model.plugin.PluginV2StreamingMode
 import com.astrbot.android.runtime.IncomingMessageEvent
 import com.astrbot.android.runtime.OneBotBridgeServer
+import com.astrbot.android.runtime.OneBotSendResult
+import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.runtime.qq.QqSessionKeyFactory
 import java.nio.file.Files
 import java.util.AbstractMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -381,6 +401,401 @@ class PluginV2HostIngressTest {
         }
     }
 
+    @Test
+    fun onebot_enters_llm_coordinator_only_when_ingress_allows_app_chat_path() = runBlocking {
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = false,
+                    text = "suppressed",
+                )
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                OneBotSendResult.success()
+            }
+
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+                v2EngineWithHandlers(
+                    onMessage = { event ->
+                        event.stopPropagation()
+                    },
+                ),
+            )
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-ingress-stop", text = "astrbot hello ingress stop"))
+            assertEquals(0, runtime.preSendCalls.get())
+
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+                v2EngineWithHandlers(),
+            )
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-ingress-pass", text = "astrbot hello ingress pass"))
+            assertEquals(1, runtime.preSendCalls.get())
+        }
+    }
+
+    @Test
+    fun onebot_llm_ingress_uses_host_session_identity_for_conversation_id() = runBlocking {
+        val capturedConversationId = AtomicReference<String>()
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                capturedConversationId.set(input.event.conversationId)
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = false,
+                    text = "identity-check",
+                )
+            },
+        )
+        val bot = defaultBot()
+        val config = defaultConfig(
+            textStreamingEnabled = false,
+            sessionIsolationEnabled = true,
+        )
+        withOneBotState(
+            bot = bot,
+            config = config,
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                OneBotSendResult.success()
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-session-identity", text = "astrbot hello identity"))
+
+            val sessionId = QqSessionKeyFactory.build(
+                botId = bot.id,
+                messageType = MessageType.GroupMessage,
+                groupId = "30003",
+                userId = "20002",
+                isolated = true,
+            )
+            val expectedConversationId = ConversationRepository
+                .session(sessionId)
+                .originSessionId
+                .ifBlank { sessionId }
+
+            assertEquals(expectedConversationId, capturedConversationId.get())
+            assertEquals("group:30003:user:20002", capturedConversationId.get())
+            assertFalse(capturedConversationId.get() == "30003")
+        }
+    }
+
+    @Test
+    fun onebot_after_sent_view_uses_same_public_conversation_id_as_event() = runBlocking {
+        val capturedEventConversationId = AtomicReference<String>()
+        val capturedViewConversationId = AtomicReference<String>()
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = "conversation-domain-check",
+                )
+            },
+            afterSent = { event, view ->
+                capturedEventConversationId.set(event.conversationId)
+                capturedViewConversationId.set(view.conversationId)
+            },
+        )
+        val bot = defaultBot()
+        val config = defaultConfig(
+            textStreamingEnabled = false,
+            sessionIsolationEnabled = true,
+        )
+        withOneBotState(
+            bot = bot,
+            config = config,
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                OneBotSendResult.success(receiptIds = listOf("receipt-domain"))
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-conversation-domain", text = "astrbot hello domain"))
+
+            assertEquals("group:30003:user:20002", capturedEventConversationId.get())
+            assertEquals(capturedEventConversationId.get(), capturedViewConversationId.get())
+        }
+    }
+
+    @Test
+    fun onebot_llm_main_path_skips_legacy_before_send_even_when_ingress_allows_app_chat() = runBlocking {
+        val legacyRuns = AtomicInteger(0)
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = false,
+                    text = "suppressed",
+                )
+            },
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(
+                    pluginId = "legacy-before-send-should-not-run",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    legacyRuns.incrementAndGet()
+                    NoOp("legacy")
+                },
+            )
+        }
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                OneBotSendResult.success()
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-no-legacy-before-send", text = "astrbot hello v2 only"))
+
+            assertEquals(0, legacyRuns.get())
+            assertEquals(1, runtime.deliveredPipelineCalls.get())
+        }
+    }
+
+    @Test
+    fun should_send_false_skips_send_persist_success_snapshot_and_after_sent() = runBlocking {
+        val sendAttempts = AtomicInteger(0)
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = false,
+                    text = "suppressed-by-plugin",
+                )
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                sendAttempts.incrementAndGet()
+                OneBotSendResult.success()
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-should-send-false", text = "astrbot hello suppress"))
+
+            assertEquals(0, sendAttempts.get())
+            assertEquals(0, runtime.afterSentCalls.get())
+            val messages = ConversationRepository.session("qq-qq-main-group-30003").messages
+            assertEquals(1, messages.size)
+            assertEquals("user", messages.single().role)
+        }
+    }
+
+    @Test
+    fun send_success_persists_assistant_and_receipt_then_triggers_after_sent_once() = runBlocking {
+        val sendAttempts = AtomicInteger(0)
+        val assistantPersistedBeforeAfterSent = AtomicBoolean(false)
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = "coordinator-success",
+                )
+            },
+            afterSent = { _, view ->
+                assistantPersistedBeforeAfterSent.set(
+                    ConversationRepository.session("qq-qq-main-group-30003").messages.any { message -> message.role == "assistant" },
+                )
+                assertEquals("group:30003", view.conversationId)
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                sendAttempts.incrementAndGet()
+                OneBotSendResult.success(receiptIds = listOf("receipt-123"))
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-send-success", text = "astrbot hello success"))
+
+            assertEquals(1, sendAttempts.get())
+            assertEquals(1, runtime.afterSentCalls.get())
+            assertTrue(assistantPersistedBeforeAfterSent.get())
+            val sessionMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
+            assertTrue(sessionMessages.any { message -> message.role == "assistant" && message.content == "coordinator-success" })
+            assertEquals(listOf("receipt-123"), runtime.afterSentViews.single().receiptIds)
+        }
+    }
+
+    @Test
+    fun send_failure_emits_llm_pipeline_failed_and_skips_after_sent() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 200L })
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = "send-failure-text",
+                )
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            PluginRuntimeLogBusProvider.setBusOverrideForTests(logBus)
+            try {
+                OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+                OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                    OneBotSendResult.failure("send-boom")
+                }
+                PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+                invokeHandlePayload(oneBotMessagePayload(messageId = "msg-send-failure", text = "astrbot hello failure"))
+
+                assertEquals(0, runtime.afterSentCalls.get())
+                val sessionMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
+                assertFalse(sessionMessages.any { message -> message.role == "assistant" })
+                assertTrue(logBus.snapshot(limit = 50).any { record -> record.code == "llm_pipeline_failed" })
+            } finally {
+                PluginRuntimeLogBusProvider.setBusOverrideForTests(null)
+            }
+        }
+    }
+
+    @Test
+    fun non_streaming_and_streaming_use_same_send_persist_after_sent_order() = runBlocking {
+        val nonStreamTrace = executeSingleRoundAndCaptureOrder(
+            config = defaultConfig(textStreamingEnabled = false),
+            provider = defaultChatProvider(),
+            messageId = "msg-order-non-stream",
+            text = "astrbot hello non stream",
+        )
+        val nativeStreamTrace = executeSingleRoundAndCaptureOrder(
+            config = defaultConfig(textStreamingEnabled = true),
+            provider = defaultChatProvider(),
+            messageId = "msg-order-native-stream",
+            text = "astrbot hello native stream",
+        )
+
+        assertEquals(listOf("send", "after_sent"), nonStreamTrace.map { entry -> entry.first })
+        assertEquals(listOf("send", "after_sent"), nativeStreamTrace.map { entry -> entry.first })
+        assertEquals(nonStreamTrace.map { entry -> entry.first }, nativeStreamTrace.map { entry -> entry.first })
+        assertEquals(
+            listOf(PluginV2StreamingMode.NON_STREAM, PluginV2StreamingMode.NON_STREAM),
+            nonStreamTrace.map { entry -> entry.second },
+        )
+        assertEquals(
+            listOf(PluginV2StreamingMode.NATIVE_STREAM, PluginV2StreamingMode.NATIVE_STREAM),
+            nativeStreamTrace.map { entry -> entry.second },
+        )
+    }
+
+    @Test
+    fun onebot_pseudo_streaming_sends_aggregated_response_as_host_pseudo_segments() = runBlocking {
+        val sentTexts = CopyOnWriteArrayList<String>()
+        val capturedMode = AtomicReference<PluginV2StreamingMode>()
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                capturedMode.set(input.streamingMode)
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = "First pseudo segment! Second pseudo segment?",
+                )
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = true),
+            providers = listOf(
+                defaultChatProvider(
+                    providerType = ProviderType.CUSTOM,
+                    nativeStreamingRuleSupport = FeatureSupportState.UNSUPPORTED,
+                ),
+            ),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+                sentTexts += text
+                OneBotSendResult.success(receiptIds = listOf("receipt-${sentTexts.size}"))
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-pseudo-stream", text = "astrbot hello pseudo stream"))
+
+            assertEquals(PluginV2StreamingMode.PSEUDO_STREAM, capturedMode.get())
+            assertTrue(sentTexts.size > 1)
+            assertFalse(sentTexts.any { text -> text == "First pseudo segment! Second pseudo segment?" })
+            assertEquals(1, runtime.afterSentCalls.get())
+        }
+    }
+
+    @Test
+    fun after_sent_handler_error_only_emits_on_plugin_error_without_rolling_back_sent_message() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 300L })
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = "after-sent-error-text",
+                )
+            },
+            afterSent = { _, _ ->
+                error("after-sent-handler-boom")
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            PluginV2LifecycleManagerProvider.manager()
+            PluginRuntimeLogBusProvider.setBusOverrideForTests(logBus)
+            try {
+                PluginV2LifecycleManagerProvider.setManagerOverrideForTests(
+                    PluginV2LifecycleManager(logBus = logBus),
+                )
+                OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+                OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                    OneBotSendResult.success(receiptIds = listOf("receipt-after-sent"))
+                }
+                PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+                invokeHandlePayload(oneBotMessagePayload(messageId = "msg-after-sent-error", text = "astrbot hello after sent"))
+
+                val sessionMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
+                assertTrue(sessionMessages.any { message -> message.role == "assistant" && message.content == "after-sent-error-text" })
+                val records = logBus.snapshot(limit = 80)
+                assertTrue(records.any { record -> record.code == "plugin_error_hook_emitted" })
+                assertFalse(records.any { record -> record.code == "llm_pipeline_failed" })
+            } finally {
+                PluginRuntimeLogBusProvider.setBusOverrideForTests(null)
+            }
+        }
+    }
+
     private fun invokeExecuteQqPlugins(
         trigger: PluginTriggerSource,
         event: IncomingMessageEvent,
@@ -485,6 +900,338 @@ class PluginV2HostIngressTest {
             attachments = emptyList(),
             senderName = "tester",
         )
+    }
+
+    private suspend fun invokeHandlePayload(payload: String) {
+        val method = OneBotBridgeServer::class.java.getDeclaredMethod(
+            "handlePayload",
+            String::class.java,
+            Continuation::class.java,
+        )
+        method.isAccessible = true
+        suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
+            val result = method.invoke(OneBotBridgeServer, payload, continuation)
+            if (result === COROUTINE_SUSPENDED) {
+                COROUTINE_SUSPENDED
+            } else {
+                Unit
+            }
+        }
+    }
+
+    private suspend fun withOneBotState(
+        bot: BotProfile,
+        config: ConfigProfile,
+        providers: List<ProviderProfile>,
+        block: suspend () -> Unit,
+    ) {
+        val botSnapshot = BotRepository.snapshotProfiles()
+        val selectedBotIdSnapshot = BotRepository.selectedBotId.value
+        val configSnapshot = ConfigRepository.snapshotProfiles()
+        val selectedConfigIdSnapshot = ConfigRepository.selectedProfileId.value
+        val providerSnapshot = ProviderRepository.snapshotProfiles()
+        val sessionSnapshot = ConversationRepository.snapshotSessions()
+        val runtimeLogsSnapshot = RuntimeLogRepository.logs.value
+        try {
+            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
+                InMemoryPluginScopedFailureStateStore(),
+            )
+            BotRepository.restoreProfiles(listOf(bot), bot.id)
+            ConfigRepository.restoreProfiles(listOf(config), config.id)
+            ProviderRepository.restoreProfiles(providers)
+            ConversationRepository.restoreSessions(emptyList())
+            RuntimeLogRepository.clear()
+            block()
+        } finally {
+            OneBotBridgeServer.setReplySenderOverrideForTests(null)
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(null)
+            AppChatPluginRuntimeCoordinatorProvider.setCoordinatorOverrideForTests(null)
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
+            PluginRuntimeRegistry.reset()
+            PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
+            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
+            PluginV2LifecycleManagerProvider.setManagerOverrideForTests(null)
+            BotRepository.restoreProfiles(botSnapshot, selectedBotIdSnapshot)
+            ConfigRepository.restoreProfiles(configSnapshot, selectedConfigIdSnapshot)
+            ProviderRepository.restoreProfiles(providerSnapshot)
+            ConversationRepository.restoreSessions(sessionSnapshot)
+            RuntimeLogRepository.clear()
+            runtimeLogsSnapshot.forEach(RuntimeLogRepository::append)
+        }
+    }
+
+    private fun oneBotMessagePayload(
+        messageId: String,
+        text: String,
+    ): String {
+        return """
+            {
+              "post_type": "message",
+              "message_type": "group",
+              "self_id": "10001",
+              "user_id": "20002",
+              "group_id": "30003",
+              "message_id": "$messageId",
+              "raw_message": "$text"
+            }
+        """.trimIndent()
+    }
+
+    private fun defaultBot(): BotProfile {
+        return BotProfile(
+            id = "qq-main",
+            displayName = "Primary Bot",
+            boundQqUins = listOf("10001"),
+            defaultProviderId = "provider-1",
+            configProfileId = "config-qq",
+            autoReplyEnabled = true,
+        )
+    }
+
+    private fun defaultConfig(
+        textStreamingEnabled: Boolean,
+        sessionIsolationEnabled: Boolean = false,
+    ): ConfigProfile {
+        return ConfigProfile(
+            id = "config-qq",
+            defaultChatProviderId = "provider-1",
+            replyOnAtOnlyEnabled = false,
+            keywordDetectionEnabled = false,
+            textStreamingEnabled = textStreamingEnabled,
+            sessionIsolationEnabled = sessionIsolationEnabled,
+        )
+    }
+
+    private fun defaultChatProvider(
+        providerType: ProviderType = ProviderType.OPENAI_COMPATIBLE,
+        nativeStreamingRuleSupport: FeatureSupportState = FeatureSupportState.SUPPORTED,
+    ): ProviderProfile {
+        return ProviderProfile(
+            id = "provider-1",
+            name = "Test Chat",
+            baseUrl = "https://example.com",
+            model = "gpt-test",
+            providerType = providerType,
+            apiKey = "test-key",
+            capabilities = setOf(ProviderCapability.CHAT),
+            enabled = true,
+            nativeStreamingRuleSupport = nativeStreamingRuleSupport,
+        )
+    }
+
+    private suspend fun executeSingleRoundAndCaptureOrder(
+        config: ConfigProfile,
+        provider: ProviderProfile,
+        messageId: String,
+        text: String,
+    ): List<Pair<String, PluginV2StreamingMode>> {
+        val order = mutableListOf<Pair<String, PluginV2StreamingMode>>()
+        val modeRef = AtomicReference(PluginV2StreamingMode.NON_STREAM)
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                modeRef.set(input.streamingMode)
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = "order-check",
+                )
+            },
+            afterSent = { _, _ ->
+                val hasAssistant = ConversationRepository.session("qq-qq-main-group-30003").messages.any { it.role == "assistant" }
+                assertTrue(hasAssistant)
+                order += "after_sent" to modeRef.get()
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = config,
+            providers = listOf(provider),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                val hasAssistantBeforeSend = ConversationRepository
+                    .session("qq-qq-main-group-30003")
+                    .messages
+                    .any { it.role == "assistant" }
+                assertFalse(hasAssistantBeforeSend)
+                order += "send" to modeRef.get()
+                OneBotSendResult.success(receiptIds = listOf("receipt-order"))
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+            invokeHandlePayload(oneBotMessagePayload(messageId = messageId, text = text))
+            assertEquals(1, runtime.afterSentCalls.get())
+        }
+        return order.toList()
+    }
+
+    private fun buildPipelineResult(
+        input: PluginV2LlmPipelineInput,
+        shouldSend: Boolean,
+        text: String,
+    ): PluginV2LlmPipelineResult {
+        val admission = LlmPipelineAdmission(
+            requestId = "req-${input.event.eventId}",
+            conversationId = input.event.conversationId,
+            messageIds = input.messageIds,
+            llmInputSnapshot = input.event.workingText,
+            routingTarget = AppChatLlm.AppChat,
+            streamingMode = input.streamingMode,
+        )
+        val finalRequest = PluginProviderRequest(
+            requestId = admission.requestId,
+            availableProviderIds = input.availableProviderIds,
+            availableModelIdsByProvider = input.availableModelIdsByProvider,
+            conversationId = admission.conversationId,
+            messageIds = input.messageIds,
+            llmInputSnapshot = admission.llmInputSnapshot,
+            selectedProviderId = input.selectedProviderId,
+            selectedModelId = input.selectedModelId,
+            systemPrompt = input.systemPrompt,
+            messages = input.messages,
+            temperature = input.temperature,
+            topP = input.topP,
+            maxTokens = input.maxTokens,
+            streamingEnabled = input.streamingEnabled,
+            metadata = input.metadata,
+        )
+        val response = PluginLlmResponse(
+            requestId = admission.requestId,
+            providerId = finalRequest.selectedProviderId.ifBlank { input.availableProviderIds.firstOrNull().orEmpty() },
+            modelId = finalRequest.selectedModelId.ifBlank {
+                input.availableModelIdsByProvider[finalRequest.selectedProviderId].orEmpty().firstOrNull().orEmpty()
+            },
+            text = text,
+        )
+        val sendableResult = PluginMessageEventResult(
+            requestId = admission.requestId,
+            conversationId = admission.conversationId,
+            text = text,
+            markdown = false,
+            attachments = emptyList(),
+            shouldSend = shouldSend,
+        )
+        return PluginV2LlmPipelineResult(
+            admission = admission,
+            finalRequest = finalRequest,
+            finalResponse = response,
+            sendableResult = sendableResult,
+            hookInvocationTrace = emptyList(),
+            decoratingRunResult = PluginV2EventResultCoordinator.DecoratingRunResult(
+                finalResult = sendableResult,
+                appliedHandlerIds = emptyList(),
+            ),
+        )
+    }
+
+    private class RecordingAppChatPluginRuntime(
+        private val preSend: suspend (PluginV2LlmPipelineInput) -> PluginV2LlmPipelineResult,
+        private val afterSent: suspend (PluginMessageEvent, PluginV2AfterSentView) -> Unit = { _, _ -> },
+    ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
+        val preSendCalls = AtomicInteger(0)
+        val afterSentCalls = AtomicInteger(0)
+        val deliveredPipelineCalls = AtomicInteger(0)
+        val afterSentViews = CopyOnWriteArrayList<PluginV2AfterSentView>()
+
+        override fun execute(
+            trigger: PluginTriggerSource,
+            contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+        ): PluginExecutionBatchResult {
+            return PluginExecutionBatchResult(
+                trigger = trigger,
+                outcomes = emptyList(),
+                skipped = emptyList(),
+            )
+        }
+
+        override suspend fun runLlmPipeline(input: PluginV2LlmPipelineInput): PluginV2LlmPipelineResult {
+            preSendCalls.incrementAndGet()
+            return preSend(input)
+        }
+
+        override suspend fun dispatchAfterMessageSent(
+            event: PluginMessageEvent,
+            afterSentView: PluginV2AfterSentView,
+        ): PluginV2LlmStageDispatchResult {
+            afterSentCalls.incrementAndGet()
+            afterSentViews += afterSentView
+            afterSent(event, afterSentView)
+            return PluginV2LlmStageDispatchResult(
+                stage = PluginV2InternalStage.AfterMessageSent,
+                invokedHandlerIds = emptyList(),
+                observations = emptyList(),
+            )
+        }
+
+        override suspend fun deliverLlmPipeline(
+            request: PluginV2HostLlmDeliveryRequest,
+        ): PluginV2HostLlmDeliveryResult {
+            deliveredPipelineCalls.incrementAndGet()
+            val pipelineResult = runLlmPipeline(request.pipelineInput)
+            if (!pipelineResult.sendableResult.shouldSend) {
+                return PluginV2HostLlmDeliveryResult.Suppressed(pipelineResult)
+            }
+            val preparedReply = request.prepareReply(pipelineResult)
+            val sendResult = request.sendReply(preparedReply)
+            if (!sendResult.success) {
+                PluginRuntimeLogBusProvider.bus().publishLifecycleRecord(
+                    pluginId = "__host__",
+                    pluginVersion = "",
+                    occurredAtEpochMillis = 1L,
+                    level = PluginRuntimeLogLevel.Error,
+                    code = "llm_pipeline_failed",
+                    message = "Plugin v2 llm pipeline observation.",
+                    metadata = linkedMapOf(
+                        "requestId" to pipelineResult.admission.requestId,
+                        "stage" to "Send",
+                        "runtimeSessionId" to "test",
+                        "streamingMode" to request.pipelineInput.streamingMode.name,
+                        "outcome" to "FAILED",
+                        "reason" to sendResult.errorSummary.ifBlank { "send_failed" },
+                    ),
+                )
+                return PluginV2HostLlmDeliveryResult.SendFailed(
+                    pipelineResult = pipelineResult,
+                    sendResult = sendResult,
+                )
+            }
+            request.persistDeliveredReply(preparedReply, sendResult, pipelineResult)
+            val afterSentView = PluginV2EventResultCoordinator().buildAfterSentView(
+                requestId = pipelineResult.admission.requestId,
+                conversationId = pipelineResult.admission.conversationId,
+                sendAttemptId = "recording-send",
+                platformAdapterType = request.platformAdapterType,
+                platformInstanceKey = request.platformInstanceKey,
+                sentAtEpochMs = 1L,
+                deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                receiptIds = sendResult.receiptIds,
+                deliveredEntries = preparedReply.deliveredEntries,
+                usage = pipelineResult.finalResponse.usage,
+            )
+            val afterSentError = runCatching {
+                dispatchAfterMessageSent(
+                    event = request.pipelineInput.event,
+                    afterSentView = afterSentView,
+                )
+            }.exceptionOrNull()
+            if (afterSentError != null) {
+                PluginV2LifecycleManagerProvider.manager().emitPluginError(
+                    event = PluginV2LlmAfterSentPayload(
+                        event = request.pipelineInput.event,
+                        view = afterSentView,
+                    ),
+                    pluginName = "__host__",
+                    handlerName = "after_message_sent",
+                    error = afterSentError,
+                    tracebackText = afterSentError.stackTraceToString(),
+                )
+            }
+            return PluginV2HostLlmDeliveryResult.Sent(
+                pipelineResult = pipelineResult,
+                preparedReply = preparedReply,
+                sendResult = sendResult,
+                afterSentView = afterSentView,
+            )
+        }
     }
 
     private fun v2EngineWithHandlers(

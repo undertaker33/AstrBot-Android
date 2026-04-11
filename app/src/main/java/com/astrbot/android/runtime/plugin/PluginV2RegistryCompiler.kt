@@ -71,14 +71,20 @@ class PluginV2RegistryCompiler(
                     stageBuckets = stageBuckets,
                 )
             }
+        val llmHookHandlers = rawRegistry.llmHooks
+            .sortedBy(LlmHookRawRegistration::sourceOrder)
+            .mapNotNull { registration ->
+                compileLlmHook(
+                    registration = registration,
+                    diagnostics = diagnostics,
+                    duplicateGuard = duplicateGuard,
+                    autoCounters = autoCounters,
+                    stageBuckets = stageBuckets,
+                )
+            }
         diagnostics += inactivePhaseDiagnostics(
             pluginId = rawRegistry.pluginId,
-            registrations = rawRegistry.llmHooks.map { registration ->
-                InactivePhaseRegistration(
-                    registrationKind = REGISTRATION_KIND_LLM_HOOK,
-                    registrationKey = registration.registrationKey,
-                )
-            } + rawRegistry.tools.map { registration ->
+            registrations = rawRegistry.tools.map { registration ->
                 InactivePhaseRegistration(
                     registrationKind = REGISTRATION_KIND_TOOL,
                     registrationKey = registration.registrationKey,
@@ -112,6 +118,7 @@ class PluginV2RegistryCompiler(
             commandAliasIndex = commandCompilation.buildAliasIndex(),
             regexHandlers = regexHandlers,
             lifecycleHandlers = lifecycleHandlers,
+            llmHookHandlers = llmHookHandlers,
         )
         val dispatchIndex = PluginV2StageIndex(
             handlerIdsByStage = stageBuckets.mapValues { (_, handlerIds) ->
@@ -311,6 +318,56 @@ class PluginV2RegistryCompiler(
             hook = registration.descriptor.hook,
         )
         stageBuckets.getOrPut(PluginV2InternalStage.Lifecycle) { mutableListOf() }
+            .add(compiled.handlerId)
+        return compiled
+    }
+
+    private fun compileLlmHook(
+        registration: LlmHookRawRegistration,
+        diagnostics: MutableList<PluginV2CompilerDiagnostic>,
+        duplicateGuard: MutableSet<String>,
+        autoCounters: MutableMap<String, Int>,
+        stageBuckets: MutableMap<PluginV2InternalStage, MutableList<String>>,
+    ): PluginV2CompiledLlmHookHandler? {
+        val identity = compileIdentity(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_LLM_HOOK,
+            requestedRegistrationKey = registration.registrationKey,
+            autoCounters = autoCounters,
+            diagnostics = diagnostics,
+            duplicateGuard = duplicateGuard,
+        ) ?: return null
+        val hook = registration.descriptor.hook.trim()
+        val surface = PluginV2LlmHookSurface.fromWireValue(hook)
+        if (surface == null) {
+            diagnostics += PluginV2CompilerDiagnostic(
+                severity = DiagnosticSeverity.Error,
+                code = "invalid_llm_hook_surface",
+                message = "Unsupported llm hook surface: $hook",
+                pluginId = registration.pluginId,
+                registrationKind = REGISTRATION_KIND_LLM_HOOK,
+                registrationKey = identity.registrationKey,
+            )
+            return null
+        }
+        val compiled = PluginV2CompiledLlmHookHandler(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_LLM_HOOK,
+            registrationKey = identity.registrationKey,
+            normalizedRegistrationKey = identity.normalizedRegistrationKey,
+            handlerId = identity.handlerId,
+            callbackToken = registration.callbackToken,
+            priority = registration.priority,
+            filterAttachments = compileFilterAttachments(
+                declaredFilters = registration.declaredFilters,
+                normalizedRegistrationKey = identity.normalizedRegistrationKey,
+            ),
+            metadata = registration.metadata,
+            sourceOrder = registration.sourceOrder,
+            hook = hook,
+            surface = surface,
+        )
+        stageBuckets.getOrPut(surface.stage) { mutableListOf() }
             .add(compiled.handlerId)
         return compiled
     }

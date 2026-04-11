@@ -78,12 +78,12 @@ data class LlmHookRegistrationInput(
     val handler: PluginV2CallbackHandle,
 )
 
-data class PluginV2ToolDescriptor(
+internal data class PluginV2ToolDescriptor(
     val name: String,
     val description: String = "",
 )
 
-data class ToolRegistrationInput(
+internal data class ToolRegistrationInput(
     val registrationKey: String? = null,
     val toolDescriptor: PluginV2ToolDescriptor,
     val declaredFilters: List<BootstrapFilterDescriptor> = emptyList(),
@@ -91,7 +91,7 @@ data class ToolRegistrationInput(
     val handler: PluginV2CallbackHandle,
 )
 
-data class ToolLifecycleHookRegistrationInput(
+internal data class ToolLifecycleHookRegistrationInput(
     val registrationKey: String? = null,
     val hook: String,
     val priority: Int = 0,
@@ -165,7 +165,7 @@ data class LlmHookRawRegistration(
     val descriptor: LlmHookRegistrationInput,
 ) : PluginV2RawRegistrationEntry
 
-data class ToolRawRegistration(
+internal data class ToolRawRegistration(
     override val pluginId: String,
     override val registrationKey: String?,
     override val callbackToken: PluginV2CallbackToken,
@@ -176,7 +176,7 @@ data class ToolRawRegistration(
     val descriptor: ToolRegistrationInput,
 ) : PluginV2RawRegistrationEntry
 
-data class ToolLifecycleHookRawRegistration(
+internal data class ToolLifecycleHookRawRegistration(
     override val pluginId: String,
     override val registrationKey: String?,
     override val callbackToken: PluginV2CallbackToken,
@@ -220,10 +220,10 @@ class PluginV2RawRegistry(
     val llmHooks: List<LlmHookRawRegistration>
         get() = llmHookRegistrations.toList()
 
-    val tools: List<ToolRawRegistration>
+    internal val tools: List<ToolRawRegistration>
         get() = toolRegistrations.toList()
 
-    val toolLifecycleHooks: List<ToolLifecycleHookRawRegistration>
+    internal val toolLifecycleHooks: List<ToolLifecycleHookRawRegistration>
         get() = toolLifecycleHookRegistrations.toList()
 
     internal fun appendMessageHandler(

@@ -2,6 +2,7 @@ package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.model.plugin.ErrorResult
 import com.astrbot.android.model.plugin.PluginExecutionContext
+import com.astrbot.android.model.plugin.PluginExecutionStage
 import com.astrbot.android.model.plugin.PluginExecutionResult
 import com.astrbot.android.model.plugin.PluginInstallState
 import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
@@ -25,6 +26,12 @@ data class PluginExecutionBatchResult(
     val outcomes: List<PluginExecutionOutcome>,
     val skipped: List<PluginDispatchSkip>,
     val merged: PluginExecutionMergeSnapshot = PluginExecutionMergeSnapshot(),
+)
+
+data class PluginLegacyBatchAttempt(
+    val accepted: Boolean,
+    val reason: String = "",
+    val batchResult: PluginExecutionBatchResult? = null,
 )
 
 class PluginExecutionEngine(
@@ -127,21 +134,77 @@ class PluginExecutionEngine(
         plugins: List<PluginRuntimePlugin>,
         contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
     ): PluginExecutionBatchResult {
-        val plan = dispatcher.dispatch(trigger = trigger, plugins = plugins)
+        return checkNotNull(
+            executeLegacyBatch(
+                trigger = trigger,
+                plugins = plugins,
+                contextFactory = contextFactory,
+            ).batchResult,
+        ) {
+            "Legacy execution engine rejected a valid legacy trigger unexpectedly."
+        }
+    }
+
+    fun executeLegacyBatch(
+        trigger: PluginTriggerSource?,
+        plugins: List<PluginRuntimePlugin>,
+        contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+        requestedStage: PluginExecutionStage? = null,
+    ): PluginLegacyBatchAttempt {
+        val guardrailReason = when {
+            requestedStage != null -> requestedStage.guardrailReasonWireValue()
+            trigger == null -> "missing_legacy_trigger_source"
+            else -> ""
+        }
+        if (guardrailReason.isNotEmpty()) {
+            logBus.publish(
+                PluginRuntimeLogRecord(
+                    occurredAtEpochMillis = clock(),
+                    pluginId = LEGACY_EXECUTION_ENGINE_PLUGIN_ID,
+                    trigger = trigger,
+                    category = PluginRuntimeLogCategory.Execution,
+                    level = PluginRuntimeLogLevel.Warning,
+                    code = "legacy_execution_guardrail",
+                    message = "Legacy execution engine only accepts legacy PluginTriggerSource batches.",
+                    succeeded = false,
+                    metadata = buildMap {
+                        put("reason", guardrailReason)
+                        requestedStage?.let { stage -> put("requestedStage", stage.guardrailStageWireValue()) }
+                    },
+                ),
+            )
+            return PluginLegacyBatchAttempt(
+                accepted = false,
+                reason = guardrailReason,
+            )
+        }
+
+        val acceptedTrigger = checkNotNull(trigger)
+        val plan = checkNotNull(
+            dispatcher.dispatchLegacy(
+                trigger = acceptedTrigger,
+                plugins = plugins,
+            ).plan,
+        ) {
+            "Legacy dispatcher rejected a valid legacy trigger unexpectedly."
+        }
         val outcomes = plan.executable.map { plugin ->
-            val batchContext = contextFactory(plugin).copy(trigger = trigger)
+            val batchContext = contextFactory(plugin).copy(trigger = acceptedTrigger)
             execute(
                 plugin = plugin,
                 context = batchContext,
             )
         }
-        return PluginExecutionBatchResult(
-            trigger = trigger,
-            outcomes = outcomes,
-            skipped = plan.skipped,
-            merged = resultMerger.merge(
-                trigger = trigger,
+        return PluginLegacyBatchAttempt(
+            accepted = true,
+            batchResult = PluginExecutionBatchResult(
+                trigger = acceptedTrigger,
                 outcomes = outcomes,
+                skipped = plan.skipped,
+                merged = resultMerger.mergeLegacy(
+                    trigger = acceptedTrigger,
+                    outcomes = outcomes,
+                ),
             ),
         )
     }
@@ -154,5 +217,9 @@ class PluginExecutionEngine(
             pluginId = plugin.pluginId,
             pluginVersion = plugin.pluginVersion,
         )
+    }
+
+    private companion object {
+        private const val LEGACY_EXECUTION_ENGINE_PLUGIN_ID = "__legacy_execution_engine__"
     }
 }

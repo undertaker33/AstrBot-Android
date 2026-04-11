@@ -25,6 +25,23 @@ data class PluginV2DispatchPlan(
     val observations: List<PluginV2DispatchObservation> = emptyList(),
 )
 
+data class PluginV2LlmHookCandidate(
+    val session: PluginV2RuntimeSession,
+    val descriptor: PluginV2CompiledLlmHookHandler,
+)
+
+data class PluginV2LlmHookResolution(
+    val stage: PluginV2InternalStage,
+    val candidates: List<PluginV2LlmHookCandidate>,
+    val observations: List<PluginV2DispatchObservation> = emptyList(),
+)
+
+data class PluginV2LlmStageDispatchResult(
+    val stage: PluginV2InternalStage,
+    val invokedHandlerIds: List<String>,
+    val observations: List<PluginV2DispatchObservation> = emptyList(),
+)
+
 data class PluginV2MessageDispatchResult(
     val propagationStopped: Boolean = false,
     val terminatedByCustomFilterFailure: Boolean = false,
@@ -129,10 +146,10 @@ class PluginV2DispatchEngine(
                         handlerId = descriptor.handlerId,
                         priority = descriptor.priority,
                         envelope = PluginV2DispatchEnvelope(
-                            stage = PluginV2DispatchStage.Skeleton,
+                            stage = stage.toDispatchStage(),
                             callbackToken = descriptor.callbackToken,
                             payloadRef = PluginV2DispatchPayloadRef(
-                                kind = PluginV2PayloadKind.OpaqueRef,
+                                kind = stage.toPayloadKind(),
                                 refId = "dispatch::$pluginId::$stage::${descriptor.handlerId}",
                                 attributes = mapOf(
                                     "pluginId" to pluginId,
@@ -156,6 +173,125 @@ class PluginV2DispatchEngine(
             stage = stage,
             envelopes = envelopes,
             observations = observations,
+        )
+    }
+
+    fun resolveLlmHookCandidates(
+        stage: PluginV2InternalStage,
+        snapshot: PluginV2ActiveRuntimeSnapshot = store.snapshot(),
+    ): PluginV2LlmHookResolution {
+        require(stage.isLlmStage()) {
+            "resolveLlmHookCandidates only supports LLM pipeline stages."
+        }
+
+        val observations = mutableListOf<PluginV2DispatchObservation>()
+        val candidates = mutableListOf<PluginV2LlmHookCandidate>()
+
+        snapshot.activeRuntimeEntriesByPluginId.keys
+            .sorted()
+            .forEach pluginLoop@{ pluginId ->
+                val session = snapshot.activeSessionsByPluginId[pluginId]
+                if (session == null) {
+                    observations += PluginV2DispatchObservation(
+                        pluginId = pluginId,
+                        stage = stage,
+                        kind = PluginV2DispatchObservationKind.Missing,
+                        reason = "missing_session",
+                    )
+                    return@pluginLoop
+                }
+                if (session.state != PluginV2RuntimeSessionState.Active) {
+                    observations += PluginV2DispatchObservation(
+                        pluginId = pluginId,
+                        stage = stage,
+                        kind = PluginV2DispatchObservationKind.Inactive,
+                        reason = "session_state_${session.state.name.lowercase()}",
+                    )
+                    return@pluginLoop
+                }
+                val compiledRegistry = snapshot.compiledRegistriesByPluginId[pluginId]
+                if (compiledRegistry == null) {
+                    observations += PluginV2DispatchObservation(
+                        pluginId = pluginId,
+                        stage = stage,
+                        kind = PluginV2DispatchObservationKind.Missing,
+                        reason = "missing_compiled_registry",
+                    )
+                    return@pluginLoop
+                }
+                val handlerIds = compiledRegistry.dispatchIndex.handlerIdsByStage[stage].orEmpty()
+                if (handlerIds.isEmpty()) {
+                    observations += PluginV2DispatchObservation(
+                        pluginId = pluginId,
+                        stage = stage,
+                        kind = PluginV2DispatchObservationKind.Skip,
+                        reason = "no_handlers_for_stage",
+                    )
+                    return@pluginLoop
+                }
+                handlerIds.forEach handlerLoop@{ handlerId ->
+                    val descriptor = compiledRegistry.handlerRegistry.findHandler(handlerId)
+                    if (descriptor !is PluginV2CompiledLlmHookHandler) {
+                        observations += PluginV2DispatchObservation(
+                            pluginId = pluginId,
+                            stage = stage,
+                            kind = PluginV2DispatchObservationKind.Missing,
+                            reason = "missing_llm_handler_descriptor",
+                            handlerId = handlerId,
+                        )
+                        return@handlerLoop
+                    }
+                    candidates += PluginV2LlmHookCandidate(
+                        session = session,
+                        descriptor = descriptor,
+                    )
+                }
+            }
+
+        return PluginV2LlmHookResolution(
+            stage = stage,
+            candidates = candidates.sortedWith(
+                compareByDescending<PluginV2LlmHookCandidate> { it.descriptor.priority }
+                    .thenBy { it.descriptor.handlerId },
+            ),
+            observations = observations,
+        )
+    }
+
+    suspend fun dispatchLlmStage(
+        stage: PluginV2InternalStage,
+        payload: PluginErrorEventPayload,
+        snapshot: PluginV2ActiveRuntimeSnapshot = store.snapshot(),
+        onHandlerCompleted: suspend (PluginV2LlmHookCandidate) -> Unit = {},
+    ): PluginV2LlmStageDispatchResult {
+        val resolution = resolveLlmHookCandidates(
+            stage = stage,
+            snapshot = snapshot,
+        )
+        val invokedHandlerIds = mutableListOf<String>()
+        resolution.candidates.forEach { candidate ->
+            invokedHandlerIds += candidate.descriptor.handlerId
+            invokeLlmHookCandidate(
+                candidate = candidate,
+                payload = payload,
+            )
+            onHandlerCompleted(candidate)
+        }
+        return PluginV2LlmStageDispatchResult(
+            stage = stage,
+            invokedHandlerIds = invokedHandlerIds.toList(),
+            observations = resolution.observations,
+        )
+    }
+
+    suspend fun invokeLlmHookCandidate(
+        candidate: PluginV2LlmHookCandidate,
+        payload: PluginErrorEventPayload,
+    ) {
+        invokeHandler(
+            session = candidate.session,
+            descriptor = candidate.descriptor,
+            event = payload,
         )
     }
 
@@ -528,6 +664,7 @@ private fun PluginV2HandlerRegistry.findHandler(handlerId: String): PluginV2Comp
         ?: commandHandlers.firstOrNull { it.handlerId == handlerId }
         ?: regexHandlers.firstOrNull { it.handlerId == handlerId }
         ?: lifecycleHandlers.firstOrNull { it.handlerId == handlerId }
+        ?: llmHookHandlers.firstOrNull { it.handlerId == handlerId }
 }
 
 private fun tokenizeArguments(
@@ -547,5 +684,43 @@ private fun commandStageWorkingText(
         trimmed.removePrefix("/")
     } else {
         workingText
+    }
+}
+
+private fun PluginV2InternalStage.isLlmStage(): Boolean {
+    return this == PluginV2InternalStage.LlmWaiting ||
+        this == PluginV2InternalStage.LlmRequest ||
+        this == PluginV2InternalStage.LlmResponse ||
+        this == PluginV2InternalStage.ResultDecorating ||
+        this == PluginV2InternalStage.AfterMessageSent
+}
+
+private fun PluginV2InternalStage.toDispatchStage(): PluginV2DispatchStage {
+    return when (this) {
+        PluginV2InternalStage.AdapterMessage -> PluginV2DispatchStage.AdapterMessage
+        PluginV2InternalStage.Command -> PluginV2DispatchStage.Command
+        PluginV2InternalStage.Regex -> PluginV2DispatchStage.Regex
+        PluginV2InternalStage.Lifecycle -> PluginV2DispatchStage.Lifecycle
+        PluginV2InternalStage.LlmWaiting -> PluginV2DispatchStage.LlmWaiting
+        PluginV2InternalStage.LlmRequest -> PluginV2DispatchStage.LlmRequest
+        PluginV2InternalStage.LlmResponse -> PluginV2DispatchStage.LlmResponse
+        PluginV2InternalStage.ResultDecorating -> PluginV2DispatchStage.ResultDecorating
+        PluginV2InternalStage.AfterMessageSent -> PluginV2DispatchStage.AfterMessageSent
+    }
+}
+
+private fun PluginV2InternalStage.toPayloadKind(): PluginV2PayloadKind {
+    return when (this) {
+        PluginV2InternalStage.AdapterMessage,
+        PluginV2InternalStage.Command,
+        PluginV2InternalStage.Regex,
+        PluginV2InternalStage.Lifecycle,
+        -> PluginV2PayloadKind.MessageEvent
+
+        PluginV2InternalStage.LlmWaiting -> PluginV2PayloadKind.MessageEvent
+        PluginV2InternalStage.LlmRequest -> PluginV2PayloadKind.LlmRequestPayload
+        PluginV2InternalStage.LlmResponse -> PluginV2PayloadKind.LlmResponsePayload
+        PluginV2InternalStage.ResultDecorating -> PluginV2PayloadKind.LlmResultPayload
+        PluginV2InternalStage.AfterMessageSent -> PluginV2PayloadKind.LlmAfterSentPayload
     }
 }
