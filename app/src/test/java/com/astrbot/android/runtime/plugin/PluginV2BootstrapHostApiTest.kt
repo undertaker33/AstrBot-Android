@@ -2,6 +2,7 @@ package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertNull
@@ -93,14 +94,16 @@ class PluginV2BootstrapHostApiTest {
             listOf("declaredFilters", "handler", "hook", "metadata", "priority", "registrationKey"),
             descriptorFieldNames(LlmHookRegistrationInput::class.java),
         )
-        assertEquals(
-            listOf("declaredFilters", "handler", "metadata", "registrationKey", "toolDescriptor"),
-            descriptorFieldNames(ToolRegistrationInput::class.java),
-        )
-        assertEquals(
-            listOf("declaredFilters", "handler", "hook", "metadata", "priority", "registrationKey"),
-            descriptorFieldNames(ToolLifecycleHookRegistrationInput::class.java),
-        )
+    }
+
+    @Test
+    fun phase4_bootstrap_host_api_does_not_expose_phase5_tool_registration_methods() {
+        val publicMethodNames = PluginV2BootstrapHostApi::class.java.methods
+            .map { method -> method.name }
+            .filterNot { methodName -> methodName.startsWith("wait") || methodName == "equals" || methodName == "hashCode" || methodName == "toString" || methodName == "getClass" || methodName == "notify" || methodName == "notifyAll" }
+
+        assertFalse(publicMethodNames.contains("registerTool"))
+        assertFalse(publicMethodNames.contains("registerToolLifecycleHook"))
     }
 
     @Test
@@ -134,26 +137,6 @@ class PluginV2BootstrapHostApiTest {
                     ),
                 )
             }.exceptionOrNull(),
-            runCatching {
-                hostApi.registerTool(
-                    ToolRegistrationInput(
-                        registrationKey = "tool.lookup",
-                        toolDescriptor = PluginV2ToolDescriptor(name = "lookup"),
-                        declaredFilters = forbiddenFilters,
-                        handler = PluginV2CallbackHandle {},
-                    ),
-                )
-            }.exceptionOrNull(),
-            runCatching {
-                hostApi.registerToolLifecycleHook(
-                    ToolLifecycleHookRegistrationInput(
-                        registrationKey = "tool.lookup.ready",
-                        hook = "before_invoke",
-                        declaredFilters = forbiddenFilters,
-                        handler = PluginV2CallbackHandle {},
-                    ),
-                )
-            }.exceptionOrNull(),
         )
 
         failures.forEach { failure ->
@@ -161,11 +144,9 @@ class PluginV2BootstrapHostApiTest {
             assertTrue(failure?.message?.contains("declaredFilters") == true)
         }
 
-        assertEquals(4, logBus.snapshot().size)
+        assertEquals(2, logBus.snapshot().size)
         assertEquals(
             listOf(
-                "bootstrap_registration_rejected",
-                "bootstrap_registration_rejected",
                 "bootstrap_registration_rejected",
                 "bootstrap_registration_rejected",
             ),
@@ -226,41 +207,6 @@ class PluginV2BootstrapHostApiTest {
         assertEquals("bootstrap ready", record.message)
         assertEquals(session.pluginId, record.pluginId)
         assertEquals("bootstrap", record.metadata["phase"])
-    }
-
-    @Test
-    fun registerTool_collects_session_owned_raw_registration() {
-        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1_111L })
-        val session = bootstrapRunningSession(sessionInstanceId = "session-tool")
-        val hostApi = PluginV2BootstrapHostApi(
-            session = session,
-            logBus = logBus,
-            clock = { 1_111L },
-        )
-
-        hostApi.registerTool(
-            ToolRegistrationInput(
-                registrationKey = "tool.lookup",
-                toolDescriptor = PluginV2ToolDescriptor(
-                    name = "lookup",
-                    description = "Lookup data",
-                ),
-                metadata = BootstrapRegistrationMetadata(
-                    values = linkedMapOf("source" to "bootstrap-tool"),
-                ),
-                handler = PluginV2CallbackHandle {},
-            ),
-        )
-
-        val rawRegistry = session.rawRegistry
-        assertNotNull(rawRegistry)
-        assertEquals(1, rawRegistry?.tools?.size)
-
-        val registration = rawRegistry!!.tools.single()
-        assertEquals(session.pluginId, registration.pluginId)
-        assertEquals("tool.lookup", registration.registrationKey)
-        assertEquals("bootstrap-tool", registration.metadata.values["source"])
-        assertEquals("lookup", registration.descriptor.toolDescriptor.name)
     }
 
     @Test

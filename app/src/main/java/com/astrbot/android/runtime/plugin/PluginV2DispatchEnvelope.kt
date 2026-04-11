@@ -1,11 +1,24 @@
 package com.astrbot.android.runtime.plugin
 
 enum class PluginV2DispatchStage {
-    Skeleton,
+    AdapterMessage,
+    Command,
+    Regex,
+    Lifecycle,
+    LlmWaiting,
+    LlmRequest,
+    LlmResponse,
+    ResultDecorating,
+    AfterMessageSent,
 }
 
 enum class PluginV2PayloadKind {
     OpaqueRef,
+    MessageEvent,
+    LlmRequestPayload,
+    LlmResponsePayload,
+    LlmResultPayload,
+    LlmAfterSentPayload,
 }
 
 data class PluginV2DispatchPayloadRef(

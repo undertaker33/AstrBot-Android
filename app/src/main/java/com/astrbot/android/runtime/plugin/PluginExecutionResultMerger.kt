@@ -4,6 +4,7 @@ import com.astrbot.android.model.plugin.CardResult
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.NoOp
+import com.astrbot.android.model.plugin.PluginExecutionStage
 import com.astrbot.android.model.plugin.PluginExecutionResult
 import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
@@ -33,6 +34,36 @@ class PluginExecutionResultMerger(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun merge(
+        trigger: PluginTriggerSource,
+        outcomes: List<PluginExecutionOutcome>,
+        requestedStage: PluginExecutionStage? = null,
+    ): PluginExecutionMergeSnapshot {
+        if (requestedStage != null) {
+            logBus.publish(
+                PluginRuntimeLogRecord(
+                    occurredAtEpochMillis = clock(),
+                    pluginId = LEGACY_RESULT_MERGER_PLUGIN_ID,
+                    trigger = trigger,
+                    category = PluginRuntimeLogCategory.ResultMerger,
+                    level = PluginRuntimeLogLevel.Warning,
+                    code = "legacy_result_merger_guardrail",
+                    message = "Legacy result merger no-oped because a phase4 LLM stage was routed into the legacy path.",
+                    succeeded = false,
+                    metadata = mapOf(
+                        "requestedStage" to requestedStage.guardrailStageWireValue(),
+                        "reason" to requestedStage.guardrailReasonWireValue(),
+                    ),
+                ),
+            )
+            return PluginExecutionMergeSnapshot()
+        }
+        return mergeLegacy(
+            trigger = trigger,
+            outcomes = outcomes,
+        )
+    }
+
+    fun mergeLegacy(
         trigger: PluginTriggerSource,
         outcomes: List<PluginExecutionOutcome>,
     ): PluginExecutionMergeSnapshot {
@@ -84,7 +115,15 @@ class PluginExecutionResultMerger(
             conflicts = conflicts,
         )
     }
+
+    private companion object {
+        private const val LEGACY_RESULT_MERGER_PLUGIN_ID = "__legacy_result_merger__"
+    }
 }
+
+internal fun PluginExecutionStage.guardrailStageWireValue(): String = wireValue
+
+internal fun PluginExecutionStage.guardrailReasonWireValue(): String = "phase4_stage_${guardrailStageWireValue()}"
 
 internal fun PluginExecutionResult.runtimeResultTypeWire(): String {
     return when (this) {

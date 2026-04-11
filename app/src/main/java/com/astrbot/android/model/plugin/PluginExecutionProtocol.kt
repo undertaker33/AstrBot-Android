@@ -2,6 +2,8 @@ package com.astrbot.android.model.plugin
 
 import com.astrbot.android.model.chat.MessageSessionRef
 
+typealias PluginExecutionStage = PluginV2LlmStage
+
 enum class PluginTriggerSource(
     val wireValue: String,
 ) {

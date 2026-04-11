@@ -95,38 +95,6 @@ class PluginV2BootstrapHostApi(
         }
     }
 
-    fun registerTool(
-        descriptor: ToolRegistrationInput,
-    ): PluginV2CallbackToken {
-        return register(
-            operation = "registerTool",
-            registrationType = "tool",
-            normalizeDescriptor = { validateTool(descriptor) },
-            extractHandler = { it.handler },
-        ) { rawRegistry, callbackToken, normalizedDescriptor ->
-            rawRegistry.appendTool(
-                callbackToken = callbackToken,
-                descriptor = normalizedDescriptor,
-            )
-        }
-    }
-
-    fun registerToolLifecycleHook(
-        descriptor: ToolLifecycleHookRegistrationInput,
-    ): PluginV2CallbackToken {
-        return register(
-            operation = "registerToolLifecycleHook",
-            registrationType = "tool_lifecycle_hook",
-            normalizeDescriptor = { validateToolLifecycleHook(descriptor) },
-            extractHandler = { it.handler },
-        ) { rawRegistry, callbackToken, normalizedDescriptor ->
-            rawRegistry.appendToolLifecycleHook(
-                callbackToken = callbackToken,
-                descriptor = normalizedDescriptor,
-            )
-        }
-    }
-
     fun log(
         level: PluginRuntimeLogLevel,
         message: String,
@@ -271,31 +239,6 @@ class PluginV2BootstrapHostApi(
         )
     }
 
-    private fun validateTool(
-        descriptor: ToolRegistrationInput,
-    ): ToolRegistrationInput {
-        rejectFiltersIfPresent(descriptor.declaredFilters)
-        return descriptor.copy(
-            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
-            toolDescriptor = normalizeToolDescriptor(descriptor.toolDescriptor),
-            metadata = normalizeMetadata(descriptor.metadata),
-        )
-    }
-
-    private fun validateToolLifecycleHook(
-        descriptor: ToolLifecycleHookRegistrationInput,
-    ): ToolLifecycleHookRegistrationInput {
-        rejectFiltersIfPresent(descriptor.declaredFilters)
-        return descriptor.copy(
-            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
-            hook = requireTrimmedValue(
-                value = descriptor.hook,
-                fieldName = "hook",
-            ),
-            metadata = normalizeMetadata(descriptor.metadata),
-        )
-    }
-
     private fun normalizeBase(
         descriptor: BaseHandlerRegistrationInput,
     ): BaseHandlerRegistrationInput {
@@ -303,18 +246,6 @@ class PluginV2BootstrapHostApi(
             registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
             declaredFilters = normalizeDeclaredFilters(descriptor.declaredFilters),
             metadata = normalizeMetadata(descriptor.metadata),
-        )
-    }
-
-    private fun normalizeToolDescriptor(
-        descriptor: PluginV2ToolDescriptor,
-    ): PluginV2ToolDescriptor {
-        return descriptor.copy(
-            name = requireTrimmedValue(
-                value = descriptor.name,
-                fieldName = "toolDescriptor.name",
-            ),
-            description = descriptor.description.trim(),
         )
     }
 

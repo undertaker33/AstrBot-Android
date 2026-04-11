@@ -26,6 +26,7 @@ import com.astrbot.android.runtime.RuntimeSecretRepository
 import com.astrbot.android.runtime.TencentSilkEncoder
 import com.astrbot.android.runtime.plugin.PluginRuntimeLogCleanupRepository
 import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
+import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.PluginV2LifecycleManager
 import com.astrbot.android.runtime.plugin.PluginV2LifecycleManagerProvider
 import com.astrbot.android.runtime.plugin.PluginV2RuntimeLoaderProvider
@@ -96,6 +97,7 @@ class AstrBotAppContainer(
         RuntimeSecretRepository.initialize(application)
         ChatCompletionService.initialize(application)
         OneBotBridgeServer.initialize(application)
+        OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(DefaultAppChatPluginRuntime)
         TencentSilkEncoder.initialize(application)
         appScope.launch(Dispatchers.IO) {
             AppDownloadManager.initialize(application)

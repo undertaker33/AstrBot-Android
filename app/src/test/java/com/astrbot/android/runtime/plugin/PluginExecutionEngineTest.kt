@@ -1,7 +1,10 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.PluginExecutionStage
 import com.astrbot.android.model.plugin.PluginSettingsSchema
+import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
+import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.SettingsUiRequest
 import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.plugin.PluginTriggerSource
@@ -188,5 +191,68 @@ class PluginExecutionEngineTest {
         assertTrue(beforeSendSnapshot.isSuspended)
         assertEquals(3, beforeSendSnapshot.consecutiveFailureCount)
         assertEquals(0, onCommandSnapshot.consecutiveFailureCount)
+    }
+
+    @Test
+    fun engine_execute_legacy_batch_noops_when_phase4_llm_stage_is_routed_back_into_legacy_path() {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 12_000L })
+        val failureGuard = PluginFailureGuard(clock = { 12_000L })
+        val engine = PluginExecutionEngine(
+            dispatcher = PluginRuntimeDispatcher(
+                failureGuard = failureGuard,
+                clock = { 12_000L },
+                logBus = logBus,
+            ),
+            failureGuard = failureGuard,
+            clock = { 12_000L },
+            logBus = logBus,
+        )
+
+        val attempt = engine.executeLegacyBatch(
+            trigger = PluginTriggerSource.BeforeSendMessage,
+            plugins = listOf(runtimePlugin("alpha") { TextResult("alpha") }),
+            contextFactory = ::executionContextFor,
+            requestedStage = PluginExecutionStage.AfterMessageSent,
+        )
+
+        assertFalse(attempt.accepted)
+        assertEquals("phase4_stage_after_message_sent", attempt.reason)
+        assertTrue(attempt.batchResult == null)
+        val guardrail = logBus.snapshot(limit = 10)
+            .first { it.category == PluginRuntimeLogCategory.Execution }
+        assertEquals(PluginRuntimeLogLevel.Warning, guardrail.level)
+        assertEquals("legacy_execution_guardrail", guardrail.code)
+        assertEquals("after_message_sent", guardrail.metadata["requestedStage"])
+        assertEquals("phase4_stage_after_message_sent", guardrail.metadata["reason"])
+    }
+
+    @Test
+    fun engine_execute_legacy_batch_noops_when_legacy_trigger_source_is_missing() {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 13_000L })
+        val failureGuard = PluginFailureGuard(clock = { 13_000L })
+        val engine = PluginExecutionEngine(
+            dispatcher = PluginRuntimeDispatcher(
+                failureGuard = failureGuard,
+                clock = { 13_000L },
+                logBus = logBus,
+            ),
+            failureGuard = failureGuard,
+            clock = { 13_000L },
+            logBus = logBus,
+        )
+
+        val attempt = engine.executeLegacyBatch(
+            trigger = null,
+            plugins = listOf(runtimePlugin("alpha") { TextResult("alpha") }),
+            contextFactory = ::executionContextFor,
+        )
+
+        assertFalse(attempt.accepted)
+        assertEquals("missing_legacy_trigger_source", attempt.reason)
+        assertTrue(attempt.batchResult == null)
+        val guardrail = logBus.snapshot(limit = 10)
+            .first { it.category == PluginRuntimeLogCategory.Execution }
+        assertEquals("legacy_execution_guardrail", guardrail.code)
+        assertEquals("missing_legacy_trigger_source", guardrail.metadata["reason"])
     }
 }

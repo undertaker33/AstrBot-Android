@@ -589,6 +589,163 @@ class PluginV2DispatchEngineTest {
         assertEquals(1, maxConcurrentCallbacks.get())
     }
 
+    @Test
+    fun dispatch_stage_and_pipeline_entrypoint_resolve_llm_hook_candidates() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 500L })
+        val requestVisibleToHook = CopyOnWriteArrayList<String>()
+        val fixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.llm.request",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerLlmHook(
+                LlmHookRegistrationInput(
+                    registrationKey = "llm.request.primary",
+                    hook = "on_llm_request",
+                    priority = 100,
+                    handler = EventAwareTestHandle { payload ->
+                        val requestPayload = payload as PluginV2LlmRequestPayload
+                        requestVisibleToHook += requestPayload.request.selectedModelId
+                        requestPayload.request.selectedModelId = "model-b-2"
+                    },
+                ),
+            )
+        }
+        val engine = PluginV2DispatchEngine(
+            logBus = logBus,
+            clock = { 500L },
+        )
+        val request = PluginProviderRequest(
+            requestId = "req-dispatch-llm",
+            availableProviderIds = listOf("provider-a", "provider-b"),
+            availableModelIdsByProvider = mapOf(
+                "provider-a" to listOf("model-a-1"),
+                "provider-b" to listOf("model-b-1", "model-b-2"),
+            ),
+            conversationId = "conversation-dispatch-llm",
+            messageIds = listOf("msg-dispatch-llm"),
+            llmInputSnapshot = "llm-input",
+            selectedProviderId = "provider-b",
+            selectedModelId = "model-b-1",
+            messages = listOf(
+                PluginProviderMessageDto(
+                    role = PluginProviderMessageRole.USER,
+                    parts = listOf(PluginProviderMessagePartDto.TextPart("hello")),
+                ),
+            ),
+            streamingEnabled = false,
+        )
+        val event = sampleMessageEvent(rawText = "dispatch llm")
+        val payload = PluginV2LlmRequestPayload(
+            event = event,
+            request = request,
+        )
+
+        val planning = engine.dispatch(
+            stage = PluginV2InternalStage.LlmRequest,
+            snapshot = snapshotOf(fixture),
+        )
+        val dispatchResult = engine.dispatchLlmStage(
+            stage = PluginV2InternalStage.LlmRequest,
+            payload = payload,
+            snapshot = snapshotOf(fixture),
+        )
+
+        assertEquals(PluginV2InternalStage.LlmRequest, planning.stage)
+        assertEquals(1, planning.envelopes.size)
+        assertEquals(PluginV2DispatchStage.LlmRequest, planning.envelopes.single().stage)
+        assertEquals(listOf("model-b-1"), requestVisibleToHook)
+        assertEquals("model-b-2", payload.request.selectedModelId)
+        assertEquals(
+            listOf("hdl::com.example.v2.dispatch.llm.request::llm_hook::llm.request.primary"),
+            dispatchResult.invokedHandlerIds,
+        )
+    }
+
+    @Test
+    fun llm_stage_errors_route_to_on_plugin_error_through_lifecycle_manager() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 550L })
+        val errorEvents = CopyOnWriteArrayList<PluginErrorHookArgs>()
+        val throwingFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.llm.throwing",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerLlmHook(
+                LlmHookRegistrationInput(
+                    registrationKey = "llm.request.throwing",
+                    hook = "on_llm_request",
+                    priority = 100,
+                    handler = EventAwareTestHandle {
+                        error("boom:llm-request")
+                    },
+                ),
+            )
+        }
+        val errorHookFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.llm.error-hook",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerLifecycleHandler(
+                LifecycleHandlerRegistrationInput(
+                    registrationKey = "lifecycle.error",
+                    hook = PluginLifecycleHookSurface.OnPluginError.wireValue,
+                    handler = object : PluginV2EventAwareCallbackHandle {
+                        override fun invoke() = Unit
+
+                        override suspend fun handleEvent(event: PluginErrorEventPayload) {
+                            errorEvents += event as PluginErrorHookArgs
+                        }
+                    },
+                ),
+            )
+        }
+        val store = PluginV2ActiveRuntimeStore(
+            logBus = logBus,
+            clock = { 550L },
+        )
+        store.commitLoadedRuntime(throwingFixture.entry)
+        store.commitLoadedRuntime(errorHookFixture.entry)
+        val engine = PluginV2DispatchEngine(
+            store = store,
+            logBus = logBus,
+            clock = { 550L },
+        )
+        val payload = PluginV2LlmRequestPayload(
+            event = sampleMessageEvent(rawText = "dispatch error"),
+            request = PluginProviderRequest(
+                requestId = "req-dispatch-error",
+                availableProviderIds = listOf("provider-a"),
+                availableModelIdsByProvider = mapOf(
+                    "provider-a" to listOf("model-a-1"),
+                ),
+                conversationId = "conversation-error",
+                messageIds = listOf("msg-error"),
+                llmInputSnapshot = "llm-input",
+                selectedProviderId = "provider-a",
+                selectedModelId = "model-a-1",
+                messages = listOf(
+                    PluginProviderMessageDto(
+                        role = PluginProviderMessageRole.USER,
+                        parts = listOf(PluginProviderMessagePartDto.TextPart("hello")),
+                    ),
+                ),
+                streamingEnabled = false,
+            ),
+        )
+
+        val result = engine.dispatchLlmStage(
+            stage = PluginV2InternalStage.LlmRequest,
+            payload = payload,
+        )
+
+        assertEquals(
+            listOf("hdl::com.example.v2.dispatch.llm.throwing::llm_hook::llm.request.throwing"),
+            result.invokedHandlerIds,
+        )
+        assertEquals(1, errorEvents.size)
+        assertEquals("com.example.v2.dispatch.llm.throwing", errorEvents.single().plugin_name)
+        assertEquals("boom:llm-request", errorEvents.single().error.message)
+    }
+
     private fun pluginFixture(
         pluginId: String,
         logBus: PluginRuntimeLogBus,

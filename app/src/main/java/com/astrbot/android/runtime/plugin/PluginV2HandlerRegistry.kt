@@ -7,6 +7,45 @@ enum class PluginV2InternalStage {
     Command,
     Regex,
     Lifecycle,
+    LlmWaiting,
+    LlmRequest,
+    LlmResponse,
+    ResultDecorating,
+    AfterMessageSent,
+}
+
+enum class PluginV2LlmHookSurface(
+    val wireValue: String,
+    val stage: PluginV2InternalStage,
+) {
+    OnWaitingLlmRequest(
+        wireValue = "on_waiting_llm_request",
+        stage = PluginV2InternalStage.LlmWaiting,
+    ),
+    OnLlmRequest(
+        wireValue = "on_llm_request",
+        stage = PluginV2InternalStage.LlmRequest,
+    ),
+    OnLlmResponse(
+        wireValue = "on_llm_response",
+        stage = PluginV2InternalStage.LlmResponse,
+    ),
+    OnDecoratingResult(
+        wireValue = "on_decorating_result",
+        stage = PluginV2InternalStage.ResultDecorating,
+    ),
+    AfterMessageSent(
+        wireValue = "after_message_sent",
+        stage = PluginV2InternalStage.AfterMessageSent,
+    );
+
+    companion object {
+        fun fromWireValue(value: String): PluginV2LlmHookSurface? {
+            return entries.firstOrNull { candidate ->
+                candidate.wireValue.equals(value.trim(), ignoreCase = true)
+            }
+        }
+    }
 }
 
 data class PluginV2CompiledFilterAttachment(
@@ -97,6 +136,21 @@ data class PluginV2CompiledLifecycleHandler(
     val hook: String,
 ) : PluginV2CompiledHandlerDescriptor
 
+data class PluginV2CompiledLlmHookHandler(
+    override val pluginId: String,
+    override val registrationKind: String,
+    override val registrationKey: String,
+    override val normalizedRegistrationKey: String,
+    override val handlerId: String,
+    override val callbackToken: PluginV2CallbackToken,
+    override val priority: Int,
+    override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val metadata: BootstrapRegistrationMetadata,
+    override val sourceOrder: Int,
+    val hook: String,
+    val surface: PluginV2LlmHookSurface,
+) : PluginV2CompiledHandlerDescriptor
+
 data class PluginV2HandlerRegistry(
     val messageHandlers: List<PluginV2CompiledMessageHandler> = emptyList(),
     val commandHandlers: List<PluginV2CompiledCommandHandler> = emptyList(),
@@ -104,12 +158,14 @@ data class PluginV2HandlerRegistry(
     val commandAliasIndex: Map<String, String> = emptyMap(),
     val regexHandlers: List<PluginV2CompiledRegexHandler> = emptyList(),
     val lifecycleHandlers: List<PluginV2CompiledLifecycleHandler> = emptyList(),
+    val llmHookHandlers: List<PluginV2CompiledLlmHookHandler> = emptyList(),
 ) {
     val totalHandlerCount: Int
         get() = messageHandlers.size +
             commandHandlers.size +
             regexHandlers.size +
-            lifecycleHandlers.size
+            lifecycleHandlers.size +
+            llmHookHandlers.size
 }
 
 data class PluginV2StageIndex(
@@ -137,6 +193,7 @@ private fun PluginV2HandlerRegistry.frozenCopy(): PluginV2HandlerRegistry {
         commandAliasIndex = LinkedHashMap(commandAliasIndex).toFrozenMap(),
         regexHandlers = regexHandlers.map(PluginV2CompiledRegexHandler::frozenCopy).toFrozenList(),
         lifecycleHandlers = lifecycleHandlers.map(PluginV2CompiledLifecycleHandler::frozenCopy).toFrozenList(),
+        llmHookHandlers = llmHookHandlers.map(PluginV2CompiledLlmHookHandler::frozenCopy).toFrozenList(),
     )
 }
 
@@ -186,6 +243,13 @@ private fun PluginV2CompiledRegexHandler.frozenCopy(): PluginV2CompiledRegexHand
 }
 
 private fun PluginV2CompiledLifecycleHandler.frozenCopy(): PluginV2CompiledLifecycleHandler {
+    return copy(
+        filterAttachments = filterAttachments.frozenFilterAttachments(),
+        metadata = metadata.frozenCopy(),
+    )
+}
+
+private fun PluginV2CompiledLlmHookHandler.frozenCopy(): PluginV2CompiledLlmHookHandler {
     return copy(
         filterAttachments = filterAttachments.frozenFilterAttachments(),
         metadata = metadata.frozenCopy(),
