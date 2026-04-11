@@ -39,15 +39,43 @@ import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.runtime.plugin.InMemoryPluginFailureStateStore
+import com.astrbot.android.runtime.plugin.InMemoryPluginRuntimeLogBus
+import com.astrbot.android.runtime.plugin.BaseHandlerRegistrationInput
+import com.astrbot.android.runtime.plugin.BootstrapFilterDescriptor
+import com.astrbot.android.runtime.plugin.CommandHandlerRegistrationInput
+import com.astrbot.android.runtime.plugin.DiagnosticSeverity
 import com.astrbot.android.runtime.plugin.PluginExecutionBatchResult
 import com.astrbot.android.runtime.plugin.PluginExecutionEngine
 import com.astrbot.android.runtime.plugin.PluginDispatchSkip
 import com.astrbot.android.runtime.plugin.PluginDispatchSkipReason
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
+import com.astrbot.android.runtime.plugin.PluginMessageEvent
+import com.astrbot.android.runtime.plugin.PluginCommandEvent
 import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimeHandler
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeEntry
+import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStore
+import com.astrbot.android.runtime.plugin.PluginV2BootstrapHostApi
+import com.astrbot.android.runtime.plugin.PluginV2BootstrapSummary
+import com.astrbot.android.runtime.plugin.PluginV2CallbackHandle
+import com.astrbot.android.runtime.plugin.PluginV2CompiledRegistrySnapshot
+import com.astrbot.android.runtime.plugin.PluginV2CustomFilterAwareCallbackHandle
+import com.astrbot.android.runtime.plugin.PluginV2CustomFilterRequest
+import com.astrbot.android.runtime.plugin.PluginV2DispatchEngine
+import com.astrbot.android.runtime.plugin.PluginV2DispatchEngineProvider
+import com.astrbot.android.runtime.plugin.PluginV2EventAwareCallbackHandle
+import com.astrbot.android.runtime.plugin.PluginV2RegistryCompiler
+import com.astrbot.android.runtime.plugin.PluginV2RuntimeSession
+import com.astrbot.android.runtime.plugin.PluginV2RuntimeSessionState
+import com.astrbot.android.runtime.plugin.PluginErrorEventPayload
+import com.astrbot.android.runtime.plugin.MessageHandlerRegistrationInput
+import com.astrbot.android.runtime.plugin.samplePluginV2InstallRecord
 import java.nio.file.Files
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,6 +99,7 @@ class ChatViewModelTest {
     @org.junit.After
     fun tearDown() {
         PluginRuntimeRegistry.reset()
+        PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
     }
 
     @Test
@@ -178,6 +207,154 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun send_message_v2_before_send_stop_uses_real_message_event_without_legacy_context_factory() = runTest(dispatcher) {
+        val v2Events = CopyOnWriteArrayList<PluginMessageEvent>()
+        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+            appChatV2Engine(
+                onMessage = { event ->
+                    v2Events += event
+                    event.stopPropagation()
+                },
+            ),
+        )
+        val legacyExecuteCalls = AtomicInteger(0)
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                legacyExecuteCalls.incrementAndGet()
+                error("legacy runtime must not run after v2 stop")
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello v2 stop")
+        advanceUntilIdle()
+
+        assertEquals(1, v2Events.size)
+        assertEquals("hello v2 stop", v2Events.single().rawText)
+        assertEquals("hello v2 stop", v2Events.single().workingText)
+        assertEquals("app_chat", v2Events.single().platformAdapterType)
+        assertEquals("chat-main", v2Events.single().conversationId)
+        assertEquals("app-user", v2Events.single().senderId)
+        assertEquals("app_chat", v2Events.single().extras["source"])
+        assertEquals(0, legacyExecuteCalls.get())
+        assertEquals(0, deps.sentChatRequests)
+    }
+
+    @Test
+    fun send_message_v2_before_send_allows_legacy_fallback_when_not_terminated() = runTest(dispatcher) {
+        val v2Events = CopyOnWriteArrayList<PluginMessageEvent>()
+        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+            appChatV2Engine(
+                onMessage = { event ->
+                    v2Events += event
+                },
+            ),
+        )
+        val legacyContextFactories = AtomicInteger(0)
+        val legacyTriggers = CopyOnWriteArrayList<PluginTriggerSource>()
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                legacyTriggers += trigger
+                val plugin = runtimePlugin(
+                    pluginId = "legacy-before",
+                    supportedTriggers = setOf(trigger),
+                ) {
+                    NoOp("legacy")
+                }
+                val context = contextFactory(plugin)
+                legacyContextFactories.incrementAndGet()
+                if (trigger == PluginTriggerSource.BeforeSendMessage) {
+                    assertEquals("hello fallback", context.message.contentPreview)
+                }
+                return PluginExecutionBatchResult(
+                    trigger = trigger,
+                    outcomes = emptyList(),
+                    skipped = emptyList(),
+                )
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello fallback")
+        advanceUntilIdle()
+
+        assertEquals(listOf("hello fallback"), v2Events.map { it.rawText })
+        assertTrue(legacyTriggers.contains(PluginTriggerSource.BeforeSendMessage))
+        assertTrue(legacyContextFactories.get() >= 1)
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("model reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_v2_before_send_custom_filter_failure_appends_user_visible_message_and_skips_model() = runTest(dispatcher) {
+        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+            appChatV2Engine(
+                customFilterFailure = true,
+            ),
+        )
+        val legacyExecuteCalls = AtomicInteger(0)
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                legacyExecuteCalls.incrementAndGet()
+                error("legacy runtime must not run after v2 custom filter failure")
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello filter failure")
+        advanceUntilIdle()
+
+        assertEquals(0, legacyExecuteCalls.get())
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals(
+            "Plugin filter failed. Please try again later.",
+            deps.latestAssistantMessage()?.content,
+        )
+    }
+
+    @Test
     fun send_message_triggers_after_model_response_plugin_after_streaming_and_tts_updates() = runTest(dispatcher) {
         val deps = FakeChatDependencies(
             sessions = listOf(defaultSession()),
@@ -270,6 +447,74 @@ class ChatViewModelTest {
         assertTrue(runtime.batches.isEmpty())
         assertEquals(0, deps.sentChatRequests)
         assertEquals(1, deps.appendedMessages.count { it.role == "assistant" })
+    }
+
+    @Test
+    fun send_message_unsupported_slash_command_invokes_v2_command_handler_once_and_skips_before_send_reentry() = runTest(dispatcher) {
+        val v2CommandEvents = CopyOnWriteArrayList<PluginCommandEvent>()
+        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+            appChatV2Engine(
+                onCommand = { event ->
+                    v2CommandEvents += event
+                },
+            ),
+        )
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "command-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.OnCommand, PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    NoOp("legacy")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/unsupported app chat")
+        advanceUntilIdle()
+
+        assertEquals(listOf(PluginTriggerSource.OnCommand), runtime.batches.map { it.trigger })
+        assertEquals(1, v2CommandEvents.size)
+        assertEquals("/unsupported app chat", v2CommandEvents.single().rawText)
+        assertEquals(0, deps.sentChatRequests)
+    }
+
+    @Test
+    fun send_message_unsupported_slash_command_falls_back_to_model_when_no_plugin_handles_it() = runTest(dispatcher) {
+        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+            appChatV2Engine(),
+        )
+        val runtime = RecordingAppChatPluginRuntime(plugins = emptyList())
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/unsupported app chat")
+        advanceUntilIdle()
+
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("model reply", deps.latestAssistantMessage()?.content)
     }
 
     @Test
@@ -387,6 +632,75 @@ class ChatViewModelTest {
 
         assertEquals(0, deps.sentChatRequests)
         assertEquals("插件命令执行失败：runtime exploded", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_rethrows_cancellation_from_model_dispatch_without_turning_it_into_failure() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        deps.sendConfiguredChatFailure = CancellationException("cancelled")
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        runCatching {
+            viewModel.sendMessage("please cancel")
+            advanceUntilIdle()
+        }
+
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("", viewModel.uiState.value.error)
+        assertEquals("", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_rethrows_cancellation_from_plugin_command_runtime_without_turning_it_into_failure() = runTest(dispatcher) {
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                throw CancellationException("cancelled")
+            }
+        }
+        val v2LogBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+            PluginV2DispatchEngine(
+                store = PluginV2ActiveRuntimeStore(
+                    logBus = v2LogBus,
+                    clock = { 1L },
+                ),
+                logBus = v2LogBus,
+                clock = { 1L },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        runCatching {
+            viewModel.sendMessage("/unsupported app chat")
+            advanceUntilIdle()
+        }
+
+        assertEquals(0, deps.sentChatRequests)
+        assertTrue(deps.appendedMessages.isEmpty())
+        assertEquals("", viewModel.uiState.value.error)
     }
 
     @Test
@@ -602,6 +916,7 @@ class ChatViewModelTest {
         var chatResponse: String = "model reply"
         var streamingResponse: String = "streamed reply"
         var streamingDeltas: List<String> = listOf("streamed ", "reply")
+        var sendConfiguredChatFailure: Throwable? = null
 
         override fun session(sessionId: String): ConversationSession {
             return sessions.value.first { it.id == sessionId }
@@ -734,6 +1049,7 @@ class ChatViewModelTest {
         ): String {
             sentChatRequests += 1
             signalLog += "model:sync"
+            sendConfiguredChatFailure?.let { throw it }
             return chatResponse
         }
 
@@ -816,6 +1132,126 @@ class ChatViewModelTest {
             return delegate.execute(trigger, contextFactory).also { batches += it }
         }
     }
+
+    private fun appChatV2Engine(
+        onMessage: suspend (PluginMessageEvent) -> Unit = {},
+        onCommand: suspend (PluginCommandEvent) -> Unit = {},
+        customFilterFailure: Boolean = false,
+    ): PluginV2DispatchEngine {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        val store = PluginV2ActiveRuntimeStore(
+            logBus = logBus,
+            clock = { 1L },
+        )
+        val fixture = appChatV2RuntimeFixture(
+            pluginId = "com.example.chat.v2.ingress",
+            logBus = logBus,
+            customFilterFailure = customFilterFailure,
+            onMessage = onMessage,
+            onCommand = onCommand,
+        )
+        runBlocking {
+            store.commitLoadedRuntime(fixture.entry)
+        }
+        return PluginV2DispatchEngine(
+            store = store,
+            logBus = logBus,
+            clock = { 1L },
+        )
+    }
+
+    private fun appChatV2RuntimeFixture(
+        pluginId: String,
+        logBus: InMemoryPluginRuntimeLogBus,
+        customFilterFailure: Boolean,
+        onMessage: suspend (PluginMessageEvent) -> Unit,
+        onCommand: suspend (PluginCommandEvent) -> Unit,
+    ): AppChatV2RuntimeFixture {
+        val session = PluginV2RuntimeSession(
+            installRecord = samplePluginV2InstallRecord(pluginId = pluginId),
+            sessionInstanceId = "session-$pluginId",
+        )
+        session.transitionTo(PluginV2RuntimeSessionState.Loading)
+        session.transitionTo(PluginV2RuntimeSessionState.BootstrapRunning)
+        val hostApi = PluginV2BootstrapHostApi(
+            session = session,
+            logBus = logBus,
+            clock = { 1L },
+        )
+        hostApi.registerMessageHandler(
+            MessageHandlerRegistrationInput(
+                base = BaseHandlerRegistrationInput(
+                    registrationKey = "message.ingress",
+                    declaredFilters = if (customFilterFailure) {
+                        listOf(BootstrapFilterDescriptor.message("custom_filter:fail"))
+                    } else {
+                        emptyList()
+                    },
+                ),
+                handler = if (customFilterFailure) {
+                    object : PluginV2EventAwareCallbackHandle, PluginV2CustomFilterAwareCallbackHandle {
+                        override fun invoke() = Unit
+
+                        override suspend fun handleEvent(event: PluginErrorEventPayload) = Unit
+
+                        override suspend fun evaluateCustomFilter(request: PluginV2CustomFilterRequest): Boolean {
+                            error("boom:filter")
+                        }
+                    }
+                } else {
+                    object : PluginV2EventAwareCallbackHandle {
+                        override fun invoke() = Unit
+
+                        override suspend fun handleEvent(event: PluginErrorEventPayload) {
+                            onMessage(event as PluginMessageEvent)
+                        }
+                    }
+                },
+            ),
+        )
+        hostApi.registerCommandHandler(
+            CommandHandlerRegistrationInput(
+                base = BaseHandlerRegistrationInput(
+                    registrationKey = "command.ingress",
+                ),
+                command = "unsupported",
+                handler = object : PluginV2EventAwareCallbackHandle {
+                    override fun invoke() = Unit
+
+                    override suspend fun handleEvent(event: PluginErrorEventPayload) {
+                        onCommand(event as PluginCommandEvent)
+                    }
+                },
+            ),
+        )
+        val compileResult = PluginV2RegistryCompiler(
+            logBus = logBus,
+            clock = { 1L },
+        ).compile(requireNotNull(session.rawRegistry))
+        val compiledRegistry = requireNotNull(compileResult.compiledRegistry)
+        session.attachCompiledRegistry(compiledRegistry)
+        session.transitionTo(PluginV2RuntimeSessionState.Active)
+        return AppChatV2RuntimeFixture(
+            entry = PluginV2ActiveRuntimeEntry(
+                session = session,
+                compiledRegistry = compiledRegistry,
+                lastBootstrapSummary = PluginV2BootstrapSummary(
+                    pluginId = pluginId,
+                    sessionInstanceId = session.sessionInstanceId,
+                    compiledAtEpochMillis = 1L,
+                    handlerCount = compiledRegistry.handlerRegistry.totalHandlerCount,
+                    warningCount = compileResult.diagnostics.count { it.severity == DiagnosticSeverity.Warning },
+                    errorCount = compileResult.diagnostics.count { it.severity == DiagnosticSeverity.Error },
+                ),
+                diagnostics = compileResult.diagnostics,
+                callbackTokens = session.snapshotCallbackTokens(),
+            ),
+        )
+    }
+
+    private data class AppChatV2RuntimeFixture(
+        val entry: PluginV2ActiveRuntimeEntry,
+    )
 
     private fun runtimePlugin(
         pluginId: String,

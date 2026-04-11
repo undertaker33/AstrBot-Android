@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.plugin
 
+import com.astrbot.android.di.syncPluginRuntimeRecordsAndSignalReady
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import java.io.File
@@ -10,6 +11,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -114,37 +116,78 @@ class PluginV2RuntimeLoaderTest {
     }
 
     @Test
-    fun runtime_loader_publishes_task5_lifecycle_codes() = runTest {
+    fun runtime_loader_publishes_task4_lifecycle_codes_and_broadcasts_loaded_unloaded_hooks() = runTest {
         val rootDir = createTempDir("plugin-v2-loader-logs")
         createBootstrapFile(rootDir)
-        val record = samplePluginV2InstallRecord(
-            pluginId = "com.astrbot.samples.loader_logs",
+        val calls = mutableListOf<String>()
+        val recordAlpha = samplePluginV2InstallRecord(
+            pluginId = "com.astrbot.samples.loader_logs_alpha",
         ).withBootstrapRoot(rootDir)
-        val logBus = InMemoryPluginRuntimeLogBus(capacity = 32)
-
+        val recordBeta = samplePluginV2InstallRecord(
+            pluginId = "com.astrbot.samples.loader_logs_beta",
+        ).withBootstrapRoot(rootDir)
+        val logBus = InMemoryPluginRuntimeLogBus(capacity = 64)
+        val store = PluginV2ActiveRuntimeStore()
         val loader = PluginV2RuntimeLoader(
             sessionFactory = PluginV2RuntimeSessionFactory(
                 scriptExecutor = RecordingPluginV2RuntimeLoaderScriptExecutor(
                     bootstrapSessions = listOf(
-                        BootstrappingSession(registrations = 1),
-                        BootstrappingSession(registrations = 1),
+                        BootstrappingSession(
+                            lifecycleRegistrations = listOf(
+                                lifecycleRegistration(
+                                    hook = PluginLifecycleHookSurface.OnPluginLoaded,
+                                    registrationKey = "loaded.alpha",
+                                    handle = PluginV2CallbackHandle { calls += "alpha-loaded" },
+                                ),
+                                lifecycleRegistration(
+                                    hook = PluginLifecycleHookSurface.OnPluginUnloaded,
+                                    registrationKey = "unloaded.alpha",
+                                    handle = PluginV2CallbackHandle { calls += "alpha-unloaded" },
+                                ),
+                            ),
+                        ),
+                        BootstrappingSession(
+                            lifecycleRegistrations = listOf(
+                                lifecycleRegistration(
+                                    hook = PluginLifecycleHookSurface.OnPluginLoaded,
+                                    registrationKey = "loaded.beta",
+                                    handle = PluginV2CallbackHandle { calls += "beta-loaded" },
+                                ),
+                                lifecycleRegistration(
+                                    hook = PluginLifecycleHookSurface.OnPluginUnloaded,
+                                    registrationKey = "unloaded.beta",
+                                    handle = PluginV2CallbackHandle { calls += "beta-unloaded" },
+                                ),
+                            ),
+                        ),
                     ),
                 ),
             ),
-            store = PluginV2ActiveRuntimeStore(),
+            store = store,
             compiler = PluginV2RegistryCompiler(),
             logBus = logBus,
+            lifecycleManager = PluginV2LifecycleManager(store = store, logBus = logBus, clock = { 1L }),
+            clock = { 1L },
         )
 
-        loader.load(record)
-        loader.reload(record.pluginId)
-        loader.unload(record.pluginId)
+        loader.sync(listOf(recordAlpha, recordBeta))
+        loader.unload(recordAlpha.pluginId)
 
-        val codes = logBus.snapshot(pluginId = record.pluginId).map { it.code }
+        assertEquals(
+            listOf(
+                "alpha-loaded",
+                "alpha-loaded",
+                "beta-loaded",
+                "beta-unloaded",
+            ),
+            calls,
+        )
+
+        val codes = logBus.snapshot().map { it.code }
+        assertTrue(codes.contains("lifecycle_broadcast_started"))
+        assertTrue(codes.contains("lifecycle_broadcast_completed"))
         assertTrue(codes.contains("runtime_load_started"))
         assertTrue(codes.contains("runtime_load_succeeded"))
-        assertTrue(codes.contains("runtime_reload_started"))
-        assertTrue(codes.contains("runtime_reload_succeeded"))
         assertTrue(codes.contains("runtime_unloaded"))
         assertFalse(codes.any { code ->
             code == "load_started" ||
@@ -156,15 +199,125 @@ class PluginV2RuntimeLoaderTest {
         })
     }
 
+    @Test
+    fun sync_rejects_cross_plugin_command_alias_conflicts_before_registry_becomes_active() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-conflict")
+        createBootstrapFile(rootDir)
+        val alpha = samplePluginV2InstallRecord(
+            pluginId = "com.astrbot.samples.loader_conflict_alpha",
+        ).withBootstrapRoot(rootDir)
+        val beta = samplePluginV2InstallRecord(
+            pluginId = "com.astrbot.samples.loader_conflict_beta",
+        ).withBootstrapRoot(rootDir)
+        val executor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+            bootstrapSessions = listOf(
+                BootstrappingSession(
+                    commandRegistrations = listOf(
+                        commandRegistration(
+                            registrationKey = "alpha.list",
+                            command = "list",
+                            aliases = listOf("astrbot plugin ls"),
+                            groupPath = listOf("astrbot", "plugin"),
+                        ),
+                    ),
+                ),
+                BootstrappingSession(
+                    commandRegistrations = listOf(
+                        commandRegistration(
+                            registrationKey = "beta.install",
+                            command = "install",
+                            aliases = listOf("astrbot plugin ls"),
+                            groupPath = listOf("astrbot", "plugin"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val loader = newLoader(executor)
+
+        val result = loader.sync(listOf(alpha, beta))
+
+        assertEquals(PluginV2RuntimeLoadStatus.Loaded, result.loads[0].status)
+        assertEquals(PluginV2RuntimeLoadStatus.Failed, result.loads[1].status)
+        assertTrue(result.loads[1].diagnostics.any { it.code == "alias_chain_conflict" })
+        val activePluginIds = loaderStore(loader).snapshot().activeRuntimeEntriesByPluginId.keys
+        assertEquals(setOf(alpha.pluginId), activePluginIds)
+        assertNull(loaderStore(loader).snapshot().activeRuntimeEntriesByPluginId[beta.pluginId])
+    }
+
+    @Test
+    fun initial_runtime_sync_emits_astrbot_and_platform_loaded_once_through_container_wiring() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-ready")
+        createBootstrapFile(rootDir)
+        val calls = mutableListOf<String>()
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.astrbot.samples.loader_ready",
+        ).withBootstrapRoot(rootDir)
+        val store = PluginV2ActiveRuntimeStore()
+        val logBus = InMemoryPluginRuntimeLogBus(capacity = 64)
+        val lifecycleManager = PluginV2LifecycleManager(
+            store = store,
+            logBus = logBus,
+            clock = { 1L },
+        )
+        val loader = PluginV2RuntimeLoader(
+            sessionFactory = PluginV2RuntimeSessionFactory(
+                scriptExecutor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+                    bootstrapSessions = listOf(
+                        BootstrappingSession(
+                            lifecycleRegistrations = listOf(
+                                lifecycleRegistration(
+                                    hook = PluginLifecycleHookSurface.OnAstrbotLoaded,
+                                    registrationKey = "ready.astrbot",
+                                    handle = PluginV2CallbackHandle { calls += "astrbot" },
+                                ),
+                                lifecycleRegistration(
+                                    hook = PluginLifecycleHookSurface.OnPlatformLoaded,
+                                    registrationKey = "ready.platform",
+                                    handle = PluginV2CallbackHandle { calls += "platform" },
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            store = store,
+            compiler = PluginV2RegistryCompiler(),
+            logBus = logBus,
+            lifecycleManager = lifecycleManager,
+            clock = { 1L },
+        )
+
+        syncPluginRuntimeRecordsAndSignalReady(
+            records = listOf(record),
+            loader = loader,
+            lifecycleManager = lifecycleManager,
+        )
+        syncPluginRuntimeRecordsAndSignalReady(
+            records = listOf(record),
+            loader = loader,
+            lifecycleManager = lifecycleManager,
+        )
+
+        assertEquals(listOf("astrbot", "platform"), calls)
+    }
+
     private fun newLoader(
         executor: RecordingPluginV2RuntimeLoaderScriptExecutor,
-        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+        store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(),
+        logBus: InMemoryPluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+        lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManager(
+            store = store,
+            logBus = logBus,
+            clock = { 1L },
+        ),
     ): PluginV2RuntimeLoader {
         return PluginV2RuntimeLoader(
             sessionFactory = PluginV2RuntimeSessionFactory(scriptExecutor = executor),
-            store = PluginV2ActiveRuntimeStore(),
+            store = store,
             compiler = PluginV2RegistryCompiler(),
             logBus = logBus,
+            lifecycleManager = lifecycleManager,
         )
     }
 
@@ -223,6 +376,8 @@ private class RecordingPluginV2RuntimeLoaderScriptExecutor(
 
 private class BootstrappingSession(
     private val registrations: Int = 1,
+    private val commandRegistrations: List<CommandHandlerRegistrationInput> = emptyList(),
+    private val lifecycleRegistrations: List<LifecycleHandlerRegistrationInput> = emptyList(),
 ) : ExternalPluginBootstrapSession {
     private val globals = LinkedHashMap<String, Any?>()
     private val handleCounter = AtomicInteger(0)
@@ -252,10 +407,47 @@ private class BootstrappingSession(
             )
             handleCounter.incrementAndGet()
         }
+        commandRegistrations.forEach { descriptor ->
+            hostApi.registerCommandHandler(descriptor)
+            handleCounter.incrementAndGet()
+        }
+        lifecycleRegistrations.forEach { descriptor ->
+            hostApi.registerLifecycleHandler(descriptor)
+            handleCounter.incrementAndGet()
+        }
     }
 
     override fun dispose() {
         disposed = true
         globals.clear()
     }
+}
+
+private fun lifecycleRegistration(
+    hook: PluginLifecycleHookSurface,
+    registrationKey: String,
+    handle: PluginV2CallbackHandle,
+): LifecycleHandlerRegistrationInput {
+    return LifecycleHandlerRegistrationInput(
+        registrationKey = registrationKey,
+        hook = hook.wireValue,
+        handler = handle,
+    )
+}
+
+private fun commandRegistration(
+    registrationKey: String,
+    command: String,
+    aliases: List<String> = emptyList(),
+    groupPath: List<String> = emptyList(),
+): CommandHandlerRegistrationInput {
+    return CommandHandlerRegistrationInput(
+        base = BaseHandlerRegistrationInput(
+            registrationKey = registrationKey,
+        ),
+        command = command,
+        aliases = aliases,
+        groupPath = groupPath,
+        handler = PluginV2CallbackHandle {},
+    )
 }

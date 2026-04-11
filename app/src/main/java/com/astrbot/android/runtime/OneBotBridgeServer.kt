@@ -47,8 +47,9 @@ import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
 import com.astrbot.android.runtime.plugin.PluginExecutionEngine
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
+import com.astrbot.android.runtime.plugin.PluginMessageEvent
 import com.astrbot.android.runtime.plugin.PluginV2DispatchEngineProvider
-import com.astrbot.android.runtime.plugin.PluginV2InternalStage
+import com.astrbot.android.runtime.plugin.PluginV2MessageDispatchResult
 import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
@@ -65,10 +66,12 @@ import fi.iki.elonen.NanoWSD
 import fi.iki.elonen.NanoWSD.WebSocket
 import fi.iki.elonen.NanoWSD.WebSocketFrame
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -86,6 +89,7 @@ object OneBotBridgeServer {
     private const val PATH = "/ws"
     private const val AUTH_TOKEN = "astrbot_android_bridge"
     private const val MAX_RECENT_MESSAGE_IDS = 512
+    private const val ONE_BOT_PLATFORM_ADAPTER_TYPE = "onebot"
     internal const val KEYWORD_BLOCK_NOTICE = "你的消息或者大模型的响应中包含不适当的内容，已被屏蔽。"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -354,7 +358,7 @@ object OneBotBridgeServer {
             RuntimeLogRepository.append(
                 "QQ message received: type=${event.messageType} session=$sessionId chars=${event.text.length} attachments=${event.attachments.size}",
             )
-            executeQqPlugins(
+            val beforeModelDispatchResult = executeQqPlugins(
                 trigger = PluginTriggerSource.BeforeSendMessage,
                 event = event,
                 contextFactory = { plugin ->
@@ -371,6 +375,9 @@ object OneBotBridgeServer {
                     )
                 },
             )
+            if (beforeModelDispatchResult?.let { it.propagationStopped || it.terminatedByCustomFilterFailure } == true) {
+                return@lock
+            }
 
             val response = runCatching {
                 val currentSession = ConversationRepository.session(sessionId)
@@ -685,16 +692,24 @@ object OneBotBridgeServer {
         trigger: PluginTriggerSource,
         event: IncomingMessageEvent,
         contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
-    ) {
+    ): PluginV2MessageDispatchResult? {
+        if (trigger.isV2MessageIngressTrigger()) {
+            val dispatchResult = dispatchQqV2MessageIngress(trigger, event)
+            if (dispatchResult.terminatedByCustomFilterFailure || dispatchResult.propagationStopped) {
+                dispatchResult.userVisibleFailureMessage
+                    ?.takeIf { message -> message.isNotBlank() }
+                    ?.let { message ->
+                        sendReply(event, message)
+                    }
+                return dispatchResult
+            }
+        }
         val plugins = PluginRuntimeRegistry.plugins()
         if (plugins.isEmpty()) {
-            return
+            return null
         }
         val pluginFailureGuard = PluginFailureGuard(
             store = PluginRuntimeFailureStateStoreProvider.store(),
-        )
-        PluginV2DispatchEngineProvider.engine().dispatch(
-            stage = PluginV2InternalStage.AdapterMessage,
         )
         val pluginEngine = PluginExecutionEngine(
             dispatcher = PluginRuntimeDispatcher(pluginFailureGuard),
@@ -710,7 +725,7 @@ object OneBotBridgeServer {
             RuntimeLogRepository.append(
                 "QQ runtime plugin dispatch failed: trigger=${trigger.wireValue} reason=${error.message ?: error.javaClass.simpleName}",
             )
-        }.getOrNull() ?: return
+        }.getOrNull() ?: return null
 
         batch.skipped.forEach { skip ->
             RuntimeLogRepository.append(
@@ -736,6 +751,7 @@ object OneBotBridgeServer {
             }
             consumeQqPluginOutcome(event = event, outcome = outcome)
         }
+        return null
     }
 
     private fun buildQqPluginContext(
@@ -874,6 +890,15 @@ object OneBotBridgeServer {
         if (!trimmedText.startsWith("/") || !ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnCommand)) {
             return false
         }
+        val dispatchResult = dispatchQqV2MessageIngress(PluginTriggerSource.OnCommand, event)
+        if (dispatchResult.terminatedByCustomFilterFailure || dispatchResult.propagationStopped) {
+            dispatchResult.userVisibleFailureMessage
+                ?.takeIf { message -> message.isNotBlank() }
+                ?.let { message ->
+                    sendReply(event, message)
+                }
+            return true
+        }
         val syntheticMessage = ConversationMessage(
             id = "qq-plugin-command:${sessionId}:${trimmedText.hashCode()}",
             role = "user",
@@ -883,9 +908,6 @@ object OneBotBridgeServer {
         val batch = runCatching {
             val pluginFailureGuard = PluginFailureGuard(
                 store = PluginRuntimeFailureStateStoreProvider.store(),
-            )
-            PluginV2DispatchEngineProvider.engine().dispatch(
-                stage = PluginV2InternalStage.AdapterMessage,
             )
             PluginExecutionEngine(
                 dispatcher = PluginRuntimeDispatcher(pluginFailureGuard),
@@ -935,6 +957,66 @@ object OneBotBridgeServer {
             )
         }
         return true
+    }
+
+    private fun dispatchQqV2MessageIngress(
+        trigger: PluginTriggerSource,
+        event: IncomingMessageEvent,
+    ): PluginV2MessageDispatchResult {
+        return runCatching {
+            runBlocking {
+                PluginV2DispatchEngineProvider.engine().dispatchMessage(
+                    event = event.toPluginMessageEvent(trigger),
+                )
+            }
+        }.onFailure { error ->
+            error.rethrowIfCancellation()
+            RuntimeLogRepository.append(
+                "QQ v2 message ingress failed: trigger=${trigger.wireValue} reason=${error.message ?: error.javaClass.simpleName}",
+            )
+        }.getOrDefault(PluginV2MessageDispatchResult())
+    }
+
+    private fun Throwable.rethrowIfCancellation() {
+        if (this is CancellationException) {
+            throw this
+        }
+    }
+
+    private fun PluginTriggerSource.isV2MessageIngressTrigger(): Boolean {
+        return this == PluginTriggerSource.BeforeSendMessage || this == PluginTriggerSource.OnCommand
+    }
+
+    private fun IncomingMessageEvent.toPluginMessageEvent(
+        trigger: PluginTriggerSource,
+    ): PluginMessageEvent {
+        val resolvedEventId = messageId.takeIf { value -> value.isNotBlank() }
+            ?: "${trigger.wireValue}:${System.currentTimeMillis()}"
+        return PluginMessageEvent(
+            eventId = resolvedEventId,
+            platformAdapterType = ONE_BOT_PLATFORM_ADAPTER_TYPE,
+            messageType = messageType,
+            conversationId = targetId,
+            senderId = userId,
+            timestampEpochMillis = System.currentTimeMillis(),
+            rawText = text,
+            rawMentions = buildList {
+                if (mentionsSelf && selfId.isNotBlank()) {
+                    add(selfId)
+                }
+                if (mentionsAll) {
+                    add("all")
+                }
+            },
+            initialWorkingText = text,
+            extras = buildMap {
+                put("source", "qq_runtime")
+                put("trigger", trigger.wireValue)
+                put("selfId", selfId)
+                put("groupId", groupId)
+                put("messageId", messageId)
+            },
+        )
     }
 
     private fun isConsumableQqPluginOutcome(outcome: PluginExecutionOutcome): Boolean {

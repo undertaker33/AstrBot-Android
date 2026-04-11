@@ -149,3 +149,26 @@ internal fun PluginRuntimeLogBus.publishBootstrapRecord(
         ),
     )
 }
+
+internal fun PluginRuntimeLogBus.publishLifecycleRecord(
+    pluginId: String,
+    pluginVersion: String,
+    occurredAtEpochMillis: Long,
+    level: PluginRuntimeLogLevel,
+    code: String,
+    message: String,
+    metadata: Map<String, String> = emptyMap(),
+) {
+    publish(
+        PluginRuntimeLogRecord(
+            occurredAtEpochMillis = occurredAtEpochMillis,
+            pluginId = pluginId,
+            pluginVersion = pluginVersion,
+            category = PluginRuntimeLogCategory.Dispatcher,
+            level = level,
+            code = code,
+            message = message,
+            metadata = metadata,
+        ),
+    )
+}

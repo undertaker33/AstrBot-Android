@@ -201,6 +201,212 @@ class PluginV2RegistryCompilerTest {
         assertFalse(result.diagnostics.any { it.code == "filter_execution" })
     }
 
+    @Test
+    fun invalid_regex_pattern_is_rejected_during_compilation() {
+        val compiler = PluginV2RegistryCompiler()
+        val rawRegistry = rawRegistryWithRegexHandlers(
+            regexHandlers = listOf(
+                regexHandler(
+                    registrationKey = "regex.invalid",
+                    pattern = "(?<label>broken",
+                ),
+            ),
+        )
+
+        val result = compiler.compile(rawRegistry)
+
+        assertNull(result.compiledRegistry)
+        assertTrue(result.diagnostics.any { it.code == "invalid_regex_pattern" })
+        assertTrue(result.diagnostics.any { it.severity == DiagnosticSeverity.Error })
+    }
+
+    @Test
+    fun compiler_materializes_full_path_alias_chains_as_token_sequences() {
+        val compiler = PluginV2RegistryCompiler()
+        val rawRegistry = rawRegistryWithCommandHandlers(
+            pluginId = "com.example.v2.alias",
+            commandHandlers = listOf(
+                commandHandler(
+                    registrationKey = "alias.full",
+                    command = "list",
+                    aliases = listOf("astrbot plugin ls"),
+                    groupPath = listOf("astrbot", "plugin"),
+                ),
+            ),
+        )
+
+        val result = compiler.compile(rawRegistry)
+
+        assertTrue(result.diagnostics.none { it.severity == DiagnosticSeverity.Error })
+        val compiledHandler = result.compiledRegistry!!.handlerRegistry.commandHandlers.single()
+        val bucket = result.compiledRegistry!!.handlerRegistry.commandBuckets.single()
+
+        assertEquals(listOf(listOf("astrbot", "plugin", "ls")), compiledHandler.aliasPaths)
+        assertEquals(listOf(listOf("astrbot", "plugin", "ls")), bucket.aliasPaths)
+        assertEquals(
+            listOf("astrbot", "plugin", "list"),
+            bucket.commandPath,
+        )
+        assertEquals(
+            bucket.commandPathKey,
+            result.compiledRegistry!!.handlerRegistry.commandAliasIndex[listOf("astrbot", "plugin", "ls").toCommandPathKey()],
+        )
+    }
+
+    @Test
+    fun duplicate_canonical_command_path_is_a_compile_error() {
+        val compiler = PluginV2RegistryCompiler()
+        val rawRegistry = rawRegistryWithCommandHandlers(
+            pluginId = "com.example.v2.dup",
+            commandHandlers = listOf(
+                commandHandler(
+                    registrationKey = "dup.one",
+                    command = "list",
+                    groupPath = listOf("astrbot", "plugin"),
+                ),
+                commandHandler(
+                    registrationKey = "dup.two",
+                    command = "list",
+                    groupPath = listOf("astrbot", "plugin"),
+                ),
+            ),
+        )
+
+        val result = compiler.compile(rawRegistry)
+
+        assertNull(result.compiledRegistry)
+        assertTrue(result.diagnostics.any { it.code == "duplicate_canonical_command_key" })
+        assertTrue(result.diagnostics.any { it.severity == DiagnosticSeverity.Error })
+    }
+
+    @Test
+    fun shared_canonical_command_path_from_different_plugins_merges_into_one_bucket() {
+        val compiler = PluginV2RegistryCompiler()
+        val alpha = compiler.compile(
+            rawRegistryWithCommandHandlers(
+                pluginId = "com.example.v2.alpha",
+                commandHandlers = listOf(
+                    commandHandler(
+                        registrationKey = "zeta.shared",
+                        command = "list",
+                        groupPath = listOf("astrbot", "plugin"),
+                        priority = 5,
+                    ),
+                ),
+            ),
+        ).compiledRegistry as PluginV2CompiledRegistrySnapshot
+        val beta = compiler.compile(
+            rawRegistryWithCommandHandlers(
+                pluginId = "com.example.v2.beta",
+                commandHandlers = listOf(
+                    commandHandler(
+                        registrationKey = "alpha.shared",
+                        command = "list",
+                        groupPath = listOf("astrbot", "plugin"),
+                        priority = 5,
+                    ),
+                ),
+            ),
+        ).compiledRegistry as PluginV2CompiledRegistrySnapshot
+
+        val mergeResult = mergeCommandRegistries(listOf(beta.handlerRegistry, alpha.handlerRegistry))
+
+        assertTrue(mergeResult.diagnostics.none { it.severity == DiagnosticSeverity.Error })
+        val bucket = mergeResult.commandRegistry!!.commandBuckets.single()
+
+        assertEquals(listOf("astrbot", "plugin", "list"), bucket.commandPath)
+        assertEquals(2, bucket.handlers.size)
+        assertEquals(
+            listOf(
+                "hdl::com.example.v2.alpha::command::zeta.shared",
+                "hdl::com.example.v2.beta::command::alpha.shared",
+            ),
+            bucket.handlers.map { it.handlerId },
+        )
+    }
+
+    @Test
+    fun conflicting_alias_chain_is_rejected_when_command_registries_are_merged() {
+        val compiler = PluginV2RegistryCompiler()
+        val alpha = compiler.compile(
+            rawRegistryWithCommandHandlers(
+                pluginId = "com.example.v2.alpha",
+                commandHandlers = listOf(
+                    commandHandler(
+                        registrationKey = "alias.alpha",
+                        command = "list",
+                        aliases = listOf("astrbot plugin ls"),
+                        groupPath = listOf("astrbot", "plugin"),
+                    ),
+                ),
+            ),
+        ).compiledRegistry as PluginV2CompiledRegistrySnapshot
+        val beta = compiler.compile(
+            rawRegistryWithCommandHandlers(
+                pluginId = "com.example.v2.beta",
+                commandHandlers = listOf(
+                    commandHandler(
+                        registrationKey = "alias.beta",
+                        command = "install",
+                        aliases = listOf("astrbot plugin ls"),
+                        groupPath = listOf("astrbot", "plugin"),
+                    ),
+                ),
+            ),
+        ).compiledRegistry as PluginV2CompiledRegistrySnapshot
+
+        val mergeResult = mergeCommandRegistries(listOf(alpha.handlerRegistry, beta.handlerRegistry))
+
+        assertNull(mergeResult.commandRegistry)
+        assertTrue(mergeResult.diagnostics.any { it.code == "alias_chain_conflict" })
+        assertTrue(mergeResult.diagnostics.any { it.severity == DiagnosticSeverity.Error })
+    }
+
+    @Test
+    fun compiler_ignores_post_phase3_surfaces_in_active_registry() {
+        val session = bootstrappedSession()
+        val rawRegistry = PluginV2RawRegistry(session.pluginId)
+        rawRegistry.appendLlmHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = LlmHookRegistrationInput(
+                registrationKey = "llm.future",
+                hook = "on_llm_request",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+        rawRegistry.appendTool(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = ToolRegistrationInput(
+                registrationKey = "tool.future",
+                toolDescriptor = PluginV2ToolDescriptor(name = "futureTool"),
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+        rawRegistry.appendToolLifecycleHook(
+            callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+            descriptor = ToolLifecycleHookRegistrationInput(
+                registrationKey = "tool.lifecycle.future",
+                hook = "after_tool",
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+
+        val result = PluginV2RegistryCompiler().compile(rawRegistry)
+
+        assertTrue(result.compiledRegistry != null)
+        assertEquals(0, result.compiledRegistry!!.handlerRegistry.totalHandlerCount)
+        assertTrue(result.compiledRegistry!!.dispatchIndex.handlerIdsByStage.isEmpty())
+        assertEquals(
+            listOf(
+                "inactive_phase_registration_ignored",
+                "inactive_phase_registration_ignored",
+                "inactive_phase_registration_ignored",
+            ),
+            result.diagnostics.map { it.code },
+        )
+        assertTrue(result.diagnostics.all { it.severity == DiagnosticSeverity.Warning })
+    }
+
     private fun rawRegistryWithMessageHandlers(
         messageHandlers: List<MessageHandlerRegistrationInput> = emptyList(),
         commandHandlers: List<CommandHandlerRegistrationInput> = emptyList(),
@@ -223,6 +429,56 @@ class PluginV2RegistryCompilerTest {
         return rawRegistry
     }
 
+    private fun rawRegistryWithRegexHandlers(
+        pluginId: String = "com.example.v2.compiler",
+        regexHandlers: List<RegexHandlerRegistrationInput> = emptyList(),
+    ): PluginV2RawRegistry {
+        val session = PluginV2RuntimeSession(
+            installRecord = samplePluginV2InstallRecord(
+                pluginId = pluginId,
+            ),
+            sessionInstanceId = "session-$pluginId",
+        ).also { runtimeSession ->
+            runtimeSession.transitionTo(PluginV2RuntimeSessionState.Loading)
+            runtimeSession.transitionTo(PluginV2RuntimeSessionState.BootstrapRunning)
+        }
+        val rawRegistry = PluginV2RawRegistry(session.pluginId)
+
+        regexHandlers.forEach { descriptor ->
+            rawRegistry.appendRegexHandler(
+                callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+                descriptor = descriptor,
+            )
+        }
+
+        return rawRegistry
+    }
+
+    private fun rawRegistryWithCommandHandlers(
+        pluginId: String,
+        commandHandlers: List<CommandHandlerRegistrationInput> = emptyList(),
+    ): PluginV2RawRegistry {
+        val session = PluginV2RuntimeSession(
+            installRecord = samplePluginV2InstallRecord(
+                pluginId = pluginId,
+            ),
+            sessionInstanceId = "session-$pluginId",
+        ).also { runtimeSession ->
+            runtimeSession.transitionTo(PluginV2RuntimeSessionState.Loading)
+            runtimeSession.transitionTo(PluginV2RuntimeSessionState.BootstrapRunning)
+        }
+        val rawRegistry = PluginV2RawRegistry(session.pluginId)
+
+        commandHandlers.forEach { descriptor ->
+            rawRegistry.appendCommandHandler(
+                callbackToken = session.allocateCallbackToken(PluginV2CallbackHandle {}),
+                descriptor = descriptor,
+            )
+        }
+
+        return rawRegistry
+    }
+
     private fun messageHandler(
         registrationKey: String?,
         priority: Int = 0,
@@ -242,6 +498,8 @@ class PluginV2RegistryCompilerTest {
         registrationKey: String?,
         command: String,
         priority: Int = 0,
+        aliases: List<String> = emptyList(),
+        groupPath: List<String> = emptyList(),
     ): CommandHandlerRegistrationInput {
         return CommandHandlerRegistrationInput(
             base = BaseHandlerRegistrationInput(
@@ -249,6 +507,25 @@ class PluginV2RegistryCompilerTest {
                 priority = priority,
             ),
             command = command,
+            aliases = aliases,
+            groupPath = groupPath,
+            handler = PluginV2CallbackHandle {},
+        )
+    }
+
+    private fun regexHandler(
+        registrationKey: String?,
+        pattern: String,
+        flags: Set<String> = emptySet(),
+        priority: Int = 0,
+    ): RegexHandlerRegistrationInput {
+        return RegexHandlerRegistrationInput(
+            base = BaseHandlerRegistrationInput(
+                registrationKey = registrationKey,
+                priority = priority,
+            ),
+            pattern = pattern,
+            flags = flags,
             handler = PluginV2CallbackHandle {},
         )
     }

@@ -26,6 +26,8 @@ import com.astrbot.android.runtime.RuntimeSecretRepository
 import com.astrbot.android.runtime.TencentSilkEncoder
 import com.astrbot.android.runtime.plugin.PluginRuntimeLogCleanupRepository
 import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
+import com.astrbot.android.runtime.plugin.PluginV2LifecycleManager
+import com.astrbot.android.runtime.plugin.PluginV2LifecycleManagerProvider
 import com.astrbot.android.runtime.plugin.PluginV2RuntimeLoaderProvider
 import com.astrbot.android.runtime.plugin.PluginV2RuntimeSyncResult
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
@@ -114,7 +116,13 @@ class AstrBotAppContainer(
         }
         pluginRuntimeLoaderSyncJob = appScope.observePluginRuntimeRecords(
             records = PluginRepository.records,
-            sync = { currentRecords -> PluginV2RuntimeLoaderProvider.loader().sync(currentRecords) },
+            sync = { currentRecords ->
+                syncPluginRuntimeRecordsAndSignalReady(
+                    records = currentRecords,
+                    loader = PluginV2RuntimeLoaderProvider.loader(),
+                    lifecycleManager = PluginV2LifecycleManagerProvider.manager(),
+                )
+            },
         )
         ConversationBackupRepository.initialize(application)
         AppBackupRepository.initialize(application)
@@ -126,6 +134,20 @@ class AstrBotAppContainer(
         RuntimeLogRepository.append("App started")
     }
 }
+
+internal suspend fun syncPluginRuntimeRecordsAndSignalReady(
+    records: List<PluginInstallRecord>,
+    loader: com.astrbot.android.runtime.plugin.PluginV2RuntimeLoader,
+    lifecycleManager: PluginV2LifecycleManager,
+    platformInstanceKey: String = ANDROID_PLATFORM_INSTANCE_KEY,
+): PluginV2RuntimeSyncResult {
+    return loader.sync(records).also {
+        lifecycleManager.onAstrbotLoaded()
+        lifecycleManager.onPlatformLoaded(platformInstanceKey)
+    }
+}
+
+internal const val ANDROID_PLATFORM_INSTANCE_KEY: String = "astrbot-android"
 
 internal fun CoroutineScope.observePluginRuntimeRecords(
     records: StateFlow<List<PluginInstallRecord>>,

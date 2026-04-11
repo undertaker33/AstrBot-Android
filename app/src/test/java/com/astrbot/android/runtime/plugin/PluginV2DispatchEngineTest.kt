@@ -1,148 +1,614 @@
 package com.astrbot.android.runtime.plugin
 
-import com.astrbot.android.model.plugin.PluginCompatibilityState
-import java.util.UUID
+import com.astrbot.android.model.chat.MessageType
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.fail
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginV2DispatchEngineTest {
     @Test
-    fun dispatch_orders_envelopes_by_priority_within_stage() {
-        val engine = PluginV2DispatchEngine()
-        val activeFixture = buildFixture(
-            pluginId = "com.astrbot.samples.dispatch_active",
-            activate = true,
-            registrationKind = RegistrationKind.Message,
-            priorities = listOf(5, 20),
+    fun dispatch_message_runs_adapter_command_regex_in_order_and_filters_after_stage_materialization() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 100L })
+        val callbackOrder = CopyOnWriteArrayList<String>()
+        val filterStages = CopyOnWriteArrayList<String>()
+        val unmatchedCommandFilterCalls = AtomicInteger(0)
+        val unmatchedRegexFilterCalls = AtomicInteger(0)
+
+        val adapterFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.adapter",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerMessageHandler(
+                MessageHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "adapter.primary",
+                        priority = 50,
+                    ),
+                    handler = EventAwareTestHandle(
+                        onEvent = { event ->
+                            event as PluginMessageEvent
+                            event.workingText = "/echo done"
+                            callbackOrder += "adapter:${event.workingText}"
+                        },
+                    ),
+                ),
+            )
+        }
+        val acceptedCommandFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.command.accepted",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerCommandHandler(
+                CommandHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "command.accepted",
+                        priority = 40,
+                        declaredFilters = listOf(
+                            BootstrapFilterDescriptor.command("platform_adapter_type:onebot"),
+                            BootstrapFilterDescriptor.message("event_message_type:group"),
+                            BootstrapFilterDescriptor.regex("permission_type:net.access"),
+                            BootstrapFilterDescriptor.message("custom_filter:allow"),
+                        ),
+                    ),
+                    command = "echo",
+                    handler = FullFeaturedTestHandle(
+                        onCustomFilter = { request ->
+                            filterStages += request.eventView.stage
+                            true
+                        },
+                        onEvent = { event ->
+                            event as PluginCommandEvent
+                            callbackOrder += "command:${event.commandPath.last()}:${event.workingText}"
+                        },
+                    ),
+                ),
+            )
+        }
+        val rejectedCommandFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.command.rejected",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerCommandHandler(
+                CommandHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "command.rejected",
+                        priority = 30,
+                        declaredFilters = listOf(
+                            BootstrapFilterDescriptor.command("platform_adapter_type:discord"),
+                        ),
+                    ),
+                    command = "echo",
+                    handler = EventAwareTestHandle(
+                        onEvent = { callbackOrder += "command:rejected" },
+                    ),
+                ),
+            )
+        }
+        val unmatchedCommandFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.command.unmatched",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerCommandHandler(
+                CommandHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "command.unmatched",
+                        priority = 25,
+                        declaredFilters = listOf(
+                            BootstrapFilterDescriptor.message("custom_filter:unmatched-command"),
+                        ),
+                    ),
+                    command = "other",
+                    handler = FullFeaturedTestHandle(
+                        onCustomFilter = {
+                            unmatchedCommandFilterCalls.incrementAndGet()
+                            true
+                        },
+                        onEvent = { callbackOrder += "command:unmatched" },
+                    ),
+                ),
+            )
+        }
+        val regexFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.regex",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerRegexHandler(
+                RegexHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "regex.primary",
+                        priority = 20,
+                        declaredFilters = listOf(
+                            BootstrapFilterDescriptor.message("custom_filter:regex-allow"),
+                        ),
+                    ),
+                    pattern = "done$",
+                    handler = FullFeaturedTestHandle(
+                        onCustomFilter = { request ->
+                            filterStages += request.eventView.stage
+                            true
+                        },
+                        onEvent = { event ->
+                            event as PluginRegexEvent
+                            callbackOrder += "regex:${event.matchedText}:${event.workingText}"
+                        },
+                    ),
+                ),
+            )
+        }
+        val unmatchedRegexFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.regex.unmatched",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerRegexHandler(
+                RegexHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "regex.unmatched",
+                        priority = 10,
+                        declaredFilters = listOf(
+                            BootstrapFilterDescriptor.message("custom_filter:regex-unmatched"),
+                        ),
+                    ),
+                    pattern = "^never-match$",
+                    handler = FullFeaturedTestHandle(
+                        onCustomFilter = {
+                            unmatchedRegexFilterCalls.incrementAndGet()
+                            true
+                        },
+                        onEvent = { callbackOrder += "regex:unmatched" },
+                    ),
+                ),
+            )
+        }
+
+        val snapshot = snapshotOf(
+            adapterFixture,
+            acceptedCommandFixture,
+            rejectedCommandFixture,
+            unmatchedCommandFixture,
+            regexFixture,
+            unmatchedRegexFixture,
         )
-        val snapshot = PluginV2ActiveRuntimeSnapshot(
-            activeRuntimeEntriesByPluginId = mapOf(activeFixture.session.pluginId to activeFixture.entry),
-            activeSessionsByPluginId = mapOf(activeFixture.session.pluginId to activeFixture.session),
-            compiledRegistriesByPluginId = mapOf(activeFixture.session.pluginId to activeFixture.compiledRegistry),
+        val engine = PluginV2DispatchEngine(
+            logBus = logBus,
+            clock = { 100L },
         )
 
-        val plan = engine.dispatch(
-            stage = PluginV2InternalStage.AdapterMessage,
+        val result = engine.dispatchMessage(
+            event = sampleMessageEvent(rawText = "hello"),
             snapshot = snapshot,
         )
 
-        assertTrue(plan.observations.isEmpty())
-        assertEquals(2, plan.envelopes.size)
+        assertNull(result.userVisibleFailureMessage)
         assertEquals(
             listOf(
-                activeFixture.tokens[1].value,
-                activeFixture.tokens[0].value,
+                "adapter:/echo done",
+                "command:echo:/echo done",
+                "regex:done:/echo done",
             ),
-            plan.envelopes.map { envelope -> envelope.callbackToken.value },
+            callbackOrder,
         )
-        assertTrue(plan.envelopes.all { envelope -> envelope.stage == PluginV2DispatchStage.Skeleton })
+        assertEquals(listOf("Command", "Regex"), filterStages)
+        assertEquals(0, unmatchedCommandFilterCalls.get())
+        assertEquals(0, unmatchedRegexFilterCalls.get())
+        val codes = logBus.snapshot(limit = 100).map { it.code }
+        assertTrue(codes.contains("message_dispatch_started"))
+        assertTrue(codes.contains("message_dispatch_completed"))
+        assertTrue(codes.filterRelevantCodes().contains("filter_rejected"))
+        assertTrue(codes.none { it == "on_plugin_error" })
     }
 
     @Test
-    fun dispatch_reports_skip_missing_and_inactive_observations() {
-        val engine = PluginV2DispatchEngine()
-        val activeFixture = buildFixture(
-            pluginId = "com.astrbot.samples.dispatch_active",
-            activate = true,
-            registrationKind = RegistrationKind.Message,
-            priorities = listOf(10),
-        )
-        val inactiveFixture = buildFixture(
-            pluginId = "com.astrbot.samples.dispatch_inactive",
-            activate = false,
-            registrationKind = RegistrationKind.Message,
-            priorities = listOf(10),
-        )
-        val skipFixture = buildFixture(
-            pluginId = "com.astrbot.samples.dispatch_skip",
-            activate = true,
-            registrationKind = RegistrationKind.Command,
-            priorities = listOf(10),
-        )
-        val missingFixture = buildFixture(
-            pluginId = "com.astrbot.samples.dispatch_missing",
-            activate = true,
-            registrationKind = RegistrationKind.Message,
-            priorities = listOf(10),
+    fun dispatch_message_stops_event_after_custom_filter_failure_without_emitting_plugin_error() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 200L })
+        val callbackOrder = CopyOnWriteArrayList<String>()
+        val commandFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.custom-filter",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerCommandHandler(
+                CommandHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "command.failure",
+                        declaredFilters = listOf(
+                            BootstrapFilterDescriptor.message("event_message_type:group"),
+                            BootstrapFilterDescriptor.command("platform_adapter_type:onebot"),
+                            BootstrapFilterDescriptor.regex("permission_type:net.access"),
+                            BootstrapFilterDescriptor.message("custom_filter:explode"),
+                        ),
+                    ),
+                    command = "echo",
+                    handler = FullFeaturedTestHandle(
+                        onCustomFilter = {
+                            error("boom")
+                        },
+                        onEvent = {
+                            callbackOrder += "command"
+                        },
+                    ),
+                ),
+            )
+        }
+        val regexFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.after-failure",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerRegexHandler(
+                RegexHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "regex.after",
+                    ),
+                    pattern = "echo",
+                    handler = EventAwareTestHandle(
+                        onEvent = { callbackOrder += "regex" },
+                    ),
+                ),
+            )
+        }
+
+        val engine = PluginV2DispatchEngine(
+            logBus = logBus,
+            clock = { 200L },
         )
 
-        val snapshot = PluginV2ActiveRuntimeSnapshot(
-            activeRuntimeEntriesByPluginId = linkedMapOf(
-                activeFixture.session.pluginId to activeFixture.entry,
-                inactiveFixture.session.pluginId to inactiveFixture.entry,
-                skipFixture.session.pluginId to skipFixture.entry,
-                missingFixture.session.pluginId to missingFixture.entry,
-            ),
-            activeSessionsByPluginId = linkedMapOf(
-                activeFixture.session.pluginId to activeFixture.session,
-                inactiveFixture.session.pluginId to inactiveFixture.session,
-                skipFixture.session.pluginId to skipFixture.session,
-                missingFixture.session.pluginId to missingFixture.session,
-            ),
-            compiledRegistriesByPluginId = linkedMapOf(
-                activeFixture.session.pluginId to activeFixture.compiledRegistry,
-                inactiveFixture.session.pluginId to inactiveFixture.compiledRegistry,
-                skipFixture.session.pluginId to skipFixture.compiledRegistry,
-            ),
+        val result = engine.dispatchMessage(
+            event = sampleMessageEvent(rawText = "/echo now"),
+            snapshot = snapshotOf(commandFixture, regexFixture),
         )
 
-        val plan = engine.dispatch(
-            stage = PluginV2InternalStage.AdapterMessage,
-            snapshot = snapshot,
+        assertNotNull(result.userVisibleFailureMessage)
+        assertTrue(result.terminatedByCustomFilterFailure)
+        assertTrue(callbackOrder.isEmpty())
+        val codes = logBus.snapshot(limit = 100).map { it.code }
+        assertTrue(codes.filterRelevantCodes().contains("custom_filter_failed"))
+        assertTrue(codes.none { it == "on_plugin_error" })
+    }
+
+    @Test
+    fun dispatch_message_routes_message_command_and_regex_failures_into_on_plugin_error_without_aborting_ingress() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 250L })
+        val errorEvents = CopyOnWriteArrayList<PluginErrorHookArgs>()
+        val callbackOrder = CopyOnWriteArrayList<String>()
+        val throwingFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.throwing",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerMessageHandler(
+                MessageHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "message.throw",
+                        priority = 100,
+                    ),
+                    handler = EventAwareTestHandle(
+                        onEvent = { payload ->
+                            val event = payload as PluginMessageEvent
+                            callbackOrder += "message"
+                            event.workingText = "/explode code-42"
+                            error("boom:message")
+                        },
+                    ),
+                ),
+            )
+            hostApi.registerCommandHandler(
+                CommandHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "command.throw",
+                        priority = 80,
+                    ),
+                    command = "explode",
+                    handler = EventAwareTestHandle(
+                        onEvent = {
+                            callbackOrder += "command"
+                            error("boom:command")
+                        },
+                    ),
+                ),
+            )
+            hostApi.registerRegexHandler(
+                RegexHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "regex.throw",
+                        priority = 60,
+                    ),
+                    pattern = "(?<label>code)-(?<value>\\d+)$",
+                    handler = EventAwareTestHandle(
+                        onEvent = {
+                            callbackOrder += "regex"
+                            error("boom:regex")
+                        },
+                    ),
+                ),
+            )
+        }
+        val errorHookFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.error-hook",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerLifecycleHandler(
+                LifecycleHandlerRegistrationInput(
+                    registrationKey = "lifecycle.error",
+                    hook = PluginLifecycleHookSurface.OnPluginError.wireValue,
+                    handler = object : PluginV2EventAwareCallbackHandle {
+                        override fun invoke() = Unit
+
+                        override suspend fun handleEvent(event: PluginErrorEventPayload) {
+                            errorEvents += requireNotNull(event as? PluginErrorHookArgs)
+                        }
+                    },
+                ),
+            )
+        }
+        val store = PluginV2ActiveRuntimeStore(
+            logBus = logBus,
+            clock = { 250L },
+        )
+        store.commitLoadedRuntime(throwingFixture.entry)
+        store.commitLoadedRuntime(errorHookFixture.entry)
+        val engine = PluginV2DispatchEngine(
+            store = store,
+            logBus = logBus,
+            clock = { 250L },
         )
 
-        assertEquals(1, plan.envelopes.size)
+        val result = engine.dispatchMessage(
+            event = sampleMessageEvent(rawText = "hello"),
+        )
+
+        assertFalse(result.propagationStopped)
+        assertFalse(result.terminatedByCustomFilterFailure)
+        assertNull(result.userVisibleFailureMessage)
+        assertEquals(listOf("message", "command", "regex"), callbackOrder)
         assertEquals(
             listOf(
-                PluginV2DispatchObservationKind.Inactive,
-                PluginV2DispatchObservationKind.Missing,
-                PluginV2DispatchObservationKind.Skip,
+                "hdl::com.example.v2.dispatch.throwing::message::message.throw",
+                "hdl::com.example.v2.dispatch.throwing::command::command.throw",
+                "hdl::com.example.v2.dispatch.throwing::regex::regex.throw",
             ),
-            plan.observations.map { observation -> observation.kind },
+            errorEvents.map(PluginErrorHookArgs::handler_name),
+        )
+        assertEquals(
+            listOf(
+                "boom:message",
+                "boom:command",
+                "boom:regex",
+            ),
+            errorEvents.map { args -> args.error.message },
         )
     }
 
-    private fun buildFixture(
+    @Test
+    fun dispatch_message_rethrows_cancellation_from_handler_without_logging_plugin_error() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 260L })
+        val fixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.cancelled",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerMessageHandler(
+                MessageHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "message.cancelled",
+                    ),
+                    handler = EventAwareTestHandle(
+                        onEvent = {
+                            throw CancellationException("cancelled")
+                        },
+                    ),
+                ),
+            )
+        }
+        val engine = PluginV2DispatchEngine(
+            logBus = logBus,
+            clock = { 260L },
+        )
+
+        try {
+            engine.dispatchMessage(
+                event = sampleMessageEvent(rawText = "hello"),
+                snapshot = snapshotOf(fixture),
+            )
+            fail("Expected CancellationException")
+        } catch (error: CancellationException) {
+            assertEquals("cancelled", error.message)
+        }
+
+        val codes = logBus.snapshot(limit = 100).map { it.code }
+        assertTrue(codes.none { it == "on_plugin_error" })
+    }
+
+    @Test
+    fun dispatch_message_populates_regex_named_groups_from_match_snapshot() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 275L })
+        val regexEvents = CopyOnWriteArrayList<PluginRegexEvent>()
+        val fixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.regex.named",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerRegexHandler(
+                RegexHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "regex.named",
+                    ),
+                    pattern = "(?<label>code)-(?<value>\\d+)",
+                    handler = EventAwareTestHandle(
+                        onEvent = { payload ->
+                            regexEvents += payload as PluginRegexEvent
+                        },
+                    ),
+                ),
+            )
+        }
+        val engine = PluginV2DispatchEngine(
+            logBus = logBus,
+            clock = { 275L },
+        )
+
+        val result = engine.dispatchMessage(
+            event = sampleMessageEvent(rawText = "hello code-42"),
+            snapshot = snapshotOf(fixture),
+        )
+
+        assertFalse(result.propagationStopped)
+        assertEquals(
+            listOf("label", "value"),
+            fixture.compiledRegistry.handlerRegistry.regexHandlers.single().namedGroupNames,
+        )
+        assertEquals(1, regexEvents.size)
+        assertEquals(listOf("code", "42"), regexEvents.single().groups)
+        assertEquals(
+            mapOf(
+                "label" to "code",
+                "value" to "42",
+            ),
+            regexEvents.single().namedGroups,
+        )
+    }
+
+    @Test
+    fun dispatch_message_honors_stop_propagation_for_remaining_handlers_and_later_stages() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 300L })
+        val callbackOrder = CopyOnWriteArrayList<String>()
+        val messageFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.stop",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerMessageHandler(
+                MessageHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "message.first",
+                        priority = 100,
+                    ),
+                    handler = EventAwareTestHandle(
+                        onEvent = { event ->
+                            event as PluginMessageEvent
+                            callbackOrder += "message:first"
+                            event.stopPropagation()
+                        },
+                    ),
+                ),
+            )
+            hostApi.registerMessageHandler(
+                MessageHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "message.second",
+                        priority = 10,
+                    ),
+                    handler = EventAwareTestHandle(
+                        onEvent = { callbackOrder += "message:second" },
+                    ),
+                ),
+            )
+        }
+        val commandFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.stop.command",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerCommandHandler(
+                CommandHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "command.stop",
+                    ),
+                    command = "echo",
+                    handler = EventAwareTestHandle(
+                        onEvent = { callbackOrder += "command" },
+                    ),
+                ),
+            )
+        }
+
+        val engine = PluginV2DispatchEngine(
+            logBus = logBus,
+            clock = { 300L },
+        )
+
+        val result = engine.dispatchMessage(
+            event = sampleMessageEvent(rawText = "/echo blocked"),
+            snapshot = snapshotOf(messageFixture, commandFixture),
+        )
+
+        assertTrue(result.propagationStopped)
+        assertEquals(listOf("message:first"), callbackOrder)
+    }
+
+    @Test
+    fun dispatch_message_serializes_callbacks_within_the_same_runtime_session() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 400L })
+        val concurrentCallbacks = AtomicInteger(0)
+        val maxConcurrentCallbacks = AtomicInteger(0)
+        val sessionFixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.serial",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerMessageHandler(
+                MessageHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "message.serial",
+                    ),
+                    handler = EventAwareTestHandle(
+                        onEvent = {
+                            val current = concurrentCallbacks.incrementAndGet()
+                            maxConcurrentCallbacks.updateAndGet { maxOf(it, current) }
+                            delay(50)
+                            concurrentCallbacks.decrementAndGet()
+                        },
+                    ),
+                ),
+            )
+        }
+        val engine = PluginV2DispatchEngine(
+            logBus = logBus,
+            clock = { 400L },
+        )
+        val snapshot = snapshotOf(sessionFixture)
+
+        val first = async(Dispatchers.Default) {
+            engine.dispatchMessage(
+                event = sampleMessageEvent(rawText = "first"),
+                snapshot = snapshot,
+            )
+        }
+        val second = async(Dispatchers.Default) {
+            engine.dispatchMessage(
+                event = sampleMessageEvent(rawText = "second"),
+                snapshot = snapshot,
+            )
+        }
+
+        first.await()
+        second.await()
+
+        assertEquals(1, maxConcurrentCallbacks.get())
+    }
+
+    private fun pluginFixture(
         pluginId: String,
-        activate: Boolean,
-        registrationKind: RegistrationKind,
-        priorities: List<Int>,
+        logBus: PluginRuntimeLogBus,
+        register: (PluginV2BootstrapHostApi, PluginV2RuntimeSession) -> Unit,
     ): RuntimeFixture {
         val session = PluginV2RuntimeSession(
             installRecord = samplePluginV2InstallRecord(pluginId = pluginId),
-            sessionInstanceId = "session-${UUID.randomUUID()}",
+            sessionInstanceId = "session-$pluginId",
         )
         session.transitionTo(PluginV2RuntimeSessionState.Loading)
         session.transitionTo(PluginV2RuntimeSessionState.BootstrapRunning)
-        val hostApi = PluginV2BootstrapHostApi(session)
-        val tokens = priorities.map { priority ->
-            when (registrationKind) {
-                RegistrationKind.Message -> hostApi.registerMessageHandler(
-                    com.astrbot.android.runtime.plugin.MessageHandlerRegistrationInput(
-                        base = BaseHandlerRegistrationInput(priority = priority),
-                        handler = PluginV2CallbackHandle { },
-                    ),
-                )
 
-                RegistrationKind.Command -> hostApi.registerCommandHandler(
-                    com.astrbot.android.runtime.plugin.CommandHandlerRegistrationInput(
-                        base = BaseHandlerRegistrationInput(priority = priority),
-                        command = "cmd-$priority",
-                        handler = PluginV2CallbackHandle { },
-                    ),
-                )
-            }
-        }
+        val hostApi = PluginV2BootstrapHostApi(session, logBus = logBus, clock = { 1L })
+        register(hostApi, session)
 
-        val rawRegistry = requireNotNull(session.rawRegistry)
-        val compiler = PluginV2RegistryCompiler()
-        val compileResult = compiler.compile(rawRegistry)
+        val compileResult = PluginV2RegistryCompiler(logBus = logBus, clock = { 1L })
+            .compile(requireNotNull(session.rawRegistry))
         val compiledRegistry = requireNotNull(compileResult.compiledRegistry)
         session.attachCompiledRegistry(compiledRegistry)
-        if (activate) {
-            session.transitionTo(PluginV2RuntimeSessionState.Active)
-        }
+        session.transitionTo(PluginV2RuntimeSessionState.Active)
 
         return RuntimeFixture(
             session = session,
@@ -155,25 +621,67 @@ class PluginV2DispatchEngineTest {
                     sessionInstanceId = session.sessionInstanceId,
                     compiledAtEpochMillis = 0L,
                     handlerCount = compiledRegistry.handlerRegistry.totalHandlerCount,
-                    warningCount = compileResult.diagnostics.count { diagnostic -> diagnostic.severity == DiagnosticSeverity.Warning },
-                    errorCount = compileResult.diagnostics.count { diagnostic -> diagnostic.severity == DiagnosticSeverity.Error },
+                    warningCount = compileResult.diagnostics.count { it.severity == DiagnosticSeverity.Warning },
+                    errorCount = compileResult.diagnostics.count { it.severity == DiagnosticSeverity.Error },
                 ),
                 diagnostics = compileResult.diagnostics,
                 callbackTokens = session.snapshotCallbackTokens(),
             ),
-            tokens = tokens,
         )
     }
 
-    private enum class RegistrationKind {
-        Message,
-        Command,
+    private fun snapshotOf(vararg fixtures: RuntimeFixture): PluginV2ActiveRuntimeSnapshot {
+        return PluginV2ActiveRuntimeSnapshot(
+            activeRuntimeEntriesByPluginId = fixtures.associateBy { it.session.pluginId }.mapValues { it.value.entry },
+            activeSessionsByPluginId = fixtures.associateBy { it.session.pluginId }.mapValues { it.value.session },
+            compiledRegistriesByPluginId = fixtures.associateBy { it.session.pluginId }.mapValues { it.value.compiledRegistry },
+        )
+    }
+
+    private fun sampleMessageEvent(rawText: String): PluginMessageEvent {
+        return PluginMessageEvent(
+            eventId = "evt-${rawText.hashCode()}",
+            platformAdapterType = "onebot",
+            messageType = MessageType.GroupMessage,
+            conversationId = "group-1",
+            senderId = "user-1",
+            timestampEpochMillis = 1_710_000_000_000L,
+            rawText = rawText,
+            initialWorkingText = rawText,
+            rawMentions = emptyList(),
+            normalizedMentions = emptyList(),
+            extras = emptyMap(),
+        )
     }
 
     private data class RuntimeFixture(
         val session: PluginV2RuntimeSession,
         val compiledRegistry: PluginV2CompiledRegistrySnapshot,
         val entry: PluginV2ActiveRuntimeEntry,
-        val tokens: List<PluginV2CallbackToken>,
     )
+
+    private fun List<String>.filterRelevantCodes(): List<String> {
+        return filter { code ->
+            code == "filter_rejected" || code == "custom_filter_failed"
+        }
+    }
+
+    private open class EventAwareTestHandle(
+        private val onEvent: suspend (PluginErrorEventPayload) -> Unit,
+    ) : PluginV2EventAwareCallbackHandle {
+        override fun invoke() = Unit
+
+        override suspend fun handleEvent(event: PluginErrorEventPayload) {
+            onEvent(event)
+        }
+    }
+
+    private class FullFeaturedTestHandle(
+        private val onCustomFilter: suspend (PluginV2CustomFilterRequest) -> Boolean,
+        onEvent: suspend (PluginErrorEventPayload) -> Unit,
+    ) : EventAwareTestHandle(onEvent), PluginV2CustomFilterAwareCallbackHandle {
+        override suspend fun evaluateCustomFilter(request: PluginV2CustomFilterRequest): Boolean {
+            return onCustomFilter(request)
+        }
+    }
 }

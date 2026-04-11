@@ -45,4 +45,21 @@ class DefaultAppChatPluginRuntimeTest {
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
         }
     }
+
+    @Test
+    fun default_app_chat_runtime_does_not_call_context_factory_when_no_legacy_plugins_are_registered() {
+        val contextFactoryCalls = AtomicInteger(0)
+
+        val batch = DefaultAppChatPluginRuntime.execute(
+            trigger = PluginTriggerSource.BeforeSendMessage,
+            contextFactory = { plugin ->
+                contextFactoryCalls.incrementAndGet()
+                executionContextFor(plugin, PluginTriggerSource.BeforeSendMessage)
+            },
+        )
+
+        assertEquals(0, contextFactoryCalls.get())
+        assertTrue(batch.outcomes.isEmpty())
+        assertTrue(batch.skipped.isEmpty())
+    }
 }

@@ -42,18 +42,23 @@ import com.astrbot.android.runtime.plugin.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
 import com.astrbot.android.runtime.plugin.PluginDispatchSkipReason
 import com.astrbot.android.runtime.plugin.PluginExecutionHostApi
+import com.astrbot.android.runtime.plugin.PluginMessageEvent
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import com.astrbot.android.runtime.plugin.PluginV2DispatchEngineProvider
+import com.astrbot.android.runtime.plugin.PluginV2MessageDispatchResult
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.time.ZonedDateTime
@@ -73,6 +78,8 @@ private data class PluginCommandConsumption(
     val attachments: List<ConversationAttachment> = emptyList(),
     val handled: Boolean = false,
 )
+
+private const val APP_CHAT_PLATFORM_ADAPTER_TYPE = "app_chat"
 
 class ChatViewModel(
     private val dependencies: ChatViewModelDependencies = DefaultChatViewModelDependencies,
@@ -334,9 +341,9 @@ class ChatViewModel(
                                     for (attachment in audioAttachments) {
                                         add(dependencies.transcribeAudio(sttProvider, attachment))
                                     }
-                                }
-                                    .joinToString("\n")
+                                }.joinToString("\n")
                             }.onFailure { error ->
+                                error.rethrowIfCancellation()
                                 dependencies.log("Chat STT failed: ${error.message ?: error.javaClass.simpleName}")
                             }.getOrNull()
                         }
@@ -374,7 +381,7 @@ class ChatViewModel(
                         .messages
                         .firstOrNull { it.id == userMessageId }
                         ?.let { userMessage ->
-                            dispatchAppChatPlugins(
+                            val consumedByPlugin = dispatchAppChatPlugins(
                                 trigger = PluginTriggerSource.BeforeSendMessage,
                                 session = dependencies.session(sessionId),
                                 message = userMessage,
@@ -383,6 +390,9 @@ class ChatViewModel(
                                 personaId = personaIdSnapshot,
                                 config = config,
                             )
+                            if (consumedByPlugin) {
+                                return@sessionLock
+                            }
                         }
 
                     val currentSession = dependencies.session(sessionId)
@@ -462,6 +472,8 @@ class ChatViewModel(
                             )
                         }
                 }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 val message = error.message ?: error.javaClass.simpleName
                 assistantMessageId?.let { messageId ->
@@ -672,6 +684,19 @@ class ChatViewModel(
             content = content,
             timestamp = System.currentTimeMillis(),
         )
+        val v2DispatchResult = dispatchAppChatV2MessageIngress(
+            trigger = PluginTriggerSource.OnCommand,
+            session = session,
+            message = syntheticMessage,
+            provider = selectedProvider(),
+            bot = bot,
+            personaId = personaId,
+            config = config,
+        )
+        if (v2DispatchResult.isTerminal()) {
+            appendV2UserVisibleFailure(session.id, v2DispatchResult)
+            return true
+        }
         val batch = runCatching {
             appChatPluginRuntime.execute(PluginTriggerSource.OnCommand) { plugin ->
                 buildAppChatPluginContext(
@@ -686,6 +711,7 @@ class ChatViewModel(
                 )
             }
         }.onFailure { error ->
+            error.rethrowIfCancellation()
             dependencies.log(
                 "App chat plugin command runtime failed: command=${content.substringBefore(' ')} reason=${error.message ?: error.javaClass.simpleName}",
             )
@@ -751,7 +777,22 @@ class ChatViewModel(
         bot: BotProfile?,
         personaId: String,
         config: ConfigProfile?,
-    ) {
+    ): Boolean {
+        if (trigger.isV2MessageIngressTrigger()) {
+            val v2DispatchResult = dispatchAppChatV2MessageIngress(
+                trigger = trigger,
+                session = session,
+                message = message,
+                provider = provider,
+                bot = bot,
+                personaId = personaId,
+                config = config,
+            )
+            if (v2DispatchResult.isTerminal()) {
+                appendV2UserVisibleFailure(session.id, v2DispatchResult)
+                return true
+            }
+        }
         val batch = runCatching {
             appChatPluginRuntime.execute(trigger) { plugin ->
                 buildAppChatPluginContext(
@@ -769,7 +810,7 @@ class ChatViewModel(
             dependencies.log(
                 "App chat plugin runtime failed: trigger=${trigger.wireValue} reason=${error.message ?: error.javaClass.simpleName}",
             )
-        }.getOrNull() ?: return
+        }.getOrNull() ?: return false
 
         batch.skipped.forEach { skip ->
             dependencies.log(
@@ -808,6 +849,106 @@ class ChatViewModel(
                 )
             }
         }
+        return false
+    }
+
+    private fun dispatchAppChatV2MessageIngress(
+        trigger: PluginTriggerSource,
+        session: ConversationSession,
+        message: ConversationMessage,
+        provider: ProviderProfile?,
+        bot: BotProfile?,
+        personaId: String,
+        config: ConfigProfile?,
+    ): PluginV2MessageDispatchResult {
+        return runCatching {
+            runBlocking {
+                PluginV2DispatchEngineProvider.engine().dispatchMessage(
+                    event = buildAppChatPluginMessageEvent(
+                        trigger = trigger,
+                        session = session,
+                        message = message,
+                        provider = provider,
+                        bot = bot,
+                        personaId = personaId,
+                        config = config,
+                    ),
+                )
+            }
+        }.onFailure { error ->
+            error.rethrowIfCancellation()
+            dependencies.log(
+                "App chat v2 message ingress failed: trigger=${trigger.wireValue} reason=${error.message ?: error.javaClass.simpleName}",
+            )
+        }.getOrDefault(PluginV2MessageDispatchResult())
+    }
+
+    private fun Throwable.rethrowIfCancellation() {
+        if (this is CancellationException) {
+            throw this
+        }
+    }
+
+    private fun buildAppChatPluginMessageEvent(
+        trigger: PluginTriggerSource,
+        session: ConversationSession,
+        message: ConversationMessage,
+        provider: ProviderProfile?,
+        bot: BotProfile?,
+        personaId: String,
+        config: ConfigProfile?,
+    ): PluginMessageEvent {
+        val rawText = message.content.take(500)
+        return PluginMessageEvent(
+            eventId = "${trigger.wireValue}:${session.id}:${message.id}",
+            platformAdapterType = APP_CHAT_PLATFORM_ADAPTER_TYPE,
+            messageType = session.messageType,
+            conversationId = session.originSessionId.ifBlank { session.id },
+            senderId = when (message.role) {
+                "assistant" -> bot?.id.orEmpty()
+                else -> "app-user"
+            },
+            timestampEpochMillis = message.timestamp,
+            rawText = rawText,
+            initialWorkingText = rawText,
+            rawMentions = emptyList(),
+            normalizedMentions = emptyList(),
+            extras = buildMap {
+                put("source", "app_chat")
+                put("trigger", trigger.wireValue)
+                put("sessionId", session.id)
+                put("messageId", message.id)
+                put("providerId", provider?.id.orEmpty())
+                put("botId", bot?.id ?: session.botId)
+                put("personaId", personaId)
+                put("streamingEnabled", config?.textStreamingEnabled == true)
+                put("ttsEnabled", config?.ttsEnabled == true)
+            },
+        )
+    }
+
+    private fun appendV2UserVisibleFailure(
+        sessionId: String,
+        result: PluginV2MessageDispatchResult,
+    ) {
+        result.userVisibleFailureMessage
+            ?.takeIf { message -> message.isNotBlank() }
+            ?.let { message ->
+                dependencies.appendMessage(
+                    sessionId = sessionId,
+                    role = "assistant",
+                    content = message,
+                )
+            }
+    }
+
+    private fun PluginV2MessageDispatchResult.isTerminal(): Boolean {
+        return propagationStopped || terminatedByCustomFilterFailure
+    }
+
+    private fun PluginTriggerSource.isV2MessageIngressTrigger(): Boolean {
+        return this == PluginTriggerSource.BeforeSendMessage ||
+            this == PluginTriggerSource.OnCommand
     }
 
     private fun resolvePluginPrivateRootPath(pluginId: String): String {
@@ -1169,6 +1310,7 @@ class ChatViewModel(
                     "Chat TTS success: provider=${provider.name} mime=${attachment.mimeType} size=${attachment.base64Data.length}",
                 )
             }.onFailure { error ->
+                error.rethrowIfCancellation()
                 dependencies.log("Chat TTS failed: ${error.message ?: error.javaClass.simpleName}")
             }.getOrNull()
         }

@@ -3,6 +3,8 @@ package com.astrbot.android.runtime.plugin
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginPackageContractSnapshot
 import java.util.LinkedHashMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 const val MAX_CALLBACKS_PER_PLUGIN: Int = 1_024
 
@@ -30,6 +32,7 @@ class PluginV2RuntimeSession(
     val packageContractSnapshot: PluginPackageContractSnapshot
 
     private val callbackHandles = LinkedHashMap<PluginV2CallbackToken, PluginV2CallbackHandle>()
+    private val callbackExecutionMutex = Mutex()
 
     val pluginId: String
         get() = installRecord.pluginId
@@ -118,6 +121,14 @@ class PluginV2RuntimeSession(
     fun requireCallbackHandle(token: PluginV2CallbackToken): PluginV2CallbackHandle {
         return callbackHandles[token]
             ?: throw IllegalArgumentException("Unknown callback token: $token")
+    }
+
+    suspend fun <T> runSerializedCallback(
+        block: suspend () -> T,
+    ): T {
+        return callbackExecutionMutex.withLock {
+            block()
+        }
     }
 
     fun dispose() {

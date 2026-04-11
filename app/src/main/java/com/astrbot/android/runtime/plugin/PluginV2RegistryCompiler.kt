@@ -10,6 +10,11 @@ data class PluginV2RegistryCompileResult(
     val diagnostics: List<PluginV2CompilerDiagnostic>,
 )
 
+data class PluginV2CommandRegistryMergeResult(
+    val commandRegistry: PluginV2HandlerRegistry?,
+    val diagnostics: List<PluginV2CompilerDiagnostic>,
+)
+
 class PluginV2RegistryCompiler(
     private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
     private val clock: () -> Long = System::currentTimeMillis,
@@ -19,6 +24,7 @@ class PluginV2RegistryCompiler(
         val duplicateGuard = linkedSetOf<String>()
         val autoCounters = linkedMapOf<String, Int>()
         val stageBuckets = linkedMapOf<PluginV2InternalStage, MutableList<String>>()
+        val commandCompilation = CommandCompilationState()
 
         val messageHandlers = rawRegistry.messageHandlers
             .sortedBy(MessageHandlerRawRegistration::sourceOrder)
@@ -40,6 +46,7 @@ class PluginV2RegistryCompiler(
                     duplicateGuard = duplicateGuard,
                     autoCounters = autoCounters,
                     stageBuckets = stageBuckets,
+                    commandCompilation = commandCompilation,
                 )
             }
         val regexHandlers = rawRegistry.regexHandlers
@@ -64,39 +71,25 @@ class PluginV2RegistryCompiler(
                     stageBuckets = stageBuckets,
                 )
             }
-        val llmHooks = rawRegistry.llmHooks
-            .sortedBy(LlmHookRawRegistration::sourceOrder)
-            .mapNotNull { registration ->
-                compileLlmHook(
-                    registration = registration,
-                    diagnostics = diagnostics,
-                    duplicateGuard = duplicateGuard,
-                    autoCounters = autoCounters,
-                    stageBuckets = stageBuckets,
+        diagnostics += inactivePhaseDiagnostics(
+            pluginId = rawRegistry.pluginId,
+            registrations = rawRegistry.llmHooks.map { registration ->
+                InactivePhaseRegistration(
+                    registrationKind = REGISTRATION_KIND_LLM_HOOK,
+                    registrationKey = registration.registrationKey,
                 )
-            }
-        val tools = rawRegistry.tools
-            .sortedBy(ToolRawRegistration::sourceOrder)
-            .mapNotNull { registration ->
-                compileTool(
-                    registration = registration,
-                    diagnostics = diagnostics,
-                    duplicateGuard = duplicateGuard,
-                    autoCounters = autoCounters,
-                    stageBuckets = stageBuckets,
+            } + rawRegistry.tools.map { registration ->
+                InactivePhaseRegistration(
+                    registrationKind = REGISTRATION_KIND_TOOL,
+                    registrationKey = registration.registrationKey,
                 )
-            }
-        val toolLifecycleHooks = rawRegistry.toolLifecycleHooks
-            .sortedBy(ToolLifecycleHookRawRegistration::sourceOrder)
-            .mapNotNull { registration ->
-                compileToolLifecycleHook(
-                    registration = registration,
-                    diagnostics = diagnostics,
-                    duplicateGuard = duplicateGuard,
-                    autoCounters = autoCounters,
-                    stageBuckets = stageBuckets,
+            } + rawRegistry.toolLifecycleHooks.map { registration ->
+                InactivePhaseRegistration(
+                    registrationKind = REGISTRATION_KIND_TOOL_LIFECYCLE_HOOK,
+                    registrationKey = registration.registrationKey,
                 )
-            }
+            },
+        )
 
         val hasError = diagnostics.any { diagnostic ->
             diagnostic.severity == DiagnosticSeverity.Error
@@ -115,11 +108,10 @@ class PluginV2RegistryCompiler(
         val handlerRegistry = PluginV2HandlerRegistry(
             messageHandlers = messageHandlers,
             commandHandlers = commandHandlers,
+            commandBuckets = commandCompilation.buildBuckets(),
+            commandAliasIndex = commandCompilation.buildAliasIndex(),
             regexHandlers = regexHandlers,
             lifecycleHandlers = lifecycleHandlers,
-            llmHooks = llmHooks,
-            tools = tools,
-            toolLifecycleHooks = toolLifecycleHooks,
         )
         val dispatchIndex = PluginV2StageIndex(
             handlerIdsByStage = stageBuckets.mapValues { (_, handlerIds) ->
@@ -184,6 +176,7 @@ class PluginV2RegistryCompiler(
         duplicateGuard: MutableSet<String>,
         autoCounters: MutableMap<String, Int>,
         stageBuckets: MutableMap<PluginV2InternalStage, MutableList<String>>,
+        commandCompilation: CommandCompilationState,
     ): PluginV2CompiledCommandHandler? {
         val identity = compileIdentity(
             pluginId = registration.pluginId,
@@ -193,6 +186,21 @@ class PluginV2RegistryCompiler(
             diagnostics = diagnostics,
             duplicateGuard = duplicateGuard,
         ) ?: return null
+        val commandPath = registration.descriptor.groupPath + registration.descriptor.command
+        val commandPathKey = commandPath.toCommandPathKey()
+        if (commandCompilation.registerCanonicalPath(commandPathKey, commandPathKey, registration.pluginId, diagnostics).not()) {
+            return null
+        }
+
+        val aliasPaths = registration.descriptor.aliases
+            .map(String::toCommandPathTokensFromText)
+            .filter(List<String>::isNotEmpty)
+        for (aliasPath in aliasPaths) {
+            val aliasPathKey = aliasPath.toCommandPathKey()
+            if (commandCompilation.registerAliasPath(aliasPathKey, commandPathKey, registration.pluginId, diagnostics).not()) {
+                return null
+            }
+        }
         val compiled = PluginV2CompiledCommandHandler(
             pluginId = registration.pluginId,
             registrationKind = REGISTRATION_KIND_COMMAND,
@@ -210,7 +218,10 @@ class PluginV2RegistryCompiler(
             command = registration.descriptor.command,
             aliases = registration.descriptor.aliases,
             groupPath = registration.descriptor.groupPath,
+            commandPath = commandPath,
+            aliasPaths = aliasPaths,
         )
+        commandCompilation.appendBucket(commandPathKey, commandPath, aliasPaths, compiled)
         stageBuckets.getOrPut(PluginV2InternalStage.Command) { mutableListOf() }
             .add(compiled.handlerId)
         return compiled
@@ -231,6 +242,19 @@ class PluginV2RegistryCompiler(
             diagnostics = diagnostics,
             duplicateGuard = duplicateGuard,
         ) ?: return null
+        val compiledPattern = runCatching {
+            Regex(registration.descriptor.pattern, regexOptionsFor(registration.descriptor.flags))
+        }.getOrElse { error ->
+            diagnostics += PluginV2CompilerDiagnostic(
+                severity = DiagnosticSeverity.Error,
+                code = "invalid_regex_pattern",
+                message = "Invalid regex pattern: ${registration.descriptor.pattern}. ${error.message ?: error.javaClass.simpleName}",
+                pluginId = registration.pluginId,
+                registrationKind = REGISTRATION_KIND_REGEX,
+                registrationKey = identity.registrationKey,
+            )
+            return null
+        }
         val compiled = PluginV2CompiledRegexHandler(
             pluginId = registration.pluginId,
             registrationKind = REGISTRATION_KIND_REGEX,
@@ -247,6 +271,8 @@ class PluginV2RegistryCompiler(
             sourceOrder = registration.sourceOrder,
             pattern = registration.descriptor.pattern,
             flags = registration.descriptor.flags,
+            compiledPattern = compiledPattern,
+            namedGroupNames = extractNamedGroupNames(registration.descriptor.pattern),
         )
         stageBuckets.getOrPut(PluginV2InternalStage.Regex) { mutableListOf() }
             .add(compiled.handlerId)
@@ -285,114 +311,6 @@ class PluginV2RegistryCompiler(
             hook = registration.descriptor.hook,
         )
         stageBuckets.getOrPut(PluginV2InternalStage.Lifecycle) { mutableListOf() }
-            .add(compiled.handlerId)
-        return compiled
-    }
-
-    private fun compileLlmHook(
-        registration: LlmHookRawRegistration,
-        diagnostics: MutableList<PluginV2CompilerDiagnostic>,
-        duplicateGuard: MutableSet<String>,
-        autoCounters: MutableMap<String, Int>,
-        stageBuckets: MutableMap<PluginV2InternalStage, MutableList<String>>,
-    ): PluginV2CompiledLlmHook? {
-        val identity = compileIdentity(
-            pluginId = registration.pluginId,
-            registrationKind = REGISTRATION_KIND_LLM_HOOK,
-            requestedRegistrationKey = registration.registrationKey,
-            autoCounters = autoCounters,
-            diagnostics = diagnostics,
-            duplicateGuard = duplicateGuard,
-        ) ?: return null
-        val compiled = PluginV2CompiledLlmHook(
-            pluginId = registration.pluginId,
-            registrationKind = REGISTRATION_KIND_LLM_HOOK,
-            registrationKey = identity.registrationKey,
-            normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            handlerId = identity.handlerId,
-            callbackToken = registration.callbackToken,
-            priority = registration.priority,
-            filterAttachments = compileFilterAttachments(
-                declaredFilters = registration.declaredFilters,
-                normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            ),
-            metadata = registration.metadata,
-            sourceOrder = registration.sourceOrder,
-            hook = registration.descriptor.hook,
-        )
-        stageBuckets.getOrPut(PluginV2InternalStage.LlmRequest) { mutableListOf() }
-            .add(compiled.handlerId)
-        return compiled
-    }
-
-    private fun compileTool(
-        registration: ToolRawRegistration,
-        diagnostics: MutableList<PluginV2CompilerDiagnostic>,
-        duplicateGuard: MutableSet<String>,
-        autoCounters: MutableMap<String, Int>,
-        stageBuckets: MutableMap<PluginV2InternalStage, MutableList<String>>,
-    ): PluginV2CompiledTool? {
-        val identity = compileIdentity(
-            pluginId = registration.pluginId,
-            registrationKind = REGISTRATION_KIND_TOOL,
-            requestedRegistrationKey = registration.registrationKey,
-            autoCounters = autoCounters,
-            diagnostics = diagnostics,
-            duplicateGuard = duplicateGuard,
-        ) ?: return null
-        val compiled = PluginV2CompiledTool(
-            pluginId = registration.pluginId,
-            registrationKind = REGISTRATION_KIND_TOOL,
-            registrationKey = identity.registrationKey,
-            normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            handlerId = identity.handlerId,
-            callbackToken = registration.callbackToken,
-            priority = registration.priority,
-            filterAttachments = compileFilterAttachments(
-                declaredFilters = registration.declaredFilters,
-                normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            ),
-            metadata = registration.metadata,
-            sourceOrder = registration.sourceOrder,
-            toolDescriptor = registration.descriptor.toolDescriptor,
-        )
-        stageBuckets.getOrPut(PluginV2InternalStage.ToolUse) { mutableListOf() }
-            .add(compiled.handlerId)
-        return compiled
-    }
-
-    private fun compileToolLifecycleHook(
-        registration: ToolLifecycleHookRawRegistration,
-        diagnostics: MutableList<PluginV2CompilerDiagnostic>,
-        duplicateGuard: MutableSet<String>,
-        autoCounters: MutableMap<String, Int>,
-        stageBuckets: MutableMap<PluginV2InternalStage, MutableList<String>>,
-    ): PluginV2CompiledToolLifecycleHook? {
-        val identity = compileIdentity(
-            pluginId = registration.pluginId,
-            registrationKind = REGISTRATION_KIND_TOOL_LIFECYCLE_HOOK,
-            requestedRegistrationKey = registration.registrationKey,
-            autoCounters = autoCounters,
-            diagnostics = diagnostics,
-            duplicateGuard = duplicateGuard,
-        ) ?: return null
-        val compiled = PluginV2CompiledToolLifecycleHook(
-            pluginId = registration.pluginId,
-            registrationKind = REGISTRATION_KIND_TOOL_LIFECYCLE_HOOK,
-            registrationKey = identity.registrationKey,
-            normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            handlerId = identity.handlerId,
-            callbackToken = registration.callbackToken,
-            priority = registration.priority,
-            filterAttachments = compileFilterAttachments(
-                declaredFilters = registration.declaredFilters,
-                normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            ),
-            metadata = registration.metadata,
-            sourceOrder = registration.sourceOrder,
-            hook = registration.descriptor.hook,
-        )
-        stageBuckets.getOrPut(PluginV2InternalStage.ToolRespond) { mutableListOf() }
             .add(compiled.handlerId)
         return compiled
     }
@@ -484,6 +402,118 @@ class PluginV2RegistryCompiler(
         val handlerId: String,
     )
 
+    private data class InactivePhaseRegistration(
+        val registrationKind: String,
+        val registrationKey: String?,
+    )
+
+    private class CommandCompilationState {
+        private val pathIndexByKey = linkedMapOf<String, String>()
+        private val commandPathsByKey = linkedMapOf<String, List<String>>()
+        private val commandAliasPathsByKey = linkedMapOf<String, LinkedHashSet<String>>()
+        private val commandBucketsByKey = linkedMapOf<String, MutableList<PluginV2CompiledCommandHandler>>()
+
+        fun registerCanonicalPath(
+            commandPathKey: String,
+            canonicalPathKey: String,
+            pluginId: String,
+            diagnostics: MutableList<PluginV2CompilerDiagnostic>,
+        ): Boolean {
+            val existingCanonicalKey = pathIndexByKey[commandPathKey]
+            return when {
+                existingCanonicalKey == null -> {
+                    pathIndexByKey[commandPathKey] = canonicalPathKey
+                    commandPathsByKey[commandPathKey] = commandPathKey.toCommandPathTokens()
+                    true
+                }
+
+                existingCanonicalKey == canonicalPathKey -> {
+                    diagnostics += PluginV2CompilerDiagnostic(
+                        severity = DiagnosticSeverity.Error,
+                        code = "duplicate_canonical_command_key",
+                        message = "Duplicate canonical command key detected: $commandPathKey",
+                        pluginId = pluginId,
+                        registrationKind = REGISTRATION_KIND_COMMAND,
+                        registrationKey = commandPathKey,
+                    )
+                    false
+                }
+
+                else -> {
+                    diagnostics += PluginV2CompilerDiagnostic(
+                        severity = DiagnosticSeverity.Error,
+                        code = "alias_chain_conflict",
+                        message = "Alias chain conflicts with canonical command key: $commandPathKey",
+                        pluginId = pluginId,
+                        registrationKind = REGISTRATION_KIND_COMMAND,
+                        registrationKey = commandPathKey,
+                    )
+                    false
+                }
+            }
+        }
+
+        fun registerAliasPath(
+            aliasPathKey: String,
+            canonicalPathKey: String,
+            pluginId: String,
+            diagnostics: MutableList<PluginV2CompilerDiagnostic>,
+        ): Boolean {
+            val existingCanonicalKey = pathIndexByKey[aliasPathKey]
+            return when {
+                existingCanonicalKey == null -> {
+                    pathIndexByKey[aliasPathKey] = canonicalPathKey
+                    true
+                }
+
+                existingCanonicalKey == canonicalPathKey -> true
+
+                else -> {
+                    diagnostics += PluginV2CompilerDiagnostic(
+                        severity = DiagnosticSeverity.Error,
+                        code = "alias_chain_conflict",
+                        message = "Alias chain conflicts with canonical command key: $aliasPathKey",
+                        pluginId = pluginId,
+                        registrationKind = REGISTRATION_KIND_COMMAND,
+                        registrationKey = aliasPathKey,
+                    )
+                    false
+                }
+            }
+        }
+
+        fun appendBucket(
+            commandPathKey: String,
+            commandPath: List<String>,
+            aliasPaths: List<List<String>>,
+            handler: PluginV2CompiledCommandHandler,
+        ) {
+            commandPathsByKey[commandPathKey] = commandPath.toList()
+            commandAliasPathsByKey.getOrPut(commandPathKey) { linkedSetOf() }
+                .addAll(aliasPaths.map(List<String>::toCommandPathKey))
+            commandBucketsByKey.getOrPut(commandPathKey) { mutableListOf() }
+                .add(handler)
+        }
+
+        fun buildBuckets(): List<PluginV2CommandBucket> {
+            return commandBucketsByKey.entries.map { (commandPathKey, handlers) ->
+                PluginV2CommandBucket(
+                    commandPath = commandPathsByKey[commandPathKey].orEmpty(),
+                    commandPathKey = commandPathKey,
+                    handlers = handlers.sortedForCommandDispatch(),
+                    aliasPaths = commandAliasPathsByKey[commandPathKey]
+                        .orEmpty()
+                        .map(String::toCommandPathTokens)
+                        .toList(),
+                )
+            }
+        }
+
+        fun buildAliasIndex(): Map<String, String> {
+            return LinkedHashMap(pathIndexByKey).toMap()
+        }
+    }
+
     private companion object {
         private const val REGISTRATION_KIND_MESSAGE = "message"
         private const val REGISTRATION_KIND_COMMAND = "command"
@@ -504,6 +534,34 @@ class PluginV2RegistryCompiler(
             REGISTRATION_KIND_TOOL to "auto-tool",
             REGISTRATION_KIND_TOOL_LIFECYCLE_HOOK to "auto-tool-lifecycle-hook",
         )
+    }
+
+    private fun inactivePhaseDiagnostics(
+        pluginId: String,
+        registrations: List<InactivePhaseRegistration>,
+    ): List<PluginV2CompilerDiagnostic> {
+        return registrations.map { registration ->
+            PluginV2CompilerDiagnostic(
+                severity = DiagnosticSeverity.Warning,
+                code = "inactive_phase_registration_ignored",
+                message = "Ignoring ${registration.registrationKind} registration until a later phase is enabled.",
+                pluginId = pluginId,
+                registrationKind = registration.registrationKind,
+                registrationKey = registration.registrationKey,
+            )
+        }
+    }
+
+    private fun regexOptionsFor(flags: Set<String>): Set<RegexOption> {
+        val options = linkedSetOf<RegexOption>()
+        flags.forEach { flag ->
+            when (flag.uppercase()) {
+                "IGNORE_CASE" -> options += RegexOption.IGNORE_CASE
+                "MULTILINE" -> options += RegexOption.MULTILINE
+                "DOT_MATCHES_ALL" -> options += RegexOption.DOT_MATCHES_ALL
+            }
+        }
+        return options
     }
 
     private fun publishCompiled(
@@ -563,4 +621,94 @@ class PluginV2RegistryCompiler(
             ),
         )
     }
+}
+
+internal fun mergeCommandRegistries(
+    registries: Collection<PluginV2HandlerRegistry>,
+): PluginV2CommandRegistryMergeResult {
+    val diagnostics = mutableListOf<PluginV2CompilerDiagnostic>()
+    val pathIndexByKey = linkedMapOf<String, String>()
+    val commandPathsByKey = linkedMapOf<String, List<String>>()
+    val commandBucketsByKey = linkedMapOf<String, MutableList<PluginV2CompiledCommandHandler>>()
+    val commandAliasPathsByKey = linkedMapOf<String, LinkedHashSet<String>>()
+
+    registries.forEach { registry ->
+        registry.commandBuckets.forEach { bucket ->
+            val canonicalKey = bucket.commandPathKey
+            val existingCanonicalTarget = pathIndexByKey[canonicalKey]
+            when {
+                existingCanonicalTarget == null -> {
+                    pathIndexByKey[canonicalKey] = canonicalKey
+                    commandPathsByKey[canonicalKey] = bucket.commandPath.toList()
+                }
+
+                existingCanonicalTarget == canonicalKey -> Unit
+
+                else -> {
+                    diagnostics += PluginV2CompilerDiagnostic(
+                        severity = DiagnosticSeverity.Error,
+                        code = "alias_chain_conflict",
+                        message = "Alias chain conflicts with canonical command key: $canonicalKey",
+                        pluginId = bucket.handlers.firstOrNull()?.pluginId.orEmpty(),
+                        registrationKind = "command",
+                        registrationKey = canonicalKey,
+                    )
+                }
+            }
+
+            commandBucketsByKey.getOrPut(canonicalKey) { mutableListOf() }
+                .addAll(bucket.handlers)
+            commandAliasPathsByKey.getOrPut(canonicalKey) { linkedSetOf() }
+                .addAll(bucket.aliasPaths.map(List<String>::toCommandPathKey))
+        }
+
+        registry.commandAliasIndex.forEach { (pathKey, canonicalKey) ->
+            val existingCanonicalTarget = pathIndexByKey[pathKey]
+            when {
+                existingCanonicalTarget == null -> {
+                    pathIndexByKey[pathKey] = canonicalKey
+                }
+
+                existingCanonicalTarget == canonicalKey -> Unit
+
+                else -> {
+                    diagnostics += PluginV2CompilerDiagnostic(
+                        severity = DiagnosticSeverity.Error,
+                        code = "alias_chain_conflict",
+                        message = "Alias chain conflicts with canonical command key: $pathKey",
+                        pluginId = registry.commandBuckets.firstOrNull()?.handlers?.firstOrNull()?.pluginId.orEmpty(),
+                        registrationKind = "command",
+                        registrationKey = pathKey,
+                    )
+                }
+            }
+        }
+    }
+
+    if (diagnostics.any { it.severity == DiagnosticSeverity.Error }) {
+        return PluginV2CommandRegistryMergeResult(
+            commandRegistry = null,
+            diagnostics = diagnostics.toList(),
+        )
+    }
+
+    val mergedBuckets = commandBucketsByKey.entries.map { (canonicalKey, handlers) ->
+        PluginV2CommandBucket(
+            commandPath = commandPathsByKey[canonicalKey].orEmpty(),
+            commandPathKey = canonicalKey,
+            handlers = handlers.sortedForCommandDispatch(),
+            aliasPaths = commandAliasPathsByKey[canonicalKey]
+                .orEmpty()
+                .map(String::toCommandPathTokens)
+                .toList(),
+        )
+    }
+
+    return PluginV2CommandRegistryMergeResult(
+        commandRegistry = PluginV2HandlerRegistry(
+            commandBuckets = mergedBuckets,
+            commandAliasIndex = LinkedHashMap(pathIndexByKey).toMap(),
+        ),
+        diagnostics = diagnostics.toList(),
+    )
 }

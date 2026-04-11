@@ -54,6 +54,7 @@ class PluginV2RuntimeLoader(
     private val compiler: PluginV2RegistryCompiler = PluginV2RegistryCompiler(),
     private val store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStoreProvider.store(),
     private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManagerProvider.manager(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val pluginLocks = ConcurrentHashMap<String, Mutex>()
@@ -137,6 +138,11 @@ class PluginV2RuntimeLoader(
             }
             store.unload(pluginId)
             currentEntry.session.dispose()
+            lifecycleManager.onPluginUnloaded(
+                pluginId = pluginId,
+                pluginVersion = currentEntry.session.installRecord.installedVersion,
+                sessionInstanceId = currentEntry.session.sessionInstanceId,
+            )
             publishLifecycleLog(
                 pluginId = pluginId,
                 pluginVersion = currentEntry.session.installRecord.installedVersion,
@@ -209,6 +215,7 @@ class PluginV2RuntimeLoader(
         }
 
         val previousSession = currentEntry?.session
+        var loadDiagnostics: List<PluginV2CompilerDiagnostic> = emptyList()
         return try {
             handle.installBootstrapGlobal(
                 BOOTSTRAP_HOST_API_GLOBAL_NAME,
@@ -228,10 +235,27 @@ class PluginV2RuntimeLoader(
                     compileResult.diagnostics.firstOrNull()?.message
                         ?: "Plugin v2 registry compilation failed.",
                 )
+            val activationDiagnostics = validateActivation(
+                pluginId = pluginId,
+                compiledRegistry = compiledRegistry,
+            )
+            loadDiagnostics = compileResult.diagnostics + activationDiagnostics
+            if (activationDiagnostics.any { diagnostic -> diagnostic.severity == DiagnosticSeverity.Error }) {
+                publishActivationDiagnostics(
+                    pluginId = pluginId,
+                    pluginVersion = record.installedVersion,
+                    diagnostics = activationDiagnostics,
+                )
+                throw IllegalStateException(
+                    activationDiagnostics.firstOrNull { diagnostic -> diagnostic.severity == DiagnosticSeverity.Error }
+                        ?.message
+                        ?: "Plugin v2 runtime activation validation failed.",
+                )
+            }
             handle.session.attachCompiledRegistry(compiledRegistry)
             handle.session.transitionTo(PluginV2RuntimeSessionState.Active)
 
-            val canonicalDiagnostics = compileResult.diagnostics.toList()
+            val canonicalDiagnostics = loadDiagnostics
             val entry = PluginV2ActiveRuntimeEntry(
                 session = handle.session,
                 compiledRegistry = compiledRegistry,
@@ -251,6 +275,7 @@ class PluginV2RuntimeLoader(
             if (replaceExisting) {
                 previousSession?.dispose()
             }
+            lifecycleManager.onPluginLoaded(pluginId)
             publishLifecycleLog(
                 pluginId = pluginId,
                 pluginVersion = record.installedVersion,
@@ -283,6 +308,7 @@ class PluginV2RuntimeLoader(
                 pluginId = pluginId,
                 status = PluginV2RuntimeLoadStatus.Failed,
                 previousSessionInstanceId = previousSession?.sessionInstanceId,
+                diagnostics = loadDiagnostics,
                 reason = error.message ?: "Plugin v2 runtime $operation failed.",
             )
         }
@@ -363,6 +389,47 @@ class PluginV2RuntimeLoader(
             "load" -> "runtime_load_$suffix"
             "reload" -> "runtime_reload_$suffix"
             else -> "runtime_${operation}_$suffix"
+        }
+    }
+
+    private fun validateActivation(
+        pluginId: String,
+        compiledRegistry: PluginV2CompiledRegistrySnapshot?,
+    ): List<PluginV2CompilerDiagnostic> {
+        val registry = compiledRegistry ?: return emptyList()
+        return mergeCommandRegistries(
+            store.snapshot().compiledRegistriesByPluginId
+                .filterKeys { activePluginId -> activePluginId != pluginId }
+                .values
+                .map(PluginV2CompiledRegistrySnapshot::handlerRegistry) +
+                registry.handlerRegistry,
+        ).diagnostics
+    }
+
+    private fun publishActivationDiagnostics(
+        pluginId: String,
+        pluginVersion: String,
+        diagnostics: List<PluginV2CompilerDiagnostic>,
+    ) {
+        diagnostics.forEach { diagnostic ->
+            logBus.publishBootstrapRecord(
+                pluginId = pluginId,
+                pluginVersion = pluginVersion,
+                occurredAtEpochMillis = clock(),
+                level = when (diagnostic.severity) {
+                    DiagnosticSeverity.Error -> PluginRuntimeLogLevel.Error
+                    DiagnosticSeverity.Warning -> PluginRuntimeLogLevel.Warning
+                },
+                code = "runtime_diagnostic_feedback",
+                message = diagnostic.message,
+                metadata = linkedMapOf(
+                    "diagnosticCode" to diagnostic.code,
+                    "severity" to diagnostic.severity.name.lowercase(),
+                ).also { metadata ->
+                    diagnostic.registrationKind?.let { metadata["registrationKind"] = it }
+                    diagnostic.registrationKey?.let { metadata["registrationKey"] = it }
+                },
+            )
         }
     }
 

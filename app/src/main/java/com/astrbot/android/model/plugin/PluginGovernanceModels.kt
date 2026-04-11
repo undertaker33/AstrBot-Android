@@ -1,6 +1,7 @@
 package com.astrbot.android.model.plugin
 
 import java.io.Serializable
+import java.util.Collections
 
 enum class PluginTrustLevel {
     LOCAL_PACKAGE,
@@ -33,6 +34,35 @@ data class PluginV2CompilerDiagnostic(
     val registrationKind: String? = null,
     val registrationKey: String? = null,
 ) : Serializable
+
+data class PluginLifecycleDiagnostic(
+    val pluginId: String,
+    val hook: String,
+    val code: String,
+    val message: String,
+    val tracebackText: String = "",
+    val occurredAtEpochMillis: Long,
+) : Serializable
+
+object PluginLifecycleDiagnosticsStore {
+    private val records = Collections.synchronizedList(mutableListOf<PluginLifecycleDiagnostic>())
+
+    fun record(record: PluginLifecycleDiagnostic) {
+        records += record
+    }
+
+    fun snapshot(): List<PluginLifecycleDiagnostic> {
+        return synchronized(records) {
+            records.toList()
+        }
+    }
+
+    fun clear() {
+        synchronized(records) {
+            records.clear()
+        }
+    }
+}
 
 fun PluginInstallRecord.resolveGovernanceSnapshot(): PluginGovernanceSnapshot {
     val declaredRisk = manifestSnapshot.riskLevel
