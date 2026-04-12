@@ -97,13 +97,155 @@ class PluginV2BootstrapHostApiTest {
     }
 
     @Test
-    fun phase4_bootstrap_host_api_does_not_expose_phase5_tool_registration_methods() {
+    fun phase5_bootstrap_host_api_exposes_tool_registration_methods_with_fixed_contract_inputs() {
         val publicMethodNames = PluginV2BootstrapHostApi::class.java.methods
             .map { method -> method.name }
             .filterNot { methodName -> methodName.startsWith("wait") || methodName == "equals" || methodName == "hashCode" || methodName == "toString" || methodName == "getClass" || methodName == "notify" || methodName == "notifyAll" }
 
-        assertFalse(publicMethodNames.contains("registerTool"))
-        assertFalse(publicMethodNames.contains("registerToolLifecycleHook"))
+        assertTrue(publicMethodNames.contains("registerTool"))
+        assertTrue(publicMethodNames.contains("registerToolLifecycleHook"))
+
+        val registerTool = PluginV2BootstrapHostApi::class.java.getMethod(
+            "registerTool",
+            PluginToolDescriptor::class.java,
+            PluginV2CallbackHandle::class.java,
+        )
+        val registerToolLifecycleHook = PluginV2BootstrapHostApi::class.java.getMethod(
+            "registerToolLifecycleHook",
+            ToolLifecycleHookRegistrationInput::class.java,
+        )
+
+        assertEquals(PluginV2CallbackToken::class.java, registerTool.returnType)
+        assertEquals(PluginV2CallbackToken::class.java, registerToolLifecycleHook.returnType)
+    }
+
+    @Test
+    fun registerTool_returns_token_and_persists_phase5_tool_surface() {
+        val session = bootstrapRunningSession(sessionInstanceId = "session-tool")
+        val hostApi = PluginV2BootstrapHostApi(
+            session = session,
+            logBus = InMemoryPluginRuntimeLogBus(clock = { 321L }),
+            clock = { 321L },
+        )
+        val handler = PluginV2CallbackHandle {}
+
+        val token = hostApi.registerTool(
+            descriptor = PluginToolDescriptor(
+                pluginId = session.pluginId,
+                name = "summarize",
+                description = "Summarize latest assistant response",
+                visibility = PluginToolVisibility.LLM_VISIBLE,
+                sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                inputSchema = linkedMapOf("type" to "object"),
+                metadata = linkedMapOf("surface" to "bootstrap"),
+            ),
+            handler = handler,
+        )
+
+        assertTrue(session.hasCallbackToken(token))
+        assertSame(handler, session.requireCallbackHandle(token))
+        val registration = session.rawRegistry!!.tools.single()
+        assertEquals("${session.pluginId}:summarize", registration.descriptor.toolId)
+        assertEquals(PluginToolSourceKind.PLUGIN_V2, registration.descriptor.sourceKind)
+        assertEquals(PluginToolVisibility.LLM_VISIBLE, registration.descriptor.visibility)
+        assertEquals("bootstrap", registration.descriptor.metadata?.get("surface"))
+    }
+
+    @Test
+    fun registerTool_rejects_invalid_phase5_descriptor_inputs_and_logs() {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 654L })
+        val hostApi = PluginV2BootstrapHostApi(
+            session = bootstrapRunningSession(sessionInstanceId = "session-tool-reject"),
+            logBus = logBus,
+            clock = { 654L },
+        )
+
+        val failures = listOf(
+            runCatching {
+                hostApi.registerTool(
+                    descriptor = PluginToolDescriptor(
+                        pluginId = "com.example.v2.demo",
+                        name = " ",
+                        visibility = PluginToolVisibility.LLM_VISIBLE,
+                        sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                        inputSchema = linkedMapOf("type" to "object"),
+                    ),
+                    handler = PluginV2CallbackHandle {},
+                )
+            }.exceptionOrNull(),
+            runCatching {
+                hostApi.registerTool(
+                    descriptor = PluginToolDescriptor(
+                        pluginId = "com.example.v2.demo",
+                        name = "lookup",
+                        visibility = PluginToolVisibility.HOST_INTERNAL,
+                        sourceKind = PluginToolSourceKind.SKILL,
+                        inputSchema = linkedMapOf("type" to "object"),
+                    ),
+                    handler = PluginV2CallbackHandle {},
+                )
+            }.exceptionOrNull(),
+            runCatching {
+                hostApi.registerTool(
+                    descriptor = PluginToolDescriptor(
+                        pluginId = "com.example.v2.demo",
+                        name = "lookup",
+                        visibility = PluginToolVisibility.LLM_VISIBLE,
+                        sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                        inputSchema = linkedMapOf("properties" to emptyMap<String, Any>()),
+                    ),
+                    handler = PluginV2CallbackHandle {},
+                )
+            }.exceptionOrNull(),
+        )
+
+        failures.forEach { failure ->
+            assertTrue(failure is IllegalArgumentException)
+        }
+        assertEquals(3, logBus.snapshot().size)
+        assertEquals(
+            listOf("tool", "tool", "tool"),
+            logBus.snapshot().map { it.metadata["registrationType"] },
+        )
+    }
+
+    @Test
+    fun registerToolLifecycleHook_rejects_declared_filters_and_persists_phase5_surface() {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 777L })
+        val session = bootstrapRunningSession(sessionInstanceId = "session-tool-hook")
+        val hostApi = PluginV2BootstrapHostApi(
+            session = session,
+            logBus = logBus,
+            clock = { 777L },
+        )
+
+        val token = hostApi.registerToolLifecycleHook(
+            ToolLifecycleHookRegistrationInput(
+                registrationKey = "tool.before_execute",
+                hook = "on_using_llm_tool",
+                metadata = BootstrapRegistrationMetadata(values = mapOf("phase" to "5")),
+                handler = PluginV2CallbackHandle {},
+            ),
+        )
+
+        assertTrue(session.hasCallbackToken(token))
+        assertEquals(1, session.rawRegistry!!.toolLifecycleHooks.size)
+        assertEquals("on_using_llm_tool", session.rawRegistry!!.toolLifecycleHooks.single().descriptor.hook)
+
+        val failure = runCatching {
+            hostApi.registerToolLifecycleHook(
+                ToolLifecycleHookRegistrationInput(
+                    registrationKey = "tool.reject_filters",
+                    hook = "on_llm_tool_respond",
+                    declaredFilters = listOf(BootstrapFilterDescriptor.message("group")),
+                    handler = PluginV2CallbackHandle {},
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message?.contains("declaredFilters") == true)
+        assertEquals(1, logBus.snapshot().size)
     }
 
     @Test

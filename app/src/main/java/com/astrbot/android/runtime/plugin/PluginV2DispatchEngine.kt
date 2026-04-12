@@ -691,6 +691,9 @@ private fun PluginV2InternalStage.isLlmStage(): Boolean {
     return this == PluginV2InternalStage.LlmWaiting ||
         this == PluginV2InternalStage.LlmRequest ||
         this == PluginV2InternalStage.LlmResponse ||
+        this == PluginV2InternalStage.UsingLlmTool ||
+        this == PluginV2InternalStage.ToolExecution ||
+        this == PluginV2InternalStage.LlmToolRespond ||
         this == PluginV2InternalStage.ResultDecorating ||
         this == PluginV2InternalStage.AfterMessageSent
 }
@@ -704,6 +707,9 @@ private fun PluginV2InternalStage.toDispatchStage(): PluginV2DispatchStage {
         PluginV2InternalStage.LlmWaiting -> PluginV2DispatchStage.LlmWaiting
         PluginV2InternalStage.LlmRequest -> PluginV2DispatchStage.LlmRequest
         PluginV2InternalStage.LlmResponse -> PluginV2DispatchStage.LlmResponse
+        PluginV2InternalStage.UsingLlmTool -> PluginV2DispatchStage.UsingLlmTool
+        PluginV2InternalStage.ToolExecution -> PluginV2DispatchStage.ToolExecution
+        PluginV2InternalStage.LlmToolRespond -> PluginV2DispatchStage.LlmToolRespond
         PluginV2InternalStage.ResultDecorating -> PluginV2DispatchStage.ResultDecorating
         PluginV2InternalStage.AfterMessageSent -> PluginV2DispatchStage.AfterMessageSent
     }
@@ -720,6 +726,9 @@ private fun PluginV2InternalStage.toPayloadKind(): PluginV2PayloadKind {
         PluginV2InternalStage.LlmWaiting -> PluginV2PayloadKind.MessageEvent
         PluginV2InternalStage.LlmRequest -> PluginV2PayloadKind.LlmRequestPayload
         PluginV2InternalStage.LlmResponse -> PluginV2PayloadKind.LlmResponsePayload
+        PluginV2InternalStage.UsingLlmTool -> PluginV2PayloadKind.UsingLlmTool
+        PluginV2InternalStage.ToolExecution -> PluginV2PayloadKind.ToolExecution
+        PluginV2InternalStage.LlmToolRespond -> PluginV2PayloadKind.LlmToolRespond
         PluginV2InternalStage.ResultDecorating -> PluginV2PayloadKind.LlmResultPayload
         PluginV2InternalStage.AfterMessageSent -> PluginV2PayloadKind.LlmAfterSentPayload
     }

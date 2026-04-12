@@ -5,6 +5,7 @@ import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.runtime.plugin.AllowedValue
 import com.astrbot.android.runtime.plugin.JsonLikeMap
 import com.astrbot.android.runtime.plugin.LlmPipelineAdmission
+import com.astrbot.android.runtime.plugin.PluginLlmToolCall
 import com.astrbot.android.runtime.plugin.PluginLlmResponse
 import com.astrbot.android.runtime.plugin.PluginLlmUsageSnapshot
 import com.astrbot.android.runtime.plugin.PluginMessageEventResult
@@ -12,12 +13,23 @@ import com.astrbot.android.runtime.plugin.PluginProviderMessageDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessagePartDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessageRole
 import com.astrbot.android.runtime.plugin.PluginProviderRequest
+import com.astrbot.android.runtime.plugin.PluginToolArgs
+import com.astrbot.android.runtime.plugin.PluginToolDescriptor
+import com.astrbot.android.runtime.plugin.PluginToolResult
+import com.astrbot.android.runtime.plugin.PluginToolResultStatus
+import com.astrbot.android.runtime.plugin.PluginToolSourceKind
+import com.astrbot.android.runtime.plugin.PluginToolVisibility
 import com.astrbot.android.runtime.plugin.PluginV2AfterSentView
 import com.astrbot.android.runtime.plugin.PluginV2ValueSanitizer
 import org.json.JSONArray
 import org.json.JSONObject
 
 object PluginExecutionProtocolJson {
+    fun canonicalJson(value: JsonLikeMap): String {
+        val normalized = PluginV2ValueSanitizer.requireAllowedMap(value)
+        return encodeCanonicalJsonLikeObject(normalized).toString()
+    }
+
     fun encodeExecutionContext(context: PluginExecutionContext): JSONObject {
         return JSONObject().apply {
             put("trigger", context.trigger.wireValue)
@@ -652,6 +664,33 @@ object PluginExecutionProtocolJson {
             ?: throw IllegalArgumentException("streamingMode has unsupported value")
     }
 
+    fun encodePluginToolVisibility(visibility: PluginToolVisibility): String {
+        return visibility.name.lowercase()
+    }
+
+    fun decodePluginToolVisibility(value: String): PluginToolVisibility {
+        return PluginToolVisibility.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
+            ?: throw IllegalArgumentException("visibility has unsupported value")
+    }
+
+    fun encodePluginToolSourceKind(sourceKind: PluginToolSourceKind): String {
+        return sourceKind.name.lowercase()
+    }
+
+    fun decodePluginToolSourceKind(value: String): PluginToolSourceKind {
+        return PluginToolSourceKind.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
+            ?: throw IllegalArgumentException("sourceKind has unsupported value")
+    }
+
+    fun encodePluginToolResultStatus(status: PluginToolResultStatus): String {
+        return status.name.lowercase()
+    }
+
+    fun decodePluginToolResultStatus(value: String): PluginToolResultStatus {
+        return PluginToolResultStatus.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
+            ?: throw IllegalArgumentException("status has unsupported value")
+    }
+
     fun encodeAppChatLlm(target: AppChatLlm): String {
         return target.wireValue
     }
@@ -707,6 +746,10 @@ object PluginExecutionProtocolJson {
     }
 
     fun decodePluginProviderRequest(json: JSONObject): PluginProviderRequest {
+        val messages = decodeProviderMessages(readOptionalArray(json, "messages"), "messages")
+        require(messages.none { it.role == PluginProviderMessageRole.TOOL }) {
+            "decodePluginProviderRequest does not allow role=TOOL messages."
+        }
         return PluginProviderRequest(
             requestId = readRequiredString(json, "requestId", "requestId"),
             availableProviderIds = readStringArray(readRequiredArray(json, "availableProviderIds", "availableProviderIds"), "availableProviderIds"),
@@ -720,11 +763,146 @@ object PluginExecutionProtocolJson {
             selectedProviderId = readOptionalString(json, "selectedProviderId").orEmpty(),
             selectedModelId = readOptionalString(json, "selectedModelId").orEmpty(),
             systemPrompt = readOptionalString(json, "systemPrompt"),
-            messages = decodeProviderMessages(readOptionalArray(json, "messages"), "messages"),
+            messages = messages,
             temperature = readOptionalNumber(json, "temperature")?.toDouble(),
             topP = readOptionalNumber(json, "topP")?.toDouble(),
             maxTokens = readOptionalNumber(json, "maxTokens")?.toInt(),
             streamingEnabled = json.optBoolean("streamingEnabled", false),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodePluginToolDescriptor(descriptor: PluginToolDescriptor): JSONObject {
+        return JSONObject().apply {
+            put("toolId", descriptor.toolId)
+            put("pluginId", descriptor.pluginId)
+            put("name", descriptor.name)
+            put("description", descriptor.description)
+            put("visibility", encodePluginToolVisibility(descriptor.visibility))
+            put("sourceKind", encodePluginToolSourceKind(descriptor.sourceKind))
+            put("inputSchema", encodeJsonLikeObject(descriptor.inputSchema))
+            put("metadata", descriptor.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodePluginToolDescriptor(json: JSONObject): PluginToolDescriptor {
+        return PluginToolDescriptor(
+            pluginId = readRequiredString(json, "pluginId", "pluginId"),
+            name = readRequiredString(json, "name", "name"),
+            description = json.optString("description"),
+            visibility = decodePluginToolVisibility(readRequiredString(json, "visibility", "visibility")),
+            sourceKind = decodePluginToolSourceKind(readRequiredString(json, "sourceKind", "sourceKind")),
+            inputSchema = decodeJsonLikeObject(readRequiredObject(json, "inputSchema", "inputSchema"), "inputSchema")
+                ?: throw IllegalArgumentException("inputSchema must be an object"),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodePluginToolArgs(args: PluginToolArgs): JSONObject {
+        return JSONObject().apply {
+            put("toolCallId", args.toolCallId)
+            put("requestId", args.requestId)
+            put("toolId", args.toolId)
+            put("attemptIndex", args.attemptIndex)
+            put("payload", encodeJsonLikeObject(args.payload))
+            put("metadata", args.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodePluginToolArgs(json: JSONObject): PluginToolArgs {
+        return PluginToolArgs(
+            toolCallId = readRequiredString(json, "toolCallId", "toolCallId"),
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            toolId = readRequiredString(json, "toolId", "toolId"),
+            attemptIndex = json.optInt("attemptIndex", 0),
+            payload = decodeJsonLikeObject(readRequiredObject(json, "payload", "payload"), "payload")
+                ?: throw IllegalArgumentException("payload must be an object"),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodePluginToolResult(result: PluginToolResult): JSONObject {
+        return JSONObject().apply {
+            put("toolCallId", result.toolCallId)
+            put("requestId", result.requestId)
+            put("toolId", result.toolId)
+            put("status", encodePluginToolResultStatus(result.status))
+            put("errorCode", result.errorCode?.let(::encodeJsonLikeValue) ?: JSONObject.NULL)
+            put("text", result.text?.let(::encodeJsonLikeValue) ?: JSONObject.NULL)
+            put("structuredContent", result.structuredContent?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+            put("metadata", result.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodePluginToolResult(json: JSONObject): PluginToolResult {
+        return PluginToolResult(
+            toolCallId = readRequiredString(json, "toolCallId", "toolCallId"),
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            toolId = readRequiredString(json, "toolId", "toolId"),
+            status = decodePluginToolResultStatus(readRequiredString(json, "status", "status")),
+            errorCode = readOptionalString(json, "errorCode"),
+            text = readOptionalString(json, "text"),
+            structuredContent = decodeJsonLikeObject(readOptionalObject(json, "structuredContent"), "structuredContent"),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodeUsingLlmTool(payload: UsingLlmTool): JSONObject {
+        return JSONObject().apply {
+            put("requestId", payload.requestId)
+            put("toolCallId", payload.toolCallId)
+            put("descriptor", encodePluginToolDescriptor(payload.descriptor))
+            put("args", encodePluginToolArgs(payload.args))
+            put("metadata", payload.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodeUsingLlmTool(json: JSONObject): UsingLlmTool {
+        return UsingLlmTool(
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            toolCallId = readRequiredString(json, "toolCallId", "toolCallId"),
+            descriptor = decodePluginToolDescriptor(readRequiredObject(json, "descriptor", "descriptor")),
+            args = decodePluginToolArgs(readRequiredObject(json, "args", "args")),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodeToolExecution(payload: ToolExecution): JSONObject {
+        return JSONObject().apply {
+            put("requestId", payload.requestId)
+            put("toolCallId", payload.toolCallId)
+            put("descriptor", encodePluginToolDescriptor(payload.descriptor))
+            put("args", encodePluginToolArgs(payload.args))
+            put("metadata", payload.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodeToolExecution(json: JSONObject): ToolExecution {
+        return ToolExecution(
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            toolCallId = readRequiredString(json, "toolCallId", "toolCallId"),
+            descriptor = decodePluginToolDescriptor(readRequiredObject(json, "descriptor", "descriptor")),
+            args = decodePluginToolArgs(readRequiredObject(json, "args", "args")),
+            metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    fun encodeLlmToolRespond(payload: LlmToolRespond): JSONObject {
+        return JSONObject().apply {
+            put("requestId", payload.requestId)
+            put("toolCallId", payload.toolCallId)
+            put("descriptor", encodePluginToolDescriptor(payload.descriptor))
+            put("result", encodePluginToolResult(payload.result))
+            put("metadata", payload.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    fun decodeLlmToolRespond(json: JSONObject): LlmToolRespond {
+        return LlmToolRespond(
+            requestId = readRequiredString(json, "requestId", "requestId"),
+            toolCallId = readRequiredString(json, "toolCallId", "toolCallId"),
+            descriptor = decodePluginToolDescriptor(readRequiredObject(json, "descriptor", "descriptor")),
+            result = decodePluginToolResult(readRequiredObject(json, "result", "result")),
             metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
         )
     }
@@ -814,11 +992,28 @@ object PluginExecutionProtocolJson {
             put("finishReason", response.finishReason?.let(::encodeJsonLikeValue) ?: JSONObject.NULL)
             put("text", response.text)
             put("markdown", response.markdown)
+            put(
+                "toolCalls",
+                JSONArray().apply {
+                    response.toolCalls.forEach { put(encodePluginLlmToolCall(it)) }
+                },
+            )
             put("metadata", response.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
         }
     }
 
     fun decodePluginLlmResponse(json: JSONObject): PluginLlmResponse {
+        val toolCalls = readOptionalArray(json, "toolCalls")
+            ?.let { array ->
+                buildList<PluginLlmToolCall> {
+                    for (index in 0 until array.length()) {
+                        val item = array.optJSONObject(index)
+                            ?: throw IllegalArgumentException("toolCalls[$index] must be an object")
+                        add(decodePluginLlmToolCall(item))
+                    }
+                }
+            }
+            ?: emptyList()
         return PluginLlmResponse(
             requestId = readRequiredString(json, "requestId", "requestId"),
             providerId = readRequiredString(json, "providerId", "providerId"),
@@ -827,7 +1022,27 @@ object PluginExecutionProtocolJson {
             finishReason = readOptionalString(json, "finishReason"),
             text = readOptionalString(json, "text").orEmpty(),
             markdown = json.optBoolean("markdown", false),
+            toolCalls = toolCalls,
             metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+        )
+    }
+
+    private fun encodePluginLlmToolCall(call: PluginLlmToolCall): JSONObject {
+        return JSONObject().apply {
+            put("toolName", call.normalizedToolName)
+            put("arguments", encodeJsonLikeObject(call.normalizedArguments))
+            put("metadata", call.normalizedMetadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
+        }
+    }
+
+    private fun decodePluginLlmToolCall(json: JSONObject): PluginLlmToolCall {
+        val toolName = readRequiredString(json, "toolName", "toolName")
+        val arguments = decodeJsonLikeObject(readOptionalObject(json, "arguments"), "arguments") ?: emptyMap()
+        val metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata")
+        return PluginLlmToolCall(
+            toolName = toolName,
+            arguments = arguments,
+            metadata = metadata,
         )
     }
 
@@ -1071,6 +1286,40 @@ object PluginExecutionProtocolJson {
     private fun readRequiredArray(json: JSONObject, key: String, path: String): JSONArray {
         return json.optJSONArray(key)
             ?: throw IllegalArgumentException("$path must be an array")
+    }
+
+    private fun encodeCanonicalJsonLikeObject(values: JsonLikeMap): JSONObject {
+        val normalized = PluginV2ValueSanitizer.requireAllowedMap(values)
+        val keys = normalized.keys.map(String::trim).sorted()
+        return JSONObject().apply {
+            keys.forEach { key ->
+                put(key, encodeCanonicalJsonLikeValue(normalized[key]))
+            }
+        }
+    }
+
+    private fun encodeCanonicalJsonLikeValue(value: AllowedValue): Any? {
+        return when (value) {
+            null -> JSONObject.NULL
+            is String,
+            is Boolean,
+            is Int,
+            is Long,
+            is Double,
+            -> value
+
+            is Number -> value.toDouble()
+
+            is List<*> -> JSONArray().apply {
+                value.forEach { item ->
+                    put(encodeCanonicalJsonLikeValue(item as AllowedValue))
+                }
+            }
+
+            is Map<*, *> -> encodeCanonicalJsonLikeObject(value as JsonLikeMap)
+
+            else -> throw IllegalArgumentException("Unsupported JSON-like value type: ${value::class.java.name}")
+        }
     }
 
     private fun readStringArray(array: JSONArray?, path: String): List<String> {

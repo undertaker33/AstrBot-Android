@@ -10,6 +10,9 @@ enum class PluginV2InternalStage {
     LlmWaiting,
     LlmRequest,
     LlmResponse,
+    UsingLlmTool,
+    ToolExecution,
+    LlmToolRespond,
     ResultDecorating,
     AfterMessageSent,
 }
@@ -29,6 +32,14 @@ enum class PluginV2LlmHookSurface(
     OnLlmResponse(
         wireValue = "on_llm_response",
         stage = PluginV2InternalStage.LlmResponse,
+    ),
+    OnUsingLlmTool(
+        wireValue = "on_using_llm_tool",
+        stage = PluginV2InternalStage.UsingLlmTool,
+    ),
+    OnLlmToolRespond(
+        wireValue = "on_llm_tool_respond",
+        stage = PluginV2InternalStage.LlmToolRespond,
     ),
     OnDecoratingResult(
         wireValue = "on_decorating_result",

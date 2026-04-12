@@ -64,6 +64,12 @@ data class PersonaProfile(
     val enabled: Boolean = true,
 )
 
+data class PersonaToolEnablementSnapshot(
+    val personaId: String,
+    val enabled: Boolean = true,
+    val enabledTools: Set<String> = emptySet(),
+)
+
 data class BotProfile(
     val id: String = "qq-main",
     val platformName: String = "QQ",

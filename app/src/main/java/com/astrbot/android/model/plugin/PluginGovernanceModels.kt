@@ -52,6 +52,18 @@ data class PluginLifecycleDiagnostic(
     val occurredAtEpochMillis: Long,
 ) : Serializable
 
+object PluginV2ToolDiagnosticCodes {
+    const val TOOL_REGISTRY_COMPILED = "tool_registry_compiled"
+    const val TOOL_AVAILABILITY_SNAPSHOT_BUILT = "tool_availability_snapshot_built"
+    const val LLM_TOOL_SELECTED = "llm_tool_selected"
+    const val LLM_TOOL_STARTED = "llm_tool_started"
+    const val LLM_TOOL_COMPLETED = "llm_tool_completed"
+    const val LLM_TOOL_FAILED = "llm_tool_failed"
+    const val TOOL_PRE_HOOK_EMITTED = "tool_pre_hook_emitted"
+    const val TOOL_POST_HOOK_EMITTED = "tool_post_hook_emitted"
+    const val TOOL_CALL_LOOP_RESUMED = "tool_call_loop_resumed"
+}
+
 object PluginLifecycleDiagnosticsStore {
     private val records = Collections.synchronizedList(mutableListOf<PluginLifecycleDiagnostic>())
 

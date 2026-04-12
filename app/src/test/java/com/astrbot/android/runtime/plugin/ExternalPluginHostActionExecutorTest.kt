@@ -12,6 +12,7 @@ import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -118,6 +119,26 @@ class ExternalPluginHostActionExecutorTest {
 
         assertTrue(suspended.failureSnapshot.isSuspended)
         assertEquals("plugin_suspended", suspended.code)
+    }
+
+    @Test
+    fun executor_explicitly_rejects_v2_tool_executor_usage() = runBlocking {
+        val executor = ExternalPluginHostActionExecutor(
+            failureGuard = PluginFailureGuard(InMemoryPluginFailureStateStore()),
+        )
+
+        val result = executor.asV2ToolExecutor().execute(
+            PluginToolArgs(
+                toolCallId = "tool-call-legacy-guard",
+                requestId = "request-legacy-guard",
+                toolId = "__host_builtin__:send_message",
+                payload = linkedMapOf("text" to "hello"),
+            ),
+        )
+
+        assertEquals(PluginToolResultStatus.ERROR, result.status)
+        assertEquals("legacy_host_action_only", result.errorCode)
+        assertTrue(result.text.orEmpty().contains("legacy/internal"))
     }
 
     private fun context(

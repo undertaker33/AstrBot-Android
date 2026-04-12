@@ -1,9 +1,11 @@
 package com.astrbot.android.runtime.plugin
 
+import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
 import com.astrbot.android.model.chat.ConversationAttachment
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -201,5 +203,203 @@ class DefaultAppChatPluginRuntimeTest {
         result as PluginV2HostLlmDeliveryResult.Sent
         assertEquals("conv-delivery", result.afterSentView.conversationId)
         assertEquals(listOf("receipt-1"), result.afterSentView.receiptIds)
+    }
+
+    @Test
+    fun default_app_chat_runtime_completes_host_tool_rounds_before_reply_send_and_persist() = runBlocking {
+        val order = CopyOnWriteArrayList<String>()
+        val providerCalls = AtomicInteger(0)
+        val notificationCalls = AtomicInteger(0)
+        val event = PluginMessageEvent(
+            eventId = "evt-runtime-host-tool",
+            platformAdapterType = "app_chat",
+            messageType = com.astrbot.android.model.chat.MessageType.FriendMessage,
+            conversationId = "conv-host-tool",
+            senderId = "sender-host-tool",
+            timestampEpochMillis = 789L,
+            rawText = "hello host tool",
+            initialWorkingText = "hello host tool",
+            extras = mapOf("source" to "unit-test"),
+        )
+
+        val result = DefaultAppChatPluginRuntime.deliverLlmPipeline(
+            request = PluginV2HostLlmDeliveryRequest(
+                pipelineInput = PluginV2LlmPipelineInput(
+                    event = event,
+                    messageIds = listOf("msg-host-tool"),
+                    streamingMode = PluginV2StreamingMode.NON_STREAM,
+                    availableProviderIds = listOf("provider-a"),
+                    availableModelIdsByProvider = mapOf("provider-a" to listOf("model-a")),
+                    selectedProviderId = "provider-a",
+                    selectedModelId = "model-a",
+                    messages = listOf(
+                        PluginProviderMessageDto(
+                            role = PluginProviderMessageRole.USER,
+                            parts = listOf(PluginProviderMessagePartDto.TextPart("hello host tool")),
+                        ),
+                    ),
+                    invokeProvider = { requestPayload, _ ->
+                        when (providerCalls.incrementAndGet()) {
+                            1 -> {
+                                order += "provider:tool-call"
+                                PluginV2ProviderInvocationResult.NonStreaming(
+                                    response = PluginLlmResponse(
+                                        requestId = requestPayload.requestId,
+                                        providerId = requestPayload.selectedProviderId,
+                                        modelId = requestPayload.selectedModelId,
+                                        toolCalls = listOf(
+                                            PluginLlmToolCall(
+                                                toolName = PluginExecutionHostApi.HostSendNotificationToolName,
+                                                arguments = linkedMapOf(
+                                                    "title" to "AstrBot",
+                                                    "message" to "hello host",
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                )
+                            }
+
+                            else -> {
+                                order += "provider:final-response"
+                                PluginV2ProviderInvocationResult.NonStreaming(
+                                    response = PluginLlmResponse(
+                                        requestId = requestPayload.requestId,
+                                        providerId = requestPayload.selectedProviderId,
+                                        modelId = requestPayload.selectedModelId,
+                                        text = "assistant-after-tool",
+                                    ),
+                                )
+                            }
+                        }
+                    },
+                ),
+                conversationId = "conv-host-tool",
+                platformAdapterType = "app_chat",
+                platformInstanceKey = "android",
+                hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
+                    hostToolHandlers = PluginExecutionHostToolHandlers(
+                        sendNotificationHandler = { title, message ->
+                            notificationCalls.incrementAndGet()
+                            order += "tool:$title:$message"
+                        },
+                    ),
+                ),
+                prepareReply = { pipelineResult ->
+                    PluginV2HostPreparedReply(
+                        text = pipelineResult.sendableResult.text,
+                    )
+                },
+                sendReply = { preparedReply ->
+                    order += "send:${preparedReply.text}"
+                    PluginV2HostSendResult(success = true, receiptIds = listOf("receipt-host-tool"))
+                },
+                persistDeliveredReply = { preparedReply, _, _ ->
+                    order += "persist:${preparedReply.text}"
+                },
+            ),
+        )
+
+        assertEquals(2, providerCalls.get())
+        assertEquals(1, notificationCalls.get())
+        assertEquals(
+            listOf(
+                "provider:tool-call",
+                "tool:AstrBot:hello host",
+                "provider:final-response",
+                "send:assistant-after-tool",
+                "persist:assistant-after-tool",
+            ),
+            order.toList(),
+        )
+        assertTrue(result is PluginV2HostLlmDeliveryResult.Sent)
+    }
+
+    @Test
+    fun default_app_chat_runtime_keeps_persona_disabled_host_tool_unavailable() = runBlocking {
+        val providerCalls = AtomicInteger(0)
+        val notificationCalls = AtomicInteger(0)
+        val event = PluginMessageEvent(
+            eventId = "evt-runtime-host-tool-persona",
+            platformAdapterType = "app_chat",
+            messageType = com.astrbot.android.model.chat.MessageType.FriendMessage,
+            conversationId = "conv-host-tool-persona",
+            senderId = "sender-host-tool-persona",
+            timestampEpochMillis = 790L,
+            rawText = "hello disabled host tool",
+            initialWorkingText = "hello disabled host tool",
+        )
+
+        DefaultAppChatPluginRuntime.deliverLlmPipeline(
+            request = PluginV2HostLlmDeliveryRequest(
+                pipelineInput = PluginV2LlmPipelineInput(
+                    event = event,
+                    messageIds = listOf("msg-host-tool-persona"),
+                    streamingMode = PluginV2StreamingMode.NON_STREAM,
+                    availableProviderIds = listOf("provider-a"),
+                    availableModelIdsByProvider = mapOf("provider-a" to listOf("model-a")),
+                    selectedProviderId = "provider-a",
+                    selectedModelId = "model-a",
+                    messages = listOf(
+                        PluginProviderMessageDto(
+                            role = PluginProviderMessageRole.USER,
+                            parts = listOf(PluginProviderMessagePartDto.TextPart("hello disabled host tool")),
+                        ),
+                    ),
+                    personaToolEnablementSnapshot = PersonaToolEnablementSnapshot(
+                        personaId = "persona-no-host-tools",
+                        enabled = true,
+                        enabledTools = emptySet(),
+                    ),
+                    invokeProvider = { requestPayload, _ ->
+                        when (providerCalls.incrementAndGet()) {
+                            1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                                response = PluginLlmResponse(
+                                    requestId = requestPayload.requestId,
+                                    providerId = requestPayload.selectedProviderId,
+                                    modelId = requestPayload.selectedModelId,
+                                    toolCalls = listOf(
+                                        PluginLlmToolCall(
+                                            toolName = PluginExecutionHostApi.HostSendNotificationToolName,
+                                            arguments = linkedMapOf(
+                                                "title" to "AstrBot",
+                                                "message" to "blocked by persona",
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            )
+
+                            else -> PluginV2ProviderInvocationResult.NonStreaming(
+                                response = PluginLlmResponse(
+                                    requestId = requestPayload.requestId,
+                                    providerId = requestPayload.selectedProviderId,
+                                    modelId = requestPayload.selectedModelId,
+                                    text = "assistant-after-disabled-tool",
+                                ),
+                            )
+                        }
+                    },
+                ),
+                conversationId = "conv-host-tool-persona",
+                platformAdapterType = "app_chat",
+                platformInstanceKey = "android",
+                hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
+                    hostToolHandlers = PluginExecutionHostToolHandlers(
+                        sendNotificationHandler = { _, _ ->
+                            notificationCalls.incrementAndGet()
+                        },
+                    ),
+                ),
+                prepareReply = { pipelineResult ->
+                    PluginV2HostPreparedReply(text = pipelineResult.sendableResult.text)
+                },
+                sendReply = { PluginV2HostSendResult(success = true) },
+                persistDeliveredReply = { _, _, _ -> },
+            ),
+        )
+
+        assertEquals(2, providerCalls.get())
+        assertEquals(0, notificationCalls.get())
     }
 }

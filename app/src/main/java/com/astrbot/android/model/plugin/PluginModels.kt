@@ -20,6 +20,9 @@ enum class PluginV2LlmStage(
     LlmWaiting("llm_waiting"),
     LlmRequest("llm_request"),
     LlmResponse("llm_response"),
+    UsingLlmTool("using_llm_tool"),
+    ToolExecution("tool_execution"),
+    LlmToolRespond("llm_tool_respond"),
     ResultDecorating("result_decorating"),
     AfterMessageSent("after_message_sent");
 

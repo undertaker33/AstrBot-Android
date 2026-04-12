@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.plugin
 
+import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicReference
@@ -33,6 +34,9 @@ data class PluginV2ActiveRuntimeSnapshot(
     val callbackTokenIndexByPluginId: Map<String, List<String>> = emptyMap(),
     val diagnosticsByPluginId: Map<String, List<PluginV2CompilerDiagnostic>> = emptyMap(),
     val lastBootstrapSummariesByPluginId: Map<String, PluginV2BootstrapSummary> = emptyMap(),
+    val toolRegistrySnapshot: PluginV2ToolRegistrySnapshot? = null,
+    val toolRegistryDiagnostics: List<PluginV2CompilerDiagnostic> = emptyList(),
+    val toolAvailabilityByName: Map<String, PluginV2ToolAvailabilitySnapshot> = emptyMap(),
 )
 
 class PluginV2ActiveRuntimeStore(
@@ -217,6 +221,8 @@ private fun PluginV2ActiveRuntimeSnapshot.withLoadedRuntimeInternal(
     val nextSummaries = LinkedHashMap(lastBootstrapSummariesByPluginId)
     nextSummaries[pluginId] = entry.lastBootstrapSummary.copy()
 
+    val toolState = compileCentralizedToolState(nextSessions)
+
     return copy(
         activeRuntimeEntriesByPluginId = nextEntries,
         activeSessionsByPluginId = nextSessions,
@@ -224,6 +230,9 @@ private fun PluginV2ActiveRuntimeSnapshot.withLoadedRuntimeInternal(
         callbackTokenIndexByPluginId = nextCallbackTokenIndex,
         diagnosticsByPluginId = nextDiagnostics,
         lastBootstrapSummariesByPluginId = nextSummaries,
+        toolRegistrySnapshot = toolState.activeRegistry,
+        toolRegistryDiagnostics = toolState.diagnostics,
+        toolAvailabilityByName = toolState.availabilityByName,
     )
 }
 
@@ -253,6 +262,8 @@ private fun PluginV2ActiveRuntimeSnapshot.withoutPluginInternal(
         summaries.remove(pluginId)
     }
 
+    val toolState = compileCentralizedToolState(nextSessions)
+
     return copy(
         activeRuntimeEntriesByPluginId = nextEntries,
         activeSessionsByPluginId = nextSessions,
@@ -260,6 +271,26 @@ private fun PluginV2ActiveRuntimeSnapshot.withoutPluginInternal(
         callbackTokenIndexByPluginId = nextCallbackTokenIndex,
         diagnosticsByPluginId = nextDiagnostics,
         lastBootstrapSummariesByPluginId = nextSummaries,
+        toolRegistrySnapshot = toolState.activeRegistry,
+        toolRegistryDiagnostics = toolState.diagnostics,
+        toolAvailabilityByName = toolState.availabilityByName,
+    )
+}
+
+internal fun compileCentralizedToolState(
+    sessionsByPluginId: Map<String, PluginV2RuntimeSession>,
+    additionalToolDescriptors: Collection<PluginToolDescriptor> = emptyList(),
+    personaSnapshot: PersonaToolEnablementSnapshot? = null,
+    capabilityGateway: PluginV2ToolCapabilityGateway = PluginV2ToolCapabilityGateway { true },
+): PluginV2ToolRegistryRuntimeSnapshot {
+    val rawRegistries = sessionsByPluginId.values
+        .filter { session -> session.pluginId != PluginExecutionHostApi.HostBuiltinPluginId }
+        .mapNotNull(PluginV2RuntimeSession::rawRegistry)
+    return PluginV2ToolRegistry().compileRuntimeSnapshot(
+        rawRegistries = rawRegistries,
+        additionalToolDescriptors = additionalToolDescriptors,
+        personaSnapshot = personaSnapshot,
+        capabilityGateway = capabilityGateway,
     )
 }
 
@@ -281,6 +312,11 @@ private fun PluginV2ActiveRuntimeSnapshot.frozen(): PluginV2ActiveRuntimeSnapsho
         lastBootstrapSummariesByPluginId = lastBootstrapSummariesByPluginId
             .mapValues { (_, summary) -> summary.copy() }
             .toFrozenMap(),
+        toolRegistrySnapshot = toolRegistrySnapshot?.frozenCopy(),
+        toolRegistryDiagnostics = toolRegistryDiagnostics.map { it.copy() }.toFrozenList(),
+        toolAvailabilityByName = toolAvailabilityByName
+            .mapValues { (_, availability) -> availability.copy() }
+            .toFrozenMap(),
     )
 }
 
@@ -299,6 +335,22 @@ private fun <T> List<T>.toFrozenList(): List<T> {
 
 private fun <K, V> Map<K, V>.toFrozenMap(): Map<K, V> {
     return Collections.unmodifiableMap(LinkedHashMap(this))
+}
+
+private fun PluginV2ToolRegistrySnapshot.frozenCopy(): PluginV2ToolRegistrySnapshot {
+    val entries = activeEntries.map { entry -> entry.frozen() }
+    return PluginV2ToolRegistrySnapshot(
+        activeEntries = entries.toFrozenList(),
+        activeEntriesByName = entries.associateBy(PluginV2ToolRegistryEntry::name).toFrozenMap(),
+        activeEntriesByToolId = entries.associateBy(PluginV2ToolRegistryEntry::toolId).toFrozenMap(),
+    )
+}
+
+private fun PluginV2ToolRegistryEntry.frozen(): PluginV2ToolRegistryEntry {
+    return copy(
+        inputSchema = inputSchema.toFrozenMap(),
+        metadata = metadata?.toFrozenMap(),
+    )
 }
 
 object PluginV2ActiveRuntimeStoreProvider {

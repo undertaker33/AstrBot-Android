@@ -9,6 +9,7 @@ import com.astrbot.android.data.db.PersonaEntity
 import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.PersonaProfile
+import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.runtime.RuntimeLogRepository
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -116,6 +117,16 @@ object PersonaRepository {
     fun snapshotProfiles(): List<PersonaProfile> {
         return _personas.value.map { persona ->
             persona.copy(enabledTools = persona.enabledTools.toSet())
+        }
+    }
+
+    fun snapshotToolEnablement(personaId: String): PersonaToolEnablementSnapshot? {
+        return snapshotProfiles().firstOrNull { persona -> persona.id == personaId }?.let { persona ->
+            PersonaToolEnablementSnapshot(
+                personaId = persona.id,
+                enabled = persona.enabled,
+                enabledTools = persona.enabledTools.toSet(),
+            )
         }
     }
 

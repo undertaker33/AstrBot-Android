@@ -42,9 +42,7 @@ sealed interface PluginProviderMessagePartDto {
     data class TextPart(
         val text: String,
     ) : PluginProviderMessagePartDto {
-        init {
-            require(text.isNotBlank()) { "text must not be blank." }
-        }
+        // Phase 5 tool reinjection requires TextPart("") as a placeholder when both text and structured content are empty.
     }
 
     data class MediaRefPart(
@@ -70,14 +68,23 @@ class PluginProviderMessageDto(
 
     init {
         require(this.parts.isNotEmpty()) { "parts must not be empty." }
-        require(this.parts.none { it is PluginProviderMessagePartDto.TextPart && it.text.isBlank() }) {
-            "parts must not contain blank text values."
+        require(
+            role == PluginProviderMessageRole.TOOL ||
+                this.parts.none { it is PluginProviderMessagePartDto.TextPart && it.text.isBlank() },
+        ) {
+            "parts must not contain blank text values unless role=TOOL."
         }
         require(this.parts.none { it is PluginProviderMessagePartDto.MediaRefPart && it.uri.isBlank() }) {
             "parts must not contain blank media references."
         }
         require(this.parts.none { it is PluginProviderMessagePartDto.MediaRefPart && it.mimeType.isBlank() }) {
             "parts must not contain blank media mime types."
+        }
+        if (role == PluginProviderMessageRole.TOOL) {
+            require(this.name != null) { "role=TOOL requires name." }
+            require(extractHostToolCallId(this.metadata) != null) {
+                "role=TOOL requires metadata.__host.toolCallId."
+            }
         }
     }
 }
@@ -98,6 +105,7 @@ class PluginProviderRequest(
     maxTokens: Int? = null,
     streamingEnabled: Boolean = false,
     metadata: JsonLikeMap? = null,
+    private val allowHostToolMessages: Boolean = false,
 ) {
     val availableProviderIds: List<String> = sanitizeIdList(availableProviderIds, "availableProviderIds")
     val availableModelIdsByProvider: Map<String, List<String>> = sanitizeModelMap(
@@ -122,9 +130,18 @@ class PluginProviderRequest(
             field = sanitizeOptionalString(value)
         }
 
-    var messages: List<PluginProviderMessageDto> = sanitizeMessages(messages)
+    private val preservedHostToolMessages: List<PluginProviderMessageDto> =
+        sanitizeInitialHostToolMessages(messages, allowHostToolMessages)
+
+    var messages: List<PluginProviderMessageDto> = sanitizeInitialMessages(
+        values = messages,
+        preservedHostToolMessages = preservedHostToolMessages,
+    )
         set(value) {
-            field = sanitizeMessages(value)
+            // Phase 5: plugins must not author TOOL role messages via request hooks.
+            // Host-authored TOOL messages (tool reinjection) must remain intact across plugin mutations.
+            val nextMessages = sanitizeMessages(value)
+            field = nextMessages.filter { it.role != PluginProviderMessageRole.TOOL } + preservedHostToolMessages
         }
 
     var temperature: Double? = sanitizeTemperature(temperature)
@@ -232,6 +249,7 @@ class PluginLlmResponse(
     val finishReason: String? = null,
     text: String = "",
     markdown: Boolean = false,
+    toolCalls: List<PluginLlmToolCall> = emptyList(),
     metadata: JsonLikeMap? = null,
 ) {
     var text: String = text
@@ -249,10 +267,40 @@ class PluginLlmResponse(
             field = sanitizeMetadata(value)
         }
 
+    var toolCalls: List<PluginLlmToolCall> = sanitizeToolCalls(toolCalls)
+        set(value) {
+            field = sanitizeToolCalls(value)
+        }
+
     init {
         require(requestId.isNotBlank()) { "requestId must not be blank." }
         require(providerId.isNotBlank()) { "providerId must not be blank." }
         require(modelId.isNotBlank()) { "modelId must not be blank." }
+    }
+}
+
+data class PluginLlmToolCall(
+    val toolName: String,
+    val arguments: JsonLikeMap = emptyMap(),
+    val metadata: JsonLikeMap? = null,
+) {
+    val normalizedToolName: String = toolName.trim()
+    val normalizedArguments: JsonLikeMap = PluginV2ValueSanitizer.requireAllowedMap(arguments)
+    val normalizedMetadata: JsonLikeMap? = metadata?.let(PluginV2ValueSanitizer::requireAllowedMap)
+
+    init {
+        require(normalizedToolName.isNotBlank()) { "toolName must not be blank." }
+    }
+}
+
+data class PluginLlmToolCallDelta(
+    val index: Int,
+    val toolName: String,
+    val arguments: JsonLikeMap = emptyMap(),
+) {
+    init {
+        require(index >= 0) { "index must not be negative." }
+        require(toolName.isNotBlank()) { "toolName must not be blank." }
     }
 }
 
@@ -387,12 +435,47 @@ private fun sanitizeOptionalString(value: String?): String? {
 }
 
 private fun sanitizeMessages(values: List<PluginProviderMessageDto>): List<PluginProviderMessageDto> {
-    values.forEachIndexed { index, message ->
-        require(message.role.canBeWrittenByPlugin) {
-            "messages[$index].role must be SYSTEM, USER, or ASSISTANT."
+    return values.toList()
+}
+
+private fun sanitizeInitialMessages(
+    values: List<PluginProviderMessageDto>,
+    preservedHostToolMessages: List<PluginProviderMessageDto>,
+): List<PluginProviderMessageDto> {
+    val sanitized = sanitizeMessages(values)
+    return sanitized.filter { it.role != PluginProviderMessageRole.TOOL } + preservedHostToolMessages
+}
+
+private fun sanitizeInitialHostToolMessages(
+    values: List<PluginProviderMessageDto>,
+    allowHostToolMessages: Boolean,
+): List<PluginProviderMessageDto> {
+    val sanitized = sanitizeMessages(values)
+    val toolMessages = sanitized.filter { it.role == PluginProviderMessageRole.TOOL }
+    if (!allowHostToolMessages) {
+        return emptyList()
+    }
+    toolMessages.forEach { message ->
+        require(extractHostToolCallId(message.metadata) != null) {
+            "host-preserved role=TOOL messages require metadata.__host.toolCallId."
         }
     }
-    return values.toList()
+    return toolMessages
+}
+
+private fun extractHostToolCallId(metadata: JsonLikeMap?): String? {
+    val hostMetadata = metadata?.get("__host") as? Map<*, *> ?: return null
+    return (hostMetadata["toolCallId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+}
+
+private fun sanitizeToolCalls(values: List<PluginLlmToolCall>): List<PluginLlmToolCall> {
+    return values.map { call ->
+        PluginLlmToolCall(
+            toolName = call.normalizedToolName,
+            arguments = call.normalizedArguments,
+            metadata = call.normalizedMetadata,
+        )
+    }
 }
 
 private fun sanitizeTemperature(value: Double?): Double? {

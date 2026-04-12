@@ -8,6 +8,9 @@ enum class PluginV2DispatchStage {
     LlmWaiting,
     LlmRequest,
     LlmResponse,
+    UsingLlmTool,
+    ToolExecution,
+    LlmToolRespond,
     ResultDecorating,
     AfterMessageSent,
 }
@@ -17,6 +20,9 @@ enum class PluginV2PayloadKind {
     MessageEvent,
     LlmRequestPayload,
     LlmResponsePayload,
+    UsingLlmTool,
+    ToolExecution,
+    LlmToolRespond,
     LlmResultPayload,
     LlmAfterSentPayload,
 }

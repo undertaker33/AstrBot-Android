@@ -43,6 +43,7 @@ internal data class PluginV2HostLlmDeliveryRequest(
     val conversationId: String,
     val platformAdapterType: String,
     val platformInstanceKey: String,
+    val hostCapabilityGateway: PluginHostCapabilityGateway = DefaultPluginHostCapabilityGateway(),
     val prepareReply: suspend (PluginV2LlmPipelineResult) -> PluginV2HostPreparedReply,
     val sendReply: suspend (PluginV2HostPreparedReply) -> PluginV2HostSendResult,
     val persistDeliveredReply: suspend (
@@ -75,8 +76,8 @@ internal sealed interface PluginV2HostLlmDeliveryResult {
 internal class EngineBackedAppChatPluginRuntime(
     private val pluginProvider: () -> List<PluginRuntimePlugin>,
     private val engine: PluginExecutionEngine,
-    private val llmPipelineCoordinatorProvider: () -> PluginV2LlmPipelineCoordinator = {
-        AppChatPluginRuntimeCoordinatorProvider.coordinator()
+    private val defaultHostCapabilityGatewayProvider: () -> PluginHostCapabilityGateway = {
+        DefaultPluginHostCapabilityGateway()
     },
 ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
     override fun execute(
@@ -93,20 +94,35 @@ internal class EngineBackedAppChatPluginRuntime(
     override suspend fun runLlmPipeline(
         input: PluginV2LlmPipelineInput,
     ): PluginV2LlmPipelineResult {
-        return llmPipelineCoordinatorProvider().runPreSendStages(input)
+        val hostCapabilityGateway = defaultHostCapabilityGatewayProvider()
+        return AppChatPluginRuntimeCoordinatorProvider.coordinator(hostCapabilityGateway).runPreSendStages(
+            input = input,
+            snapshot = hostCapabilityGateway.registerHostBuiltinTools(
+                PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+                personaSnapshot = input.personaToolEnablementSnapshot,
+            ),
+        )
     }
 
     override suspend fun deliverLlmPipeline(
         request: PluginV2HostLlmDeliveryRequest,
     ): PluginV2HostLlmDeliveryResult {
-        return llmPipelineCoordinatorProvider().deliverLlmPipeline(request)
+        return AppChatPluginRuntimeCoordinatorProvider.coordinator(request.hostCapabilityGateway).deliverLlmPipeline(
+            request = request,
+            snapshot = request.hostCapabilityGateway.registerHostBuiltinTools(
+                PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+                personaSnapshot = request.pipelineInput.personaToolEnablementSnapshot,
+            ),
+        )
     }
 
     override suspend fun dispatchAfterMessageSent(
         event: PluginMessageEvent,
         afterSentView: PluginV2AfterSentView,
     ): PluginV2LlmStageDispatchResult {
-        return llmPipelineCoordinatorProvider().dispatchAfterMessageSent(
+        return AppChatPluginRuntimeCoordinatorProvider
+            .coordinator(defaultHostCapabilityGatewayProvider())
+            .dispatchAfterMessageSent(
             event = event,
             afterSentView = afterSentView,
         )
@@ -117,12 +133,19 @@ internal object AppChatPluginRuntimeCoordinatorProvider {
     @Volatile
     private var coordinatorOverrideForTests: PluginV2LlmPipelineCoordinator? = null
 
-    private val sharedCoordinator: PluginV2LlmPipelineCoordinator by lazy {
-        PluginV2LlmPipelineCoordinator()
-    }
-
-    fun coordinator(): PluginV2LlmPipelineCoordinator {
-        return coordinatorOverrideForTests ?: sharedCoordinator
+    fun coordinator(hostCapabilityGateway: PluginHostCapabilityGateway): PluginV2LlmPipelineCoordinator {
+        return coordinatorOverrideForTests ?: PluginV2LlmPipelineCoordinator(
+            toolExecutor = PluginV2ToolExecutor { args ->
+                hostCapabilityGateway.executeHostBuiltinTool(args) ?: PluginToolResult(
+                    toolCallId = args.toolCallId,
+                    requestId = args.requestId,
+                    toolId = args.toolId,
+                    status = PluginToolResultStatus.ERROR,
+                    errorCode = "tool_executor_unavailable",
+                    text = "Tool executor is not wired yet.",
+                )
+            },
+        )
     }
 
     internal fun setCoordinatorOverrideForTests(

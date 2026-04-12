@@ -95,6 +95,39 @@ class PluginV2BootstrapHostApi(
         }
     }
 
+    fun registerTool(
+        descriptor: PluginToolDescriptor,
+        handler: PluginV2CallbackHandle,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerTool",
+            registrationType = "tool",
+            normalizeDescriptor = { validateToolDescriptor(descriptor) },
+            extractHandler = { handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendTool(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
+    fun registerToolLifecycleHook(
+        descriptor: ToolLifecycleHookRegistrationInput,
+    ): PluginV2CallbackToken {
+        return register(
+            operation = "registerToolLifecycleHook",
+            registrationType = "tool_lifecycle",
+            normalizeDescriptor = { validateToolLifecycleHook(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendToolLifecycleHook(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
     fun log(
         level: PluginRuntimeLogLevel,
         message: String,
@@ -228,6 +261,43 @@ class PluginV2BootstrapHostApi(
     private fun validateLlmHook(
         descriptor: LlmHookRegistrationInput,
     ): LlmHookRegistrationInput {
+        rejectFiltersIfPresent(descriptor.declaredFilters)
+        return descriptor.copy(
+            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
+            hook = requireTrimmedValue(
+                value = descriptor.hook,
+                fieldName = "hook",
+            ),
+            metadata = normalizeMetadata(descriptor.metadata),
+        )
+    }
+
+    private fun validateToolDescriptor(
+        descriptor: PluginToolDescriptor,
+    ): PluginToolDescriptor {
+        require(descriptor.pluginId.isNotBlank()) { "pluginId must not be blank." }
+        require(descriptor.pluginId == session.pluginId) {
+            "tool descriptor pluginId must match bootstrap session pluginId."
+        }
+        require(descriptor.name.isNotBlank()) { "name must not be blank." }
+        require(!descriptor.sourceKind.reservedOnly) {
+            "reserved source kind cannot be registered through registerTool."
+        }
+        requireToolSchema(descriptor.inputSchema)
+        return PluginToolDescriptor(
+            pluginId = descriptor.pluginId.trim(),
+            name = descriptor.name,
+            description = descriptor.description,
+            visibility = descriptor.visibility,
+            sourceKind = descriptor.sourceKind,
+            inputSchema = descriptor.inputSchema,
+            metadata = descriptor.metadata,
+        )
+    }
+
+    private fun validateToolLifecycleHook(
+        descriptor: ToolLifecycleHookRegistrationInput,
+    ): ToolLifecycleHookRegistrationInput {
         rejectFiltersIfPresent(descriptor.declaredFilters)
         return descriptor.copy(
             registrationKey = normalizeRegistrationKey(descriptor.registrationKey),

@@ -14,6 +14,7 @@ import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.PersonaProfile
+import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationMessage
@@ -44,6 +45,7 @@ import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
 import com.astrbot.android.runtime.plugin.PluginExecutionOutcome
+import com.astrbot.android.runtime.plugin.PluginExecutionHostToolHandlers
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
 import com.astrbot.android.runtime.botcommand.BotCommandResources
@@ -465,6 +467,13 @@ object OneBotBridgeServer {
                 messages = currentSession.messages
                     .takeLast(contextWindow)
                     .toPluginProviderMessages(),
+                personaToolEnablementSnapshot = persona?.let { activePersona ->
+                    PersonaToolEnablementSnapshot(
+                        personaId = activePersona.id,
+                        enabled = activePersona.enabled,
+                        enabledTools = activePersona.enabledTools.toSet(),
+                    )
+                },
                 invokeProvider = { request, mode ->
                     invokeProviderForPipeline(
                         request = request,
@@ -481,6 +490,21 @@ object OneBotBridgeServer {
                         conversationId = llmEvent.conversationId,
                         platformAdapterType = ONE_BOT_PLATFORM_ADAPTER_TYPE,
                         platformInstanceKey = event.selfId.ifBlank { "onebot" },
+                        hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
+                            hostToolHandlers = PluginExecutionHostToolHandlers(
+                                sendMessageHandler = { text ->
+                                    sendReply(event, text)
+                                },
+                                sendNotificationHandler = { title, message ->
+                                    RuntimeLogRepository.append(
+                                        "QQ v2 host notification requested: title=$title message=$message",
+                                    )
+                                },
+                                openHostPageHandler = { route ->
+                                    RuntimeLogRepository.append("QQ v2 host page requested: route=$route")
+                                },
+                            ),
+                        ),
                         prepareReply = { pipelineResult ->
                             val sendableResult = pipelineResult.sendableResult
                             val decoratedAttachments = sendableResult.attachments.toConversationAttachments()

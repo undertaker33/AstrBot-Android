@@ -91,7 +91,7 @@ internal data class ToolRegistrationInput(
     val handler: PluginV2CallbackHandle,
 )
 
-internal data class ToolLifecycleHookRegistrationInput(
+data class ToolLifecycleHookRegistrationInput(
     val registrationKey: String? = null,
     val hook: String,
     val priority: Int = 0,
@@ -173,7 +173,7 @@ internal data class ToolRawRegistration(
     override val declaredFilters: List<BootstrapFilterDescriptor>,
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
-    val descriptor: ToolRegistrationInput,
+    val descriptor: PluginToolDescriptor,
 ) : PluginV2RawRegistrationEntry
 
 internal data class ToolLifecycleHookRawRegistration(
@@ -308,18 +308,36 @@ class PluginV2RawRegistry(
 
     internal fun appendTool(
         callbackToken: PluginV2CallbackToken,
-        descriptor: ToolRegistrationInput,
+        descriptor: PluginToolDescriptor,
     ): ToolRawRegistration {
         return ToolRawRegistration(
             pluginId = pluginId,
-            registrationKey = descriptor.registrationKey,
+            registrationKey = descriptor.toolId,
             callbackToken = callbackToken,
             priority = 0,
-            declaredFilters = descriptor.declaredFilters.toList(),
-            metadata = descriptor.metadata,
+            declaredFilters = emptyList(),
+            metadata = BootstrapRegistrationMetadata(),
             sourceOrder = allocateSourceOrder(),
             descriptor = descriptor,
         ).also(toolRegistrations::add)
+    }
+
+    internal fun appendTool(
+        callbackToken: PluginV2CallbackToken,
+        descriptor: ToolRegistrationInput,
+    ): ToolRawRegistration {
+        return appendTool(
+            callbackToken = callbackToken,
+            descriptor = PluginToolDescriptor(
+                pluginId = pluginId,
+                name = descriptor.toolDescriptor.name,
+                description = descriptor.toolDescriptor.description,
+                visibility = PluginToolVisibility.LLM_VISIBLE,
+                sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                inputSchema = linkedMapOf("type" to "object"),
+                metadata = descriptor.metadata.values.takeIf { it.isNotEmpty() },
+            ),
+        )
     }
 
     internal fun appendToolLifecycleHook(

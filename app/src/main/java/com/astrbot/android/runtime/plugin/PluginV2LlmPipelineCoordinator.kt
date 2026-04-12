@@ -1,8 +1,11 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.model.plugin.AppChatLlm
+import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
+import java.util.LinkedHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 
 internal data class PluginV2LlmPipelineInput(
@@ -21,6 +24,7 @@ internal data class PluginV2LlmPipelineInput(
     val maxTokens: Int? = null,
     val streamingEnabled: Boolean = streamingMode == PluginV2StreamingMode.NATIVE_STREAM,
     val metadata: JsonLikeMap? = null,
+    val personaToolEnablementSnapshot: PersonaToolEnablementSnapshot? = null,
     val invokeProvider: suspend (
         request: PluginProviderRequest,
         streamingMode: PluginV2StreamingMode,
@@ -39,6 +43,7 @@ internal sealed interface PluginV2ProviderInvocationResult {
 
 internal data class PluginV2ProviderStreamChunk(
     val deltaText: String = "",
+    val toolCallDeltas: List<PluginLlmToolCallDelta> = emptyList(),
     val isCompletion: Boolean = false,
     val finishReason: String? = null,
     val usage: PluginLlmUsageSnapshot? = null,
@@ -71,10 +76,17 @@ internal class PluginV2LlmRequestPayload(
     }
 }
 
-internal data class PluginV2LlmResponsePayload(
+internal class PluginV2LlmResponsePayload(
     val event: PluginMessageEvent,
-    val response: PluginLlmResponse,
-) : PluginErrorEventPayload
+    response: PluginLlmResponse,
+) : PluginErrorEventPayload {
+    var response: PluginLlmResponse = response
+        private set
+
+    fun replaceResponse(next: PluginLlmResponse) {
+        response = next
+    }
+}
 
 internal data class PluginV2LlmResultDecoratingPayload(
     val event: PluginMessageEvent,
@@ -100,9 +112,29 @@ internal class PluginV2LlmPipelineCoordinator(
     private val eventResultCoordinator: PluginV2EventResultCoordinator = PluginV2EventResultCoordinator(),
     private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
     private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManagerProvider.manager(),
+    private val toolExecutor: PluginV2ToolExecutor = PluginV2ToolExecutor { args ->
+        PluginToolResult(
+            toolCallId = args.toolCallId,
+            requestId = args.requestId,
+            toolId = args.toolId,
+            status = PluginToolResultStatus.ERROR,
+            errorCode = "tool_executor_unavailable",
+            text = "Tool executor is not wired yet.",
+        )
+    },
     private val clock: () -> Long = System::currentTimeMillis,
     private val requestIdFactory: () -> String = { "req-${clock()}" },
 ) {
+    private val toolCallCounter = AtomicInteger(0)
+    private val toolLoopCoordinator: PluginV2ToolLoopCoordinator = PluginV2ToolLoopCoordinator(
+        dispatchEngine = dispatchEngine,
+        lifecycleManager = lifecycleManager,
+        toolExecutor = toolExecutor,
+        toolCallIdFactory = { "call-${clock()}-${toolCallCounter.incrementAndGet()}" },
+        logBus = logBus,
+        clock = clock,
+    )
+
     suspend fun deliverLlmPipeline(
         request: PluginV2HostLlmDeliveryRequest,
         snapshot: PluginV2ActiveRuntimeSnapshot = PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
@@ -228,79 +260,102 @@ internal class PluginV2LlmPipelineCoordinator(
             "${PluginV2InternalStage.LlmWaiting.name}:$handlerId"
         }
 
-        val requestPayload = PluginV2LlmRequestPayload(
-            event = input.event,
-            request = materializeInitialRequest(
-                admission = admission,
-                input = input,
-            ),
-        )
-        publishPipelineObservation(
-            code = "llm_request_started",
-            stage = PluginV2InternalStage.LlmRequest,
-            requestId = admission.requestId,
-            streamingMode = input.streamingMode,
-            snapshot = snapshot,
-            outcome = "STARTED",
-        )
-        val requestDispatchResult = dispatchEngine.dispatchLlmStage(
-            stage = PluginV2InternalStage.LlmRequest,
-            payload = requestPayload,
-            snapshot = snapshot,
-            onHandlerCompleted = {
-                requestPayload.replaceRequest(
-                    requestPayload.request.sanitizedCopyForNextHook(),
-                )
-            },
-        )
-        hookTrace += requestDispatchResult.invokedHandlerIds.map { handlerId ->
-            "${PluginV2InternalStage.LlmRequest.name}:$handlerId"
-        }
-        val finalizedRequest = requestPayload.request.sanitizedCopyForNextHook()
-        requestPayload.replaceRequest(finalizedRequest)
-        publishPipelineObservation(
-            code = "llm_request_completed",
-            stage = PluginV2InternalStage.LlmRequest,
-            requestId = admission.requestId,
-            streamingMode = input.streamingMode,
-            snapshot = snapshot,
-            outcome = "COMPLETED",
-        )
+        var currentRequest = materializeInitialRequest(admission = admission, input = input)
+        var finalResponse: PluginLlmResponse
+        var responseHookTrace: List<String>
 
-        val aggregatedResponse = aggregateProviderInvocation(
-            request = finalizedRequest,
-            streamingMode = input.streamingMode,
-            invocation = input.invokeProvider(
-                finalizedRequest,
-                input.streamingMode,
-            ),
-        )
-        publishPipelineObservation(
-            code = "llm_response_received",
-            stage = PluginV2InternalStage.LlmResponse,
-            requestId = admission.requestId,
-            streamingMode = input.streamingMode,
-            snapshot = snapshot,
-            outcome = "COMPLETED",
-        )
-        val responsePayload = PluginV2LlmResponsePayload(
-            event = input.event,
-            response = aggregatedResponse,
-        )
-        val responseDispatchResult = dispatchEngine.dispatchLlmStage(
-            stage = PluginV2InternalStage.LlmResponse,
-            payload = responsePayload,
-            snapshot = snapshot,
-        )
-        hookTrace += responseDispatchResult.invokedHandlerIds.map { handlerId ->
-            "${PluginV2InternalStage.LlmResponse.name}:$handlerId"
+        while (true) {
+            val requestPayload = PluginV2LlmRequestPayload(
+                event = input.event,
+                request = currentRequest,
+            )
+            publishPipelineObservation(
+                code = "llm_request_started",
+                stage = PluginV2InternalStage.LlmRequest,
+                requestId = admission.requestId,
+                streamingMode = input.streamingMode,
+                snapshot = snapshot,
+                outcome = "STARTED",
+            )
+            val requestDispatchResult = dispatchEngine.dispatchLlmStage(
+                stage = PluginV2InternalStage.LlmRequest,
+                payload = requestPayload,
+                snapshot = snapshot,
+                onHandlerCompleted = {
+                    requestPayload.replaceRequest(
+                        requestPayload.request.sanitizedCopyForNextHook(),
+                    )
+                },
+            )
+            hookTrace += requestDispatchResult.invokedHandlerIds.map { handlerId ->
+                "${PluginV2InternalStage.LlmRequest.name}:$handlerId"
+            }
+            val finalizedRequest = requestPayload.request.sanitizedCopyForNextHook()
+            requestPayload.replaceRequest(finalizedRequest)
+            publishPipelineObservation(
+                code = "llm_request_completed",
+                stage = PluginV2InternalStage.LlmRequest,
+                requestId = admission.requestId,
+                streamingMode = input.streamingMode,
+                snapshot = snapshot,
+                outcome = "COMPLETED",
+            )
+
+            val aggregatedResponse = aggregateProviderInvocation(
+                request = finalizedRequest,
+                streamingMode = input.streamingMode,
+                invocation = input.invokeProvider(
+                    finalizedRequest,
+                    input.streamingMode,
+                ),
+            )
+            publishPipelineObservation(
+                code = "llm_response_received",
+                stage = PluginV2InternalStage.LlmResponse,
+                requestId = admission.requestId,
+                streamingMode = input.streamingMode,
+                snapshot = snapshot,
+                outcome = "COMPLETED",
+            )
+            val responsePayload = PluginV2LlmResponsePayload(
+                event = input.event,
+                response = aggregatedResponse,
+            )
+            val responseDispatchResult = dispatchEngine.dispatchLlmStage(
+                stage = PluginV2InternalStage.LlmResponse,
+                payload = responsePayload,
+                snapshot = snapshot,
+                onHandlerCompleted = {
+                    responsePayload.replaceResponse(responsePayload.response.sanitizedCopyForNextHook())
+                },
+            )
+            responseHookTrace = responseDispatchResult.invokedHandlerIds.map { handlerId ->
+                "${PluginV2InternalStage.LlmResponse.name}:$handlerId"
+            }
+            hookTrace += responseHookTrace
+            finalResponse = responsePayload.response.sanitizedCopyForNextHook()
+            responsePayload.replaceResponse(finalResponse)
+
+            val frozenToolCalls = finalResponse.toolCalls.toList()
+            if (frozenToolCalls.isEmpty()) {
+                currentRequest = finalizedRequest
+                break
+            }
+
+            val toolLoopRun = toolLoopCoordinator.runToolLoop(
+                event = input.event,
+                baseRequest = finalizedRequest,
+                toolCalls = frozenToolCalls,
+                snapshot = snapshot,
+            )
+            currentRequest = toolLoopRun.nextRequest
         }
 
         val initialResult = PluginMessageEventResult(
             requestId = admission.requestId,
             conversationId = admission.conversationId,
-            text = responsePayload.response.text,
-            markdown = responsePayload.response.markdown,
+            text = finalResponse.text,
+            markdown = finalResponse.markdown,
             attachments = emptyList(),
             shouldSend = true,
         )
@@ -351,8 +406,8 @@ internal class PluginV2LlmPipelineCoordinator(
 
         return PluginV2LlmPipelineResult(
             admission = admission,
-            finalRequest = finalizedRequest,
-            finalResponse = responsePayload.response,
+            finalRequest = currentRequest,
+            finalResponse = finalResponse,
             sendableResult = decoratingRun.finalResult,
             hookInvocationTrace = hookTrace.toList(),
             decoratingRunResult = decoratingRun,
@@ -411,12 +466,16 @@ internal class PluginV2LlmPipelineCoordinator(
                     "Streaming provider invocation requires streaming mode."
                 }
                 val textBuilder = StringBuilder()
+                val toolCallsByIndex = linkedMapOf<Int, PluginLlmToolCallDelta>()
                 var completionEvent: PluginV2ProviderStreamChunk? = null
                 invocation.events.forEach { streamChunk ->
                     if (streamChunk.isCompletion) {
                         completionEvent = streamChunk
                     } else {
                         textBuilder.append(streamChunk.deltaText)
+                        streamChunk.toolCallDeltas.forEach { delta ->
+                            toolCallsByIndex[delta.index] = delta
+                        }
                     }
                 }
                 val completion = checkNotNull(completionEvent) {
@@ -430,6 +489,14 @@ internal class PluginV2LlmPipelineCoordinator(
                     finishReason = completion.finishReason,
                     text = textBuilder.toString(),
                     markdown = false,
+                    toolCalls = toolCallsByIndex.entries
+                        .sortedBy { (index, _) -> index }
+                        .map { (_, delta) ->
+                            PluginLlmToolCall(
+                                toolName = delta.toolName,
+                                arguments = delta.arguments,
+                            )
+                        },
                     metadata = completion.metadata,
                 )
             }
@@ -455,6 +522,7 @@ internal class PluginV2LlmPipelineCoordinator(
             maxTokens = maxTokens,
             streamingEnabled = streamingEnabled,
             metadata = metadata,
+            allowHostToolMessages = messages.any { it.role == PluginProviderMessageRole.TOOL },
         )
     }
 
@@ -467,7 +535,28 @@ internal class PluginV2LlmPipelineCoordinator(
             finishReason = finishReason,
             text = text,
             markdown = markdown,
+            toolCalls = toolCalls.toList(),
             metadata = metadata,
+        )
+    }
+
+    private fun PluginLlmResponse.sanitizedCopyForNextHook(): PluginLlmResponse {
+        return PluginLlmResponse(
+            requestId = requestId,
+            providerId = providerId,
+            modelId = modelId,
+            usage = usage,
+            finishReason = finishReason,
+            text = text,
+            markdown = markdown,
+            toolCalls = toolCalls.map { call ->
+                PluginLlmToolCall(
+                    toolName = call.normalizedToolName,
+                    arguments = LinkedHashMap(call.normalizedArguments),
+                    metadata = call.normalizedMetadata?.let(::LinkedHashMap),
+                )
+            },
+            metadata = metadata?.let(::LinkedHashMap),
         )
     }
 

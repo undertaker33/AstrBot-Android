@@ -26,6 +26,19 @@ class ExternalPluginHostActionExecutor(
     private val sendNotificationHandler: (String, String) -> Unit = { _, _ -> },
     private val openHostPageHandler: (String) -> Unit = {},
 ) {
+    internal fun asV2ToolExecutor(): PluginV2ToolExecutor {
+        return PluginV2ToolExecutor { args ->
+            PluginToolResult(
+                toolCallId = args.toolCallId,
+                requestId = args.requestId,
+                toolId = args.toolId,
+                status = PluginToolResultStatus.ERROR,
+                errorCode = "legacy_host_action_only",
+                text = "ExternalPluginHostActionExecutor is legacy/internal only and cannot serve the v2 tool loop.",
+            )
+        }
+    }
+
     fun execute(
         pluginId: String,
         request: HostActionRequest,
