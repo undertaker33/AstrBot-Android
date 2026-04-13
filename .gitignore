@@ -9,8 +9,6 @@ keystore.properties
 .externalNativeBuild/
 captures/
 artifacts/*
-!artifacts/plugins/
-!artifacts/plugins/**
 docs/plugins/
 .superpowers/
 .worktrees/
@@ -20,6 +18,8 @@ docs/plugins/
 .gradle-user-home/
 docs/plugins/*
 docs/superpowers/*
+AGENTS.md
+.codex/*
 __pycache__/
 *.pyc
 app/src/main/assets/runtime/assets/offline-rootfs-overlay.tar.xz
