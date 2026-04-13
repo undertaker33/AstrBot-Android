@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.plugin.catalog
 
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
 import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
@@ -157,6 +158,92 @@ class PluginCatalogSynchronizerTest {
         assertEquals(PluginCatalogSyncStatus.SUCCESS, result.lastSyncStatus)
         assertEquals(rawUrl, fetcher.requestedUrls.single())
         assertEquals(rawUrl, store.sources.single().catalogUrl)
+    }
+
+    @Test
+    fun sync_keeps_success_summary_empty_even_when_catalog_contains_legacy_v1_versions() = runBlocking {
+        val store = FakePluginCatalogSyncStore(source = subscribedSource())
+        val synchronizer = PluginCatalogSynchronizer(
+            store = store,
+            fetcher = FakePluginCatalogFetcher(
+                responseByUrl = mapOf(
+                    "https://repo.example.com/catalogs/stable/index.json" to legacyV1CatalogJson(),
+                ),
+            ),
+            now = { 10_500L },
+        )
+
+        val result = synchronizer.sync("official")
+
+        assertEquals(PluginCatalogSyncStatus.SUCCESS, result.lastSyncStatus)
+        assertEquals("", result.lastSyncErrorSummary)
+        assertEquals(result.lastSyncErrorSummary, store.sources.single().lastSyncErrorSummary)
+    }
+
+    @Test
+    fun market_gate_projects_legacy_v1_catalog_versions_with_upgrade_to_protocol_2_notes() {
+        val gate = PluginRepository.evaluateCatalogVersion(
+            version = PluginCatalogVersion(
+                version = "1.9.0",
+                packageUrl = "https://repo.example.com/catalogs/packages/legacy-1.9.0.zip",
+                publishedAt = 1_600L,
+                protocolVersion = 1,
+                minHostVersion = "0.2.0",
+                maxHostVersion = "",
+                permissions = emptyList(),
+                changelog = "Legacy runtime package.",
+            ),
+            hostVersion = "0.4.6",
+        )
+
+        assertEquals(
+            "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2.",
+            gate.compatibilityState.notes,
+        )
+        assertEquals(false, gate.installable)
+    }
+
+    @Test
+    fun market_gate_keeps_generic_unsupported_wording_for_non_v1_non_v2_protocols() {
+        val gate = PluginRepository.evaluateCatalogVersion(
+            version = PluginCatalogVersion(
+                version = "3.0.0",
+                packageUrl = "https://repo.example.com/catalogs/packages/future-3.0.0.zip",
+                publishedAt = 1_900L,
+                protocolVersion = 3,
+                minHostVersion = "0.2.0",
+                maxHostVersion = "",
+                permissions = emptyList(),
+                changelog = "Future runtime package.",
+            ),
+            hostVersion = "0.4.6",
+        )
+
+        assertEquals(
+            "Protocol version 3 is not supported.",
+            gate.compatibilityState.notes,
+        )
+        assertEquals(false, gate.installable)
+    }
+
+    @Test
+    fun sync_keeps_success_summary_empty_for_non_v1_non_v2_protocols() = runBlocking {
+        val store = FakePluginCatalogSyncStore(source = subscribedSource())
+        val synchronizer = PluginCatalogSynchronizer(
+            store = store,
+            fetcher = FakePluginCatalogFetcher(
+                responseByUrl = mapOf(
+                    "https://repo.example.com/catalogs/stable/index.json" to unsupportedProtocolCatalogJson(protocolVersion = 3),
+                ),
+            ),
+            now = { 10_600L },
+        )
+
+        val result = synchronizer.sync("official")
+
+        assertEquals(PluginCatalogSyncStatus.SUCCESS, result.lastSyncStatus)
+        assertEquals("", result.lastSyncErrorSummary)
+        assertEquals(result.lastSyncErrorSummary, store.sources.single().lastSyncErrorSummary)
     }
 }
 
@@ -327,6 +414,43 @@ private fun emptyCatalogJson(): String {
           "catalogUrl": "https://repo.example.com/catalogs/stable/index.json",
           "updatedAt": 1800,
           "plugins": []
+        }
+    """.trimIndent()
+}
+
+private fun legacyV1CatalogJson(): String {
+    return unsupportedProtocolCatalogJson(protocolVersion = 1)
+}
+
+private fun unsupportedProtocolCatalogJson(protocolVersion: Int): String {
+    return """
+        {
+          "sourceId": "remote-official",
+          "title": "Official Repository",
+          "catalogUrl": "https://unexpected.example.com/ignored.json",
+          "updatedAt": 1800,
+          "plugins": [
+            {
+              "pluginId": "com.example.legacy",
+              "title": "Legacy",
+              "author": "AstrBot",
+              "description": "Legacy plugin.",
+              "entrySummary": "Legacy commands",
+              "scenarios": ["legacy"],
+              "versions": [
+                {
+                  "version": "1.9.0",
+                  "packageUrl": "../packages/legacy-1.9.0.zip",
+                  "publishedAt": 1600,
+                  "protocolVersion": $protocolVersion,
+                  "minHostVersion": "0.2.0",
+                  "maxHostVersion": "",
+                  "permissions": [],
+                  "changelog": "Legacy runtime package."
+                }
+              ]
+            }
+          ]
         }
     """.trimIndent()
 }

@@ -574,9 +574,10 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         existingNotes: String,
     ): String {
         val notes = mutableListOf<String>()
-        if (manifest.protocolVersion != SUPPORTED_PROTOCOL_VERSION) {
-            notes += "Protocol version ${manifest.protocolVersion} is not supported."
-        }
+        unsupportedProtocolCompatibilityNote(
+            protocolVersion = manifest.protocolVersion,
+            supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
+        )?.let(notes::add)
         if (hostVersion != null && minHostVersionSatisfied == false) {
             notes += "Host version $hostVersion is below required minimum ${manifest.minHostVersion}."
         }
@@ -782,9 +783,10 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         version: PluginCatalogVersion,
     ): String {
         val notes = mutableListOf<String>()
-        if (version.protocolVersion != SUPPORTED_PROTOCOL_VERSION) {
-            notes += "Protocol version ${version.protocolVersion} is not supported."
-        }
+        unsupportedProtocolCompatibilityNote(
+            protocolVersion = version.protocolVersion,
+            supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
+        )?.let(notes::add)
         if (compareVersions(hostVersion, version.minHostVersion) < 0) {
             notes += "Host version $hostVersion is below required minimum ${version.minHostVersion}."
         }
@@ -798,11 +800,11 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         compatibilityState: PluginCompatibilityState,
         validationIssues: List<PluginPackageValidationIssue>,
     ): String {
-        if (validationIssues.any { issue -> issue.code == "legacy_contract" }) {
-            return "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2."
+        if (compatibilityState.protocolSupported == false && compatibilityState.notes.isNotBlank()) {
+            return compatibilityState.notes
         }
         validationIssues.firstOrNull()?.let { issue ->
-            return "Damaged v2 plugin package: ${issue.message}"
+            return normalizePackageValidationIssueMessage(issue)
         }
         return compatibilityState.notes.takeIf(String::isNotBlank)
             ?: "Plugin package is not installable."
@@ -851,5 +853,49 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
                 ),
             )
         }
+    }
+}
+
+internal fun unsupportedProtocolCompatibilityNote(
+    protocolVersion: Int,
+    supportedProtocolVersion: Int,
+): String? {
+    if (protocolVersion == supportedProtocolVersion) {
+        return null
+    }
+    return if (protocolVersion == 1 && supportedProtocolVersion == PluginRepository.SUPPORTED_PROTOCOL_VERSION) {
+        "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2."
+    } else {
+        "Protocol version $protocolVersion is not supported."
+    }
+}
+
+internal fun normalizePackageValidationIssueMessage(
+    issue: PluginPackageValidationIssue,
+): String {
+    if (
+        issue.message.startsWith("Damaged v2 plugin package:") ||
+        issue.message.startsWith("Legacy v1 plugin packages are unsupported.")
+    ) {
+        return issue.message
+    }
+    return when (issue.code) {
+        "legacy_contract" -> "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2."
+        "missing_package_contract" -> "Damaged v2 plugin package: Missing android-plugin.json."
+        "missing_runtime_bootstrap" -> "Damaged v2 plugin package: ${issue.message}"
+        "invalid_package_contract" -> normalizeInvalidPackageContractMessage(issue.message)
+        else -> issue.message
+    }
+}
+
+private fun normalizeInvalidPackageContractMessage(
+    rawMessage: String,
+): String {
+    val runtimeKindPrefix = "runtime.kind has unsupported value:"
+    return if (rawMessage.contains(runtimeKindPrefix)) {
+        val runtimeKind = rawMessage.substringAfter(runtimeKindPrefix).trim().ifBlank { "unknown" }
+        "Damaged v2 plugin package: Android requires runtime.kind = js_quickjs, but found $runtimeKind."
+    } else {
+        "Damaged v2 plugin package: $rawMessage"
     }
 }

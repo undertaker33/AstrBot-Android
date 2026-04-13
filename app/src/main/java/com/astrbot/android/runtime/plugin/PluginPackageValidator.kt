@@ -1,5 +1,7 @@
 package com.astrbot.android.runtime.plugin
 
+import com.astrbot.android.data.normalizePackageValidationIssueMessage
+import com.astrbot.android.data.unsupportedProtocolCompatibilityNote
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPackageContract
@@ -34,53 +36,76 @@ class PluginPackageValidator(
         val manifest = parseManifest(readJsonEntry(archiveEntries, MANIFEST_FILE))
         val androidPluginJson = archiveEntries[ANDROID_PLUGIN_FILE_NAME]?.let(::JSONObject)
         val legacyContractPresent = archiveEntries.containsKey(LEGACY_EXECUTION_FILE_NAME)
-
-        if (androidPluginJson == null) {
-            if (legacyContractPresent && manifest.protocolVersion == LEGACY_PROTOCOL_VERSION) {
-                return buildLegacyValidationResult(manifest)
-            }
-            throw IllegalArgumentException("Plugin package is missing android-plugin.json")
-        }
-
-        val packageContract = PluginPackageContractJson.decode(androidPluginJson)
         val validationIssues = mutableListOf<PluginPackageValidationIssue>()
+        val packageContract = when {
+            androidPluginJson == null -> null
+            else -> runCatching { PluginPackageContractJson.decode(androidPluginJson) }
+                .getOrElse { error ->
+                    validationIssues += issue(
+                        code = INVALID_PACKAGE_CONTRACT_ISSUE_CODE,
+                        message = normalizeValidationIssueMessage(
+                            code = INVALID_PACKAGE_CONTRACT_ISSUE_CODE,
+                            rawMessage = error.message ?: "android-plugin.json is invalid.",
+                        ),
+                    )
+                    null
+                }
+        }
 
         if (legacyContractPresent) {
             validationIssues += issue(
                 code = LEGACY_CONTRACT_ISSUE_CODE,
-                message = "android-execution.json is legacy and is no longer the installation truth source.",
+                message = normalizeValidationIssueMessage(
+                    code = LEGACY_CONTRACT_ISSUE_CODE,
+                    rawMessage = "android-execution.json is legacy and is no longer the installation truth source.",
+                ),
             )
         }
 
-        if (manifest.protocolVersion != packageContract.protocolVersion) {
+        if (androidPluginJson == null) {
             validationIssues += issue(
-                code = MANIFEST_PROTOCOL_MISMATCH_ISSUE_CODE,
-                message = "manifest.protocolVersion must match android-plugin.json protocolVersion.",
+                code = MISSING_PACKAGE_CONTRACT_ISSUE_CODE,
+                message = normalizeValidationIssueMessage(
+                    code = MISSING_PACKAGE_CONTRACT_ISSUE_CODE,
+                    rawMessage = "Plugin package is missing android-plugin.json",
+                ),
             )
         }
 
-        if (!archiveContains(archiveEntries, packageContract.runtime.bootstrap)) {
-            validationIssues += issue(
-                code = MISSING_RUNTIME_BOOTSTRAP_ISSUE_CODE,
-                message = "Missing runtime bootstrap file: ${packageContract.runtime.bootstrap}",
-            )
-        }
-
-        packageContract.config.staticSchema.takeIf(String::isNotBlank)?.let { schemaPath ->
-            if (!archiveContains(archiveEntries, schemaPath)) {
+        packageContract?.let { contract ->
+            if (manifest.protocolVersion != contract.protocolVersion) {
                 validationIssues += issue(
-                    code = MISSING_SCHEMA_FILE_ISSUE_CODE,
-                    message = "Missing declared schema file: $schemaPath",
+                    code = MANIFEST_PROTOCOL_MISMATCH_ISSUE_CODE,
+                    message = "manifest.protocolVersion must match android-plugin.json protocolVersion.",
                 )
             }
-        }
 
-        packageContract.config.settingsSchema.takeIf(String::isNotBlank)?.let { schemaPath ->
-            if (!archiveContains(archiveEntries, schemaPath)) {
+            if (!archiveContains(archiveEntries, contract.runtime.bootstrap)) {
                 validationIssues += issue(
-                    code = MISSING_SCHEMA_FILE_ISSUE_CODE,
-                    message = "Missing declared schema file: $schemaPath",
+                    code = MISSING_RUNTIME_BOOTSTRAP_ISSUE_CODE,
+                    message = normalizeValidationIssueMessage(
+                        code = MISSING_RUNTIME_BOOTSTRAP_ISSUE_CODE,
+                        rawMessage = "Missing runtime bootstrap file: ${contract.runtime.bootstrap}",
+                    ),
                 )
+            }
+
+            contract.config.staticSchema.takeIf(String::isNotBlank)?.let { schemaPath ->
+                if (!archiveContains(archiveEntries, schemaPath)) {
+                    validationIssues += issue(
+                        code = MISSING_SCHEMA_FILE_ISSUE_CODE,
+                        message = "Missing declared schema file: $schemaPath",
+                    )
+                }
+            }
+
+            contract.config.settingsSchema.takeIf(String::isNotBlank)?.let { schemaPath ->
+                if (!archiveContains(archiveEntries, schemaPath)) {
+                    validationIssues += issue(
+                        code = MISSING_SCHEMA_FILE_ISSUE_CODE,
+                        message = "Missing declared schema file: $schemaPath",
+                    )
+                }
             }
         }
 
@@ -91,7 +116,6 @@ class PluginPackageValidator(
         val protocolSupported = manifest.protocolVersion == supportedProtocolVersion
         val compatibilityNotes = buildCompatibilityNotes(
             manifest = manifest,
-            protocolSupported = protocolSupported,
             minHostVersionSatisfied = minHostVersionSatisfied,
             maxHostVersionSatisfied = maxHostVersionSatisfied,
         )
@@ -230,16 +254,22 @@ class PluginPackageValidator(
         return PluginPackageValidationIssue(code = code, message = message)
     }
 
+    private fun normalizeValidationIssueMessage(code: String, rawMessage: String): String {
+        return normalizePackageValidationIssueMessage(
+            PluginPackageValidationIssue(code = code, message = rawMessage),
+        )
+    }
+
     private fun buildCompatibilityNotes(
         manifest: PluginManifest,
-        protocolSupported: Boolean,
         minHostVersionSatisfied: Boolean,
         maxHostVersionSatisfied: Boolean,
     ): String {
         val notes = mutableListOf<String>()
-        if (!protocolSupported) {
-            notes += "Protocol version ${manifest.protocolVersion} is not supported."
-        }
+        unsupportedProtocolCompatibilityNote(
+            protocolVersion = manifest.protocolVersion,
+            supportedProtocolVersion = supportedProtocolVersion,
+        )?.let(notes::add)
         if (!minHostVersionSatisfied) {
             notes += "Host version $hostVersion is below required minimum ${manifest.minHostVersion}."
         }
@@ -249,42 +279,14 @@ class PluginPackageValidator(
         return notes.joinToString(separator = " ")
     }
 
-    private fun buildLegacyValidationResult(manifest: PluginManifest): PluginPackageValidationResult {
-        val protocolSupported = manifest.protocolVersion == supportedProtocolVersion
-        val minHostVersionSatisfied = compareVersions(hostVersion, manifest.minHostVersion) >= 0
-        val maxHostVersionSatisfied = manifest.maxHostVersion.isBlank() ||
-            compareVersions(hostVersion, manifest.maxHostVersion) <= 0
-        val compatibilityState = PluginCompatibilityState.fromChecks(
-            protocolSupported = protocolSupported,
-            minHostVersionSatisfied = minHostVersionSatisfied,
-            maxHostVersionSatisfied = maxHostVersionSatisfied,
-            notes = buildCompatibilityNotes(
-                manifest = manifest,
-                protocolSupported = protocolSupported,
-                minHostVersionSatisfied = minHostVersionSatisfied,
-                maxHostVersionSatisfied = maxHostVersionSatisfied,
-            ),
-        )
-        return PluginPackageValidationResult(
-            manifest = manifest,
-            compatibilityState = compatibilityState,
-            installable = false,
-            packageContract = null,
-            validationIssues = listOf(
-                issue(
-                    code = LEGACY_CONTRACT_ISSUE_CODE,
-                    message = "android-execution.json is legacy and is no longer the installation truth source.",
-                ),
-            ),
-        )
-    }
-
     private companion object {
         const val MANIFEST_FILE = "manifest.json"
         const val ANDROID_PLUGIN_FILE_NAME = "android-plugin.json"
         const val LEGACY_EXECUTION_FILE_NAME = "android-execution.json"
         const val LEGACY_PROTOCOL_VERSION = 1
         const val LEGACY_CONTRACT_ISSUE_CODE = "legacy_contract"
+        const val MISSING_PACKAGE_CONTRACT_ISSUE_CODE = "missing_package_contract"
+        const val INVALID_PACKAGE_CONTRACT_ISSUE_CODE = "invalid_package_contract"
         const val MANIFEST_PROTOCOL_MISMATCH_ISSUE_CODE = "manifest_protocol_mismatch"
         const val MISSING_RUNTIME_BOOTSTRAP_ISSUE_CODE = "missing_runtime_bootstrap"
         const val MISSING_SCHEMA_FILE_ISSUE_CODE = "missing_schema_file"

@@ -1,6 +1,7 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.data.PluginRepository
+import com.astrbot.android.data.PluginPackageInstallBlockedException
 import com.astrbot.android.data.db.PluginInstallAggregate
 import com.astrbot.android.data.db.PluginInstallAggregateDao
 import com.astrbot.android.data.db.PluginInstallRecordEntity
@@ -41,6 +42,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.astrbot.android.runtime.plugin.catalog.PluginCatalogFetcher
+import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
+import com.astrbot.android.runtime.plugin.catalog.PluginInstallIntentHandler
+import com.astrbot.android.runtime.plugin.catalog.PluginRepositorySubscriptionManager
+import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
+import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginCatalogSyncState
+import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginRepositorySource
 
 class PluginInstallerTest {
     @Test
@@ -346,9 +356,121 @@ class PluginInstallerTest {
                 installer.installFromLocalPackage(candidate)
             }.exceptionOrNull()
 
-            assertTrue(failure is IllegalStateException)
-            assertTrue(failure?.message?.contains("incompatible") == true)
+            assertTrue(failure is PluginPackageInstallBlockedException)
+            assertTrue(failure?.message?.contains("below required minimum 9.0.0") == true)
             assertFalse(File(tempDir, "plugins").exists())
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_blocks_legacy_v1_package_with_upgrade_required_message() {
+        val tempDir = Files.createTempDirectory("plugin-installer-legacy-v1").toFile()
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+            )
+            val candidate = createPluginPackage(
+                directory = tempDir,
+                fileName = "legacy-v1.zip",
+                manifest = validManifest(version = "1.0.0").apply {
+                    put("protocolVersion", 1)
+                },
+                includeAndroidPlugin = false,
+                includeRuntimeBootstrap = false,
+                includeLegacyExecutionContract = true,
+            )
+
+            val failure = runCatching {
+                installer.installFromLocalPackage(candidate)
+            }.exceptionOrNull()
+
+            assertTrue(failure is PluginPackageInstallBlockedException)
+            assertTrue(failure?.message?.contains("Legacy v1", ignoreCase = true) == true)
+            assertTrue(failure?.message?.contains("protocol version 2", ignoreCase = true) == true)
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_blocks_future_protocol_package_with_generic_unsupported_wording() {
+        val tempDir = Files.createTempDirectory("plugin-installer-future-protocol").toFile()
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+            )
+            val candidate = createPluginPackage(
+                directory = tempDir,
+                fileName = "future-protocol.zip",
+                manifest = validManifest(version = "1.0.0").apply {
+                    put("protocolVersion", 3)
+                },
+            )
+
+            val failure = runCatching {
+                installer.installFromLocalPackage(candidate)
+            }.exceptionOrNull()
+
+            assertTrue(failure is PluginPackageInstallBlockedException)
+            assertEquals("Protocol version 3 is not supported.", failure?.message)
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun install_intent_handler_propagates_same_blocked_exception_as_installer() = runBlocking {
+        val tempDir = Files.createTempDirectory("plugin-intent-handler-legacy-v1").toFile()
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val remotePackage = createPluginPackage(
+                directory = tempDir,
+                fileName = "legacy-remote.zip",
+                manifest = validManifest(version = "1.0.0").apply {
+                    put("protocolVersion", 1)
+                },
+                includeAndroidPlugin = false,
+                includeRuntimeBootstrap = false,
+                includeLegacyExecutionContract = true,
+            )
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile, _ ->
+                    remotePackage.copyTo(destinationFile, overwrite = true)
+                },
+            )
+            val handler = PluginInstallIntentHandler(
+                installer = installer,
+                repositorySubscriptionManager = PluginRepositorySubscriptionManager(
+                    store = NoOpPluginCatalogSyncStore(),
+                    synchronizer = PluginCatalogSynchronizer(
+                        store = NoOpPluginCatalogSyncStore(),
+                        fetcher = PluginCatalogFetcher { error("unused") },
+                    ),
+                ),
+            )
+
+            val failure = runCatching {
+                handler.handle(
+                    PluginInstallIntent.directPackageUrl("https://plugins.example.com/legacy-v1.zip"),
+                )
+            }.exceptionOrNull()
+
+            assertTrue(failure is PluginPackageInstallBlockedException)
+            assertTrue(failure?.message?.contains("Legacy v1", ignoreCase = true) == true)
         } finally {
             resetPluginRepositoryForTest()
             tempDir.deleteRecursively()
@@ -491,8 +613,9 @@ class PluginInstallerTest {
                 installer.installFromLocalPackage(candidate)
             }.exceptionOrNull()
 
-            assertTrue(failure is IllegalStateException)
-            assertTrue(failure?.message?.contains("installable") == true)
+            assertTrue(failure is PluginPackageInstallBlockedException)
+            assertTrue(failure?.message?.contains("Damaged v2", ignoreCase = true) == true)
+            assertTrue(failure?.message?.contains("runtime/index.js") == true)
             assertEquals(null, PluginRepository.findByPluginId("com.example.demo"))
             assertFalse(File(tempDir, "plugins").exists())
         } finally {
@@ -781,6 +904,7 @@ class PluginInstallerTest {
         manifest: JSONObject,
         includeAndroidPlugin: Boolean = true,
         includeRuntimeBootstrap: Boolean = true,
+        includeLegacyExecutionContract: Boolean = false,
         androidPluginProtocolVersion: Int = 2,
         runtimeBootstrap: String = "runtime/index.js",
         staticSchemaPath: String = "",
@@ -802,6 +926,11 @@ class PluginInstallerTest {
                         settingsSchemaPath = settingsSchemaPath,
                     ).toString(2).toByteArray(Charsets.UTF_8),
                 )
+                output.closeEntry()
+            }
+            if (includeLegacyExecutionContract) {
+                output.putNextEntry(ZipEntry("android-execution.json"))
+                output.write("""{"contractVersion":1}""".toByteArray(Charsets.UTF_8))
                 output.closeEntry()
             }
             if (includeRuntimeBootstrap) {
@@ -842,6 +971,22 @@ class PluginInstallerTest {
             )
             .put("config", config)
     }
+}
+
+private class NoOpPluginCatalogSyncStore : PluginCatalogSyncStore {
+    override fun getRepositorySource(sourceId: String): PluginRepositorySource? = null
+
+    override fun getRepositorySourceSyncState(sourceId: String): PluginCatalogSyncState? = null
+
+    override fun listRepositorySources(): List<PluginRepositorySource> = emptyList()
+
+    override fun listAllCatalogEntries(): List<PluginCatalogEntryRecord> = emptyList()
+
+    override fun listCatalogVersions(sourceId: String, pluginId: String): List<PluginCatalogVersion> = emptyList()
+
+    override fun replaceRepositoryCatalog(source: PluginRepositorySource) = Unit
+
+    override fun upsertRepositorySource(source: PluginRepositorySource) = Unit
 }
 
 private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {

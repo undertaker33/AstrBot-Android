@@ -48,15 +48,16 @@ class PluginPackageValidatorTest {
                 includeAndroidPlugin = false,
             )
 
-            val failure = runCatching {
-                PluginPackageValidator(
-                    hostVersion = "0.4.2",
-                    supportedProtocolVersion = 2,
-                ).validate(packageFile)
-            }.exceptionOrNull()
+            val result = PluginPackageValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validate(packageFile)
 
-            assertTrue(failure is IllegalArgumentException)
-            assertTrue(failure?.message?.contains("android-plugin.json") == true)
+            val validationIssues = extractField<List<PluginPackageValidationIssue>>(result, "validationIssues")
+
+            assertEquals(false, extractField<Boolean>(result, "installable"))
+            assertNull(extractField<PluginPackageContract?>(result, "packageContract"))
+            assertTrue(validationIssues.any { it.message == "Damaged v2 plugin package: Missing android-plugin.json." })
         } finally {
             tempDir.deleteRecursively()
         }
@@ -95,15 +96,44 @@ class PluginPackageValidatorTest {
                 includeLegacyExecutionContract = true,
             )
 
-            val failure = runCatching {
-                PluginPackageValidator(
-                    hostVersion = "0.4.2",
-                    supportedProtocolVersion = 2,
-                ).validate(packageFile)
-            }.exceptionOrNull()
+            val result = PluginPackageValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validate(packageFile)
 
-            assertTrue(failure is IllegalArgumentException)
-            assertTrue(failure?.message?.contains("android-plugin.json") == true)
+            val validationIssues = extractField<List<PluginPackageValidationIssue>>(result, "validationIssues")
+
+            assertEquals(false, extractField<Boolean>(result, "installable"))
+            assertTrue(validationIssues.any { it.code == "legacy_contract" })
+            assertTrue(validationIssues.any { it.message.contains("android-plugin.json") })
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun validator_rejects_package_when_runtime_kind_is_not_js_quickjs() {
+        val tempDir = Files.createTempDirectory("plugin-validator-runtime-kind").toFile()
+        try {
+            val packageFile = createV2PluginPackage(
+                directory = tempDir,
+                runtimeKind = "python",
+            )
+
+            val result = PluginPackageValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validate(packageFile)
+
+            val validationIssues = extractField<List<PluginPackageValidationIssue>>(result, "validationIssues")
+
+            assertEquals(false, extractField<Boolean>(result, "installable"))
+            assertNull(extractField<PluginPackageContract?>(result, "packageContract"))
+            assertTrue(
+                validationIssues.any {
+                    it.message == "Damaged v2 plugin package: Android requires runtime.kind = js_quickjs, but found python."
+                },
+            )
         } finally {
             tempDir.deleteRecursively()
         }
@@ -130,6 +160,11 @@ class PluginPackageValidatorTest {
             assertEquals(true, result.compatibilityState.maxHostVersionSatisfied)
             assertEquals(false, extractField<Boolean>(result, "installable"))
             assertTrue(validationIssues.any { it.code == "missing_runtime_bootstrap" })
+            assertTrue(
+                validationIssues.any {
+                    it.message == "Damaged v2 plugin package: Missing runtime bootstrap file: runtime/index.js"
+                },
+            )
             assertEquals(PluginCompatibilityStatus.COMPATIBLE, result.compatibilityState.status)
         } finally {
             tempDir.deleteRecursively()
@@ -198,15 +233,15 @@ class PluginPackageValidatorTest {
                 configStaticSchema = "../schemas/static-config.schema.json",
             )
 
-            val failure = runCatching {
-                PluginPackageValidator(
-                    hostVersion = "0.4.2",
-                    supportedProtocolVersion = 2,
-                ).validate(packageFile)
-            }.exceptionOrNull()
+            val result = PluginPackageValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validate(packageFile)
 
-            assertTrue(failure is IllegalArgumentException)
-            assertTrue(failure?.message?.contains("config.staticSchema") == true)
+            val validationIssues = extractField<List<PluginPackageValidationIssue>>(result, "validationIssues")
+
+            assertEquals(false, extractField<Boolean>(result, "installable"))
+            assertTrue(validationIssues.any { it.message.contains("config.staticSchema") })
         } finally {
             tempDir.deleteRecursively()
         }
@@ -284,6 +319,26 @@ class PluginPackageValidatorTest {
             assertEquals(1, validationIssues.size)
             assertTrue(validationIssues.any { it.code == "manifest_protocol_mismatch" })
             assertEquals(2, extractField<PluginPackageContract?>(result, "packageContract")?.protocolVersion)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun validator_uses_generic_unsupported_protocol_wording_for_future_protocols() {
+        val tempDir = Files.createTempDirectory("plugin-validator-future-protocol").toFile()
+        try {
+            val packageFile = createV2PluginPackage(
+                directory = tempDir,
+                manifest = validManifest(protocolVersion = 3),
+            )
+
+            val result = PluginPackageValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validate(packageFile)
+
+            assertEquals("Protocol version 3 is not supported.", result.compatibilityState.notes)
         } finally {
             tempDir.deleteRecursively()
         }
@@ -420,9 +475,10 @@ class PluginPackageValidatorTest {
         configStaticSchema: String? = null,
         configSettingsSchema: String? = null,
         runtimeBootstrap: String = "runtime/index.js",
+        runtimeKind: String = "js_quickjs",
     ): JSONObject {
         val runtime = JSONObject()
-            .put("kind", "js_quickjs")
+            .put("kind", runtimeKind)
             .put("bootstrap", runtimeBootstrap)
             .put("apiVersion", 1)
         val root = JSONObject()
@@ -451,6 +507,7 @@ class PluginPackageValidatorTest {
         configStaticSchema: String? = null,
         configSettingsSchema: String? = null,
         runtimeBootstrap: String = "runtime/index.js",
+        runtimeKind: String = "js_quickjs",
         extraEntries: Map<String, String> = mapOf("assets/readme.txt" to "hello"),
         orderedEntries: List<Pair<String, String>>? = null,
     ): File {
@@ -465,6 +522,7 @@ class PluginPackageValidatorTest {
                             configStaticSchema = configStaticSchema,
                             configSettingsSchema = configSettingsSchema,
                             runtimeBootstrap = runtimeBootstrap,
+                            runtimeKind = runtimeKind,
                         ).toString(2),
                     )
                 }

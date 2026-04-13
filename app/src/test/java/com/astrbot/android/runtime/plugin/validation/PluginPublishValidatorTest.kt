@@ -38,7 +38,7 @@ class PluginPublishValidatorTest {
 
             val report = PluginPublishValidator(
                 hostVersion = "0.4.2",
-                supportedProtocolVersion = 1,
+                supportedProtocolVersion = 2,
             ).validatePackage(packageFile)
 
             assertTrue(report.publishAllowed)
@@ -65,7 +65,7 @@ class PluginPublishValidatorTest {
 
             val report = PluginPublishValidator(
                 hostVersion = "0.4.2",
-                supportedProtocolVersion = 1,
+                supportedProtocolVersion = 2,
             ).validatePackage(packageFile)
 
             assertFalse(report.publishAllowed)
@@ -101,7 +101,7 @@ class PluginPublishValidatorTest {
 
             val report = PluginPublishValidator(
                 hostVersion = "0.4.2",
-                supportedProtocolVersion = 1,
+                supportedProtocolVersion = 2,
             ).validatePackage(packageFile)
 
             assertFalse(report.publishAllowed)
@@ -140,7 +140,7 @@ class PluginPublishValidatorTest {
 
             val report = PluginPublishValidator(
                 hostVersion = "0.4.2",
-                supportedProtocolVersion = 1,
+                supportedProtocolVersion = 2,
             ).validatePackage(packageFile)
 
             assertTrue(report.publishAllowed)
@@ -157,11 +157,153 @@ class PluginPublishValidatorTest {
         }
     }
 
-    private fun validManifest(): JSONObject {
+    @Test
+    fun publish_validator_blocks_legacy_v1_package_with_upgrade_required_projection() {
+        val tempDir = Files.createTempDirectory("plugin-publish-validator-legacy-v1").toFile()
+        try {
+            val packageFile = createPluginPackage(
+                directory = tempDir,
+                manifest = validManifest(protocolVersion = 1),
+                includeAndroidPlugin = false,
+                includeLegacyExecutionContract = true,
+                includeRuntimeBootstrap = false,
+                extraEntries = mapOf(
+                    "_conf_schema.json" to """
+                        {
+                          "enabled": {
+                            "type": "bool",
+                            "description": "Enabled",
+                            "default": true
+                          }
+                        }
+                    """.trimIndent(),
+                ),
+            )
+
+            val report = PluginPublishValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validatePackage(packageFile)
+
+            assertFalse(report.publishAllowed)
+            assertTrue(report.issues.any { it.message.contains("legacy", ignoreCase = true) })
+            assertTrue(report.issues.any { it.message.contains("protocol version 2", ignoreCase = true) })
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun publish_validator_blocks_package_when_runtime_bootstrap_is_missing_even_with_valid_schema() {
+        val tempDir = Files.createTempDirectory("plugin-publish-validator-missing-bootstrap").toFile()
+        try {
+            val packageFile = createPluginPackage(
+                directory = tempDir,
+                manifest = validManifest(),
+                includeRuntimeBootstrap = false,
+                extraEntries = mapOf(
+                    "_conf_schema.json" to """
+                        {
+                          "enabled": {
+                            "type": "bool",
+                            "description": "Enabled",
+                            "default": true
+                          }
+                        }
+                    """.trimIndent(),
+                ),
+            )
+
+            val report = PluginPublishValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validatePackage(packageFile)
+
+            assertFalse(report.publishAllowed)
+            assertTrue(
+                report.issues.any {
+                    it.message == "Damaged v2 plugin package: Missing runtime bootstrap file: runtime/index.js"
+                },
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun publish_validator_blocks_future_protocol_package_with_generic_unsupported_wording() {
+        val tempDir = Files.createTempDirectory("plugin-publish-validator-future-protocol").toFile()
+        try {
+            val packageFile = createPluginPackage(
+                directory = tempDir,
+                manifest = validManifest(protocolVersion = 3),
+                extraEntries = mapOf(
+                    "_conf_schema.json" to """
+                        {
+                          "enabled": {
+                            "type": "bool",
+                            "description": "Enabled",
+                            "default": true
+                          }
+                        }
+                    """.trimIndent(),
+                ),
+            )
+
+            val report = PluginPublishValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validatePackage(packageFile)
+
+            assertFalse(report.publishAllowed)
+            assertTrue(report.issues.any { it.message == "Protocol version 3 is not supported." })
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun publish_validator_uses_same_runtime_kind_message_family_as_installer() {
+        val tempDir = Files.createTempDirectory("plugin-publish-validator-runtime-kind").toFile()
+        try {
+            val packageFile = createPluginPackage(
+                directory = tempDir,
+                manifest = validManifest(),
+                runtimeKind = "python",
+                extraEntries = mapOf(
+                    "_conf_schema.json" to """
+                        {
+                          "enabled": {
+                            "type": "bool",
+                            "description": "Enabled",
+                            "default": true
+                          }
+                        }
+                    """.trimIndent(),
+                ),
+            )
+
+            val report = PluginPublishValidator(
+                hostVersion = "0.4.2",
+                supportedProtocolVersion = 2,
+            ).validatePackage(packageFile)
+
+            assertFalse(report.publishAllowed)
+            assertTrue(
+                report.issues.any {
+                    it.message == "Damaged v2 plugin package: Android requires runtime.kind = js_quickjs, but found python."
+                },
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    private fun validManifest(protocolVersion: Int = 2): JSONObject {
         return JSONObject()
             .put("pluginId", "com.example.publishable")
             .put("version", "1.0.0")
-            .put("protocolVersion", 1)
+            .put("protocolVersion", protocolVersion)
             .put("author", "AstrBot")
             .put("title", "Publishable Plugin")
             .put("description", "Example plugin package for publish validation.")
@@ -177,10 +319,40 @@ class PluginPublishValidatorTest {
         directory: File,
         manifest: JSONObject,
         extraEntries: Map<String, String>,
+        includeAndroidPlugin: Boolean = true,
+        includeLegacyExecutionContract: Boolean = false,
+        includeRuntimeBootstrap: Boolean = true,
+        runtimeKind: String = "js_quickjs",
     ): File {
         val packageFile = File(directory, "publishable-plugin.zip")
         ZipOutputStream(packageFile.outputStream()).use { output ->
             writeEntry(output, "manifest.json", manifest.toString(2))
+            if (includeAndroidPlugin) {
+                writeEntry(
+                    output,
+                    "android-plugin.json",
+                    JSONObject()
+                        .put("protocolVersion", 2)
+                        .put(
+                            "runtime",
+                            JSONObject()
+                                .put("kind", runtimeKind)
+                                .put("bootstrap", "runtime/index.js")
+                                .put("apiVersion", 1),
+                        )
+                        .put(
+                            "config",
+                            JSONObject().put("staticSchema", "_conf_schema.json"),
+                        )
+                        .toString(2),
+                )
+            }
+            if (includeLegacyExecutionContract) {
+                writeEntry(output, "android-execution.json", """{"contractVersion":1}""")
+            }
+            if (includeRuntimeBootstrap) {
+                writeEntry(output, "runtime/index.js", "console.log('hello')")
+            }
             extraEntries.forEach { (path, content) ->
                 writeEntry(output, path, content)
             }

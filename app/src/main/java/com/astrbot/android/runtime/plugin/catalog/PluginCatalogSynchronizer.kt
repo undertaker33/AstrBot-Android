@@ -1,5 +1,4 @@
 package com.astrbot.android.runtime.plugin.catalog
-
 import com.astrbot.android.data.plugin.catalog.PluginCatalogJson
 import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
 import com.astrbot.android.model.plugin.PluginCatalogEntry

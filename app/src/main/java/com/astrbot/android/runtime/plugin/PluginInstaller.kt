@@ -1,6 +1,7 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.data.PluginInstallStore
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginInstallIntent
@@ -187,13 +188,12 @@ class PluginInstaller(
         catalogSourceId: String?,
         lastCatalogCheckAtEpochMillis: Long?,
     ): PluginInstallRecord {
-        val validation = validator.validate(packageFile)
-        check(validation.installable) {
-            if (!validation.compatibilityState.isCompatible()) {
-                "Plugin package is incompatible with the current host."
-            } else {
-                "Plugin package is not installable."
+        val validation = runCatching { validator.validate(packageFile) }
+            .getOrElse { error ->
+                throw PluginRepository.buildLocalPackageInstallBlockedException(error)
             }
+        if (!validation.installable) {
+            throw PluginRepository.buildLocalPackageInstallBlockedException(validation)
         }
 
         val existing = installStore.findByPluginId(validation.manifest.pluginId)

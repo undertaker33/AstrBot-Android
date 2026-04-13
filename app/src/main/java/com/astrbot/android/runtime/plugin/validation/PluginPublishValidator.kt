@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.plugin.validation
 
+import com.astrbot.android.data.normalizePackageValidationIssueMessage
 import com.astrbot.android.model.plugin.PluginStaticConfigJson
 import com.astrbot.android.model.plugin.PluginValidationIssue
 import com.astrbot.android.model.plugin.PluginValidationReport
@@ -38,6 +39,13 @@ class PluginPublishValidator(
                 message = manifestValidation.compatibilityState.notes.ifBlank {
                     "Plugin manifest is incompatible with the current host."
                 },
+            )
+        }
+
+        manifestValidation.validationIssues.forEach { validationIssue ->
+            issues += PluginValidationIssue(
+                rule = PACKAGE_CONTRACT_RULE,
+                message = normalizePackageValidationIssueMessage(validationIssue),
             )
         }
 
@@ -120,6 +128,11 @@ class PluginPublishValidator(
         val MANIFEST_COMPATIBILITY_RULE = PluginValidationRule(
             ruleId = "manifest.compatibility.unsupported",
             title = "Manifest compatibility unsupported",
+            defaultSeverity = PluginValidationSeverity.ERROR,
+        )
+        val PACKAGE_CONTRACT_RULE = PluginValidationRule(
+            ruleId = "package.contract.invalid",
+            title = "Package contract invalid",
             defaultSeverity = PluginValidationSeverity.ERROR,
         )
         val SCHEMA_FILE_MISSING_RULE = PluginValidationRule(
