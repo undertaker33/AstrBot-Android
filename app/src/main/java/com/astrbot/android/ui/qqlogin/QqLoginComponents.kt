@@ -49,8 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.SavedQqAccount
-import com.astrbot.android.ui.MonochromeUi
-import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
+import com.astrbot.android.ui.app.MonochromeUi
+import com.astrbot.android.ui.app.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import com.astrbot.android.ui.viewmodel.buildQqLoginVersionMarker
 import com.google.zxing.BarcodeFormat

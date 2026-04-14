@@ -754,6 +754,8 @@ private class QuickJsExternalPluginBootstrapSession(
             is ByteArray,
             -> value
 
+            is JSObject -> value
+            is JSCallFunction -> value
             is Float -> value.toDouble()
             is Number -> value.toDouble()
             is Map<*, *> -> createJsObject(
@@ -1253,10 +1255,29 @@ private class QuickJsExternalPluginBootstrapSession(
         if (uri.isBlank()) {
             return null
         }
+        val resolvedUri = resolvePluginAssetUri(uri)
         return PluginMessageEventResult.Attachment(
-            uri = uri,
+            uri = resolvedUri,
             mimeType = propertyValue(value, "mimeType")?.toString().orEmpty(),
         )
+    }
+
+    private fun resolvePluginAssetUri(uri: String): String {
+        if (uri.startsWith("http://", ignoreCase = true) ||
+            uri.startsWith("https://", ignoreCase = true) ||
+            uri.startsWith("file://", ignoreCase = true) ||
+            uri.startsWith("base64://", ignoreCase = true) ||
+            uri.startsWith("content://", ignoreCase = true) ||
+            uri.startsWith("plugin://", ignoreCase = true)
+        ) {
+            return uri
+        }
+        val file = File(uri)
+        if (file.isAbsolute) {
+            return uri
+        }
+        val resolved = File(pluginRootDirectory, uri)
+        return if (resolved.exists()) resolved.absolutePath else uri
     }
 
     private inner class QuickJsPluginV2CallbackHandle(

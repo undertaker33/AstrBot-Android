@@ -106,8 +106,8 @@ android {
         applicationId = "com.astrbot.android"
         minSdk = 29
         targetSdk = 34
-        versionCode = 34
-        versionName = "0.5.5"
+        versionCode = 35
+        versionName = "0.5.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -148,6 +148,18 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            keepDebugSymbols += setOf(
+                "**/libandroidx.graphics.path.so",
+                "**/libbash.so",
+                "**/libbusybox.so",
+                "**/libdatastore_shared_counter.so",
+                "**/liblibtalloc.so.2.so",
+                "**/libloader.so",
+                "**/libproot.so",
+                "**/libquickjs-android-wrapper.so",
+                "**/libsherpa-onnx-jni.so",
+                "**/libsudo.so",
+            )
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

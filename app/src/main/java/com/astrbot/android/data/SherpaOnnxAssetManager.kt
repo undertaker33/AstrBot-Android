@@ -251,7 +251,7 @@ object SherpaOnnxAssetManager {
     ) {
         TarArchiveInputStream(BZip2CompressorInputStream(archiveFile.inputStream().buffered())).use { input ->
             while (true) {
-                val entry = input.nextTarEntry ?: break
+                val entry = input.nextEntry ?: break
                 if (entry.name.isBlank()) continue
                 val relativePath = normalizeTarEntry(entry)
                 if (relativePath.isBlank()) continue

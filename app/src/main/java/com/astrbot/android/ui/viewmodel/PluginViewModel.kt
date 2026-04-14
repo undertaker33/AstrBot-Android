@@ -74,8 +74,8 @@ import com.astrbot.android.runtime.plugin.publishPluginRecoveryFailed
 import com.astrbot.android.runtime.plugin.publishPluginRecoveryRequested
 import com.astrbot.android.runtime.plugin.publishUiGovernanceProjectionBuilt
 import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.ui.screen.PluginLocalFilter
-import com.astrbot.android.ui.screen.buildPluginMarketVersionOptions
+import com.astrbot.android.ui.plugin.PluginLocalFilter
+import com.astrbot.android.ui.plugin.buildPluginMarketVersionOptions
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -1262,7 +1262,6 @@ class PluginViewModel(
             )
             is NoOp -> PluginSchemaUiState.None
             is ErrorResult -> PluginSchemaUiState.Error(message)
-            else -> PluginSchemaUiState.Error("Unsupported plugin result: ${this::class.simpleName.orEmpty()}")
         }
     }
 
@@ -1631,7 +1630,7 @@ class PluginViewModel(
         val payloadText = resolvedPayload.entries
             .sortedBy { (key, _) -> key }
             .joinToString(separator = ", ") { (key, value) -> "$key=$value" }
-        return PluginActionFeedback.Text("${action.label} · $payloadText")
+        return PluginActionFeedback.Text("${action.label} 璺?$payloadText")
     }
 
     private fun updateSelectedPluginEnabled(enabled: Boolean) {
@@ -2122,7 +2121,7 @@ class PluginViewModel(
                     canEnableNow = !result.record.enabled &&
                         governanceSnapshot?.runtimeHealth?.status ==
                         com.astrbot.android.model.plugin.PluginRuntimeHealthStatus.Disabled &&
-                        governanceSnapshot?.suspensionState !=
+                        governanceSnapshot.suspensionState !=
                         com.astrbot.android.model.plugin.PluginSuspensionState.SUSPENDED,
                 )
             }

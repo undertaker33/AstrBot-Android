@@ -128,6 +128,7 @@ class PluginGovernanceRepository(
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 private fun projectFailureProjection(
     pluginId: String,
     snapshot: PluginGovernanceSnapshot,

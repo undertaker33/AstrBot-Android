@@ -1262,13 +1262,7 @@ object PluginExecutionProtocolJson {
             is Double,
             -> value
 
-            is Number -> when (value) {
-                is java.lang.Integer -> value.toInt()
-                is java.lang.Long -> value.toLong()
-                is java.lang.Double -> value.toDouble()
-                is java.lang.Float -> value.toDouble()
-                else -> value.toDouble()
-            }
+            is Number -> value.toDouble()
 
             is JSONArray -> buildList {
                 for (index in 0 until value.length()) {
@@ -1312,11 +1306,19 @@ object PluginExecutionProtocolJson {
 
             is List<*> -> JSONArray().apply {
                 value.forEach { item ->
-                    put(encodeCanonicalJsonLikeValue(item as AllowedValue))
+                    put(encodeCanonicalJsonLikeValue(item))
                 }
             }
 
-            is Map<*, *> -> encodeCanonicalJsonLikeObject(value as JsonLikeMap)
+            is Map<*, *> -> encodeCanonicalJsonLikeObject(
+                PluginV2ValueSanitizer.requireAllowedMap(
+                    value.entries.associate { (key, nestedValue) ->
+                        val normalizedKey = key as? String
+                            ?: throw IllegalArgumentException("Unsupported JSON-like object key type: ${key?.javaClass?.name.orEmpty()}")
+                        normalizedKey to nestedValue
+                    },
+                ),
+            )
 
             else -> throw IllegalArgumentException("Unsupported JSON-like value type: ${value::class.java.name}")
         }

@@ -41,10 +41,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
 import com.astrbot.android.model.chat.ConversationSession
-import com.astrbot.android.ui.MonochromeUi
-import com.astrbot.android.ui.monochromeSwitchColors
-import com.astrbot.android.ui.screen.SessionSwipeMotion
-import com.astrbot.android.ui.screen.SessionSwipeSizing
+import com.astrbot.android.ui.app.MonochromeUi
+import com.astrbot.android.ui.app.monochromeSwitchColors
+import com.astrbot.android.ui.chat.SessionSwipeMotion
+import com.astrbot.android.ui.chat.SessionSwipeSizing
 
 @Composable
 fun SessionDrawerHeader(

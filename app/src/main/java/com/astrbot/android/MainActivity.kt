@@ -39,8 +39,8 @@ import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.di.MainActivityDependencies
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.plugin.PluginInstallIntent
-import com.astrbot.android.ui.AstrBotApp
-import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.app.AstrBotApp
+import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.theme.AstrBotTheme
 import java.net.URI
 import java.net.URLDecoder

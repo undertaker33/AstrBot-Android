@@ -56,10 +56,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astrbot.android.R
 import com.astrbot.android.model.chat.ConversationAttachment
-import com.astrbot.android.ui.AppMotionTokens
-import com.astrbot.android.ui.MonochromeUi
-import com.astrbot.android.ui.rememberPulsingAlpha
-import com.astrbot.android.ui.rememberPulsingScale
+import com.astrbot.android.ui.navigation.AppMotionTokens
+import com.astrbot.android.ui.app.MonochromeUi
+import com.astrbot.android.ui.common.rememberPulsingAlpha
+import com.astrbot.android.ui.common.rememberPulsingScale
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import java.util.UUID

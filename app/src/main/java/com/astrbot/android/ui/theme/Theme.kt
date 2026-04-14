@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 import com.astrbot.android.data.ThemeMode
-import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.app.MonochromeUi
 
 private val LightColors = lightColorScheme(
     primary = Clay,
