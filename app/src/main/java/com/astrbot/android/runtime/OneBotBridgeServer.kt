@@ -63,6 +63,7 @@ import com.astrbot.android.runtime.plugin.PluginExecutionEngine
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStoreProvider
 import com.astrbot.android.runtime.plugin.PluginV2EventResultCoordinator
+import com.astrbot.android.runtime.plugin.PluginV2FollowupSender
 import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryRequest
 import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult
 import com.astrbot.android.runtime.plugin.PluginV2HostPreparedReply
@@ -532,6 +533,13 @@ object OneBotBridgeServer {
                                 },
                             ),
                         ),
+                        followupSender = PluginV2FollowupSender { text, attachments ->
+                            sendReplyWithOutcome(
+                                event = event,
+                                text = text,
+                                attachments = attachments,
+                            ).toHostSendResult()
+                        },
                         prepareReply = { pipelineResult ->
                             val sendableResult = pipelineResult.sendableResult
                             val decoratedAttachments = sendableResult.attachments.toConversationAttachments()

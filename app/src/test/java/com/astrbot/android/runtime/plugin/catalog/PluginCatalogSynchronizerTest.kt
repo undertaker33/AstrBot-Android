@@ -103,7 +103,7 @@ class PluginCatalogSynchronizerTest {
     }
 
     @Test
-    fun sync_marks_empty_without_dropping_existing_cache() = runBlocking {
+    fun sync_replaces_empty_catalog_and_drops_existing_cache() = runBlocking {
         val cached = subscribedSource(
             plugins = listOf(sampleEntry()),
         )
@@ -122,8 +122,10 @@ class PluginCatalogSynchronizerTest {
 
         assertEquals(PluginCatalogSyncStatus.EMPTY, result.lastSyncStatus)
         assertEquals(7_000L, result.lastSyncAtEpochMillis)
-        assertTrue(store.replacedCatalogs.isEmpty())
-        assertEquals(listOf(sampleEntry()), store.sources.single().plugins)
+        assertEquals(1, store.replacedCatalogs.size)
+        assertTrue(store.replacedCatalogs.single().plugins.isEmpty())
+        assertTrue(store.sources.single().plugins.isEmpty())
+        assertEquals(PluginCatalogSyncStatus.EMPTY, store.sources.single().lastSyncStatus)
     }
 
     @Test
@@ -345,7 +347,12 @@ private class FakePluginCatalogSyncStore(
 
     override fun replaceRepositoryCatalog(source: PluginRepositorySource) {
         replacedCatalogs += source
-        upsertRepositorySource(source)
+        val index = sources.indexOfFirst { it.sourceId == source.sourceId }
+        if (index >= 0) {
+            sources[index] = source
+        } else {
+            sources += source
+        }
     }
 
     override fun upsertRepositorySource(source: PluginRepositorySource) {

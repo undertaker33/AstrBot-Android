@@ -1,6 +1,12 @@
 package com.astrbot.android.runtime.plugin
 
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
+import com.astrbot.android.model.plugin.PluginStaticConfigJson
+import com.astrbot.android.model.plugin.PluginStaticConfigValue
+import com.astrbot.android.model.plugin.toStorageBoundary
+import java.io.File
+import org.json.JSONObject
 
 data class PluginV2BootstrapPluginMetadata(
     val pluginId: String,
@@ -168,6 +174,93 @@ class PluginV2BootstrapHostApi(
             runtimeApiVersion = runtimeSnapshot.apiVersion,
             runtimeBootstrap = runtimeSnapshot.bootstrap,
         )
+    }
+
+    fun getSettings(): Map<String, Any?> {
+        return try {
+            loadMergedSettings()
+        } catch (error: Throwable) {
+            publishBootstrapLog(
+                level = PluginRuntimeLogLevel.Warning,
+                code = "bootstrap_settings_load_failed",
+                message = "Failed to load plugin settings: ${error.message ?: error.javaClass.simpleName}",
+                metadata = emptyMap(),
+            )
+            emptyMap()
+        }
+    }
+
+    private fun loadMergedSettings(): Map<String, Any?> {
+        val installRecord = session.installRecord
+        val staticSchemaRelPath = session.packageContractSnapshot.config.staticSchema
+        if (staticSchemaRelPath.isBlank()) return emptyMap()
+
+        val extractedDir = installRecord.extractedDir
+        if (extractedDir.isBlank()) return emptyMap()
+
+        val schemaFile = File(extractedDir, staticSchemaRelPath)
+        if (!schemaFile.isFile) return emptyMap()
+
+        val rawJson = JSONObject(schemaFile.readText(Charsets.UTF_8))
+
+        val schema = try {
+            PluginStaticConfigJson.decodeSchema(rawJson)
+        } catch (_: Throwable) {
+            null
+        }
+
+        val defaults: Map<String, Any?> = if (schema != null && schema.fields.isNotEmpty()) {
+            schema.fields.associate { field ->
+                field.fieldKey to unwrapConfigValue(field.defaultValue)
+            }
+        } else {
+            extractDefaultsFromRawJson(rawJson)
+        }
+
+        val persisted = try {
+            if (schema != null && schema.fields.isNotEmpty()) {
+                val boundary = schema.toStorageBoundary()
+                val snapshot = PluginRepository.resolveConfigSnapshot(
+                    pluginId = installRecord.pluginId,
+                    boundary = boundary,
+                )
+                snapshot.coreValues.mapValues { (_, v) -> unwrapConfigValue(v) }
+            } else {
+                emptyMap()
+            }
+        } catch (_: Throwable) {
+            emptyMap()
+        }
+
+        return defaults + persisted
+    }
+
+    private fun extractDefaultsFromRawJson(json: JSONObject): Map<String, Any?> {
+        val result = linkedMapOf<String, Any?>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val fieldObj = json.optJSONObject(key) ?: continue
+            if (fieldObj.has("default")) {
+                val default = fieldObj.get("default")
+                result[key] = when (default) {
+                    is String, is Boolean, is Int, is Long, is Double, is Float -> default
+                    JSONObject.NULL -> null
+                    else -> default.toString()
+                }
+            }
+        }
+        return result
+    }
+
+    private fun unwrapConfigValue(value: Any?): Any? {
+        return when (value) {
+            is PluginStaticConfigValue.StringValue -> value.value
+            is PluginStaticConfigValue.IntValue -> value.value
+            is PluginStaticConfigValue.FloatValue -> value.value
+            is PluginStaticConfigValue.BoolValue -> value.value
+            else -> null
+        }
     }
 
     private fun <T> register(

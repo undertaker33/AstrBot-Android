@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.plugin
 
+import com.astrbot.android.model.chat.ConversationAttachment
 import com.whl.quickjs.wrapper.JSArray
 import com.whl.quickjs.wrapper.JSCallFunction
 import com.whl.quickjs.wrapper.QuickJSContext
@@ -382,13 +383,13 @@ private class QuickJsExternalPluginBootstrapSession(
                 ),
             )
         }
-        val emptySettings = JSCallFunction {
-            createJsObject(runtimeHandle, emptyMap<String, Any?>())
+        val settingsCallback = JSCallFunction {
+            createJsObject(runtimeHandle, hostApi.getSettings())
         }
-        bridge.setProperty("getSettings", emptySettings)
-        bridge.setProperty("getPluginSettings", emptySettings)
-        bridge.setProperty("readSettings", emptySettings)
-        bridge.setProperty("getConfig", emptySettings)
+        bridge.setProperty("getSettings", settingsCallback)
+        bridge.setProperty("getPluginSettings", settingsCallback)
+        bridge.setProperty("readSettings", settingsCallback)
+        bridge.setProperty("getConfig", settingsCallback)
         runtimeHandle.handleStore["global::$name"] = bridge
         return bridge
     }
@@ -1042,7 +1043,11 @@ private class QuickJsExternalPluginBootstrapSession(
             runtimeHandle,
             linkedMapOf(
                 "event" to payload.event,
-                "view" to createPluginAfterSentViewBridge(runtimeHandle, payload.view),
+                "view" to createPluginAfterSentViewBridge(
+                    runtimeHandle,
+                    payload.view,
+                    payload.followupSender,
+                ),
             ),
         )
     }
@@ -1207,8 +1212,9 @@ private class QuickJsExternalPluginBootstrapSession(
     private fun createPluginAfterSentViewBridge(
         runtimeHandle: QuickJsBootstrapRuntime,
         view: PluginV2AfterSentView,
+        followupSender: PluginV2FollowupSender? = null,
     ): JSObject {
-        return createJsObject(
+        val jsObject = createJsObject(
             runtimeHandle,
             linkedMapOf(
                 "requestId" to view.requestId,
@@ -1238,8 +1244,33 @@ private class QuickJsExternalPluginBootstrapSession(
                     )
                 },
                 "deliveredEntryCount" to view.deliveredEntryCount,
+                "canSendFollowup" to (followupSender != null),
             ),
         )
+        if (followupSender != null) {
+            jsObject.setProperty("sendFollowup", JSCallFunction { args ->
+                val text = args.getOrNull(0)?.toString().orEmpty()
+                val attachments = parsePluginMessageEventResultAttachments(args.getOrNull(1))
+                    .map { att ->
+                        ConversationAttachment(
+                            id = att.uri,
+                            type = att.mimeType.substringBefore("/").ifBlank { "image" },
+                            mimeType = att.mimeType,
+                            remoteUrl = att.uri,
+                        )
+                    }
+                val result = followupSender.send(text, attachments)
+                createJsObject(
+                    runtimeHandle,
+                    linkedMapOf(
+                        "success" to result.success,
+                        "receiptIds" to result.receiptIds,
+                        "errorSummary" to result.errorSummary,
+                    ),
+                )
+            })
+        }
+        return jsObject
     }
 
     private fun parsePluginMessageEventResultAttachments(

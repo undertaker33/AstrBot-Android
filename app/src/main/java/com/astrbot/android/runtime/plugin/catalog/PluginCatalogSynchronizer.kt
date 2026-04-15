@@ -59,7 +59,7 @@ class PluginCatalogSynchronizer(
             )
             if (normalized.plugins.isEmpty()) {
                 val emptySource = normalized.copy(lastSyncStatus = PluginCatalogSyncStatus.EMPTY)
-                store.upsertRepositorySource(emptySource)
+                store.replaceRepositoryCatalog(emptySource)
                 logBus.publishMarketValidationForSource(
                     source = emptySource,
                     outcome = PluginCatalogSyncStatus.EMPTY.name,

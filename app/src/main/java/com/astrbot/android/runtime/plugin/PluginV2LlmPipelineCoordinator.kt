@@ -96,6 +96,7 @@ internal data class PluginV2LlmResultDecoratingPayload(
 internal data class PluginV2LlmAfterSentPayload(
     val event: PluginMessageEvent,
     val view: PluginV2AfterSentView,
+    val followupSender: PluginV2FollowupSender? = null,
 ) : PluginErrorEventPayload
 
 internal data class PluginV2LlmPipelineResult(
@@ -198,6 +199,7 @@ internal class PluginV2LlmPipelineCoordinator(
             dispatchAfterMessageSent(
                 event = request.pipelineInput.event,
                 afterSentView = afterSentView,
+                followupSender = request.followupSender,
                 snapshot = snapshot,
             )
         }.exceptionOrNull()
@@ -207,6 +209,7 @@ internal class PluginV2LlmPipelineCoordinator(
                 event = PluginV2LlmAfterSentPayload(
                     event = request.pipelineInput.event,
                     view = afterSentView,
+                    followupSender = request.followupSender,
                 ),
                 pluginName = HOST_PIPELINE_PLUGIN_ID,
                 handlerName = "after_message_sent",
@@ -417,6 +420,7 @@ internal class PluginV2LlmPipelineCoordinator(
     suspend fun dispatchAfterMessageSent(
         event: PluginMessageEvent,
         afterSentView: PluginV2AfterSentView,
+        followupSender: PluginV2FollowupSender? = null,
         snapshot: PluginV2ActiveRuntimeSnapshot = PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
     ): PluginV2LlmStageDispatchResult {
         return dispatchEngine.dispatchLlmStage(
@@ -424,6 +428,7 @@ internal class PluginV2LlmPipelineCoordinator(
             payload = PluginV2LlmAfterSentPayload(
                 event = event,
                 view = afterSentView,
+                followupSender = followupSender,
             ),
             snapshot = snapshot,
         )

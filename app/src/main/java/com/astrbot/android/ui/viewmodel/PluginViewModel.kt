@@ -1425,8 +1425,23 @@ class PluginViewModel(
             pluginId = pluginId,
             boundary = boundary,
         )
-        staticConfigUiState.value = staticSchema?.toUiState(snapshot.coreValues)
-        schemaUiState.value = runtimeSchemaState.withPersistedExtensionValues(snapshot.extensionValues)
+
+        val runtimeFieldIds = (runtimeSchemaState as? PluginSchemaUiState.Settings)
+            ?.schema?.allFieldIds().orEmpty()
+        val overlappingKeys = boundary.coreFieldKeys.intersect(runtimeFieldIds)
+
+        val displayStaticSchema = if (overlappingKeys.isNotEmpty() && staticSchema != null) {
+            val nonOverlapping = staticSchema.fields.filter { it.fieldKey !in overlappingKeys }
+            if (nonOverlapping.isEmpty()) null
+            else PluginStaticConfigSchema(fields = nonOverlapping)
+        } else {
+            staticSchema
+        }
+        staticConfigUiState.value = displayStaticSchema?.toUiState(snapshot.coreValues)
+
+        schemaUiState.value = runtimeSchemaState
+            .withPersistedExtensionValues(snapshot.extensionValues)
+            .withPersistedCoreOverlayValues(snapshot.coreValues, overlappingKeys)
     }
 
     private fun loadPackagedSettingsSchemaState(pluginId: String): PluginSchemaUiState {
@@ -1462,9 +1477,10 @@ class PluginViewModel(
             ?.allFieldIds()
             .orEmpty()
         return if (staticSchema != null) {
+            val coreFieldKeys = staticSchema.fields.map(PluginStaticConfigField::fieldKey).toSet()
             PluginConfigStorageBoundary(
-                coreFieldKeys = staticSchema.fields.map(PluginStaticConfigField::fieldKey).toSet(),
-                extensionFieldKeys = extensionFieldKeys,
+                coreFieldKeys = coreFieldKeys,
+                extensionFieldKeys = extensionFieldKeys - coreFieldKeys,
                 coreDefaults = staticSchema.fields.mapNotNull { field ->
                     field.defaultValue?.let { defaultValue -> field.fieldKey to defaultValue }
                 }.toMap(),
@@ -1480,9 +1496,17 @@ class PluginViewModel(
     private fun persistStaticConfig(state: PluginStaticConfigUiState) {
         val pluginId = uiState.value.selectedPluginId ?: return
         val boundary = currentConfigBoundary ?: return
-        val coreValues = state.schema.fields.mapNotNull { field ->
-            state.draftValues[field.fieldKey]
-                ?.toStaticConfigValue(field.fieldType)
+        val staticSchema = dependencies.getPluginStaticConfigSchema(pluginId) ?: return
+        val runtimeDrafts = (schemaUiState.value as? PluginSchemaUiState.Settings)
+            ?.draftValues.orEmpty()
+        val displayedFieldKeys = state.schema.fields.map { it.fieldKey }.toSet()
+        val coreValues = staticSchema.fields.mapNotNull { field ->
+            val draft = if (field.fieldKey in displayedFieldKeys) {
+                state.draftValues[field.fieldKey]
+            } else {
+                runtimeDrafts[field.fieldKey]
+            }
+            draft?.toStaticConfigValue(field.fieldType)
                 ?.let { value -> field.fieldKey to value }
         }.toMap()
         dependencies.savePluginCoreConfig(
@@ -1495,18 +1519,44 @@ class PluginViewModel(
     private fun persistRuntimeConfig(state: PluginSchemaUiState.Settings) {
         val pluginId = uiState.value.selectedPluginId ?: return
         val boundary = currentConfigBoundary ?: return
+
+        val overlappingCoreKeys = state.schema.allFieldIds().intersect(boundary.coreFieldKeys)
+        if (overlappingCoreKeys.isNotEmpty()) {
+            val staticSchema = dependencies.getPluginStaticConfigSchema(pluginId)
+            if (staticSchema != null) {
+                val staticDrafts = staticConfigUiState.value?.draftValues.orEmpty()
+                val coreValues = staticSchema.fields.mapNotNull { field ->
+                    val draft = if (field.fieldKey in overlappingCoreKeys) {
+                        state.draftValues[field.fieldKey]
+                    } else {
+                        staticDrafts[field.fieldKey]
+                    }
+                    draft?.toStaticConfigValue(field.fieldType)
+                        ?.let { value -> field.fieldKey to value }
+                }.toMap()
+                dependencies.savePluginCoreConfig(
+                    pluginId = pluginId,
+                    boundary = boundary,
+                    coreValues = coreValues,
+                )
+            }
+        }
+
         val extensionValues = state.schema.sections
             .flatMap { section -> section.fields }
+            .filter { field -> field.fieldId in boundary.extensionFieldKeys }
             .mapNotNull { field ->
                 val value = state.draftValues[field.fieldId]?.toExtensionConfigValue(field) ?: return@mapNotNull null
                 field.fieldId to value
             }
             .toMap()
-        dependencies.savePluginExtensionConfig(
-            pluginId = pluginId,
-            boundary = boundary,
-            extensionValues = extensionValues,
-        )
+        if (extensionValues.isNotEmpty()) {
+            dependencies.savePluginExtensionConfig(
+                pluginId = pluginId,
+                boundary = boundary,
+                extensionValues = extensionValues,
+            )
+        }
     }
 
     private fun PluginStaticConfigSchema.toUiState(
@@ -1533,6 +1583,24 @@ class PluginViewModel(
                 .flatMap { section -> section.fields }
                 .fold(settingsState.draftValues) { drafts, field ->
                     val persistedValue = extensionValues[field.fieldId] ?: return@fold drafts
+                    val persistedDraft = persistedValue.toDraftValue(field) ?: return@fold drafts
+                    drafts + (field.fieldId to persistedDraft)
+                },
+        )
+    }
+
+    private fun PluginSchemaUiState.withPersistedCoreOverlayValues(
+        coreValues: Map<String, PluginStaticConfigValue>,
+        overlappingKeys: Set<String>,
+    ): PluginSchemaUiState {
+        if (overlappingKeys.isEmpty()) return this
+        val settingsState = this as? PluginSchemaUiState.Settings ?: return this
+        return settingsState.copy(
+            draftValues = settingsState.schema.sections
+                .flatMap { section -> section.fields }
+                .fold(settingsState.draftValues) { drafts, field ->
+                    if (field.fieldId !in overlappingKeys) return@fold drafts
+                    val persistedValue = coreValues[field.fieldId] ?: return@fold drafts
                     val persistedDraft = persistedValue.toDraftValue(field) ?: return@fold drafts
                     drafts + (field.fieldId to persistedDraft)
                 },

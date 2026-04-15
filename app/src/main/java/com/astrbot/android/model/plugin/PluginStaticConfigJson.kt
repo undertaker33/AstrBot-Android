@@ -90,8 +90,13 @@ object PluginStaticConfigJson {
 
     private fun decodeFieldType(value: String, path: String): PluginStaticConfigFieldType {
         return PluginStaticConfigFieldType.fromWireValue(value)
+            ?: FIELD_TYPE_ALIASES[value]
             ?: throw IllegalArgumentException("$path has unsupported value")
     }
+
+    private val FIELD_TYPE_ALIASES: Map<String, PluginStaticConfigFieldType> = mapOf(
+        "number" to PluginStaticConfigFieldType.FloatField,
+    )
 
     private fun decodeSpecialType(value: String?, path: String): PluginStaticConfigSpecialType? {
         if (value == null) return null

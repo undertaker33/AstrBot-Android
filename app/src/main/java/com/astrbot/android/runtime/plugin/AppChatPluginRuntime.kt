@@ -32,6 +32,10 @@ internal data class PluginV2HostPreparedReply(
     val deliveredEntries: List<PluginV2AfterSentView.DeliveredEntry> = emptyList(),
 )
 
+internal fun interface PluginV2FollowupSender {
+    fun send(text: String, attachments: List<ConversationAttachment>): PluginV2HostSendResult
+}
+
 internal data class PluginV2HostSendResult(
     val success: Boolean,
     val receiptIds: List<String> = emptyList(),
@@ -44,6 +48,7 @@ internal data class PluginV2HostLlmDeliveryRequest(
     val platformAdapterType: String,
     val platformInstanceKey: String,
     val hostCapabilityGateway: PluginHostCapabilityGateway = DefaultPluginHostCapabilityGateway(),
+    val followupSender: PluginV2FollowupSender? = null,
     val prepareReply: suspend (PluginV2LlmPipelineResult) -> PluginV2HostPreparedReply,
     val sendReply: suspend (PluginV2HostPreparedReply) -> PluginV2HostSendResult,
     val persistDeliveredReply: suspend (
