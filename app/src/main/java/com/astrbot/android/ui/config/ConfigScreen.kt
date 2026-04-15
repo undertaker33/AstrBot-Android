@@ -153,8 +153,8 @@ fun ConfigScreen(
                     .navigationBarsPadding()
                     .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
                     .testTag("config-delete-fab"),
-                containerColor = MonochromeUi.fabBackground,
-                contentColor = MonochromeUi.fabContent,
+                containerColor = MonochromeUi.actionFabBackground,
+                contentColor = MonochromeUi.actionFabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
             ) {
                 Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.config_delete_selected))
@@ -170,8 +170,8 @@ fun ConfigScreen(
                     .navigationBarsPadding()
                     .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
                     .testTag("config-add-fab"),
-                containerColor = MonochromeUi.fabBackground,
-                contentColor = MonochromeUi.fabContent,
+                containerColor = MonochromeUi.actionFabBackground,
+                contentColor = MonochromeUi.actionFabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
             ) {
                 Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.provider_add))

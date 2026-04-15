@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="bot_command_help_version">AstrBot V0.5.5</string>
+    <string name="bot_command_help_version">ElymBot V0.5.8</string>
 
     <string name="bot_command_section_builtin">内置指令</string>
     <string name="bot_command_section_conversation">会话管理</string>

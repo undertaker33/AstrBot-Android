@@ -33,6 +33,8 @@ object MonochromeUi {
     val strongAlt get() = if (isDarkTheme) Color(0xFF2E3644) else Color(0xFF2A2A2A)
     val fabBackground get() = if (isDarkTheme) Color(0xFFE9EEF5) else Color(0xFF151515)
     val fabContent get() = if (isDarkTheme) Color(0xFF111318) else Color.White
+    val actionFabBackground get() = monochromeActionFabBackgroundColor(isDarkTheme)
+    val actionFabContent get() = monochromeActionFabContentColor(isDarkTheme)
     val activeIndicator get() = if (isDarkTheme) Color(0xFF2A303B) else Color(0xFFE8E8E5)
     val navBarBackground get() = if (isDarkTheme) Color(0xFF0B0E14) else Color.White
     val iconButtonSurface get() = if (isDarkTheme) Color(0xFF161C25) else Color.White
@@ -45,6 +47,12 @@ object MonochromeUi {
     val radiusGrouped = RoundedCornerShape(16.dp)
     val radiusIcon = RoundedCornerShape(10.dp)
 }
+
+internal fun monochromeActionFabBackgroundColor(isDarkTheme: Boolean): Color =
+    if (isDarkTheme) Color(0xFF111111) else Color(0xFF151515)
+
+internal fun monochromeActionFabContentColor(isDarkTheme: Boolean): Color =
+    if (isDarkTheme) Color.White else Color.White
 
 @Composable
 fun monochromeOutlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(

@@ -213,8 +213,8 @@ private fun PluginConfigWorkspace(
                 .navigationBarsPadding()
                 .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
                 .testTag(PluginUiSpec.ConfigSaveFabTag),
-            containerColor = MonochromeUi.fabBackground,
-            contentColor = MonochromeUi.fabContent,
+            containerColor = MonochromeUi.actionFabBackground,
+            contentColor = MonochromeUi.actionFabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
             androidx.compose.material3.Icon(

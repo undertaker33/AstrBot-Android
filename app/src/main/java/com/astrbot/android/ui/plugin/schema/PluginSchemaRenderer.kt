@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.ui.app.MonochromeUi
+import com.astrbot.android.ui.app.monochromeSwitchColors
 import com.astrbot.android.ui.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
 import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
@@ -681,6 +682,7 @@ private fun PluginToggleSettingField(
             checked = field.value,
             onCheckedChange = onChange,
             modifier = Modifier.testTag(PluginUiSpec.schemaSettingsToggleTag(field.fieldId)),
+            colors = monochromeSwitchColors(),
         )
     }
 }
@@ -816,6 +818,7 @@ private fun PluginStaticConfigToggleField(
                 checked = field.value,
                 onCheckedChange = onChange,
                 modifier = Modifier.testTag(PluginUiSpec.schemaStaticConfigToggleTag(field.fieldKey)),
+                colors = monochromeSwitchColors(),
             )
         }
         StaticConfigFieldMeta(

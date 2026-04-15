@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -213,11 +214,6 @@ private fun PluginDetailTopSummarySection(
                     assistBadge("Runtime health", runtimeHealthLabel(governance.runtimeHealth.status))
                 }
             }
-            Text(
-                text = record.manifestSnapshot.entrySummary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MonochromeUi.textPrimary,
-            )
         }
     }
 }
@@ -484,6 +480,9 @@ private fun PluginDetailConfirmationDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag(PluginUiSpec.DetailConfirmDialogTag),
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textSecondary,
         title = {
             Text(text = stringResource(spec.titleRes))
         },
@@ -493,12 +492,18 @@ private fun PluginDetailConfirmationDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+            ) {
                 Text(text = stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+            ) {
                 Text(text = stringResource(R.string.common_cancel))
             }
         },
@@ -639,6 +644,9 @@ private fun PluginUpgradeDialog(
     val permissionDiff = state.availability.permissionDiff
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textSecondary,
         title = {
             Text(
                 text = if (state.isSecondaryConfirmationStep) {
@@ -704,6 +712,7 @@ private fun PluginUpgradeDialog(
             TextButton(
                 onClick = onConfirm,
                 enabled = !state.isInstalling,
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
             ) {
                 Text(
                     text = if (state.requiresSecondaryConfirmation && !state.isSecondaryConfirmationStep) {
@@ -718,6 +727,7 @@ private fun PluginUpgradeDialog(
             TextButton(
                 onClick = onDismiss,
                 enabled = !state.isInstalling,
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
             ) {
                 Text(text = stringResource(R.string.common_cancel))
             }

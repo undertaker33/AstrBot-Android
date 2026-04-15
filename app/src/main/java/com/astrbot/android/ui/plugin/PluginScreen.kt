@@ -397,8 +397,8 @@ private fun PluginManagerScreen(
                     .navigationBarsPadding()
                     .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
                     .testTag(PluginUiSpec.ManagerDeleteFabTag),
-                containerColor = MonochromeUi.fabBackground,
-                contentColor = MonochromeUi.fabContent,
+                containerColor = MonochromeUi.actionFabBackground,
+                contentColor = MonochromeUi.actionFabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
             ) {
                 Icon(
@@ -786,8 +786,8 @@ private fun PluginLocalWorkspace(
             FloatingActionButton(
                 onClick = onOpenPluginManager,
                 modifier = Modifier.testTag(PluginUiSpec.LocalManageFabTag),
-                containerColor = MonochromeUi.cardBackground,
-                contentColor = MonochromeUi.textPrimary,
+                containerColor = MonochromeUi.actionFabBackground,
+                contentColor = MonochromeUi.actionFabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
             ) {
                 Icon(
@@ -798,8 +798,8 @@ private fun PluginLocalWorkspace(
             FloatingActionButton(
                 onClick = { showInstallSheet = true },
                 modifier = Modifier.testTag(PluginUiSpec.LocalInstallFabTag),
-                containerColor = MonochromeUi.fabBackground,
-                contentColor = MonochromeUi.fabContent,
+                containerColor = MonochromeUi.actionFabBackground,
+                contentColor = MonochromeUi.actionFabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
             ) {
                 Icon(
@@ -1726,12 +1726,11 @@ private fun PluginMarketCard(
                 horizontalArrangement = Arrangement.End,
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
+                    MonochromeSecondaryActionButton(
+                        label = stringResource(R.string.plugin_market_repository_action),
                         onClick = onOpenRepository,
                         enabled = card.repositoryUrl.isNotBlank(),
-                    ) {
-                        Text(stringResource(R.string.plugin_market_repository_action))
-                    }
+                    )
                     MonochromePrimaryActionButton(
                         label = marketPrimaryActionLabel(
                             when (card.status) {

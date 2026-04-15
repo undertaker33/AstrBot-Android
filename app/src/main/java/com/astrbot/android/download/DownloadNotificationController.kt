@@ -16,14 +16,14 @@ class DownloadNotificationController(
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "AstrBot Downloads",
+                "ElymBot Downloads",
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )
     }
 
     fun build(task: DownloadTaskRecord?): Notification {
-        val title = task?.displayName ?: "AstrBot Downloads"
+        val title = task?.displayName ?: "ElymBot Downloads"
         val text = when {
             task == null -> "Waiting for download tasks"
             task.status == DownloadTaskStatus.COMPLETED -> "Download complete"

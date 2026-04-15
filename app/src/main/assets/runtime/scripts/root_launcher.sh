@@ -364,7 +364,7 @@ EOF
   log_config_snapshot "final webui.json after write" "$NAPCAT_CONFIG_DIR/webui.json"
 
   if [ ! -f "$NAPCAT_CONFIG_DIR/onebot11.json" ] || ! grep -q 'ws://127.0.0.1:6199/ws' "$NAPCAT_CONFIG_DIR/onebot11.json"; then
-    echo "writing onebot11.json for AstrBot bridge"
+    echo "writing onebot11.json for ElymBot bridge"
     cat > "$NAPCAT_CONFIG_DIR/onebot11.json" <<'EOF'
 {
   "network": {

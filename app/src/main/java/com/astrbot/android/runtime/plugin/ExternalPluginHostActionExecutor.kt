@@ -164,7 +164,7 @@ class ExternalPluginHostActionExecutor(
                     ?: request.payload["text"]
                     ?.takeIf { it.isNotBlank() }
                     ?: throw IllegalArgumentException("Host action SendNotification requires payload.message")
-                val title = request.payload["title"].orEmpty().ifBlank { "AstrBot" }
+                val title = request.payload["title"].orEmpty().ifBlank { "ElymBot" }
                 sendNotificationHandler(title, message)
                 "$title: $message"
             }

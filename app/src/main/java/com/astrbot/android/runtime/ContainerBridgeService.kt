@@ -344,7 +344,7 @@ class ContainerBridgeService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "AstrBot Runtime",
+                "ElymBot Runtime",
                 NotificationManager.IMPORTANCE_LOW,
             )
             val manager = getSystemService(NotificationManager::class.java)
@@ -355,7 +355,7 @@ class ContainerBridgeService : Service() {
     private fun buildNotification(content: String): Notification {
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("AstrBot Runtime")
+            .setContentTitle("ElymBot Runtime")
             .setContentText(content)
             .setOngoing(true)
             .build()

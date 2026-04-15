@@ -688,8 +688,8 @@ private fun ConfigDetailContent(
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 28.dp),
-            containerColor = MonochromeUi.fabBackground,
-            contentColor = MonochromeUi.fabContent,
+            containerColor = MonochromeUi.actionFabBackground,
+            contentColor = MonochromeUi.actionFabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
             Icon(Icons.Outlined.Done, contentDescription = stringResource(R.string.common_save))

@@ -186,7 +186,7 @@ class PluginViewModelTest {
         assertEquals(1, deps.officialCatalogBootstrapRequests)
         assertEquals(1, deps.repositorySources.value.size)
         assertEquals(
-            "https://raw.githubusercontent.com/undertaker33/astrbot-android-plugin-market/main/catalog.json",
+            "https://raw.githubusercontent.com/undertaker33/ElymBot-plugin-market/main/catalog.json",
             deps.repositorySources.value.single().catalogUrl,
         )
     }
@@ -487,7 +487,7 @@ class PluginViewModelTest {
         val viewModel = PluginViewModel(deps)
         advanceUntilIdle()
 
-        val localFilterClass = Class.forName("com.astrbot.android.ui.screen.PluginLocalFilter")
+        val localFilterClass = Class.forName("com.astrbot.android.ui.plugin.PluginLocalFilter")
         val updatesFilter = java.lang.Enum.valueOf(localFilterClass.asSubclass(Enum::class.java), "UPDATES")
         pluginViewModelMethod("updateLocalSearchQuery", String::class.java).invoke(viewModel, "alice")
         pluginViewModelMethod("updateSelectedLocalFilter", localFilterClass).invoke(viewModel, updatesFilter)
@@ -2163,7 +2163,7 @@ class PluginViewModelTest {
         assertTrue(schemaState is PluginSchemaUiState.Card)
         schemaState as PluginSchemaUiState.Card
         assertEquals(
-            PluginActionFeedback.Text("Retry · sessionId=s-1"),
+            PluginActionFeedback.Text("Retry | sessionId=s-1"),
             schemaState.lastActionFeedback,
         )
     }
@@ -3151,8 +3151,8 @@ class PluginViewModelTest {
                 repositorySourcesFlow.value = listOf(
                     com.astrbot.android.model.plugin.PluginRepositorySource(
                         sourceId = "official-market",
-                        title = "AstrBot Android Plugin Market",
-                        catalogUrl = "https://raw.githubusercontent.com/undertaker33/astrbot-android-plugin-market/main/catalog.json",
+                        title = "ElymBot Plugin Market",
+                        catalogUrl = "https://raw.githubusercontent.com/undertaker33/ElymBot-plugin-market/main/catalog.json",
                         updatedAt = 1_700_000_000_000L,
                     ),
                 )

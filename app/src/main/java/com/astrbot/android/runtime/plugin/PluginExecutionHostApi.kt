@@ -151,7 +151,7 @@ object PluginExecutionHostApi {
                     val handler = requireNotNull(handlers.sendNotificationHandler) {
                         "Host builtin tool $HostSendNotificationToolName is unavailable."
                     }
-                    val title = (args.payload["title"] as? String).orEmpty().trim().ifBlank { "AstrBot" }
+                    val title = (args.payload["title"] as? String).orEmpty().trim().ifBlank { "ElymBot" }
                     val message = requirePayloadValue(
                         payload = args.payload,
                         primaryKey = "message",

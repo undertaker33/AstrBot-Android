@@ -582,6 +582,8 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         return withContext(Dispatchers.IO) {
             val existing = repositorySources.value.firstOrNull { source ->
                 source.catalogUrl == OFFICIAL_MARKET_CATALOG_URL
+            } ?: repositorySources.value.firstOrNull { source ->
+                source.catalogUrl == LEGACY_OFFICIAL_MARKET_CATALOG_URL
             }
             RuntimeLogRepository.append(
                 "Plugin market ensure-official start: " +
@@ -590,7 +592,13 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
                     "url=$OFFICIAL_MARKET_CATALOG_URL",
             )
             val syncState = if (existing != null) {
-                defaultPluginCatalogSynchronizer().sync(existing.sourceId)
+                val source = if (existing.catalogUrl == LEGACY_OFFICIAL_MARKET_CATALOG_URL) {
+                    existing.copy(catalogUrl = OFFICIAL_MARKET_CATALOG_URL)
+                        .also(PluginRepository::upsertRepositorySource)
+                } else {
+                    existing
+                }
+                defaultPluginCatalogSynchronizer().sync(source.sourceId)
             } else {
                 defaultPluginRepositorySubscriptionManager()
                     .subscribeAndSync(OFFICIAL_MARKET_CATALOG_URL)
@@ -797,6 +805,8 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
 }
 
 private const val OFFICIAL_MARKET_CATALOG_URL =
+    "https://raw.githubusercontent.com/undertaker33/ElymBot-plugin-market/main/catalog.json"
+private const val LEGACY_OFFICIAL_MARKET_CATALOG_URL =
     "https://raw.githubusercontent.com/undertaker33/astrbot-android-plugin-market/main/catalog.json"
 
 private fun queryDisplayName(

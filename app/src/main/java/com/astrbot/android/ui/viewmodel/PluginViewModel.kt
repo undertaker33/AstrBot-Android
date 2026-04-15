@@ -760,7 +760,7 @@ class PluginViewModel(
             val availability = dependencies.getUpdateAvailability(selected.pluginId)
                 ?: uiState.value.updateAvailabilitiesByPluginId[selected.pluginId]
             if (availability == null || !availability.updateAvailable) {
-                marketRefreshFeedback.value = PluginActionFeedback.Resource(R.string.plugin_action_feedback_no_update_available)
+                lastActionMessage.value = PluginActionFeedback.Resource(R.string.plugin_action_feedback_no_update_available)
                 return@launch
             }
             if (!availability.canUpgrade) {
@@ -1253,7 +1253,7 @@ class PluginViewModel(
             ),
             bot = PluginBotSummary(
                 botId = "host",
-                displayName = "AstrBot Host",
+                displayName = "ElymBot Host",
                 platformId = "host",
             ),
             config = PluginConfigSummary(),
@@ -1769,7 +1769,7 @@ class PluginViewModel(
         val payloadText = resolvedPayload.entries
             .sortedBy { (key, _) -> key }
             .joinToString(separator = ", ") { (key, value) -> "$key=$value" }
-        return PluginActionFeedback.Text("${action.label} 璺?$payloadText")
+        return PluginActionFeedback.Text("${action.label} | $payloadText")
     }
 
     private fun updateSelectedPluginEnabled(enabled: Boolean) {

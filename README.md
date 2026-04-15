@@ -1,4 +1,4 @@
-# AstrBot Android Native
+# ElymBot
 一个面向 Android 的 AstrBot 原生项目，用于在移动端承载 QQ Bot 管理、模型配置、Persona 管理、对话上下文、运行时控制和 NapCat 本地桥接能力。
 
 这个项目不是从零独立设计出来的移动端新产品，而是基于两个桌面端项目做“移动端减法”后的原生化整合：
@@ -7,13 +7,21 @@
 
 目标不是把桌面端的 Python 后端、Node WebUI、插件生态和协议栈原封不动搬进 Android，而是提炼其中适合手机场景的核心管理能力，并以 Kotlin + Compose + Android 前台服务的方式重建。
 
+## 改名说明
+
+本项目已由 **AstrBot-Android** 更名为 **ElymBot**。
+
+由于插件能力上线后，原名称较容易与 AstrBot 官方项目、第三方安卓端实现及插件生态产生混淆，因此改用更独立的名称 **ElymBot**。新名称将作为项目后续统一标识使用，项目定位与核心方向不变，仍然专注于 Android 端的 Bot 管理、本地运行时整合与移动端体验优化。
+
+历史版本中出现的 **AstrBot-Android** 均为旧名称。
+
 ## 特别注意 
 **<u>插件v1（截止v0.4.8）整体设计过于简单，已经开放的四个trigger后续将不再支持，建议插件作者(如果有的话)等v2完全发布后再进行开发</u>**
 
-## 为什么要做 AstrBot-Android
+## 为什么要做 ElymBot
 刷到AstrBot的宣传视频，我寻思闲置设备可以拿来部署一个玩玩，但看了一圈下来发现我只有闲置的安卓手机。
 通过AstrBot官方文档我找到了[AstrBot-Android-App](https://github.com/zz6zz666/AstrBot-Android-App),但奈何我的老手机比较掘，死活部署不上，所以打算写一个能兼容我老手机的安卓工程
-### 通过AstrBot-Android,你可以：
+### 通过ElymBot,你可以：
 - [✔] 完全免费开源
 - [✔] 实现单台安卓设备一键部署AstrBot
 - [✔] 将QQ作为一个AI节点，实现基础的对话
@@ -155,19 +163,73 @@ ps:有空我会一直更新的
 ```text
 app/
   src/main/java/com/astrbot/android/
-    data/                 本地仓库与服务
-    data/db/              Room 数据库
-    model/                数据模型
-    runtime/              运行时桥接、安装、日志、OneBot
-    ui/                   Compose App Shell
-    ui/screen/            页面
-    ui/viewmodel/         页面状态
-    ui/theme/             主题
+    data/                         本地仓库、Repository、业务数据服务
+      db/                         Room 数据库、DAO、实体、迁移
+      backup/                     备份导入导出
+      chat/                       会话导入导出、标题同步、迁移适配
+      http/                       HTTP 客户端与网络请求封装
+      plugin/                     插件存储路径、插件市场 / catalog 数据
+    di/                           AppContainer、ViewModel 依赖注入入口
+    download/                     下载任务、断点续传、前台下载服务
+    model/                        业务数据模型
+      plugin/                     插件协议、安装合同、权限、配置、治理模型
+    runtime/                      运行时桥接、QQ / OneBot、本地日志、容器服务
+      botcommand/                 内置 bot command
+      plugin/                     插件 runtime、安装、执行、v2 loader / dispatch / tool / governance
+        catalog/                  插件市场同步、安装 intent 处理
+        validation/               插件发布 / 包校验
+      qq/                         QQ 回复策略、关键词、限流、会话标题
+    ui/                           Compose UI
+      app/                        应用壳层、顶栏、全局视觉辅助
+      navigation/                 全局 route、NavHost、主滑轨、转场
+      bot/                        Bot / 模型 / Persona 工作区页面
+      chat/                       App 内聊天页面与输入组件
+      common/                     通用 Compose 组件
+      config/                     模型配置列表与详情
+      persona/                    Persona 页面
+      plugin/                     插件本地页、管理页、市场、详情、配置、日志、工作区、触发器
+        schema/                   插件 schema 渲染与按钮布局策略
+      provider/                   Provider 页面
+      qqlogin/                    QQ 登录与账号中心
+      settings/                   设置、日志、备份、资产管理
+      theme/                      Material typography / theme 定义
+      viewmodel/                  页面状态与业务动作 ViewModel
+      voiceasset/                 TTS / 声音克隆资产 UI
+
   src/main/assets/runtime/
-    assets/               rootfs / deb / 安装资产
-    scripts/              runtime 启停与状态脚本
+    assets/                       rootfs、deb、安装资产
+    scripts/                      runtime 启停与状态脚本
+
   src/main/jniLibs/
-    arm64-v8a/            proot/busybox/loader 等 native 资产
+    arm64-v8a/                    proot、busybox、loader 等 native 资产
+
+  src/main/res/
+    values/                       英文文案、主题资源
+    values-zh/                    中文文案
+    drawable/                     图形资源
+    mipmap-*/                     启动图标
+
+  src/test/java/com/astrbot/android/
+    data/                         数据层、备份、Room schema 单测
+    download/                     下载与断点续传单测
+    model/                        模型、插件协议解析单测
+    runtime/                      OneBot、插件 runtime、v2 hook / tool / governance 单测
+    ui/
+      chat/                       聊天 UI 分类等单测
+      plugin/                     插件管理 presentation 单测
+        schema/                   插件 schema 按钮布局策略单测
+      viewmodel/                  Bot / Chat / Plugin / Provider / QQ ViewModel 单测
+
+  src/test/resources/
+    plugin-v2-bootstrap/          v2 bootstrap 测试 fixture
+    plugin-v2-message/            v2 message / lifecycle fixture
+    plugin-v2-llm/                v2 LLM hook fixture
+    plugin-v2-tool/               v2 tool fixture
+
+  src/androidTest/java/com/astrbot/android/
+    data/db/                      Room migration instrumentation test
+    ui/                           Config / Plugin / QQ 登录 smoke test
+
 ```
 
 ## 构建要求
@@ -183,7 +245,7 @@ app/
 
 ## 差异说明
 
-`AstrBot-Android` 基于 `AstrBot-master` 与 `NapCatQQ-main` 的核心能力思路构建，但并不是两者的 Android 直接移植版。
+`ElymBot` 基于 `AstrBot-master` 与 `NapCatQQ-main` 的核心能力思路构建，但并不是两者的 Android 直接移植版。
 
 它保留了 AstrBot 在 Bot、Provider、Persona、聊天、日志和设置上的核心管理体验，同时吸收了 NapCat 在 QQ 登录、运行时控制与 OneBot 桥接上的关键能力，并通过 Kotlin + Jetpack Compose + Android 前台服务的方式，重构为一个面向手机端的原生控制台与本地桥接运行层。
 

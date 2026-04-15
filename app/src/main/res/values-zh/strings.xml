@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">AstrBot Android</string>
+    <string name="app_name">ElymBot</string>
 
     <string name="common_back">返回</string>
     <string name="common_save">保存</string>
@@ -306,7 +306,7 @@
     <string name="asset_clear_action">清除</string>
     <string name="asset_last_action">最近动作：%1$s</string>
     <string name="asset_busy_hint">正在下载或清除资产。首次下载可能需要较长时间。</string>
-<string name="asset_auto_detect_desc">AstrBot 会自动检查系统代理设置和可用的软件包镜像，并为这些资产选择当前可用的下载路径。</string>
+<string name="asset_auto_detect_desc">ElymBot 会自动检查系统代理设置和可用的软件包镜像，并为这些资产选择当前可用的下载路径。</string>
     <string name="backup_data_title">数据备份</string>
     <string name="backup_data_desc">在版本更新提示中若是有“建议备份数据”字样，建议在安装更新前进行备份。</string>
     <string name="backup_module_bots_title">Bot 备份</string>
@@ -322,7 +322,7 @@
     <string name="backup_module_disabled_tag">后续</string>
     <string name="backup_conversation_desc">为聊天历史创建内部备份快照，后续可恢复；也可以设置每天固定时间自动备份。</string>
     <string name="backup_auto_title">自动备份</string>
-    <string name="backup_auto_hint">开启后，AstrBot 会在每天达到设定时间后自动创建一份对话备份。</string>
+    <string name="backup_auto_hint">开启后，ElymBot 会在每天达到设定时间后自动创建一份对话备份。</string>
     <string name="backup_auto_time_title">自动备份时间</string>
     <string name="backup_create_action">立即备份</string>
     <string name="backup_create_success">备份已创建：%1$s</string>
@@ -448,7 +448,7 @@
     <string name="provider_support_no">不支持</string>
     <string name="provider_image_help_title">图像理解说明</string>
     <string name="provider_image_help_estimated_title">为什么会显示“推测”？</string>
-    <string name="provider_image_help_estimated_body">“推测”表示 AstrBot 根据提供商类型和模型名规则判断它大概率支持看图。这个判断很快，但如果模型别名特殊，或者服务商最近改了能力，也可能不准。</string>
+    <string name="provider_image_help_estimated_body">“推测”表示 ElymBot 根据提供商类型和模型名规则判断它大概率支持看图。这个判断很快，但如果模型别名特殊，或者服务商最近改了能力，也可能不准。</string>
     <string name="provider_image_help_tested_title">为什么“实测”会失败？</string>
     <string name="provider_image_help_tested_body">“实测”会真的向模型发送一张小图片做请求。失败通常意味着 API Key、接口地址、模型权限，或者模型本身的图像理解能力没有准备好。</string>
     <string name="provider_image_help_fallback_title">哪些模型适合做图片转述模型？</string>

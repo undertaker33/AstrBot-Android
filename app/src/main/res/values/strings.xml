@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">AstrBot Android</string>
+    <string name="app_name">ElymBot</string>
 
     <string name="common_back">Back</string>
     <string name="common_save">Save</string>
@@ -335,7 +335,7 @@
     <string name="asset_list_title">Available Assets</string>
     <string name="asset_list_desc">Assets stay unchanged unless you manually enter a detail page and choose to download or clear them.</string>
     <string name="asset_actions_title">Actions</string>
-<string name="asset_auto_detect_desc">AstrBot automatically checks available system proxy settings and working package mirrors, then chooses a usable download path for these assets.</string>
+<string name="asset_auto_detect_desc">ElymBot automatically checks available system proxy settings and working package mirrors, then chooses a usable download path for these assets.</string>
     <string name="asset_actions_coming_next_step">Download and clear actions are available only for assets that show active controls on this page.</string>
     <string name="backup_data_title">Data Backup</string>
     <string name="backup_data_desc">If a version update explicitly recommends backing up data, create a backup before installing the update.</string>
@@ -356,7 +356,7 @@
     <string name="backup_module_disabled_tag">Soon</string>
     <string name="backup_conversation_desc">Create internal backup snapshots for chat history, restore them later, and keep an optional daily auto-backup schedule.</string>
     <string name="backup_auto_title">Automatic backup</string>
-    <string name="backup_auto_hint">When enabled, AstrBot creates one conversation backup after the chosen time each day.</string>
+    <string name="backup_auto_hint">When enabled, ElymBot creates one conversation backup after the chosen time each day.</string>
     <string name="backup_auto_time_title">Auto-backup time</string>
     <string name="backup_create_action">Create backup now</string>
     <string name="backup_create_success">Backup created: %1$s</string>
@@ -561,7 +561,7 @@
     <string name="provider_support_no">Unsupported</string>
     <string name="provider_image_help_title">Image understanding guide</string>
     <string name="provider_image_help_estimated_title">Why is one result \"estimated\"?</string>
-    <string name="provider_image_help_estimated_body">Estimated means AstrBot judged support from the provider type and model name. It is fast, but it can be wrong if the model alias is unusual or the provider changed behavior.</string>
+    <string name="provider_image_help_estimated_body">Estimated means ElymBot judged support from the provider type and model name. It is fast, but it can be wrong if the model alias is unusual or the provider changed behavior.</string>
     <string name="provider_image_help_tested_title">Why can the tested result fail?</string>
     <string name="provider_image_help_tested_body">Tested sends a small real image request to the model. Failure usually means the API key, endpoint, model permissions, or the model\'s actual image support is not ready.</string>
     <string name="provider_image_help_fallback_title">Which models fit image caption fallback?</string>
@@ -613,7 +613,7 @@
     <string name="chat_request_failed_prefix">Request failed: %1$s</string>
     <string name="chat_plugin_command_runtime_failed">Plugin command failed: %1$s</string>
     <string name="chat_plugin_command_suspended">Plugin %1$s is temporarily suspended after repeated failures. Try again later.</string>
-    <string name="chat_input_placeholder">Message AstrBot</string>
+    <string name="chat_input_placeholder">Message ElymBot</string>
     <string name="chat_input_footer_hint">Use ~ at the end of a message to trigger reply TTS when the current config allows it.</string>
     <string name="chat_role_you">You</string>
     <string name="chat_role_assistant">Assistant</string>
