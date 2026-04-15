@@ -154,6 +154,26 @@ data class PluginLocalWorkspacePresentation(
     val cards: List<PluginLocalCardPresentation>,
 )
 
+enum class PluginManagerPrimaryAction {
+    Open,
+    Update,
+}
+
+data class PluginManagerCardPresentation(
+    val pluginId: String,
+    val title: String,
+    val author: String,
+    val installedVersion: String,
+    val latestVersion: String,
+    val hasUpdateAvailable: Boolean,
+    val primaryAction: PluginManagerPrimaryAction,
+)
+
+data class PluginManagerPresentation(
+    val cards: List<PluginManagerCardPresentation>,
+    val updatableCount: Int,
+)
+
 enum class PluginMarketStatus {
     NOT_INSTALLED,
     INSTALLED,
@@ -314,6 +334,39 @@ internal fun buildPluginLocalWorkspacePresentation(
         cards = cards
             .filter { it.matchesSearch(normalizedQuery) }
             .filter { it.matchesLocalFilter(selectedFilter) },
+    )
+}
+
+internal fun buildPluginManagerPresentation(
+    uiState: PluginScreenUiState,
+): PluginManagerPresentation {
+    val cards = uiState.records
+        .map { record ->
+            val updateAvailability = uiState.updateAvailabilitiesByPluginId[record.pluginId]
+            val hasUpdateAvailable = updateAvailability?.updateAvailable == true
+            PluginManagerCardPresentation(
+                pluginId = record.pluginId,
+                title = record.manifestSnapshot.title,
+                author = record.manifestSnapshot.author,
+                installedVersion = record.installedVersion,
+                latestVersion = if (hasUpdateAvailable) {
+                    updateAvailability?.latestVersion.orEmpty()
+                } else {
+                    ""
+                },
+                hasUpdateAvailable = hasUpdateAvailable,
+                primaryAction = if (hasUpdateAvailable) {
+                    PluginManagerPrimaryAction.Update
+                } else {
+                    PluginManagerPrimaryAction.Open
+                },
+            )
+        }
+        .sortedBy { it.title.lowercase() }
+
+    return PluginManagerPresentation(
+        cards = cards,
+        updatableCount = cards.count { it.hasUpdateAvailable },
     )
 }
 

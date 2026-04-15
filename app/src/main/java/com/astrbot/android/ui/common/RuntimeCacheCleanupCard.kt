@@ -34,15 +34,15 @@ internal fun RuntimeCacheCleanupCard(
     onClearClick: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -51,8 +51,8 @@ internal fun RuntimeCacheCleanupCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .background(MonochromeUi.mutedSurface, RoundedCornerShape(14.dp))
-                        .padding(10.dp),
+                        .background(MonochromeUi.mutedSurface, RoundedCornerShape(10.dp))
+                        .padding(8.dp),
                 ) {
                     Icon(Icons.Outlined.Refresh, contentDescription = null, tint = MonochromeUi.textPrimary)
                 }

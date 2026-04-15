@@ -42,9 +42,11 @@ object PluginUiSpec {
     val InnerSpacing: Dp = 8.dp
     val ListContentBottomPadding: Dp = 104.dp
     val SchemaFieldSpacing: Dp = 8.dp
-    val SchemaActionSpacing: Dp = 8.dp
     val SchemaContainerPadding: Dp = 18.dp
     val SchemaFieldGroupSpacing: Dp = 6.dp
+    val SchemaButtonGroupSpacing: Dp = 8.dp
+    val SchemaButtonSingleLineMinHeight: Dp = 44.dp
+    val SchemaButtonTwoLineMinHeight: Dp = 58.dp
     val SchemaRowHorizontalPadding: Dp = 14.dp
     val SchemaRowVerticalPadding: Dp = 10.dp
     val SchemaSectionPadding: Dp = 14.dp
@@ -58,10 +60,10 @@ object PluginUiSpec {
     val FailureBannerChipHorizontalPadding: Dp = 10.dp
     val FailureBannerChipVerticalPadding: Dp = 6.dp
 
-    val SummaryShape = RoundedCornerShape(28.dp)
-    val SectionShape = RoundedCornerShape(26.dp)
+    val SummaryShape = RoundedCornerShape(18.dp)
+    val SectionShape = RoundedCornerShape(16.dp)
     val BadgeShape = RoundedCornerShape(999.dp)
-    val EmptyStateShape = RoundedCornerShape(30.dp)
+    val EmptyStateShape = RoundedCornerShape(16.dp)
 
     val CardBorder: BorderStroke
         @Composable
@@ -84,8 +86,14 @@ object PluginUiSpec {
     const val LocalCardTag = "plugin-local-card"
     const val LocalCardChevronTag = "plugin-local-card-chevron"
     const val LocalInstallFabTag = "plugin-local-install-fab"
+    const val LocalManageFabTag = "plugin-local-manage-fab"
     const val LocalInstallDialogTag = "plugin-local-install-dialog"
     const val LocalInstallModeSelectorTag = "plugin-local-install-mode-selector"
+    const val ManagerPageTag = "plugin-manager-page"
+    const val ManagerHealthTag = "plugin-manager-health"
+    const val ManagerDeleteFabTag = "plugin-manager-delete-fab"
+    const val ManagerDeleteDialogTag = "plugin-manager-delete-dialog"
+    const val ManagerCheckTag = "plugin-manager-check"
     const val DownloadProgressDialogTag = "download-progress-dialog"
     const val MarketPageTag = "plugin-market-page"
     const val MarketPagerTag = "plugin-market-pager"
@@ -116,7 +124,6 @@ object PluginUiSpec {
     const val DetailOverviewTag = "plugin-detail-overview"
     const val DetailSafetyCompatibilityTag = "plugin-detail-safety-compatibility"
     const val DetailPluginPanelTag = "plugin-detail-plugin-panel"
-    const val DetailTechnicalMetadataTag = "plugin-detail-technical-metadata"
     const val DetailOpenConfigActionTag = "plugin-detail-open-config-action"
     const val DetailOpenLogsActionTag = "plugin-detail-open-logs-action"
     const val DetailMetadataTag = "plugin-detail-metadata"
@@ -142,7 +149,6 @@ object PluginUiSpec {
     const val SchemaStaticConfigTag = "plugin-schema-static-config"
     const val ConfigPageTag = "plugin-config-page"
     const val ConfigBackActionTag = "plugin-config-back-action"
-    const val ConfigSummaryTag = "plugin-config-summary"
     const val ConfigBasicSectionTag = "plugin-config-basic-section"
     const val ConfigStaticSectionTag = "plugin-config-static-section"
     const val ConfigRuntimeSectionTag = "plugin-config-runtime-section"
@@ -178,6 +184,8 @@ object PluginUiSpec {
     fun installedLibraryStatusTag(pluginId: String): String = "plugin-installed-library-status-${toTagSegment(pluginId)}"
     fun repositoryCardTag(sourceId: String): String = "plugin-repository-card-${toTagSegment(sourceId)}"
     fun discoverableCardTag(pluginId: String): String = "plugin-discoverable-card-${toTagSegment(pluginId)}"
+    fun managerCardTag(pluginId: String): String = "plugin-manager-card-${toTagSegment(pluginId)}"
+    fun managerActionTag(pluginId: String): String = "plugin-manager-action-${toTagSegment(pluginId)}"
     fun pluginFailureChipTag(pluginId: String): String = "plugin-failure-chip-${toTagSegment(pluginId)}"
     fun schemaCardActionTag(actionId: String): String = "plugin-schema-card-action-${toTagSegment(actionId)}"
     fun schemaMediaItemTag(index: Int): String = "plugin-schema-media-item-$index"

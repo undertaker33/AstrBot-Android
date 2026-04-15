@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.provider
+﻿package com.astrbot.android.ui.provider
 import com.astrbot.android.ui.bot.CatalogToggleHeader
 import com.astrbot.android.ui.bot.ScrollableAssistChipRow
 import com.astrbot.android.ui.bot.SelectionField
@@ -194,7 +194,7 @@ internal fun ProviderCatalogContent(
                         .height(54.dp),
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     placeholder = { Text(stringResource(R.string.provider_search_placeholder)) },
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = monochromeOutlinedTextFieldColors(),
                     singleLine = true,
                 )
@@ -495,9 +495,9 @@ private fun ProviderCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
@@ -882,7 +882,7 @@ private fun ProviderEditorDialog(
                 } else {
                     if (isLocalTtsProvider && localModelOptions.isEmpty()) {
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
+                            shape = RoundedCornerShape(12.dp),
                             color = MonochromeUi.inputBackground,
                         ) {
                             Column(
@@ -998,7 +998,7 @@ private fun ProviderEditorDialog(
                 }
                 if (providerType.supportsMultimodalCheck()) {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = MonochromeUi.inputBackground,
                     ) {
                         Column(
@@ -1091,7 +1091,7 @@ private fun ProviderEditorDialog(
                     }
                 } else if (capability == ProviderCapability.STT) {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = MonochromeUi.inputBackground,
                     ) {
                         Column(
@@ -1170,7 +1170,7 @@ private fun ProviderEditorDialog(
                     }
                 } else if (capability == ProviderCapability.TTS) {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = MonochromeUi.inputBackground,
                     ) {
                         Column(

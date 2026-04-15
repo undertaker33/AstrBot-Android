@@ -38,8 +38,12 @@ object MonochromeUi {
     val iconButtonSurface get() = if (isDarkTheme) Color(0xFF161C25) else Color.White
     val chipBackground get() = if (isDarkTheme) Color(0xFF1B212B) else Color.White
     val chipSelectedBackground get() = if (isDarkTheme) Color(0xFF252E3A) else Color(0xFFE8E8E5)
-    val radiusCard = RoundedCornerShape(26.dp)
-    val radiusInput = RoundedCornerShape(24.dp)
+    val radiusCard = RoundedCornerShape(16.dp)
+    val radiusCardLarge = RoundedCornerShape(20.dp)
+    val radiusListItem = RoundedCornerShape(12.dp)
+    val radiusInput = RoundedCornerShape(14.dp)
+    val radiusGrouped = RoundedCornerShape(16.dp)
+    val radiusIcon = RoundedCornerShape(10.dp)
 }
 
 @Composable

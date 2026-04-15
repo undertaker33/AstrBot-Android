@@ -1,13 +1,16 @@
-package com.astrbot.android.ui.plugin
+﻿package com.astrbot.android.ui.plugin
 import com.astrbot.android.ui.common.MonochromePrimaryActionButton
 import com.astrbot.android.ui.common.MonochromeSecondaryActionButton
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +34,10 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
@@ -44,6 +50,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -108,6 +115,7 @@ fun PluginScreen(
     pluginViewModel: PluginViewModel = astrBotViewModel(),
     workspaceTab: PluginWorkspaceTab = PluginWorkspaceTab.LOCAL,
     onOpenPluginDetail: (String) -> Unit = {},
+    onOpenPluginManager: () -> Unit = {},
     onOpenMarketPluginDetail: (String) -> Unit = {},
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
@@ -126,6 +134,7 @@ fun PluginScreen(
                 onSearchQueryChange = pluginViewModel::updateLocalSearchQuery,
                 onFilterSelected = pluginViewModel::updateSelectedLocalFilter,
                 onOpenPluginDetail = onOpenPluginDetail,
+                onOpenPluginManager = onOpenPluginManager,
                 onRepositoryUrlDraftChange = pluginViewModel::updateRepositoryUrlDraft,
                 onDirectPackageUrlDraftChange = pluginViewModel::updateDirectPackageUrlDraft,
                 onSubmitRepositoryUrl = pluginViewModel::submitRepositoryUrl,
@@ -219,12 +228,435 @@ fun PluginMarketDetailScreenRoute(
 }
 
 @Composable
+fun PluginManagerScreenRoute(
+    onBack: () -> Unit,
+    onOpenPluginDetail: (String) -> Unit,
+    pluginViewModel: PluginViewModel = astrBotViewModel(),
+) {
+    val uiState by pluginViewModel.uiState.collectAsState()
+    RegisterSecondaryTopBar(
+        route = AppDestination.PluginManager.route,
+        spec = SecondaryTopBarSpec.SubPage(
+            title = stringResource(R.string.plugin_manager_title),
+            onBack = onBack,
+        ),
+    )
+    PluginManagerScreen(
+        uiState = uiState,
+        onRefreshMarketCatalog = pluginViewModel::refreshMarketCatalog,
+        onMarketRefreshFeedbackShown = pluginViewModel::clearMarketRefreshFeedback,
+        onOpenPluginDetail = onOpenPluginDetail,
+        onUpdatePlugin = pluginViewModel::installOrUpdateCatalogPlugin,
+        onDeletePlugins = pluginViewModel::uninstallPlugins,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun PluginManagerScreen(
+    uiState: PluginScreenUiState,
+    onRefreshMarketCatalog: () -> Unit,
+    onMarketRefreshFeedbackShown: () -> Unit,
+    onOpenPluginDetail: (String) -> Unit,
+    onUpdatePlugin: (String) -> Unit,
+    onDeletePlugins: (Set<String>) -> Unit,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val pullToRefreshState = rememberPullToRefreshState()
+    val refreshOffsetPx = with(density) { PullToRefreshDefaults.PositionalThreshold.toPx() }
+    val presentation = buildPluginManagerPresentation(uiState)
+    val healthOverview = buildPluginHealthOverviewPresentation(uiState)
+    val refreshFeedbackText = uiState.marketRefreshFeedback?.asText()
+    val updatablePluginIds = presentation.cards
+        .filter { card -> card.hasUpdateAvailable }
+        .map { card -> card.pluginId }
+    var selectedPluginIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
+    var queuedUpdatePluginIds by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    var activeUpdatingPluginId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectionMode = selectedPluginIds.isNotEmpty()
+    val isBulkUpdating = queuedUpdatePluginIds.isNotEmpty() ||
+        (uiState.isInstallActionRunning && activeUpdatingPluginId != null)
+
+    BackHandler(enabled = selectionMode) {
+        selectedPluginIds = emptySet()
+    }
+
+    LaunchedEffect(refreshFeedbackText) {
+        if (!refreshFeedbackText.isNullOrBlank()) {
+            Toast.makeText(context, refreshFeedbackText, Toast.LENGTH_SHORT).show()
+            onMarketRefreshFeedbackShown()
+        }
+    }
+
+    LaunchedEffect(
+        uiState.isInstallActionRunning,
+        uiState.updateAvailabilitiesByPluginId,
+        queuedUpdatePluginIds,
+    ) {
+        val pendingIds = queuedUpdatePluginIds
+            .distinct()
+            .filter { pluginId -> uiState.updateAvailabilitiesByPluginId[pluginId]?.updateAvailable == true }
+        if (pendingIds != queuedUpdatePluginIds) {
+            queuedUpdatePluginIds = pendingIds
+        }
+        if (!uiState.isInstallActionRunning && pendingIds.isNotEmpty()) {
+            val nextPluginId = pendingIds.first()
+            activeUpdatingPluginId = nextPluginId
+            queuedUpdatePluginIds = pendingIds.drop(1)
+            onUpdatePlugin(nextPluginId)
+        } else if (!uiState.isInstallActionRunning && pendingIds.isEmpty()) {
+            activeUpdatingPluginId = null
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MonochromeUi.pageBackground)
+            .pullToRefresh(
+                isRefreshing = uiState.isMarketRefreshRunning,
+                state = pullToRefreshState,
+                onRefresh = onRefreshMarketCatalog,
+            )
+            .testTag(PluginUiSpec.ManagerPageTag),
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = pullToRefreshState.distanceFraction.coerceIn(0f, 1f) * refreshOffsetPx
+                }
+                .padding(horizontal = PluginUiSpec.ScreenHorizontalPadding),
+            contentPadding = PaddingValues(
+                top = PluginUiSpec.ScreenVerticalPadding,
+                bottom = PluginUiSpec.ListContentBottomPadding,
+            ),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
+        ) {
+            item {
+                SecondaryTopBarPlaceholder()
+            }
+            item {
+                PluginManagerHealthCard(
+                    metrics = healthOverview,
+                    hasUpdatablePlugin = presentation.updatableCount > 0,
+                    isBulkUpdating = isBulkUpdating,
+                    onToggleUpdateAll = {
+                        if (isBulkUpdating) {
+                            queuedUpdatePluginIds = emptyList()
+                        } else {
+                            queuedUpdatePluginIds = updatablePluginIds
+                        }
+                    },
+                )
+            }
+            if (presentation.cards.isEmpty()) {
+                item {
+                    PluginSectionEmptyState(
+                        message = stringResource(R.string.plugin_installed_library_empty_message),
+                    )
+                }
+            } else {
+                items(presentation.cards, key = { card -> card.pluginId }) { card ->
+                    val isUpdating = uiState.isInstallActionRunning && activeUpdatingPluginId == card.pluginId
+                    PluginManagerCard(
+                        card = card,
+                        selected = card.pluginId in selectedPluginIds,
+                        selectionMode = selectionMode,
+                        isUpdating = isUpdating,
+                        progress = uiState.downloadProgress,
+                        onClick = {
+                            if (selectionMode) {
+                                selectedPluginIds = selectedPluginIds.toggleSelection(card.pluginId)
+                            } else {
+                                onOpenPluginDetail(card.pluginId)
+                            }
+                        },
+                        onLongPress = {
+                            selectedPluginIds = selectedPluginIds.toggleSelection(card.pluginId)
+                        },
+                        onAction = {
+                            if (isUpdating) return@PluginManagerCard
+                            if (card.hasUpdateAvailable) {
+                                queuedUpdatePluginIds = (queuedUpdatePluginIds + card.pluginId).distinct()
+                            } else {
+                                onOpenPluginDetail(card.pluginId)
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        if (selectionMode) {
+            FloatingActionButton(
+                onClick = { showDeleteConfirm = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
+                    .testTag(PluginUiSpec.ManagerDeleteFabTag),
+                containerColor = MonochromeUi.fabBackground,
+                contentColor = MonochromeUi.fabContent,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = stringResource(R.string.plugin_manager_delete_selected),
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.align(Alignment.TopCenter),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            SecondaryTopBarPlaceholder()
+            PullToRefreshDefaults.Indicator(
+                state = pullToRefreshState,
+                isRefreshing = uiState.isMarketRefreshRunning,
+                containerColor = MonochromeUi.cardBackground,
+                color = MonochromeUi.textPrimary,
+            )
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            modifier = Modifier.testTag(PluginUiSpec.ManagerDeleteDialogTag),
+            title = { Text(stringResource(R.string.plugin_manager_delete_confirm_title)) },
+            text = {
+                Text(
+                    text = stringResource(
+                        R.string.plugin_manager_delete_confirm_message,
+                        selectedPluginIds.size,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeletePlugins(selectedPluginIds)
+                        selectedPluginIds = emptySet()
+                        showDeleteConfirm = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.fabBackground),
+                ) {
+                    Text(stringResource(R.string.common_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun PluginManagerHealthCard(
+    metrics: PluginHealthOverviewPresentation,
+    hasUpdatablePlugin: Boolean,
+    isBulkUpdating: Boolean,
+    onToggleUpdateAll: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.ManagerHealthTag),
+        shape = PluginUiSpec.SummaryShape,
+        color = MonochromeUi.cardBackground,
+        tonalElevation = 0.dp,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.InnerSpacing),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.plugin_health_overview_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MonochromeUi.textPrimary,
+                )
+                if (hasUpdatablePlugin) {
+                    Text(
+                        text = stringResource(
+                            if (isBulkUpdating) {
+                                R.string.plugin_manager_pause_all
+                            } else {
+                                R.string.plugin_manager_update_all
+                            },
+                        ),
+                        modifier = Modifier.clickable(onClick = onToggleUpdateAll),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PluginUiSpec.CardSpacing),
+            ) {
+                PluginMetricCard(
+                    modifier = Modifier.weight(1f),
+                    label = stringResource(R.string.plugin_health_metric_installed),
+                    value = metrics.installedCount.toString(),
+                )
+                PluginMetricCard(
+                    modifier = Modifier.weight(1f),
+                    label = stringResource(R.string.plugin_health_metric_updates_available),
+                    value = metrics.updatesAvailableCount.toString(),
+                )
+                PluginMetricCard(
+                    modifier = Modifier.weight(1f),
+                    label = stringResource(R.string.plugin_health_metric_sources),
+                    value = metrics.sourceCount.toString(),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PluginManagerCard(
+    card: PluginManagerCardPresentation,
+    selected: Boolean,
+    selectionMode: Boolean,
+    isUpdating: Boolean,
+    progress: com.astrbot.android.model.plugin.PluginDownloadProgress?,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    onAction: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.managerCardTag(card.pluginId)),
+        shape = PluginUiSpec.SectionShape,
+        color = if (selectionMode && selected) MonochromeUi.cardAltBackground else MonochromeUi.cardBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongPress,
+                )
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = card.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MonochromeUi.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (isUpdating) {
+                    val fraction = progress?.progressFraction
+                    if (fraction != null) {
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_manager_version_author,
+                            card.latestVersion.ifBlank { card.installedVersion },
+                            card.author,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = onAction,
+                enabled = !isUpdating,
+                modifier = Modifier.testTag(PluginUiSpec.managerActionTag(card.pluginId)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = MonochromeUi.cardBackground,
+                    contentColor = MonochromeUi.textPrimary,
+                    disabledContentColor = MonochromeUi.textSecondary,
+                ),
+            ) {
+                val label = if (isUpdating) {
+                    stringResource(
+                        R.string.plugin_manager_progress_percent,
+                        ((progress?.progressFraction ?: 0f) * 100).toInt().coerceIn(0, 100),
+                    )
+                } else if (card.primaryAction == PluginManagerPrimaryAction.Update) {
+                    stringResource(R.string.plugin_action_update)
+                } else {
+                    stringResource(R.string.plugin_action_open)
+                }
+                Text(text = label)
+            }
+            if (selectionMode) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (selected) MonochromeUi.fabBackground else androidx.compose.ui.graphics.Color.Transparent,
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (selected) {
+                            MonochromeUi.fabBackground
+                        } else {
+                            MonochromeUi.textSecondary.copy(alpha = 0.35f)
+                        },
+                    ),
+                    modifier = Modifier.testTag(PluginUiSpec.ManagerCheckTag),
+                ) {
+                    Box(
+                        modifier = Modifier.size(20.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (selected) {
+                            Icon(
+                                imageVector = Icons.Outlined.Check,
+                                contentDescription = null,
+                                tint = MonochromeUi.fabContent,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 @Suppress("UNUSED_PARAMETER")
 private fun PluginLocalWorkspace(
     uiState: PluginScreenUiState,
     onSearchQueryChange: (String) -> Unit,
     onFilterSelected: (PluginLocalFilter) -> Unit,
     onOpenPluginDetail: (String) -> Unit,
+    onOpenPluginManager: () -> Unit,
     onRepositoryUrlDraftChange: (String) -> Unit,
     onDirectPackageUrlDraftChange: (String) -> Unit,
     onSubmitRepositoryUrl: () -> Unit,
@@ -343,21 +775,38 @@ private fun PluginLocalWorkspace(
             }
         }
 
-        FloatingActionButton(
-            onClick = { showInstallSheet = true },
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
-                .testTag(PluginUiSpec.LocalInstallFabTag),
-            containerColor = MonochromeUi.fabBackground,
-            contentColor = MonochromeUi.fabContent,
-            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+                .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.End,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Add,
-                contentDescription = stringResource(R.string.plugin_local_add_fab_content_description),
-            )
+            FloatingActionButton(
+                onClick = onOpenPluginManager,
+                modifier = Modifier.testTag(PluginUiSpec.LocalManageFabTag),
+                containerColor = MonochromeUi.cardBackground,
+                contentColor = MonochromeUi.textPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Settings,
+                    contentDescription = stringResource(R.string.plugin_manager_title),
+                )
+            }
+            FloatingActionButton(
+                onClick = { showInstallSheet = true },
+                modifier = Modifier.testTag(PluginUiSpec.LocalInstallFabTag),
+                containerColor = MonochromeUi.fabBackground,
+                contentColor = MonochromeUi.fabContent,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = stringResource(R.string.plugin_local_add_fab_content_description),
+                )
+            }
         }
     }
 
@@ -390,19 +839,19 @@ private fun PluginLocalCard(
         modifier = Modifier.testTag(PluginUiSpec.installedLibraryCardTag(card.pluginId)),
         shape = PluginUiSpec.SectionShape,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         border = PluginUiSpec.CardBorder,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(42.dp)
                     .background(MonochromeUi.mutedSurface, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
@@ -972,7 +1421,7 @@ private fun PluginMarketDetailPage(
                     .testTag(PluginUiSpec.MarketDetailTopSummaryTag),
                 shape = PluginUiSpec.SummaryShape,
                 color = MonochromeUi.cardBackground,
-                tonalElevation = 2.dp,
+                tonalElevation = 0.dp,
                 border = PluginUiSpec.CardBorder,
             ) {
                 Column(
@@ -1234,7 +1683,7 @@ private fun PluginMarketCard(
         modifier = Modifier.testTag(PluginUiSpec.discoverableCardTag(card.pluginId)),
         shape = PluginUiSpec.SectionShape,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         border = PluginUiSpec.CardBorder,
     ) {
         Column(
@@ -1365,7 +1814,7 @@ private fun PluginHomepageHeroSection() {
             .testTag(PluginUiSpec.HeroSectionTag),
         shape = PluginUiSpec.SummaryShape,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         border = PluginUiSpec.CardBorder,
     ) {
         Column(
@@ -1396,7 +1845,7 @@ private fun PluginHealthOverviewSection(uiState: PluginScreenUiState) {
             .testTag(PluginUiSpec.HealthOverviewSectionTag),
         shape = PluginUiSpec.SummaryShape,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         border = PluginUiSpec.CardBorder,
     ) {
         Column(
@@ -1427,11 +1876,6 @@ private fun PluginHealthOverviewSection(uiState: PluginScreenUiState) {
                     modifier = Modifier.weight(1f),
                     label = stringResource(R.string.plugin_health_metric_updates_available),
                     value = metrics.updatesAvailableCount.toString(),
-                )
-                PluginMetricCard(
-                    modifier = Modifier.weight(1f),
-                    label = stringResource(R.string.plugin_health_metric_needs_review),
-                    value = metrics.needsReviewCount.toString(),
                 )
                 PluginMetricCard(
                     modifier = Modifier.weight(1f),
@@ -1499,7 +1943,7 @@ private fun PluginQuickInstallSection(
             .testTag(PluginUiSpec.QuickInstallSectionTag),
         shape = PluginUiSpec.SummaryShape,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         border = PluginUiSpec.CardBorder,
     ) {
         Column(
@@ -1882,7 +2326,7 @@ private fun PluginInstalledLibraryCard(
         } else {
             MonochromeUi.cardBackground
         },
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         border = if (card.priority == PluginInstalledLibraryPriority.Critical) {
             BorderStroke(1.5.dp, MonochromeUi.fabBackground.copy(alpha = 0.45f))
         } else {
@@ -2028,7 +2472,7 @@ private fun PluginDetailHero(record: PluginInstallRecord) {
     Surface(
         shape = PluginUiSpec.SummaryShape,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         border = PluginUiSpec.CardBorder,
     ) {
         Column(
@@ -2879,6 +3323,10 @@ private fun PluginQuickInstallMode.labelRes(): Int {
 private fun formatPluginTimestamp(epochMillis: Long): String {
     val formatter = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
     return formatter.format(Date(epochMillis))
+}
+
+private fun Set<String>.toggleSelection(id: String): Set<String> {
+    return if (contains(id)) this - id else this + id
 }
 
 internal fun shouldRenderSchemaWorkspace(schemaUiState: PluginSchemaUiState): Boolean {

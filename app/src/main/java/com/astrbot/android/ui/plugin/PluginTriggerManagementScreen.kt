@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.plugin
+﻿package com.astrbot.android.ui.plugin
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement

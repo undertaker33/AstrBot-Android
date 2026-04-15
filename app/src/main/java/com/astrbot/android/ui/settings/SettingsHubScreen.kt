@@ -84,8 +84,8 @@ fun SettingsHubScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
                 SettingSelectionCard(
@@ -210,15 +210,15 @@ private fun SettingSelectionCard(
     onSelect: (String) -> Unit,
 ) {
     Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        shape = MonochromeUi.radiusCard,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -226,17 +226,17 @@ private fun SettingSelectionCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .background(MonochromeUi.mutedSurface, androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-                        .padding(10.dp),
+                        .background(MonochromeUi.mutedSurface, MonochromeUi.radiusIcon)
+                        .padding(8.dp),
                 ) {
                     Icon(icon, contentDescription = null, tint = MonochromeUi.textPrimary)
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Text(
                         subtitle,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        color = MonochromeUi.textSecondary,
                     )
                 }
             }

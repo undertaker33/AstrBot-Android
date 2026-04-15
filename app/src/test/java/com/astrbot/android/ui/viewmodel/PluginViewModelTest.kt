@@ -1306,7 +1306,8 @@ class PluginViewModelTest {
     @Test
     fun uninstall_selected_plugin_always_removes_plugin_data() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
-            listOf(pluginRecord(pluginId = "plugin-1", uninstallPolicy = PluginUninstallPolicy.KEEP_DATA)),
+            records = listOf(pluginRecord(pluginId = "plugin-1", uninstallPolicy = PluginUninstallPolicy.KEEP_DATA)),
+            repositorySources = listOf(repositorySource(sourceId = "repo-1", title = "Repo 1")),
         )
         val viewModel = PluginViewModel(deps)
         advanceUntilIdle()
@@ -1314,9 +1315,10 @@ class PluginViewModelTest {
         viewModel.selectPlugin("plugin-1")
         advanceUntilIdle()
 
-        viewModel.uninstallSelectedPlugin()
+        val didUninstall = viewModel.uninstallSelectedPlugin()
         advanceUntilIdle()
 
+        assertTrue(didUninstall)
         assertEquals(PluginUninstallPolicy.REMOVE_DATA, deps.lastUninstallPolicy)
         assertNull(viewModel.uiState.value.selectedPluginId)
         assertFalse(viewModel.uiState.value.isShowingDetail)
@@ -1324,6 +1326,31 @@ class PluginViewModelTest {
             feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
             resId = R.string.plugin_action_feedback_uninstalled_remove_data,
         )
+    }
+
+    @Test
+    fun uninstall_selected_plugin_returns_false_when_uninstall_fails() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+            repositorySources = listOf(repositorySource(sourceId = "repo-1", title = "Repo 1")),
+        )
+        deps.uninstallError = IllegalStateException("delete failed")
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val didUninstall = viewModel.uninstallSelectedPlugin()
+        advanceUntilIdle()
+
+        assertFalse(didUninstall)
+        assertEquals("plugin-1", viewModel.uiState.value.selectedPluginId)
+        assertTrue(viewModel.uiState.value.isShowingDetail)
+        val feedback = viewModel.uiState.value.detailActionState.lastActionMessage
+        assertTrue(feedback is PluginActionFeedback.Text)
+        feedback as PluginActionFeedback.Text
+        assertEquals("delete failed", feedback.value)
     }
 
     @Test
@@ -2860,6 +2887,7 @@ class PluginViewModelTest {
         var marketRefreshError: Throwable? = null
         var officialCatalogBootstrapError: Throwable? = null
         var recoveryError: Throwable? = null
+        var uninstallError: Throwable? = null
         var nextInstallProgress: PluginDownloadProgress? = null
         var installIntentGate: CompletableDeferred<Unit>? = null
 
@@ -3080,6 +3108,7 @@ class PluginViewModelTest {
             pluginId: String,
             policy: PluginUninstallPolicy,
         ): PluginUninstallResult {
+            uninstallError?.let { throw it }
             lastUninstallPolicy = policy
             recordsFlow.value = recordsFlow.value.filterNot { record -> record.pluginId == pluginId }
             return PluginUninstallResult(

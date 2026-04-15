@@ -1,5 +1,6 @@
-package com.astrbot.android.ui.plugin
+﻿package com.astrbot.android.ui.plugin
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -17,10 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -54,9 +53,6 @@ import com.astrbot.android.ui.viewmodel.PluginDetailActionState
 import com.astrbot.android.ui.viewmodel.PluginDetailMetadataState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginViewModel
-import java.text.DateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun PluginDetailScreenRoute(
@@ -64,11 +60,20 @@ fun PluginDetailScreenRoute(
     onBack: () -> Unit,
     onOpenLogs: (String) -> Unit,
     onOpenConfig: (String) -> Unit,
+    onReturnToInstalledPlugins: () -> Unit,
     pluginViewModel: PluginViewModel = astrBotViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val refreshFeedbackText = uiState.marketRefreshFeedback?.asText()
     LaunchedEffect(pluginId) {
         pluginViewModel.selectPluginForDetail(pluginId)
+    }
+    LaunchedEffect(refreshFeedbackText) {
+        if (!refreshFeedbackText.isNullOrBlank()) {
+            Toast.makeText(context, refreshFeedbackText, Toast.LENGTH_SHORT).show()
+            pluginViewModel.clearMarketRefreshFeedback()
+        }
     }
     RegisterSecondaryTopBar(
         route = AppDestination.PluginDetail.route,
@@ -86,9 +91,9 @@ fun PluginDetailScreenRoute(
                 onOpenConfig = onOpenConfig,
                 onEnable = pluginViewModel::enableSelectedPlugin,
                 onDisable = pluginViewModel::disableSelectedPlugin,
-                onRecover = pluginViewModel::recoverSelectedPluginFromSuspension,
                 onRequestUpgrade = pluginViewModel::requestUpgradeForSelectedPlugin,
                 onUninstall = pluginViewModel::uninstallSelectedPlugin,
+                onReturnToInstalledPlugins = onReturnToInstalledPlugins,
                 onRestoreDefaults = pluginViewModel::restoreSelectedPluginDefaultConfig,
                 onClearCache = pluginViewModel::clearSelectedPluginCache,
             )
@@ -110,9 +115,9 @@ private fun PluginDetailRouteWorkspace(
     onOpenConfig: (String) -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
-    onRecover: () -> Unit,
     onRequestUpgrade: () -> Unit,
-    onUninstall: () -> Unit,
+    onUninstall: () -> Boolean,
+    onReturnToInstalledPlugins: () -> Unit,
     onRestoreDefaults: () -> Unit,
     onClearCache: () -> Unit,
 ) {
@@ -146,9 +151,9 @@ private fun PluginDetailRouteWorkspace(
                     onOpenConfig = { onOpenConfig(record.pluginId) },
                     onEnable = onEnable,
                     onDisable = onDisable,
-                    onRecover = onRecover,
                     onRequestUpgrade = onRequestUpgrade,
                     onUninstall = onUninstall,
+                    onReturnToInstalledPlugins = onReturnToInstalledPlugins,
                     onRestoreDefaults = onRestoreDefaults,
                     onClearCache = onClearCache,
                 )
@@ -156,7 +161,6 @@ private fun PluginDetailRouteWorkspace(
                     record = record,
                     metadata = uiState.detailMetadataState,
                 )
-                PluginDetailSection.TechnicalMetadata -> PluginDetailTechnicalMetadataSection(record, uiState.detailMetadataState)
             }
         }
     }
@@ -174,11 +178,11 @@ private fun PluginDetailTopSummarySection(
             .testTag(PluginUiSpec.DetailTopSummaryTag),
         shape = PluginUiSpec.SummaryShape,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         border = PluginUiSpec.CardBorder,
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(PluginUiSpec.InnerSpacing),
         ) {
             Text(
@@ -301,9 +305,9 @@ private fun PluginDetailManageSection(
     onOpenConfig: () -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
-    onRecover: () -> Unit,
     onRequestUpgrade: () -> Unit,
-    onUninstall: () -> Unit,
+    onUninstall: () -> Boolean,
+    onReturnToInstalledPlugins: () -> Unit,
     onRestoreDefaults: () -> Unit,
     onClearCache: () -> Unit,
 ) {
@@ -342,12 +346,6 @@ private fun PluginDetailManageSection(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PluginDetailManageButton(
-                onClick = onRecover,
-                enabled = actionState.manageAvailability.canRecover,
-                modifier = Modifier.weight(1f).testTag("plugin-detail-recover-action"),
-                label = "Recover",
-            )
             PluginDetailManageButton(
                 onClick = onRequestUpgrade,
                 enabled = actionState.manageAvailability.canUpgrade,
@@ -400,7 +398,11 @@ private fun PluginDetailManageSection(
             onConfirm = {
                 when (action) {
                     PluginDetailConfirmAction.Disable -> onDisable()
-                    PluginDetailConfirmAction.Uninstall -> onUninstall()
+                    PluginDetailConfirmAction.Uninstall -> {
+                        if (onUninstall()) {
+                            onReturnToInstalledPlugins()
+                        }
+                    }
                     PluginDetailConfirmAction.ClearCache -> onClearCache()
                     PluginDetailConfirmAction.RestoreDefaults -> onRestoreDefaults()
                 }
@@ -501,64 +503,6 @@ private fun PluginDetailConfirmationDialog(
             }
         },
     )
-}
-
-@Composable
-private fun PluginDetailTechnicalMetadataSection(
-    record: PluginInstallRecord,
-    metadata: PluginDetailMetadataState,
-) {
-    PluginSectionCard(
-        title = stringResource(R.string.plugin_detail_technical_metadata_title),
-        tag = PluginUiSpec.DetailTechnicalMetadataTag,
-    ) {
-        PluginKeyValueSection(
-            title = stringResource(R.string.plugin_detail_meta_title),
-            items = listOf(
-                stringResource(R.string.plugin_field_source_label) to (metadata.sourceBadge?.label ?: sourceTypeLabel(record.source.sourceType)),
-                stringResource(R.string.plugin_field_repository_name_or_host) to metadata.repositoryNameOrHost.ifBlank {
-                    stringResource(R.string.plugin_value_not_available)
-                },
-                stringResource(R.string.plugin_field_repository_host) to metadata.repositoryHost.ifBlank {
-                    stringResource(R.string.plugin_value_not_available)
-                },
-                stringResource(R.string.plugin_field_last_sync) to (metadata.lastSyncAtEpochMillis?.let(::formatPluginTimestamp)
-                    ?: stringResource(R.string.plugin_value_not_synced)),
-                stringResource(R.string.plugin_field_last_updated) to formatPluginTimestamp(record.lastUpdatedAt),
-                stringResource(R.string.plugin_field_version_history) to metadata.versionHistorySummary.ifBlank {
-                    stringResource(R.string.plugin_value_not_available)
-                },
-                stringResource(R.string.plugin_field_changelog_summary) to metadata.changelogSummary.ifBlank {
-                    stringResource(R.string.plugin_value_no_changelog)
-                },
-            ),
-        )
-        PluginKeyValueSection(
-            title = stringResource(R.string.plugin_detail_source_title),
-            items = listOf(
-                stringResource(R.string.plugin_field_protocol) to record.manifestSnapshot.protocolVersion.toString(),
-                stringResource(R.string.plugin_field_min_host) to record.manifestSnapshot.minHostVersion,
-                stringResource(R.string.plugin_field_max_host) to record.manifestSnapshot.maxHostVersion.ifBlank {
-                    stringResource(R.string.plugin_value_not_limited)
-                },
-                stringResource(R.string.plugin_field_source_location) to record.source.location.ifBlank {
-                    stringResource(R.string.plugin_value_not_available)
-                },
-            ),
-        )
-        metadata.governanceState?.let { governance ->
-            PluginKeyValueSection(
-                title = stringResource(R.string.plugin_detail_runtime_health_group_title),
-                items = listOf(
-                    "Runtime health" to runtimeHealthLabel(governance.runtimeHealth.status),
-                    "Runtime session" to governance.runtimeSessionState,
-                    "Registration" to buildRegistrationSummaryText(governance),
-                    "Capability grants" to buildCapabilityGrantSummaryText(governance),
-                    "Diagnostics" to buildDiagnosticsSummaryText(governance),
-                ),
-            )
-        }
-    }
 }
 
 @Composable
@@ -809,22 +753,12 @@ private fun installStatusLabel(record: PluginInstallRecord): String {
     }
 }
 
-private fun formatPluginTimestamp(epochMillis: Long): String {
-    val formatter = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
-    return formatter.format(Date(epochMillis))
-}
-
 @Composable
 private fun PluginActionFeedback.asText(): String {
     return when (this) {
         is PluginActionFeedback.Resource -> stringResource(resId, *formatArgs.toTypedArray())
         is PluginActionFeedback.Text -> value
     }
-}
-
-@Composable
-private fun PluginActionFeedback?.orEmptyText(): String {
-    return this?.asText().orEmpty()
 }
 
 @Composable

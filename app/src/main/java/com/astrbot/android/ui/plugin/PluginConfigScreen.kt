@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.plugin
+﻿package com.astrbot.android.ui.plugin
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -37,10 +37,8 @@ import com.astrbot.android.ui.app.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.app.RegisterSecondaryTopBar
 import com.astrbot.android.ui.app.SecondaryTopBarSpec
 import com.astrbot.android.ui.app.SecondaryTopBarPlaceholder
-import com.astrbot.android.ui.common.MonochromeSecondaryActionButton
 import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.ui.app.MonochromeUi
-import com.astrbot.android.ui.plugin.PluginUiSpec
 import com.astrbot.android.ui.plugin.schema.PluginSchemaRenderer
 import com.astrbot.android.ui.plugin.schema.PluginStaticConfigRenderer
 import com.astrbot.android.ui.plugin.schema.buildPluginStaticConfigRenderModel
@@ -59,7 +57,6 @@ private enum class PluginConfigSection {
 fun PluginConfigScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
-    onOpenConfigBackup: () -> Unit = {},
     pluginViewModel: PluginViewModel = astrBotViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
@@ -78,7 +75,6 @@ fun PluginConfigScreenRoute(
         if (uiState.selectedPlugin != null) {
             PluginConfigWorkspace(
                 uiState = uiState,
-                onOpenConfigBackup = onOpenConfigBackup,
                 onSchemaCardActionClick = pluginViewModel::onSchemaCardActionClick,
                 onSettingsDraftChange = pluginViewModel::updateSettingsDraft,
                 onStaticConfigDraftChange = pluginViewModel::updateStaticConfigDraft,
@@ -91,7 +87,6 @@ fun PluginConfigScreenRoute(
 @Composable
 private fun PluginConfigWorkspace(
     uiState: PluginScreenUiState,
-    onOpenConfigBackup: () -> Unit,
     onSchemaCardActionClick: (actionId: String, payload: Map<String, String>) -> Unit,
     onSettingsDraftChange: (fieldId: String, draftValue: com.astrbot.android.ui.viewmodel.PluginSettingDraftValue) -> Unit,
     onStaticConfigDraftChange: (fieldKey: String, draftValue: com.astrbot.android.ui.viewmodel.PluginSettingDraftValue) -> Unit,
@@ -118,42 +113,6 @@ private fun PluginConfigWorkspace(
                 SecondaryTopBarPlaceholder()
             }
 
-            item {
-                PluginConfigSectionCard(
-                    title = stringResource(R.string.plugin_config_title),
-                    tag = PluginUiSpec.ConfigSummaryTag,
-                ) {
-                    Text(
-                        text = record.manifestSnapshot.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MonochromeUi.textPrimary,
-                    )
-                    Text(
-                        text = record.manifestSnapshot.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MonochromeUi.textSecondary,
-                    )
-                    Text(
-                        text = stringResource(R.string.plugin_config_backup_summary),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MonochromeUi.textSecondary,
-                    )
-                    if (readOnlyState.isReadOnly) {
-                        Text(
-                            text = readOnlyState.message,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MonochromeUi.textSecondary,
-                        )
-                    }
-                    MonochromeSecondaryActionButton(
-                        label = stringResource(R.string.plugin_config_backup_action),
-                        onClick = onOpenConfigBackup,
-                        modifier = Modifier.testTag("plugin-config-open-backup"),
-                    )
-                }
-            }
-
             items(sections, key = { it.name }) { section ->
                 when (section) {
                     PluginConfigSection.BasicSettings -> {
@@ -176,6 +135,7 @@ private fun PluginConfigWorkspace(
                                     ),
                                     onDraftChange = onStaticConfigDraftChange,
                                     modifier = Modifier.fillMaxWidth(),
+                                    embeddedInSection = true,
                                 )
                             }
                         }
@@ -197,7 +157,10 @@ private fun PluginConfigWorkspace(
                                     schemaUiState = uiState.schemaUiState,
                                     onCardActionClick = onSchemaCardActionClick,
                                     onSettingsDraftChange = onSettingsDraftChange,
-                                    modifier = Modifier.fillMaxWidth().testTag(PluginUiSpec.SchemaWorkspaceTag),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag(PluginUiSpec.SchemaWorkspaceTag),
+                                    embeddedInSection = true,
                                 )
                             }
                         }

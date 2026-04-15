@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.plugin
+﻿package com.astrbot.android.ui.plugin
 import com.astrbot.android.ui.common.MonochromePrimaryActionButton
 import com.astrbot.android.ui.common.MonochromeSecondaryActionButton
 import com.astrbot.android.ui.common.SubPageScaffold
@@ -289,8 +289,8 @@ internal fun RuntimeLogPanel(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
-        tonalElevation = 2.dp,
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 0.dp,
         color = MonochromeUi.cardBackground,
     ) {
         Column(
@@ -309,7 +309,7 @@ internal fun RuntimeLogPanel(
                     text = content,
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MonochromeUi.inputBackground, RoundedCornerShape(20.dp))
+                        .background(MonochromeUi.inputBackground, RoundedCornerShape(12.dp))
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                         .verticalScroll(scrollState),
                     color = MonochromeUi.textPrimary,

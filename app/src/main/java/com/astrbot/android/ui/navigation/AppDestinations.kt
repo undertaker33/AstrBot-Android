@@ -19,6 +19,7 @@ internal sealed class AppDestination(
     data object PluginDetail : AppDestination("plugins/detail/{pluginId}", Icons.Outlined.Face) {
         fun routeFor(pluginId: String): String = "plugins/detail/$pluginId"
     }
+    data object PluginManager : AppDestination("plugins/manager", Icons.Outlined.Settings)
     data object PluginMarketDetail : AppDestination("plugins/market/detail/{pluginId}", Icons.Outlined.Face) {
         fun routeFor(pluginId: String): String = "plugins/market/detail/$pluginId"
     }

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.plugin
+﻿package com.astrbot.android.ui.plugin
 import com.astrbot.android.ui.common.MonochromeSecondaryActionButton
 
 import androidx.activity.compose.rememberLauncherForActivityResult

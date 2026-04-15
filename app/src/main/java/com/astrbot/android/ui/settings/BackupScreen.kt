@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.settings
+﻿package com.astrbot.android.ui.settings
 import com.astrbot.android.ui.common.SubPageScaffold
 
 import android.app.TimePickerDialog
@@ -161,9 +161,9 @@ fun DataBackupHubScreen(
         ) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = MonochromeUi.cardBackground,
-                    tonalElevation = 2.dp,
+                    tonalElevation = 0.dp,
                 ) {
                     Column(
                         modifier = Modifier
@@ -247,9 +247,9 @@ fun ModuleBackupScreen(
         ) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = MonochromeUi.cardBackground,
-                    tonalElevation = 2.dp,
+                    tonalElevation = 0.dp,
                 ) {
                     Column(
                         modifier = Modifier
@@ -314,9 +314,9 @@ fun ModuleBackupScreen(
             if (backups.isEmpty()) {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = MonochromeUi.cardBackground,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                     ) {
                         Text(
                             text = stringResource(R.string.backup_empty_module, title),
@@ -461,9 +461,9 @@ fun FullBackupScreen(
         ) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = MonochromeUi.cardBackground,
-                    tonalElevation = 2.dp,
+                    tonalElevation = 0.dp,
                 ) {
                     Column(
                         modifier = Modifier
@@ -528,9 +528,9 @@ fun FullBackupScreen(
             if (backups.isEmpty()) {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = MonochromeUi.cardBackground,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                     ) {
                         Text(
                             text = stringResource(R.string.backup_empty_full),
@@ -679,9 +679,9 @@ fun ConversationBackupScreen(
         ) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = MonochromeUi.cardBackground,
-                    tonalElevation = 2.dp,
+                    tonalElevation = 0.dp,
                 ) {
                     Column(
                         modifier = Modifier
@@ -768,9 +768,9 @@ fun ConversationBackupScreen(
             if (backups.isEmpty()) {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = MonochromeUi.cardBackground,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                     ) {
                         Text(
                             text = stringResource(R.string.backup_empty_conversations),
@@ -875,9 +875,9 @@ private fun BackupModuleCard(module: BackupModuleCardState) {
     Surface(
         onClick = module.onClick,
         enabled = module.enabled,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
@@ -888,8 +888,8 @@ private fun BackupModuleCard(module: BackupModuleCardState) {
         ) {
             Box(
                 modifier = Modifier
-                    .background(MonochromeUi.mutedSurface, RoundedCornerShape(14.dp))
-                    .padding(10.dp),
+                    .background(MonochromeUi.mutedSurface, RoundedCornerShape(10.dp))
+                    .padding(8.dp),
             ) {
                 Icon(module.icon, contentDescription = null, tint = if (module.enabled) MonochromeUi.textPrimary else MonochromeUi.textSecondary)
             }
@@ -970,9 +970,9 @@ private fun ConversationBackupCard(
     onDelete: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
@@ -1071,9 +1071,9 @@ private fun FullBackupCard(
     onDelete: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
@@ -1149,9 +1149,9 @@ private fun ModuleBackupCard(
     onDelete: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier

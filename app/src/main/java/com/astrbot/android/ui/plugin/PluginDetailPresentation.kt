@@ -13,7 +13,6 @@ enum class PluginDetailSection {
     TopSummary,
     UnderstandPlugin,
     ManagePlugin,
-    TechnicalMetadata,
 }
 
 internal data class PluginGovernanceDisplayItem(
@@ -34,7 +33,6 @@ internal fun buildPluginDetailSections(
         add(PluginDetailSection.TopSummary)
         add(PluginDetailSection.ManagePlugin)
         add(PluginDetailSection.UnderstandPlugin)
-        add(PluginDetailSection.TechnicalMetadata)
     }
 }
 

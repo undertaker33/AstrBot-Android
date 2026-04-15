@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.chat
+﻿package com.astrbot.android.ui.chat
 
 import android.content.Context
 import android.net.Uri
@@ -166,7 +166,7 @@ fun ChatInputBar(
             )
             Surface(
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = MonochromeUi.elevatedSurface,
             ) {
                 Row(
@@ -283,7 +283,7 @@ fun VoiceRecordingIndicator(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MonochromeUi.strong,
     ) {
         Row(

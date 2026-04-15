@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.app
+﻿package com.astrbot.android.ui.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -77,7 +77,7 @@ internal fun RuntimeOverlay(
                         offsetY += dragAmount.y
                     }
                 },
-            shape = if (expanded) RoundedCornerShape(24.dp) else CircleShape,
+            shape = if (expanded) RoundedCornerShape(14.dp) else CircleShape,
             tonalElevation = 10.dp,
             shadowElevation = 8.dp,
             color = Color(0xFF111827),

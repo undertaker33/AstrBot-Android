@@ -13,6 +13,14 @@ internal object AppNavigator {
         }
     }
 
+    fun openTopLevelFresh(navController: NavHostController, destination: AppDestination) {
+        navController.navigate(destination.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+            launchSingleTop = true
+            restoreState = false
+        }
+    }
+
     fun open(navController: NavHostController, route: String) {
         navController.navigate(route)
     }

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.voiceasset
+﻿package com.astrbot.android.ui.voiceasset
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -97,9 +97,9 @@ internal fun VoiceAssetEmptyCard(
     description: String,
 ) {
     Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier

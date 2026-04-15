@@ -2,9 +2,12 @@ package com.astrbot.android.ui.plugin.schema
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -16,9 +19,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.plugin.PluginUiSpec
@@ -32,6 +42,7 @@ fun PluginSchemaRenderer(
     onCardActionClick: (actionId: String, payload: Map<String, String>) -> Unit,
     onSettingsDraftChange: (fieldId: String, draftValue: PluginSettingDraftValue) -> Unit,
     modifier: Modifier = Modifier,
+    embeddedInSection: Boolean = false,
 ) {
     when (schemaUiState) {
         PluginSchemaUiState.None -> Unit
@@ -59,6 +70,7 @@ fun PluginSchemaRenderer(
                 model = buildPluginSettingsRenderModel(schemaUiState),
                 onSettingsDraftChange = onSettingsDraftChange,
                 modifier = modifier,
+                embeddedInSection = embeddedInSection,
             )
         }
 
@@ -178,10 +190,15 @@ private fun PluginSchemaCard(
             }
 
             if (model.actions.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaActionSpacing)) {
-                    model.actions.forEach { action ->
+                PluginAdaptiveOutlinedButtonGroup(
+                    items = model.actions.map { action ->
                         val palette = PluginUiSpec.schemaActionPalette(action.style)
-                        OutlinedButton(
+                        AdaptiveOutlinedButtonItem(
+                            label = action.label,
+                            testTag = PluginUiSpec.schemaCardActionTag(action.actionId),
+                            borderColor = palette.borderColor,
+                            containerColor = palette.containerColor,
+                            contentColor = palette.contentColor,
                             onClick = {
                                 dispatchSchemaCardAction(
                                     actionId = action.actionId,
@@ -190,19 +207,10 @@ private fun PluginSchemaCard(
                                     onCardActionClick(actionId, payload)
                                 }
                             },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag(PluginUiSpec.schemaCardActionTag(action.actionId)),
-                            border = BorderStroke(PluginUiSpec.SchemaActionBorderWidth, palette.borderColor),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = palette.containerColor,
-                                contentColor = palette.contentColor,
-                            ),
-                        ) {
-                            Text(text = action.label)
-                        }
-                    }
-                }
+                        )
+                    },
+                    maxColumns = 1,
+                )
             }
 
             model.feedback?.let { feedback ->
@@ -233,76 +241,107 @@ private fun PluginSchemaSettings(
     model: PluginSettingsRenderModel,
     onSettingsDraftChange: (fieldId: String, draftValue: PluginSettingDraftValue) -> Unit,
     modifier: Modifier = Modifier,
+    embeddedInSection: Boolean = false,
 ) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag(PluginUiSpec.SchemaSettingsTag),
-        shape = PluginUiSpec.SectionShape,
-        color = MonochromeUi.cardBackground,
-        border = PluginUiSpec.CardBorder,
-    ) {
+    if (embeddedInSection) {
         Column(
-            modifier = Modifier.padding(PluginUiSpec.SchemaContainerPadding),
+            modifier = modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.SchemaSettingsTag),
             verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
         ) {
-            Text(
-                text = model.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MonochromeUi.textPrimary,
+            PluginSchemaSettingsContent(
+                model = model,
+                onSettingsDraftChange = onSettingsDraftChange,
+                showTitle = false,
             )
-            model.sections.forEach { section ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag(PluginUiSpec.schemaSettingsSectionTag(section.sectionId)),
-                    shape = PluginUiSpec.SectionShape,
-                    color = MonochromeUi.cardAltBackground,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(PluginUiSpec.SchemaSectionPadding),
-                        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaSectionInnerSpacing),
-                    ) {
-                        Text(
-                            text = section.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MonochromeUi.textPrimary,
+        }
+    } else {
+        Surface(
+            modifier = modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.SchemaSettingsTag),
+            shape = PluginUiSpec.SectionShape,
+            color = MonochromeUi.cardBackground,
+            border = PluginUiSpec.CardBorder,
+        ) {
+            Column(
+                modifier = Modifier.padding(PluginUiSpec.SchemaContainerPadding),
+                verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+            ) {
+                PluginSchemaSettingsContent(
+                    model = model,
+                    onSettingsDraftChange = onSettingsDraftChange,
+                    showTitle = true,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginSchemaSettingsContent(
+    model: PluginSettingsRenderModel,
+    onSettingsDraftChange: (fieldId: String, draftValue: PluginSettingDraftValue) -> Unit,
+    showTitle: Boolean,
+) {
+    if (showTitle) {
+        Text(
+            text = model.title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MonochromeUi.textPrimary,
+        )
+    }
+    model.sections.forEach { section ->
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.schemaSettingsSectionTag(section.sectionId)),
+            shape = PluginUiSpec.SectionShape,
+            color = MonochromeUi.cardAltBackground,
+        ) {
+            Column(
+                modifier = Modifier.padding(PluginUiSpec.SchemaSectionPadding),
+                verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaSectionInnerSpacing),
+            ) {
+                Text(
+                    text = section.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MonochromeUi.textPrimary,
+                )
+                section.fields.forEach { field ->
+                    when (field) {
+                        is SettingsFieldRenderModel.Toggle -> PluginToggleSettingField(
+                            field = field,
+                            onChange = { checked ->
+                                onSettingsDraftChange(
+                                    field.fieldId,
+                                    PluginSettingDraftValue.Toggle(checked),
+                                )
+                            },
                         )
-                        section.fields.forEach { field ->
-                            when (field) {
-                                is SettingsFieldRenderModel.Toggle -> PluginToggleSettingField(
-                                    field = field,
-                                    onChange = { checked ->
-                                        onSettingsDraftChange(
-                                            field.fieldId,
-                                            PluginSettingDraftValue.Toggle(checked),
-                                        )
-                                    },
-                                )
 
-                                is SettingsFieldRenderModel.TextInput -> PluginTextInputSettingField(
-                                    field = field,
-                                    onChange = { value ->
-                                        onSettingsDraftChange(
-                                            field.fieldId,
-                                            PluginSettingDraftValue.Text(value),
-                                        )
-                                    },
+                        is SettingsFieldRenderModel.TextInput -> PluginTextInputSettingField(
+                            field = field,
+                            onChange = { value ->
+                                onSettingsDraftChange(
+                                    field.fieldId,
+                                    PluginSettingDraftValue.Text(value),
                                 )
+                            },
+                        )
 
-                                is SettingsFieldRenderModel.Select -> PluginSelectSettingField(
-                                    field = field,
-                                    onChange = { value ->
-                                        onSettingsDraftChange(
-                                            field.fieldId,
-                                            PluginSettingDraftValue.Text(value),
-                                        )
-                                    },
+                        is SettingsFieldRenderModel.Select -> PluginSelectSettingField(
+                            field = field,
+                            onChange = { value ->
+                                onSettingsDraftChange(
+                                    field.fieldId,
+                                    PluginSettingDraftValue.Text(value),
                                 )
-                            }
-                        }
+                            },
+                        )
                     }
                 }
             }
@@ -407,6 +446,7 @@ fun PluginStaticConfigRenderer(
     model: PluginStaticConfigRenderModel,
     onDraftChange: (fieldKey: String, draftValue: PluginSettingDraftValue) -> Unit,
     modifier: Modifier = Modifier,
+    embeddedInSection: Boolean = false,
 ) {
     val visibleSections = model.sections.mapNotNull { section ->
         val visibleFields = section.fields.filter(StaticConfigFieldRenderModel::isVisible)
@@ -416,60 +456,185 @@ fun PluginStaticConfigRenderer(
             section.copy(fields = visibleFields)
         }
     }
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag(PluginUiSpec.SchemaStaticConfigTag),
-        shape = PluginUiSpec.SectionShape,
-        color = MonochromeUi.cardBackground,
-        border = PluginUiSpec.CardBorder,
-    ) {
+    if (embeddedInSection) {
         Column(
-            modifier = Modifier.padding(PluginUiSpec.SchemaContainerPadding),
+            modifier = modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.SchemaStaticConfigTag),
             verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
         ) {
-            visibleSections.forEach { section ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag(PluginUiSpec.schemaStaticConfigSectionTag(section.sectionId)),
-                    shape = PluginUiSpec.SectionShape,
-                    color = MonochromeUi.cardAltBackground,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(PluginUiSpec.SchemaSectionPadding),
-                        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaSectionInnerSpacing),
-                    ) {
-                        Text(
-                            text = section.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MonochromeUi.textPrimary,
+            PluginStaticConfigContent(
+                visibleSections = visibleSections,
+                onDraftChange = onDraftChange,
+            )
+        }
+    } else {
+        Surface(
+            modifier = modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.SchemaStaticConfigTag),
+            shape = PluginUiSpec.SectionShape,
+            color = MonochromeUi.cardBackground,
+            border = PluginUiSpec.CardBorder,
+        ) {
+            Column(
+                modifier = Modifier.padding(PluginUiSpec.SchemaContainerPadding),
+                verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing),
+            ) {
+                PluginStaticConfigContent(
+                    visibleSections = visibleSections,
+                    onDraftChange = onDraftChange,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginStaticConfigContent(
+    visibleSections: List<PluginStaticConfigSectionRenderModel>,
+    onDraftChange: (fieldKey: String, draftValue: PluginSettingDraftValue) -> Unit,
+) {
+    visibleSections.forEach { section ->
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.schemaStaticConfigSectionTag(section.sectionId)),
+            shape = PluginUiSpec.SectionShape,
+            color = MonochromeUi.cardAltBackground,
+        ) {
+            Column(
+                modifier = Modifier.padding(PluginUiSpec.SchemaSectionPadding),
+                verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaSectionInnerSpacing),
+            ) {
+                Text(
+                    text = section.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MonochromeUi.textPrimary,
+                )
+                section.fields.forEach { field ->
+                    when (field) {
+                        is StaticConfigFieldRenderModel.Toggle -> PluginStaticConfigToggleField(
+                            field = field,
+                            onChange = { checked ->
+                                onDraftChange(field.fieldKey, PluginSettingDraftValue.Toggle(checked))
+                            },
                         )
-                        section.fields.forEach { field ->
-                            when (field) {
-                                is StaticConfigFieldRenderModel.Toggle -> PluginStaticConfigToggleField(
-                                    field = field,
-                                    onChange = { checked ->
-                                        onDraftChange(field.fieldKey, PluginSettingDraftValue.Toggle(checked))
-                                    },
-                                )
 
-                                is StaticConfigFieldRenderModel.TextInput -> PluginStaticConfigTextInputField(
-                                    field = field,
-                                    onChange = { value ->
-                                        onDraftChange(field.fieldKey, PluginSettingDraftValue.Text(value))
-                                    },
-                                )
+                        is StaticConfigFieldRenderModel.TextInput -> PluginStaticConfigTextInputField(
+                            field = field,
+                            onChange = { value ->
+                                onDraftChange(field.fieldKey, PluginSettingDraftValue.Text(value))
+                            },
+                        )
 
-                                is StaticConfigFieldRenderModel.Select -> PluginStaticConfigSelectField(
-                                    field = field,
-                                    onChange = { value ->
-                                        onDraftChange(field.fieldKey, PluginSettingDraftValue.Text(value))
-                                    },
-                                )
-                            }
+                        is StaticConfigFieldRenderModel.Select -> PluginStaticConfigSelectField(
+                            field = field,
+                            onChange = { value ->
+                                onDraftChange(field.fieldKey, PluginSettingDraftValue.Text(value))
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class AdaptiveOutlinedButtonItem(
+    val label: String,
+    val testTag: String,
+    val borderColor: Color,
+    val borderWidth: Dp = PluginUiSpec.SchemaActionBorderWidth,
+    val containerColor: Color,
+    val contentColor: Color,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun PluginAdaptiveOutlinedButtonGroup(
+    items: List<AdaptiveOutlinedButtonItem>,
+    modifier: Modifier = Modifier,
+    maxColumns: Int = 3,
+    maxVisibleLines: Int = 2,
+) {
+    if (items.isEmpty()) return
+
+    val textStyle = MaterialTheme.typography.labelLarge
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val maxWidthPx = with(density) { maxWidth.roundToPx() }
+        val itemSpacingPx = with(density) { PluginUiSpec.SchemaButtonGroupSpacing.roundToPx() }
+        val buttonTextHorizontalPaddingPx = with(density) { 28.dp.roundToPx() }
+
+        fun lineCountsFor(columns: Int): List<Int> {
+            val itemWidthPx = ((maxWidthPx - itemSpacingPx * (columns - 1)) / columns)
+                .coerceAtLeast(1)
+            val textWidthPx = (itemWidthPx - buttonTextHorizontalPaddingPx)
+                .coerceAtLeast(1)
+            return items.map { item ->
+                textMeasurer.measure(
+                    text = item.label,
+                    style = textStyle,
+                    constraints = Constraints(maxWidth = textWidthPx),
+                ).lineCount
+            }
+        }
+
+        val columns = resolveButtonGroupColumns(
+            itemCount = items.size,
+            maxColumns = maxColumns.coerceAtLeast(1),
+            maxVisibleLines = maxVisibleLines,
+            lineCountsForColumns = ::lineCountsFor,
+        )
+        val rowLineCounts = normalizeButtonRowLineCounts(
+            lineCounts = lineCountsFor(columns),
+            columns = columns,
+            maxVisibleLines = maxVisibleLines,
+        )
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaButtonGroupSpacing),
+        ) {
+            items.chunked(columns).forEachIndexed { rowIndex, rowItems ->
+                val rowLines = rowLineCounts.getOrElse(rowIndex) { 1 }
+                val minHeight = if (rowLines > 1) {
+                    PluginUiSpec.SchemaButtonTwoLineMinHeight
+                } else {
+                    PluginUiSpec.SchemaButtonSingleLineMinHeight
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaButtonGroupSpacing),
+                ) {
+                    rowItems.forEach { item ->
+                        OutlinedButton(
+                            onClick = item.onClick,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = minHeight)
+                                .testTag(item.testTag),
+                            border = BorderStroke(item.borderWidth, item.borderColor),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = item.containerColor,
+                                contentColor = item.contentColor,
+                            ),
+                        ) {
+                            Text(
+                                text = item.label,
+                                minLines = rowLines,
+                                maxLines = rowLines,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
                         }
+                    }
+                    repeat(columns - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -567,28 +732,24 @@ private fun PluginSelectSettingField(
             style = MaterialTheme.typography.labelMedium,
             color = MonochromeUi.textSecondary,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing)) {
-            field.options.forEach { option ->
+        PluginAdaptiveOutlinedButtonGroup(
+            items = field.options.map { option ->
                 val selected = option.value == field.value
-                OutlinedButton(
-                    onClick = { onChange(option.value) },
-                    modifier = Modifier.testTag(
-                        PluginUiSpec.schemaSettingsSelectOptionTag(field.fieldId, option.value),
-                    ),
-                    border = if (selected) {
-                        BorderStroke(PluginUiSpec.SchemaSelectedBorderWidth, MonochromeUi.textPrimary)
+                AdaptiveOutlinedButtonItem(
+                    label = option.label,
+                    testTag = PluginUiSpec.schemaSettingsSelectOptionTag(field.fieldId, option.value),
+                    borderColor = if (selected) MonochromeUi.textPrimary else MonochromeUi.border,
+                    borderWidth = if (selected) {
+                        PluginUiSpec.SchemaSelectedBorderWidth
                     } else {
-                        PluginUiSpec.CardBorder
+                        PluginUiSpec.SchemaActionBorderWidth
                     },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (selected) MonochromeUi.cardBackground else MonochromeUi.cardAltBackground,
-                        contentColor = MonochromeUi.textPrimary,
-                    ),
-                ) {
-                    Text(option.label)
-                }
-            }
-        }
+                    containerColor = if (selected) MonochromeUi.cardBackground else MonochromeUi.cardAltBackground,
+                    contentColor = MonochromeUi.textPrimary,
+                    onClick = { onChange(option.value) },
+                )
+            },
+        )
     }
 }
 
@@ -717,28 +878,24 @@ private fun PluginStaticConfigSelectField(
             style = MaterialTheme.typography.labelMedium,
             color = MonochromeUi.textSecondary,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(PluginUiSpec.SchemaFieldSpacing)) {
-            field.options.forEach { option ->
+        PluginAdaptiveOutlinedButtonGroup(
+            items = field.options.map { option ->
                 val selected = option.value == field.value
-                OutlinedButton(
-                    onClick = { onChange(option.value) },
-                    modifier = Modifier.testTag(
-                        PluginUiSpec.schemaStaticConfigSelectOptionTag(field.fieldKey, option.value),
-                    ),
-                    border = if (selected) {
-                        BorderStroke(PluginUiSpec.SchemaSelectedBorderWidth, MonochromeUi.textPrimary)
+                AdaptiveOutlinedButtonItem(
+                    label = option.label,
+                    testTag = PluginUiSpec.schemaStaticConfigSelectOptionTag(field.fieldKey, option.value),
+                    borderColor = if (selected) MonochromeUi.textPrimary else MonochromeUi.border,
+                    borderWidth = if (selected) {
+                        PluginUiSpec.SchemaSelectedBorderWidth
                     } else {
-                        PluginUiSpec.CardBorder
+                        PluginUiSpec.SchemaActionBorderWidth
                     },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (selected) MonochromeUi.cardBackground else MonochromeUi.cardAltBackground,
-                        contentColor = MonochromeUi.textPrimary,
-                    ),
-                ) {
-                    Text(option.label)
-                }
-            }
-        }
+                    containerColor = if (selected) MonochromeUi.cardBackground else MonochromeUi.cardAltBackground,
+                    contentColor = MonochromeUi.textPrimary,
+                    onClick = { onChange(option.value) },
+                )
+            },
+        )
         StaticConfigFieldMeta(
             fieldKey = field.fieldKey,
             description = field.description,

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.voiceasset
+﻿package com.astrbot.android.ui.voiceasset
 import com.astrbot.android.ui.settings.formatDuration
 
 import androidx.compose.foundation.layout.Arrangement
@@ -26,9 +26,9 @@ internal fun VoiceAssetOverviewCard(
     lastVoiceCloneMessage: String,
 ) {
     Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.persona
+﻿package com.astrbot.android.ui.persona
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -112,7 +112,7 @@ internal fun PersonaCatalogContent(
                         .height(54.dp),
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     placeholder = { Text(stringResource(R.string.persona_search_placeholder)) },
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = monochromeOutlinedTextFieldColors(),
                     singleLine = true,
                 )
@@ -196,9 +196,9 @@ private fun PersonaCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
@@ -397,7 +397,7 @@ private fun PersonaGroupCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MonochromeUi.inputBackground,
     ) {
         Column(

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.qqlogin
+﻿package com.astrbot.android.ui.qqlogin
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -127,7 +127,7 @@ fun QQCaptchaCard(
     var sidInput by remember { mutableStateOf("") }
 
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MonochromeUi.cardBackground,
         tonalElevation = 2.dp,
     ) {
@@ -285,7 +285,7 @@ fun QQTencentCaptchaCard(
     var statusText by remember(proofWaterUrl) { mutableStateOf("Loading captcha...") }
 
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MonochromeUi.cardBackground,
         tonalElevation = 2.dp,
     ) {
@@ -363,7 +363,7 @@ fun QQNewDeviceVerifyCard(
     }
 
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MonochromeUi.cardBackground,
         tonalElevation = 2.dp,
     ) {

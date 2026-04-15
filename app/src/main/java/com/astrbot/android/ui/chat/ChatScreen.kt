@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.chat
+﻿package com.astrbot.android.ui.chat
 
 import android.text.format.DateFormat
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -432,7 +432,7 @@ private fun ChatContextCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(14.dp),
         color = MonochromeUi.cardBackground,
     ) {
         Column(
@@ -488,7 +488,7 @@ private fun ChatEmptyState(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
+            shape = RoundedCornerShape(18.dp),
             color = MonochromeUi.cardBackground,
         ) {
             Column(

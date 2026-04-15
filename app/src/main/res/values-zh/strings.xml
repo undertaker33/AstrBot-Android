@@ -53,6 +53,7 @@
     <string name="plugin_market_page_jump_label">页码</string>
     <string name="plugin_market_page_jump_error">请输入 1 到 %1$d 之间的页码。</string>
     <string name="plugin_market_refresh_failed">更新失败</string>
+    <string name="plugin_market_refresh_timeout">刷新超时，请稍后重试。</string>
     <string name="plugin_market_refresh_empty">市场列表暂无可用插件。</string>
     <string name="plugin_empty_title">还没有已安装插件</string>
     <string name="plugin_empty_message">导入本地插件包后，这里会开始管理插件元信息、权限声明和兼容状态。</string>
@@ -62,11 +63,11 @@
     <string name="plugin_homepage_hero_subtitle">查看已安装插件、发现新插件，并从本地包或远程来源快速安装。</string>
     <string name="plugin_detail_title">插件详情</string>
     <string name="plugin_workspace_title">插件工作台</string>
+    <string name="plugin_config_title">插件配置</string>
     <string name="plugin_health_overview_title">健康概览</string>
     <string name="plugin_health_overview_subtitle">一眼查看已安装数量、可用更新、待复核项和来源覆盖情况。</string>
     <string name="plugin_health_metric_installed">已安装</string>
     <string name="plugin_health_metric_updates_available">有更新</string>
-    <string name="plugin_health_metric_needs_review">待复核</string>
     <string name="plugin_health_metric_sources">来源</string>
     <string name="plugin_metric_installed">已安装</string>
     <string name="plugin_metric_repositories">仓库</string>
@@ -114,13 +115,11 @@
     <string name="plugin_detail_overview_title">概览</string>
     <string name="plugin_detail_safety_compatibility_title">安全与兼容性</string>
     <string name="plugin_detail_plugin_panel_title">插件面板</string>
-    <string name="plugin_detail_technical_metadata_title">技术元信息</string>
     <string name="plugin_detail_compatibility_group_title">兼容性</string>
     <string name="plugin_detail_permissions_group_title">权限</string>
     <string name="plugin_detail_governance_group_title">治理状态</string>
     <string name="plugin_detail_runtime_health_group_title">运行健康</string>
     <string name="plugin_detail_runtime_health_clear">暂无运行问题记录。</string>
-    <string name="plugin_detail_meta_title">包元信息</string>
     <string name="plugin_detail_source_title">来源与更新</string>
     <string name="plugin_detail_compatibility_title">兼容性</string>
     <string name="plugin_detail_permissions_title">权限声明</string>
@@ -777,8 +776,6 @@
     <string name="plugin_workspace_debug_empty">这个插件没有暴露调试工具。</string>
     <string name="plugin_workspace_imports_summary">这里管理导入到插件中的文件；导入后的资源会留在插件工作区内，后续也可以删除。</string>
     <string name="plugin_workspace_exports_summary">这里查看插件生成的导出文件，便于后续分享、备份或归档。</string>
-    <string name="plugin_config_backup_summary">如果接下来要做较大的配置调整，可以先去配置备份里导出或恢复相关设置。</string>
-    <string name="plugin_config_backup_action">打开配置备份</string>
     <string name="plugin_config_basic_title">基础设置</string>
     <string name="plugin_config_runtime_title">运行时设置</string>
     <string name="plugin_installed_library_summary_total">已安装 %1$d 个</string>
@@ -845,4 +842,12 @@
     <string name="plugin_trigger_on_plugin_entry_click">点击插件入口</string>
     <string name="plugin_trigger_on_command">命令触发</string>
     <string name="plugin_trigger_on_conversation_enter">进入会话时</string>
+    <string name="plugin_manager_title">插件管理</string>
+    <string name="plugin_manager_update_all">全部更新</string>
+    <string name="plugin_manager_pause_all">全部暂停</string>
+    <string name="plugin_manager_version_author">%1$s | %2$s</string>
+    <string name="plugin_manager_progress_percent">%1$d%%</string>
+    <string name="plugin_manager_delete_selected">删除已选</string>
+    <string name="plugin_manager_delete_confirm_title">确认删除</string>
+    <string name="plugin_manager_delete_confirm_message">确认删除已选的 %1$d 个插件吗？</string>
 </resources>

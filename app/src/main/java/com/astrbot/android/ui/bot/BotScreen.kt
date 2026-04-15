@@ -174,7 +174,7 @@ private fun BotCatalogContent(
                 .fillMaxSize()
                 .padding(horizontal = 14.dp),
             contentPadding = PaddingValues(top = 14.dp, bottom = 92.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
                 OutlinedTextField(
@@ -185,7 +185,7 @@ private fun BotCatalogContent(
                         .height(54.dp),
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     placeholder = { Text(stringResource(R.string.bot_search_placeholder)) },
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(20.dp),
                     colors = monochromeOutlinedTextFieldColors(),
                     singleLine = true,
                 )
@@ -271,21 +271,21 @@ private fun BotListCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(14.dp),
         color = if (active) MonochromeUi.cardAltBackground else MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
                     .background(MonochromeUi.mutedSurface, CircleShape)
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(bot.displayName.take(1).uppercase(), color = MonochromeUi.textPrimary, fontWeight = FontWeight.Bold)
@@ -523,7 +523,7 @@ private fun EditorGroupCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         color = MonochromeUi.inputBackground,
     ) {
         Column(

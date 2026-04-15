@@ -334,6 +334,7 @@ private fun PluginRouteHost(dependencies: FakePluginViewModelDependencies) {
                     onOpenConfig = { pluginId ->
                         navController.navigate(AppDestination.PluginConfig.routeFor(pluginId))
                     },
+                    onReturnToInstalledPlugins = {},
                     pluginViewModel = detailViewModel,
                 )
             }

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.config
+﻿package com.astrbot.android.ui.config
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -100,7 +100,7 @@ fun ConfigScreen(
                 .fillMaxSize()
                 .padding(horizontal = 14.dp),
             contentPadding = PaddingValues(top = 14.dp, bottom = 92.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
                 OutlinedTextField(
@@ -112,7 +112,7 @@ fun ConfigScreen(
                         .testTag("config-search-field"),
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     placeholder = { Text(stringResource(R.string.config_search_placeholder)) },
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(20.dp),
                     colors = monochromeOutlinedTextFieldColors(),
                     singleLine = true,
                 )
@@ -225,13 +225,13 @@ private fun ConfigProfileCard(
     onLongPress: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(14.dp),
         color = when {
             selectionMode && selected -> MonochromeUi.cardAltBackground
             selected -> MonochromeUi.cardAltBackground
             else -> MonochromeUi.cardBackground
         },
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.config.detail
+﻿package com.astrbot.android.ui.config.detail
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,7 +22,7 @@ internal fun ConfigFieldGroup(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MonochromeUi.inputBackground,
     ) {
         Column(
@@ -42,7 +42,7 @@ internal fun ConfigSectionCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MonochromeUi.cardBackground,
     ) {
         Column(
@@ -70,7 +70,7 @@ internal fun PlaceholderSectionCard(
     subtitle: String,
 ) {
     Surface(
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MonochromeUi.cardBackground,
     ) {
         Column(

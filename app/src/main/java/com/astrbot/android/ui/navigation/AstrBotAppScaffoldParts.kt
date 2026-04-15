@@ -50,6 +50,7 @@ import com.astrbot.android.ui.settings.MeScreen
 import com.astrbot.android.ui.settings.ModuleBackupScreen
 import com.astrbot.android.ui.persona.PersonaScreen
 import com.astrbot.android.ui.plugin.PluginDetailScreenRoute
+import com.astrbot.android.ui.plugin.PluginManagerScreenRoute
 import com.astrbot.android.ui.plugin.PluginMarketDetailScreenRoute
 import com.astrbot.android.ui.plugin.PluginRuntimeLogScreenRoute
 import com.astrbot.android.ui.plugin.PluginTriggerManagementScreenRoute
@@ -236,6 +237,9 @@ internal fun AstrBotAppNavGraph(
                 onOpenPluginDetail = { pluginId ->
                     AppNavigator.open(navController, AppDestination.PluginDetail.routeFor(pluginId))
                 },
+                onOpenPluginManager = {
+                    AppNavigator.open(navController, AppDestination.PluginManager.route)
+                },
                 onOpenMarketPluginDetail = { pluginId ->
                     AppNavigator.open(navController, AppDestination.PluginMarketDetail.routeFor(pluginId))
                 },
@@ -262,6 +266,16 @@ internal fun AstrBotAppNavGraph(
                 onOpenConfig = {
                     AppNavigator.open(navController, AppDestination.PluginConfig.routeFor(pluginId))
                 },
+                onReturnToInstalledPlugins = {
+                    onPluginWorkspaceTabChange(PluginWorkspaceTab.LOCAL)
+                    val returnedToPluginRoot = navController.popBackStack(
+                        route = AppDestination.Plugins.route,
+                        inclusive = false,
+                    )
+                    if (!returnedToPluginRoot) {
+                        AppNavigator.openTopLevelFresh(navController, AppDestination.Plugins)
+                    }
+                },
             )
         }
         composable(AppDestination.PluginMarketDetail.route) { backStackEntry ->
@@ -269,6 +283,14 @@ internal fun AstrBotAppNavGraph(
             PluginMarketDetailScreenRoute(
                 pluginId = pluginId,
                 onBack = { AppNavigator.back(navController) },
+            )
+        }
+        composable(AppDestination.PluginManager.route) {
+            PluginManagerScreenRoute(
+                onBack = { AppNavigator.back(navController) },
+                onOpenPluginDetail = { pluginId ->
+                    AppNavigator.open(navController, AppDestination.PluginDetail.routeFor(pluginId))
+                },
             )
         }
         composable(AppDestination.PluginWorkspace.route) { backStackEntry ->
@@ -297,7 +319,6 @@ internal fun AstrBotAppNavGraph(
             PluginConfigScreenRoute(
                 pluginId = pluginId,
                 onBack = { AppNavigator.back(navController) },
-                onOpenConfigBackup = { AppNavigator.open(navController, AppDestination.ConfigBackup.route) },
             )
         }
         composable(AppDestination.Chat.route) {
@@ -509,6 +530,7 @@ private fun MainTopLevelRail(
     onConfigSelectedIdsChange: (Set<String>) -> Unit,
     qqLoginViewModel: QQLoginViewModel,
     onOpenPluginDetail: (String) -> Unit = {},
+    onOpenPluginManager: () -> Unit = {},
     onOpenMarketPluginDetail: (String) -> Unit = {},
 ) {
     val safeDrawingTopPadding = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
@@ -542,6 +564,7 @@ private fun MainTopLevelRail(
                     PluginScreen(
                         workspaceTab = PluginWorkspaceTab.LOCAL,
                         onOpenPluginDetail = onOpenPluginDetail,
+                        onOpenPluginManager = onOpenPluginManager,
                     )
                 },
                 MainSwipePage.PLUGINS_MARKET to {

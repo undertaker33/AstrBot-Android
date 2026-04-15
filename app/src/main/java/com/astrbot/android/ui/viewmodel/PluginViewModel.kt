@@ -44,6 +44,7 @@ import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
 import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
+import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.toStorageBoundary
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
@@ -86,7 +87,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
 data class PluginRepositorySourceCardUiState(
@@ -358,6 +361,10 @@ data class PluginHostWorkspaceUiState(
 class PluginViewModel(
     private val dependencies: PluginViewModelDependencies = DefaultPluginViewModelDependencies,
 ) : ViewModel() {
+    private companion object {
+        const val MARKET_REFRESH_TIMEOUT_MILLIS = 15_000L
+    }
+
     private val hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
         hostActionExecutor = ExternalPluginHostActionExecutor(),
     )
@@ -666,31 +673,60 @@ class PluginViewModel(
     fun refreshMarketCatalog() {
         if (marketRefreshRunning.value) return
         viewModelScope.launch {
-            marketRefreshRunning.value = true
-            marketRefreshFeedback.value = null
-            RuntimeLogRepository.append(
-                "Plugin market refresh requested: sourceCount=${dependencies.repositorySources.value.size}",
-            )
-            runCatching {
-                dependencies.refreshMarketCatalog()
-            }.onSuccess { states ->
-                RuntimeLogRepository.append(
-                    "Plugin market refresh finished: " +
-                        "resultCount=${states.size} " +
-                        "statuses=${states.joinToString(separator = ",") { "${it.sourceId}:${it.lastSyncStatus.name}" }}",
-                )
-            }.onFailure {
-                RuntimeLogRepository.append(
-                    "Plugin market refresh failed: error=${it.toRuntimeLogSummary()}",
-                )
-                marketRefreshFeedback.value = PluginActionFeedback.Resource(R.string.plugin_market_refresh_failed)
-            }
-            marketRefreshRunning.value = false
+            refreshMarketCatalogInternal()
         }
     }
 
     fun clearMarketRefreshFeedback() {
         marketRefreshFeedback.value = null
+    }
+
+    private suspend fun refreshMarketCatalogInternal(): Boolean {
+        if (marketRefreshRunning.value) return false
+        marketRefreshRunning.value = true
+        marketRefreshFeedback.value = null
+        return try {
+            RuntimeLogRepository.append(
+                "Plugin market refresh requested: sourceCount=${dependencies.repositorySources.value.size}",
+            )
+            runCatching {
+                withTimeout(MARKET_REFRESH_TIMEOUT_MILLIS) {
+                    dependencies.refreshMarketCatalog()
+                }
+            }.fold(
+                onSuccess = { states ->
+                    RuntimeLogRepository.append(
+                        "Plugin market refresh finished: " +
+                            "resultCount=${states.size} " +
+                            "statuses=${states.joinToString(separator = ",") { "${it.sourceId}:${it.lastSyncStatus.name}" }}",
+                    )
+                    true
+                },
+                onFailure = { error ->
+                    if (error is TimeoutCancellationException) {
+                        RuntimeLogRepository.append(
+                            "Plugin market refresh timed out: timeoutMs=$MARKET_REFRESH_TIMEOUT_MILLIS",
+                        )
+                        marketRefreshFeedback.value = PluginActionFeedback.Resource(
+                            R.string.plugin_market_refresh_timeout,
+                        )
+                    } else {
+                        RuntimeLogRepository.append(
+                            "Plugin market refresh failed: error=${error.toRuntimeLogSummary()}",
+                        )
+                        marketRefreshFeedback.value = PluginActionFeedback.Resource(R.string.plugin_market_refresh_failed)
+                    }
+                    false
+                },
+            )
+        } finally {
+            marketRefreshRunning.value = false
+        }
+    }
+
+    private fun shouldRefreshCatalogBeforeCheckingUpdate(record: PluginInstallRecord): Boolean {
+        return record.source.sourceType == PluginSourceType.REPOSITORY &&
+            !record.catalogSourceId.isNullOrBlank()
     }
 
     fun submitLocalPackageUri(uri: String) {
@@ -714,21 +750,29 @@ class PluginViewModel(
     }
 
     fun requestUpgradeForSelectedPlugin() {
-        val selected = uiState.value.selectedPlugin ?: return
-        val availability = uiState.value.updateAvailabilitiesByPluginId[selected.pluginId]
-        if (availability == null || !availability.updateAvailable) {
-            lastActionMessage.value = PluginActionFeedback.Resource(R.string.plugin_action_feedback_no_update_available)
-            return
+        val selectedPluginId = uiState.value.selectedPlugin?.pluginId ?: return
+        viewModelScope.launch {
+            val selected = uiState.value.selectedPlugin?.takeIf { it.pluginId == selectedPluginId } ?: return@launch
+            if (shouldRefreshCatalogBeforeCheckingUpdate(selected)) {
+                val refreshSucceeded = refreshMarketCatalogInternal()
+                if (!refreshSucceeded) return@launch
+            }
+            val availability = dependencies.getUpdateAvailability(selected.pluginId)
+                ?: uiState.value.updateAvailabilitiesByPluginId[selected.pluginId]
+            if (availability == null || !availability.updateAvailable) {
+                marketRefreshFeedback.value = PluginActionFeedback.Resource(R.string.plugin_action_feedback_no_update_available)
+                return@launch
+            }
+            if (!availability.canUpgrade) {
+                lastActionMessage.value = PluginActionFeedback.Text(
+                    availability.incompatibilityReason.ifBlank {
+                        "This update cannot be installed on the current host."
+                    },
+                )
+                return@launch
+            }
+            upgradeDialogState.value = PluginUpgradeDialogState(availability = availability)
         }
-        if (!availability.canUpgrade) {
-            lastActionMessage.value = PluginActionFeedback.Text(
-                availability.incompatibilityReason.ifBlank {
-                    "This update cannot be installed on the current host."
-                },
-            )
-            return
-        }
-        upgradeDialogState.value = PluginUpgradeDialogState(availability = availability)
     }
 
     fun dismissUpgradeDialog() {
@@ -913,15 +957,42 @@ class PluginViewModel(
         lastActionMessage.value = PluginActionFeedback.Resource(R.string.common_saved)
     }
 
-    fun uninstallSelectedPlugin() {
-        val selected = uiState.value.selectedPlugin ?: return
-        runCatching {
+    fun uninstallSelectedPlugin(): Boolean {
+        val selected = uiState.value.selectedPlugin ?: return false
+        return runCatching {
             dependencies.uninstallPlugin(selected.pluginId, PluginUninstallPolicy.REMOVE_DATA)
         }.onSuccess { result ->
             lastActionMessage.value = result.toUserMessage()
         }.onFailure { error ->
             lastActionMessage.value = error.message?.let(PluginActionFeedback::Text)
                 ?: PluginActionFeedback.Resource(R.string.plugin_action_feedback_uninstall_failed)
+        }.isSuccess
+    }
+
+    fun uninstallPlugins(pluginIds: Set<String>) {
+        if (pluginIds.isEmpty()) return
+        viewModelScope.launch {
+            var successCount = 0
+            var failureCount = 0
+            pluginIds.forEach { pluginId ->
+                runCatching {
+                    dependencies.uninstallPlugin(pluginId, PluginUninstallPolicy.REMOVE_DATA)
+                }.onSuccess {
+                    successCount += 1
+                }.onFailure { error ->
+                    failureCount += 1
+                    RuntimeLogRepository.append(
+                        "Plugin batch uninstall failed: pluginId=$pluginId error=${error.toRuntimeLogSummary()}",
+                    )
+                }
+            }
+            lastActionMessage.value = if (failureCount == 0) {
+                PluginActionFeedback.Text("Deleted $successCount plugin(s).")
+            } else {
+                PluginActionFeedback.Text(
+                    "Deleted $successCount plugin(s), failed to delete $failureCount plugin(s).",
+                )
+            }
         }
     }
 

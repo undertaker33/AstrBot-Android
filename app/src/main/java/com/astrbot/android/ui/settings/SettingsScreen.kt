@@ -262,7 +262,7 @@ private fun RuntimeConfigCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MonochromeUi.cardBackground,
         tonalElevation = 2.dp,
     ) {

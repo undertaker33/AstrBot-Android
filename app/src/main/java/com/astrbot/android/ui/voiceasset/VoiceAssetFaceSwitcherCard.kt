@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.voiceasset
+﻿package com.astrbot.android.ui.voiceasset
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,9 +22,9 @@ internal fun VoiceAssetFaceSwitcherCard(
     onFaceChange: (String) -> Unit,
 ) {
     Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier

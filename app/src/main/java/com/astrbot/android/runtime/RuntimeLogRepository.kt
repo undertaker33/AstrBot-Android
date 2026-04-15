@@ -17,7 +17,9 @@ object RuntimeLogRepository {
     fun append(message: String) {
         val next = "${formatter.format(Date())}  $message"
         _logs.value = (_logs.value + next).takeLast(500)
-        Log.i(LOG_TAG, message)
+        runCatching {
+            Log.i(LOG_TAG, message)
+        }
     }
 
     fun clear() {

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.qqlogin
+﻿package com.astrbot.android.ui.qqlogin
 
 import android.widget.Toast
 import androidx.compose.foundation.Image
@@ -75,7 +75,7 @@ fun QQAccountCenterScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Surface(
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(18.dp),
                 color = Color(0xFF171717),
                 tonalElevation = 4.dp,
             ) {
@@ -187,7 +187,7 @@ fun QQLoginScreen(
             if (loginMode == QqLoginMode.Qr) {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(28.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = MonochromeUi.cardBackground,
                         tonalElevation = 2.dp,
                     ) {
@@ -230,7 +230,7 @@ fun QQLoginScreen(
             } else {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(28.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = MonochromeUi.cardBackground,
                         tonalElevation = 2.dp,
                     ) {

@@ -34,12 +34,27 @@ internal fun EntryListPage(
             .background(MonochromeUi.pageBackground)
             .padding(horizontal = 16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                entries.forEach { entry ->
-                    AccountEntryCard(entry)
+            Surface(
+                shape = MonochromeUi.radiusGrouped,
+                color = MonochromeUi.cardBackground,
+                tonalElevation = 0.dp,
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    entries.forEachIndexed { index, entry ->
+                        AccountEntryCard(entry)
+                        if (index < entries.lastIndex) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp)
+                                    .background(MonochromeUi.divider)
+                                    .padding(top = 0.5.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -50,45 +65,41 @@ internal fun EntryListPage(
 internal fun AccountEntryCard(entry: EntryCardState) {
     Surface(
         onClick = entry.onClick,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        shape = MonochromeUi.radiusListItem,
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 11.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .background(MonochromeUi.mutedSurface, androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-                    .padding(10.dp),
+                    .background(MonochromeUi.mutedSurface, MonochromeUi.radiusIcon)
+                    .padding(8.dp),
             ) {
                 Icon(entry.icon, contentDescription = null, tint = MonochromeUi.textPrimary)
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
                 Text(entry.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     entry.subtitle,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    color = MonochromeUi.textSecondary,
                 )
             }
-            Box(
-                modifier = Modifier.width(24.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                Icon(
-                    Icons.Outlined.ChevronRight,
-                    contentDescription = null,
-                    tint = MonochromeUi.textPrimary,
-                )
-            }
+            Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                tint = MonochromeUi.textSecondary,
+                modifier = Modifier.padding(end = 2.dp),
+            )
         }
     }
 }

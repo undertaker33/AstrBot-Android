@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.app
+﻿package com.astrbot.android.ui.app
 import com.astrbot.android.ui.navigation.AppDestination
 
 import androidx.compose.foundation.background
@@ -435,7 +435,7 @@ internal fun FloatingBottomNavBar(
                 Surface(
                     onClick = { onSelect(destination) },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = itemColor,
                     tonalElevation = 0.dp,
                 ) {

@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.settings
+﻿package com.astrbot.android.ui.settings
 import com.astrbot.android.ui.bot.SelectionField
 import com.astrbot.android.ui.common.SubPageScaffold
 import com.astrbot.android.ui.voiceasset.VoiceAssetBindingCard
@@ -146,9 +146,9 @@ fun AssetManagementScreen(
         ) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = MonochromeUi.cardBackground,
-                    tonalElevation = 2.dp,
+                    tonalElevation = 0.dp,
                 ) {
                     Column(
                         modifier = Modifier
@@ -417,9 +417,9 @@ fun AssetDetailScreen(
             if (false && resolvedAsset.catalog.id == RuntimeAssetId.TTS_VOICE_ASSETS) {
                 item {
                     Surface(
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = MonochromeUi.cardBackground,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                     ) {
                         Column(
                             modifier = Modifier
@@ -512,9 +512,9 @@ fun AssetDetailScreen(
                 }
                 item {
                     Surface(
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = MonochromeUi.cardBackground,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                     ) {
                         Column(
                             modifier = Modifier
@@ -640,9 +640,9 @@ fun AssetDetailScreen(
                 }
                 items(items = voiceAssets, key = { asset -> asset.id }) { asset ->
                     Surface(
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = MonochromeUi.cardBackground,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                     ) {
                         Column(
                             modifier = Modifier
@@ -792,9 +792,9 @@ fun AssetDetailScreen(
                 }
                 item {
                     Surface(
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = MonochromeUi.cardBackground,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                     ) {
                         Column(
                             modifier = Modifier
@@ -830,9 +830,9 @@ fun AssetDetailScreen(
                 }
                 item {
                     Surface(
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = MonochromeUi.cardBackground,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                     ) {
                         Column(
                             modifier = Modifier
@@ -1045,9 +1045,9 @@ private fun AssetDetailSummaryCard(
     resolvedAsset: RuntimeAssetEntryState,
 ) {
     Surface(
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(14.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
@@ -1166,9 +1166,9 @@ private fun RuntimeAssetEntryCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MonochromeUi.cardBackground,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
