@@ -15,7 +15,7 @@ class PluginV2LlmContractsTest {
     @Test
     fun protocol_enums_keep_the_four_phase_and_streaming_boundaries() {
         assertEquals(
-            listOf("LlmWaiting", "LlmRequest", "LlmResponse", "ResultDecorating", "AfterMessageSent"),
+            listOf("LlmWaiting", "LlmRequest", "LlmResponse", "UsingLlmTool", "ToolExecution", "LlmToolRespond", "ResultDecorating", "AfterMessageSent"),
             PluginV2LlmStage.entries.map { it.name },
         )
         assertEquals(
@@ -23,7 +23,7 @@ class PluginV2LlmContractsTest {
             PluginV2StreamingMode.entries.map { it.name },
         )
         assertEquals(
-            listOf("LlmWaiting", "LlmRequest", "LlmResponse", "ResultDecorating", "AfterMessageSent"),
+            listOf("LlmWaiting", "LlmRequest", "LlmResponse", "UsingLlmTool", "ToolExecution", "LlmToolRespond", "ResultDecorating", "AfterMessageSent"),
             PluginExecutionStage.entries.map { it.name },
         )
         assertEquals(
@@ -93,6 +93,9 @@ class PluginV2LlmContractsTest {
                 "maxTokens",
                 "streamingEnabled",
                 "metadata",
+                "tools",
+                "allowHostToolMessages",
+                "preservedHostToolMessages",
             ),
             declaredFieldNames(PluginProviderRequest::class.java).toSet(),
         )
@@ -158,11 +161,12 @@ class PluginV2LlmContractsTest {
         val toolMessage = PluginProviderMessageDto(
             role = PluginProviderMessageRole.TOOL,
             parts = listOf(PluginProviderMessagePartDto.TextPart("tool message")),
+            name = "web_search",
+            metadata = mapOf("__host" to mapOf("toolCallId" to "call-1")),
         )
-        val toolFailure = runCatching {
-            request.messages = listOf(toolMessage)
-        }.exceptionOrNull()
-        assertTrue(toolFailure is IllegalArgumentException)
+        // Setter silently strips TOOL messages authored by plugins (only host-preserved ones survive).
+        request.messages = listOf(toolMessage)
+        assertTrue(request.messages.none { it.role == PluginProviderMessageRole.TOOL })
 
         val metadataFailure = runCatching {
             request.metadata = mapOf("bad" to File("blocked"))
@@ -419,6 +423,72 @@ class PluginV2LlmContractsTest {
         assertEquals(view.receiptIds, decoded.receiptIds)
         assertEquals(view.deliveredEntries.single().entryId, decoded.deliveredEntries.single().entryId)
         assertEquals(view.usage, decoded.usage)
+    }
+
+    @Test
+    fun provider_request_carries_tool_definitions_as_read_only_copy() {
+        val mutableTools = mutableListOf(
+            PluginProviderToolDefinition(
+                name = "web_search",
+                description = "Search the web",
+                inputSchema = mapOf("type" to "object", "properties" to mapOf("query" to mapOf("type" to "string"))),
+            ),
+        )
+        val request = PluginProviderRequest(
+            requestId = "req-tools-1",
+            availableProviderIds = listOf("openai"),
+            availableModelIdsByProvider = mapOf("openai" to listOf("gpt-4.1")),
+            conversationId = "conv-1",
+            messageIds = listOf("m1"),
+            llmInputSnapshot = "search for news",
+            selectedProviderId = "openai",
+            selectedModelId = "gpt-4.1",
+            tools = mutableTools,
+        )
+
+        assertEquals(1, request.tools.size)
+        assertEquals("web_search", request.tools[0].name)
+        assertEquals("Search the web", request.tools[0].description)
+
+        // Mutating the original list must not affect the request.
+        mutableTools.add(
+            PluginProviderToolDefinition(name = "calc", description = "Calculator", inputSchema = emptyMap()),
+        )
+        assertEquals(1, request.tools.size)
+    }
+
+    @Test
+    fun provider_request_defaults_to_empty_tools() {
+        val request = PluginProviderRequest(
+            requestId = "req-tools-2",
+            availableProviderIds = listOf("openai"),
+            availableModelIdsByProvider = mapOf("openai" to listOf("gpt-4.1")),
+            conversationId = "conv-1",
+            messageIds = listOf("m1"),
+            llmInputSnapshot = "hello",
+            selectedProviderId = "openai",
+            selectedModelId = "gpt-4.1",
+        )
+        assertTrue(request.tools.isEmpty())
+    }
+
+    @Test
+    fun llm_response_carries_tool_calls() {
+        val response = PluginLlmResponse(
+            requestId = "req-tc-1",
+            providerId = "openai",
+            modelId = "gpt-4.1",
+            text = "",
+            toolCalls = listOf(
+                PluginLlmToolCall(
+                    toolName = "web_search",
+                    arguments = mapOf("query" to "latest news"),
+                ),
+            ),
+        )
+        assertEquals(1, response.toolCalls.size)
+        assertEquals("web_search", response.toolCalls[0].toolName)
+        assertEquals(mapOf("query" to "latest news"), response.toolCalls[0].arguments)
     }
 
     private fun declaredFieldNames(type: Class<*>): List<String> {

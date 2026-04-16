@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
+import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -1205,6 +1206,36 @@ class ChatViewModelTest {
             signalLog += "model:stream"
             streamingDeltas.forEach { delta -> onDelta(delta) }
             return streamingResponse
+        }
+
+        override suspend fun sendConfiguredChatWithTools(
+            provider: ProviderProfile,
+            messages: List<ConversationMessage>,
+            systemPrompt: String?,
+            config: ConfigProfile?,
+            availableProviders: List<ProviderProfile>,
+            tools: List<ChatCompletionService.ChatToolDefinition>,
+        ): ChatCompletionService.ChatCompletionResult {
+            sentChatRequests += 1
+            signalLog += "model:sync:tools"
+            sendConfiguredChatFailure?.let { throw it }
+            return ChatCompletionService.ChatCompletionResult(text = chatResponse)
+        }
+
+        override suspend fun sendConfiguredChatStreamWithTools(
+            provider: ProviderProfile,
+            messages: List<ConversationMessage>,
+            systemPrompt: String?,
+            config: ConfigProfile?,
+            availableProviders: List<ProviderProfile>,
+            tools: List<ChatCompletionService.ChatToolDefinition>,
+            onDelta: suspend (String) -> Unit,
+            onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+        ): ChatCompletionService.ChatCompletionResult {
+            sentStreamingRequests += 1
+            signalLog += "model:stream:tools"
+            streamingDeltas.forEach { delta -> onDelta(delta) }
+            return ChatCompletionService.ChatCompletionResult(text = streamingResponse)
         }
 
         override suspend fun synthesizeSpeech(

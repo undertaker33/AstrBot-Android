@@ -61,11 +61,10 @@ class CronJobWorker(
 
     private suspend fun executeCronJob(job: CronJob) {
         val bridge = CronJobExecutionBridge.instance
-        if (bridge == null) {
-            RuntimeLogRepository.append("CronJobWorker: no execution bridge registered, logging only")
-            RuntimeLogRepository.append("CronJobWorker: job '${job.name}' would have executed: ${job.description}")
-            return
-        }
+            ?: throw IllegalStateException(
+                "No CronJobExecutionBridge registered. " +
+                    "Ensure the bridge is initialized at app startup before cron jobs can fire.",
+            )
 
         val payload = runCatching { JSONObject(job.payloadJson) }.getOrDefault(JSONObject())
         val cronContext = CronJobExecutionContext(

@@ -9,7 +9,7 @@ import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SmartToy
 
-// 缁熶竴缁存姢鍏ㄥ眬瀵艰埅 route锛岄伩鍏嶅湪椤甸潰鍜屽姩鐢诲眰閲嶅鍐欏瓧绗︿覆銆?
+// 统一维护全局导航 route，避免在页面和动画层重复写字符串。
 internal sealed class AppDestination(
     val route: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,

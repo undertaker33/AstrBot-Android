@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.AppStrings
 import com.astrbot.android.R
+import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.StreamingResponseSegmenter
 import com.astrbot.android.data.plugin.PluginStoragePaths
@@ -54,6 +55,8 @@ import com.astrbot.android.runtime.plugin.PluginProviderMessageDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessagePartDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessageRole
 import com.astrbot.android.runtime.plugin.PluginProviderRequest
+import com.astrbot.android.runtime.plugin.PluginLlmToolCall
+import com.astrbot.android.runtime.plugin.PluginLlmToolCallDelta
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginV2AfterSentView
 import com.astrbot.android.runtime.plugin.PluginV2CommandResponse
@@ -719,14 +722,22 @@ class ChatViewModel(
         } ?: error("Selected provider is unavailable: ${request.selectedProviderId}")
 
         val messages = request.messages.toConversationMessages(request.requestId)
+        val chatTools = request.tools.map { def ->
+            ChatCompletionService.ChatToolDefinition(
+                name = def.name,
+                description = def.description,
+                parameters = org.json.JSONObject(def.inputSchema.filterValues { it != null } as Map<*, *>),
+            )
+        }
         return if (mode != PluginV2StreamingMode.NATIVE_STREAM || !request.streamingEnabled || config == null) {
-            val text = withContext(ioDispatcher) {
-                dependencies.sendConfiguredChat(
+            val result = withContext(ioDispatcher) {
+                dependencies.sendConfiguredChatWithTools(
                     provider = resolvedProvider,
                     messages = messages,
                     systemPrompt = request.systemPrompt,
                     config = config,
                     availableProviders = availableProviders,
+                    tools = chatTools,
                 )
             }
             PluginV2ProviderInvocationResult.NonStreaming(
@@ -734,38 +745,73 @@ class ChatViewModel(
                     requestId = request.requestId,
                     providerId = resolvedProvider.id,
                     modelId = request.selectedModelId.ifBlank { resolvedProvider.model },
-                    text = text,
+                    text = result.text,
+                    toolCalls = result.toolCalls.map { tc ->
+                        PluginLlmToolCall(
+                            toolName = tc.name,
+                            arguments = parseToolCallArguments(tc.arguments),
+                        )
+                    },
                 ),
             )
         } else {
             val chunks = mutableListOf<PluginV2ProviderStreamChunk>()
-            val aggregatedText = withContext(ioDispatcher) {
-                dependencies.sendConfiguredChatStream(
+            val result = withContext(ioDispatcher) {
+                dependencies.sendConfiguredChatStreamWithTools(
                     provider = resolvedProvider,
                     messages = messages,
                     systemPrompt = request.systemPrompt,
                     config = config,
                     availableProviders = availableProviders,
-                ) { delta ->
-                    if (delta.isNotBlank()) {
-                        chunks += PluginV2ProviderStreamChunk(deltaText = delta)
-                    }
-                }
+                    tools = chatTools,
+                    onDelta = { delta ->
+                        if (delta.isNotBlank()) {
+                            chunks += PluginV2ProviderStreamChunk(deltaText = delta)
+                        }
+                    },
+                    onToolCallDelta = { index, name, args ->
+                        if (name.isNotBlank() || args.isNotBlank()) {
+                            chunks += PluginV2ProviderStreamChunk(
+                                toolCallDeltas = listOf(
+                                    PluginLlmToolCallDelta(
+                                        index = index,
+                                        toolName = name.ifBlank { "_pending" },
+                                        arguments = if (args.isNotBlank()) {
+                                            parseToolCallArguments(args)
+                                        } else {
+                                            emptyMap()
+                                        },
+                                    ),
+                                ),
+                            )
+                        }
+                    },
+                )
             }
+            val finishReason = if (result.toolCalls.isNotEmpty()) "tool_calls" else "stop"
             chunks += PluginV2ProviderStreamChunk(
                 deltaText = "",
                 isCompletion = true,
-                finishReason = "stop",
+                finishReason = finishReason,
             )
-            if (aggregatedText.isNotBlank() && chunks.size == 1) {
+            if (result.text.isNotBlank() && chunks.size == 1) {
                 chunks.add(
                     0,
-                    PluginV2ProviderStreamChunk(deltaText = aggregatedText),
+                    PluginV2ProviderStreamChunk(deltaText = result.text),
                 )
             }
             PluginV2ProviderInvocationResult.Streaming(
                 events = chunks.toList(),
             )
+        }
+    }
+
+    private fun parseToolCallArguments(json: String): Map<String, Any?> {
+        return try {
+            val obj = org.json.JSONObject(json)
+            obj.keys().asSequence().associateWith { key -> obj.opt(key) }
+        } catch (_: Exception) {
+            emptyMap()
         }
     }
 

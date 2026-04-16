@@ -26,8 +26,11 @@ import java.util.UUID
 class ActiveCapabilityToolSourceProvider : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY
 
-    /** Application context, set once during app initialization. */
-    var appContext: android.content.Context? = null
+    /** Application context, resolved from the global holder or set per-instance. */
+    var appContext: android.content.Context? = globalAppContext
+        set(value) {
+            field = value ?: globalAppContext
+        }
 
     override suspend fun listBindings(
         context: ToolSourceRegistryIngestContext,
@@ -149,7 +152,12 @@ class ActiveCapabilityToolSourceProvider : FutureToolSourceProvider {
             updatedAt = now,
         )
         CronJobRepository.create(job)
-        appContext?.let { CronJobScheduler.scheduleJob(it, job) }
+        val ctx = appContext
+            ?: throw IllegalStateException(
+                "Cannot schedule cron job: application context not available. " +
+                    "Ensure ActiveCapabilityToolSourceProvider.initialize() is called at app startup.",
+            )
+        CronJobScheduler.scheduleJob(ctx, job)
 
         return JSONObject().apply {
             put("success", true)
@@ -169,6 +177,7 @@ class ActiveCapabilityToolSourceProvider : FutureToolSourceProvider {
             ?: throw IllegalArgumentException("Task with job_id '$jobId' not found.")
         CronJobRepository.delete(jobId)
         appContext?.let { CronJobScheduler.cancelJob(it, jobId) }
+            ?: RuntimeLogRepository.append("ActiveCapability: cannot cancel WorkManager job, no app context")
         return JSONObject().apply {
             put("success", true)
             put("deleted_job_id", jobId)
@@ -287,5 +296,20 @@ class ActiveCapabilityToolSourceProvider : FutureToolSourceProvider {
          * so the created task knows which conversation to target.
          */
         internal var request_sessionId: String? = null
+
+        /**
+         * Global application context, shared across all instances.
+         * Set once at startup via [initialize].
+         */
+        @Volatile
+        private var globalAppContext: android.content.Context? = null
+
+        /**
+         * Call during app bootstrap to make the application context available
+         * to all instances created by [FutureToolSourceRegistry.defaultProviders].
+         */
+        fun initialize(context: android.content.Context) {
+            globalAppContext = context.applicationContext
+        }
     }
 }

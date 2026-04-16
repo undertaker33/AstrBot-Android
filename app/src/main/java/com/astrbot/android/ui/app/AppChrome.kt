@@ -44,12 +44,10 @@ import com.astrbot.android.R
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.PersonaProfile
 
-/**
- * 閹剚璇炴惔鏇熺埉閸楃姷鏁ら惃鍕杺婢舵牕绨抽柈銊ф殌閻ф枻绱濈紒娆忓敶鐎圭懓灏崪宀冧喊婢垛晞绶崗銉︾埉鐠佲晛鍤崣顖滃仯閸戣崵鈹栭梻娣偓? */
+/** 浮动底部导航栏占位高度，用于页面内容底部预留空间，避免被导航栏遮挡。 */
 internal val FloatingBottomNavReservedPadding = 96.dp
 
-/**
- * 閸欏厖绗呯憴鎺撳亾濞搭喗瀵滈柦顔藉М閸楀洭鐝惔锔肩礉闁灝鍘ゆ稉搴㈠亾濞搭喖绨抽弽蹇涘櫢閸欑姰鈧? */
+/** 浮动底部导航栏中 FAB 按钮的底部内边距，确保 FAB 不会贴边。 */
 internal val FloatingBottomNavFabBottomPadding = 88.dp
 internal val AppTopBarHeight = 58.dp
 internal val ChatDrawerTopSpacing = 8.dp
@@ -325,8 +323,7 @@ internal fun ChatTopBar(
     }
 }
 
-/**
- * 缂佺喍绔撮懕濠傘亯妞ょ敻銆婇弽蹇撳礁娓氀呮畱 Bot / 娴滅儤鐗搁柅澶嬪閼挎粌宕熼敍宀勪缉閸忓秷绻栭崸?UI 閺侊綀鎯ら崷銊ュ弳閸欙綁銆夐崪宀冧喊婢垛晠銆夐柌灞烩偓? */
+/** 聊天顶部栏的 Bot / Persona 选择菜单，提供切换当前对话角色的 UI 入口。 */
 @Composable
 internal fun BoxScope.ChatTopBarSelectorMenu(
     expanded: Boolean,
@@ -400,8 +397,7 @@ internal fun BoxScope.ChatTopBarSelectorMenu(
     }
 }
 
-/**
- * 缂佺喍绔存稉濠氥€夐棃銏㈡畱閹剚璇炴惔鏇㈠劥鐎佃壈鍩呴弽蹇ョ礉鐠佲晠銆夐棃銏犲敶鐎圭懓褰叉禒銉ユ躬鎼存洘鐖崥搴㈡煙閼奉亞鍔у鏈靛嚑閵? */
+/** 浮动底部导航栏组件，提供主页面之间的切换入口。 */
 @Composable
 internal fun FloatingBottomNavBar(
     destinations: List<Pair<AppDestination, String>>,

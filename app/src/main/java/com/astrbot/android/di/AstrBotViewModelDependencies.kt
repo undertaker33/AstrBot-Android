@@ -1010,6 +1010,26 @@ interface ChatViewModelDependencies {
         onDelta: suspend (String) -> Unit,
     ): String
 
+    suspend fun sendConfiguredChatWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+        tools: List<ChatCompletionService.ChatToolDefinition>,
+    ): ChatCompletionService.ChatCompletionResult
+
+    suspend fun sendConfiguredChatStreamWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+        tools: List<ChatCompletionService.ChatToolDefinition>,
+        onDelta: suspend (String) -> Unit,
+        onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+    ): ChatCompletionService.ChatCompletionResult
+
     suspend fun synthesizeSpeech(
         provider: ProviderProfile,
         text: String,
@@ -1147,6 +1167,46 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
             config = config,
             availableProviders = availableProviders,
             onDelta = onDelta,
+        )
+    }
+
+    override suspend fun sendConfiguredChatWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+        tools: List<ChatCompletionService.ChatToolDefinition>,
+    ): ChatCompletionService.ChatCompletionResult {
+        return ChatCompletionService.sendConfiguredChatWithTools(
+            provider = provider,
+            messages = messages,
+            systemPrompt = systemPrompt,
+            config = config,
+            availableProviders = availableProviders,
+            tools = tools,
+        )
+    }
+
+    override suspend fun sendConfiguredChatStreamWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+        tools: List<ChatCompletionService.ChatToolDefinition>,
+        onDelta: suspend (String) -> Unit,
+        onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+    ): ChatCompletionService.ChatCompletionResult {
+        return ChatCompletionService.sendConfiguredChatStreamWithTools(
+            provider = provider,
+            messages = messages,
+            systemPrompt = systemPrompt,
+            config = config,
+            availableProviders = availableProviders,
+            tools = tools,
+            onDelta = onDelta,
+            onToolCallDelta = onToolCallDelta,
         )
     }
 

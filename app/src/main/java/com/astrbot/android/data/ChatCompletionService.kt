@@ -37,6 +37,27 @@ import java.util.Locale
 import kotlinx.coroutines.runBlocking
 
 object ChatCompletionService {
+
+    /** Result of a chat completion that may include tool calls. */
+    data class ChatCompletionResult(
+        val text: String,
+        val toolCalls: List<ChatToolCall> = emptyList(),
+    )
+
+    /** A single tool call returned by the model. */
+    data class ChatToolCall(
+        val id: String,
+        val name: String,
+        val arguments: String,
+    )
+
+    /** A tool definition to include in the chat completion request. */
+    data class ChatToolDefinition(
+        val name: String,
+        val description: String,
+        val parameters: JSONObject,
+    )
+
     data class SttProbeResult(
         val state: FeatureSupportState,
         val transcript: String,
@@ -255,6 +276,62 @@ object ChatCompletionService {
         )
     }
 
+    /**
+     * Like [sendConfiguredChat] but accepts tool definitions and returns a full result
+     * including any model-generated tool calls.
+     */
+    fun sendConfiguredChatWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String? = null,
+        config: ConfigProfile? = null,
+        availableProviders: List<ProviderProfile> = emptyList(),
+        tools: List<ChatToolDefinition> = emptyList(),
+    ): ChatCompletionResult {
+        val preparedMessages = prepareMessagesForConfig(
+            provider = provider,
+            messages = messages,
+            config = config,
+            availableProviders = availableProviders,
+        )
+        return sendChatWithTools(
+            provider = provider,
+            messages = preparedMessages,
+            systemPrompt = systemPrompt,
+            tools = tools,
+        )
+    }
+
+    /**
+     * Like [sendConfiguredChatStream] but accepts tool definitions and forwards
+     * tool-call stream deltas via [onToolCallDelta].
+     */
+    suspend fun sendConfiguredChatStreamWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String? = null,
+        config: ConfigProfile? = null,
+        availableProviders: List<ProviderProfile> = emptyList(),
+        tools: List<ChatToolDefinition> = emptyList(),
+        onDelta: suspend (String) -> Unit,
+        onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit = { _, _, _ -> },
+    ): ChatCompletionResult {
+        val preparedMessages = prepareMessagesForConfig(
+            provider = provider,
+            messages = messages,
+            config = config,
+            availableProviders = availableProviders,
+        )
+        return sendChatStreamWithTools(
+            provider = provider,
+            messages = preparedMessages,
+            systemPrompt = systemPrompt,
+            tools = tools,
+            onDelta = onDelta,
+            onToolCallDelta = onToolCallDelta,
+        )
+    }
+
     fun transcribeAudio(
         provider: ProviderProfile,
         attachment: ConversationAttachment,
@@ -333,6 +410,43 @@ object ChatCompletionService {
             provider.providerType == ProviderType.OLLAMA -> sendOllamaChatStream(provider, messages, systemPrompt, onDelta)
             provider.providerType == ProviderType.GEMINI -> sendGeminiChatStream(provider, messages, systemPrompt, onDelta)
             else -> throw IllegalStateException("Streaming chat is not implemented for ${provider.providerType.name}.")
+        }
+    }
+
+    private fun sendChatWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        tools: List<ChatToolDefinition>,
+    ): ChatCompletionResult {
+        require(provider.providerType.supportsChatCompletions()) { "This provider type does not support chat requests." }
+        require(provider.capabilities.contains(ProviderCapability.CHAT)) { "This provider is not configured as a chat model." }
+
+        return when {
+            provider.providerType.usesOpenAiStyleChatApi() ->
+                sendOpenAiStyleChatWithTools(provider, messages, systemPrompt, tools)
+            // Ollama and Gemini: fall back to text-only for now; tool call response will be empty.
+            else -> ChatCompletionResult(text = sendChat(provider, messages, systemPrompt))
+        }
+    }
+
+    private suspend fun sendChatStreamWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        tools: List<ChatToolDefinition>,
+        onDelta: suspend (String) -> Unit,
+        onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+    ): ChatCompletionResult {
+        require(provider.providerType.supportsChatCompletions()) { "This provider type does not support chat requests." }
+        require(provider.capabilities.contains(ProviderCapability.CHAT)) { "This provider is not configured as a chat model." }
+
+        return when {
+            provider.providerType.usesOpenAiStyleChatApi() ->
+                sendOpenAiStyleChatStreamWithTools(provider, messages, systemPrompt, tools, onDelta, onToolCallDelta)
+            else -> ChatCompletionResult(
+                text = sendChatStream(provider, messages, systemPrompt, onDelta),
+            )
         }
     }
 
@@ -1148,6 +1262,176 @@ object ChatCompletionService {
                     ?: throw IllegalStateException("Model response is empty.")
             }
         }
+    }
+
+    private fun sendOpenAiStyleChatWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        tools: List<ChatToolDefinition>,
+    ): ChatCompletionResult {
+        require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
+        val payload = buildOpenAiPayload(provider, messages, systemPrompt, tools)
+        return executeOpenAiStyleChatWithRetry(
+            endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
+            apiKey = provider.apiKey,
+        ) { requestSpec ->
+            executeJsonRequest(requestSpec, payload) { body ->
+                parseOpenAiChatCompletionResult(body)
+            }
+        }
+    }
+
+    private suspend fun sendOpenAiStyleChatStreamWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        tools: List<ChatToolDefinition>,
+        onDelta: suspend (String) -> Unit,
+        onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+    ): ChatCompletionResult {
+        require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
+        val payload = buildOpenAiPayload(provider, messages, systemPrompt, tools).apply {
+            put("stream", true)
+        }
+        val textBuilder = StringBuilder()
+        val toolCallAccumulators = linkedMapOf<Int, Pair<String, StringBuilder>>() // index -> (name, args)
+        executeOpenAiStyleChatWithRetry(
+            endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
+            apiKey = provider.apiKey,
+        ) { requestSpec ->
+            val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
+            RuntimeLogRepository.append("HTTP streaming request body sent (tools): bytes=${payloadBytes.size}")
+            httpClient.executeStream(
+                requestSpec.copy(
+                    body = payload.toString(),
+                    contentType = "application/json",
+                ),
+            ) { rawLine ->
+                val line = rawLine.removePrefix("data:").trim()
+                if (line.isBlank() || line == "[DONE]") {
+                    return@executeStream
+                }
+                // Extract text content delta
+                val textDelta = extractOpenAiStyleStreamingContent(line)
+                if (textDelta.isNotBlank()) {
+                    textBuilder.append(textDelta)
+                    onDelta(textDelta)
+                }
+                // Parse streaming tool_calls from the same chunk
+                val jsonLine = runCatching { JSONObject(line) }.getOrNull()
+                val deltaObj = jsonLine?.optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("delta")
+                val toolCalls = deltaObj?.optJSONArray("tool_calls")
+                if (toolCalls != null) {
+                    for (i in 0 until toolCalls.length()) {
+                        val tc = toolCalls.optJSONObject(i) ?: continue
+                        val index = tc.optInt("index", i)
+                        val fn = tc.optJSONObject("function")
+                        val name = fn?.optString("name").orEmpty()
+                        val args = fn?.optString("arguments").orEmpty()
+                        val acc = toolCallAccumulators.getOrPut(index) {
+                            Pair(name, StringBuilder())
+                        }
+                        if (name.isNotBlank() && acc.first.isBlank()) {
+                            toolCallAccumulators[index] = Pair(name, acc.second)
+                        }
+                        acc.second.append(args)
+                        if (name.isNotBlank() || args.isNotBlank()) {
+                            onToolCallDelta(index, toolCallAccumulators[index]!!.first, args)
+                        }
+                    }
+                }
+            }
+        }
+        val text = textBuilder.toString().trim()
+        val toolCallList = toolCallAccumulators.entries.map { (index, pair) ->
+            ChatToolCall(
+                id = "call_stream_$index",
+                name = pair.first,
+                arguments = pair.second.toString(),
+            )
+        }
+        if (text.isBlank() && toolCallList.isEmpty()) {
+            throw IllegalStateException("Model response is empty.")
+        }
+        return ChatCompletionResult(text = text, toolCalls = toolCallList)
+    }
+
+    private fun buildOpenAiPayload(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        tools: List<ChatToolDefinition>,
+    ): JSONObject {
+        return JSONObject().apply {
+            put("model", provider.model)
+            put(
+                "messages",
+                JSONArray().apply {
+                    if (!systemPrompt.isNullOrBlank()) {
+                        put(JSONObject().put("role", "system").put("content", systemPrompt))
+                    }
+                    messages.forEach { message ->
+                        put(
+                            JSONObject()
+                                .put("role", message.role)
+                                .put("content", buildOpenAiContent(message)),
+                        )
+                    }
+                },
+            )
+            if (tools.isNotEmpty()) {
+                put(
+                    "tools",
+                    JSONArray().apply {
+                        tools.forEach { tool ->
+                            put(
+                                JSONObject().apply {
+                                    put("type", "function")
+                                    put(
+                                        "function",
+                                        JSONObject().apply {
+                                            put("name", tool.name)
+                                            put("description", tool.description)
+                                            put("parameters", tool.parameters)
+                                        },
+                                    )
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    internal fun parseOpenAiChatCompletionResult(body: String): ChatCompletionResult {
+        val root = JSONObject(body)
+        val message = root.optJSONArray("choices")
+            ?.optJSONObject(0)
+            ?.optJSONObject("message")
+            ?: throw IllegalStateException("Model response has no message.")
+        val text = message.optString("content").orEmpty()
+        val toolCallsJson = message.optJSONArray("tool_calls")
+        val toolCalls = if (toolCallsJson != null) {
+            (0 until toolCallsJson.length()).mapNotNull { i ->
+                val tc = toolCallsJson.optJSONObject(i) ?: return@mapNotNull null
+                val fn = tc.optJSONObject("function") ?: return@mapNotNull null
+                ChatToolCall(
+                    id = tc.optString("id", "call_$i"),
+                    name = fn.optString("name", ""),
+                    arguments = fn.optString("arguments", "{}"),
+                )
+            }
+        } else {
+            emptyList()
+        }
+        if (text.isBlank() && toolCalls.isEmpty()) {
+            throw IllegalStateException("Model response is empty.")
+        }
+        return ChatCompletionResult(text = text, toolCalls = toolCalls)
     }
 
     private fun sendOllamaChat(

@@ -52,6 +52,8 @@ import com.astrbot.android.runtime.botcommand.BotCommandResources
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
 import com.astrbot.android.runtime.plugin.PluginLlmResponse
+import com.astrbot.android.runtime.plugin.PluginLlmToolCall
+import com.astrbot.android.runtime.plugin.PluginLlmToolCallDelta
 import com.astrbot.android.runtime.plugin.PluginMessageEventResult
 import com.astrbot.android.runtime.plugin.PluginProviderMessageDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessagePartDto
@@ -903,49 +905,92 @@ object OneBotBridgeServer {
         val messages = request.messages.toConversationMessages(
             requestId = request.requestId,
         )
+        val chatTools = request.tools.map { def ->
+            ChatCompletionService.ChatToolDefinition(
+                name = def.name,
+                description = def.description,
+                parameters = org.json.JSONObject(def.inputSchema.filterValues { it != null } as Map<*, *>),
+            )
+        }
         return if (mode != PluginV2StreamingMode.NATIVE_STREAM || !request.streamingEnabled) {
-            val text = ChatCompletionService.sendConfiguredChat(
+            val result = ChatCompletionService.sendConfiguredChatWithTools(
                 provider = provider,
                 messages = messages,
                 systemPrompt = request.systemPrompt,
                 config = config,
                 availableProviders = availableProviders,
+                tools = chatTools,
             )
             PluginV2ProviderInvocationResult.NonStreaming(
                 response = PluginLlmResponse(
                     requestId = request.requestId,
                     providerId = provider.id,
                     modelId = request.selectedModelId.ifBlank { provider.model },
-                    text = text,
+                    text = result.text,
+                    toolCalls = result.toolCalls.map { tc ->
+                        PluginLlmToolCall(
+                            toolName = tc.name,
+                            arguments = parseToolCallArguments(tc.arguments),
+                        )
+                    },
                 ),
             )
         } else {
             val chunks = mutableListOf<PluginV2ProviderStreamChunk>()
-            val aggregatedText = ChatCompletionService.sendConfiguredChatStream(
+            val result = ChatCompletionService.sendConfiguredChatStreamWithTools(
                 provider = provider,
                 messages = messages,
                 systemPrompt = request.systemPrompt,
                 config = config,
                 availableProviders = availableProviders,
-            ) { delta ->
-                if (delta.isNotBlank()) {
-                    chunks += PluginV2ProviderStreamChunk(deltaText = delta)
-                }
-            }
+                tools = chatTools,
+                onDelta = { delta ->
+                    if (delta.isNotBlank()) {
+                        chunks += PluginV2ProviderStreamChunk(deltaText = delta)
+                    }
+                },
+                onToolCallDelta = { index, name, args ->
+                    if (name.isNotBlank() || args.isNotBlank()) {
+                        chunks += PluginV2ProviderStreamChunk(
+                            toolCallDeltas = listOf(
+                                PluginLlmToolCallDelta(
+                                    index = index,
+                                    toolName = name.ifBlank { "_pending" },
+                                    arguments = if (args.isNotBlank()) {
+                                        parseToolCallArguments(args)
+                                    } else {
+                                        emptyMap()
+                                    },
+                                ),
+                            ),
+                        )
+                    }
+                },
+            )
+            val finishReason = if (result.toolCalls.isNotEmpty()) "tool_calls" else "stop"
             chunks += PluginV2ProviderStreamChunk(
                 deltaText = "",
                 isCompletion = true,
-                finishReason = "stop",
+                finishReason = finishReason,
             )
-            if (aggregatedText.isNotBlank() && chunks.size == 1) {
+            if (result.text.isNotBlank() && chunks.size == 1) {
                 chunks.add(
                     0,
-                    PluginV2ProviderStreamChunk(deltaText = aggregatedText),
+                    PluginV2ProviderStreamChunk(deltaText = result.text),
                 )
             }
             PluginV2ProviderInvocationResult.Streaming(
                 events = chunks.toList(),
             )
+        }
+    }
+
+    private fun parseToolCallArguments(json: String): Map<String, Any?> {
+        return try {
+            val obj = org.json.JSONObject(json)
+            obj.keys().asSequence().associateWith { key -> obj.opt(key) }
+        } catch (_: Exception) {
+            emptyMap()
         }
     }
 

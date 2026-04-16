@@ -264,7 +264,7 @@ internal class PluginV2LlmPipelineCoordinator(
             "${PluginV2InternalStage.LlmWaiting.name}:$handlerId"
         }
 
-        var currentRequest = materializeInitialRequest(admission = admission, input = input)
+        var currentRequest = materializeInitialRequest(admission = admission, input = input, snapshot = snapshot)
         var finalResponse: PluginLlmResponse
         var responseHookTrace: List<String>
 
@@ -438,7 +438,17 @@ internal class PluginV2LlmPipelineCoordinator(
     private fun materializeInitialRequest(
         admission: LlmPipelineAdmission,
         input: PluginV2LlmPipelineInput,
+        snapshot: PluginV2ActiveRuntimeSnapshot,
     ): PluginProviderRequest {
+        val llmVisibleTools = (snapshot.toolRegistrySnapshot?.activeEntries ?: emptyList())
+            .filter { it.visibility == PluginToolVisibility.LLM_VISIBLE }
+            .map { entry ->
+                PluginProviderToolDefinition(
+                    name = entry.name,
+                    description = entry.description,
+                    inputSchema = entry.inputSchema,
+                )
+            }
         return PluginProviderRequest(
             requestId = admission.requestId,
             availableProviderIds = input.availableProviderIds.toList(),
@@ -457,6 +467,7 @@ internal class PluginV2LlmPipelineCoordinator(
             maxTokens = input.maxTokens,
             streamingEnabled = input.streamingEnabled,
             metadata = input.metadata,
+            tools = llmVisibleTools,
         )
     }
 
@@ -529,6 +540,7 @@ internal class PluginV2LlmPipelineCoordinator(
             streamingEnabled = streamingEnabled,
             metadata = metadata,
             allowHostToolMessages = messages.any { it.role == PluginProviderMessageRole.TOOL },
+            tools = tools.toList(),
         )
     }
 
