@@ -596,6 +596,7 @@ class ChatViewModel(
                             enabledTools = activePersona.enabledTools.toSet(),
                         )
                     },
+                    configProfileId = config?.id,
                     invokeProvider = { request, mode ->
                         invokeProviderForAppChatPipeline(
                             request = request,

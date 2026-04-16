@@ -14,6 +14,7 @@ enum class PluginToolSourceKind(
     SKILL(reservedOnly = true),
     ACTIVE_CAPABILITY(reservedOnly = true),
     CONTEXT_STRATEGY(reservedOnly = true),
+    WEB_SEARCH(reservedOnly = true),
 }
 
 enum class PluginToolResultStatus {

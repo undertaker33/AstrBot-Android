@@ -40,6 +40,15 @@ data class ConfigProfileEntity(
     val rateLimitMaxCount: Int,
     val rateLimitStrategy: String,
     val keywordDetectionEnabled: Boolean,
+
+    // ── Context Strategy ──
+    val contextLimitStrategy: String,
+    val maxContextTurns: Int,
+    val dequeueContextTurns: Int,
+    val llmCompressInstruction: String,
+    val llmCompressKeepRecent: Int,
+    val llmCompressProviderId: String,
+
     val sortIndex: Int,
     val updatedAt: Long,
 )

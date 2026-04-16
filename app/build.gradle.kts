@@ -106,8 +106,8 @@ android {
         applicationId = "com.astrbot.android"
         minSdk = 29
         targetSdk = 34
-        versionCode = 38
-        versionName = "0.6.0"
+        versionCode = 39
+        versionName = "0.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -237,6 +237,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:$okHttpVersion")
     implementation(files("libs/sherpa-onnx-1.12.31-static-jni-only.aar"))
     implementation("wang.harlon.quickjs:wrapper-android:$quickJsVersion")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("org.jsoup:jsoup:1.18.1")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)

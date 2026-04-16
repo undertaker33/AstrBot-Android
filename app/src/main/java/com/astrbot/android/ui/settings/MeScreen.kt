@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -16,6 +17,7 @@ fun MeScreen(
     onOpenLogs: () -> Unit,
     onOpenAssets: () -> Unit,
     onOpenBackup: () -> Unit,
+    onOpenCronJobs: () -> Unit,
 ) {
     EntryListPage(
         entries = listOf(
@@ -30,6 +32,12 @@ fun MeScreen(
                 subtitle = stringResource(R.string.me_card_settings_subtitle),
                 icon = Icons.Outlined.Settings,
                 onClick = onOpenSettings,
+            ),
+            EntryCardState(
+                title = stringResource(R.string.me_card_cron_title),
+                subtitle = stringResource(R.string.me_card_cron_subtitle),
+                icon = Icons.Outlined.Notifications,
+                onClick = onOpenCronJobs,
             ),
             EntryCardState(
                 title = stringResource(R.string.me_card_logs_title),

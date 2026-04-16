@@ -22,6 +22,8 @@ abstract class ConfigAggregateDao {
     @Upsert protected abstract suspend fun upsertWhitelistEntries(entities: List<ConfigWhitelistEntryEntity>)
     @Upsert protected abstract suspend fun upsertKeywordPatterns(entities: List<ConfigKeywordPatternEntity>)
     @Upsert protected abstract suspend fun upsertTextRules(entities: List<ConfigTextRuleEntity>)
+    @Upsert protected abstract suspend fun upsertMcpServers(entities: List<ConfigMcpServerEntity>)
+    @Upsert protected abstract suspend fun upsertSkills(entities: List<ConfigSkillEntity>)
     @Query("DELETE FROM config_profiles WHERE id NOT IN (:ids)") protected abstract suspend fun deleteMissingConfigs(ids: List<String>)
     @Query("DELETE FROM config_profiles") protected abstract suspend fun clearConfigs()
     @Query("DELETE FROM config_admin_uids WHERE configId IN (:configIds)") protected abstract suspend fun deleteAdminUids(configIds: List<String>)
@@ -29,6 +31,8 @@ abstract class ConfigAggregateDao {
     @Query("DELETE FROM config_whitelist_entries WHERE configId IN (:configIds)") protected abstract suspend fun deleteWhitelistEntries(configIds: List<String>)
     @Query("DELETE FROM config_keyword_patterns WHERE configId IN (:configIds)") protected abstract suspend fun deleteKeywordPatterns(configIds: List<String>)
     @Query("DELETE FROM config_text_rules WHERE configId IN (:configIds)") protected abstract suspend fun deleteTextRules(configIds: List<String>)
+    @Query("DELETE FROM config_mcp_servers WHERE configId IN (:configIds)") protected abstract suspend fun deleteMcpServers(configIds: List<String>)
+    @Query("DELETE FROM config_skills WHERE configId IN (:configIds)") protected abstract suspend fun deleteSkills(configIds: List<String>)
     @Query("SELECT COUNT(*) FROM config_profiles") abstract suspend fun count(): Int
 
     @Transaction
@@ -45,6 +49,8 @@ abstract class ConfigAggregateDao {
         deleteWhitelistEntries(configIds)
         deleteKeywordPatterns(configIds)
         deleteTextRules(configIds)
+        deleteMcpServers(configIds)
+        deleteSkills(configIds)
         val adminUids = writeModels.flatMap { it.adminUids }
         if (adminUids.isNotEmpty()) upsertAdminUids(adminUids)
         val wakeWords = writeModels.flatMap { it.wakeWords }
@@ -54,5 +60,9 @@ abstract class ConfigAggregateDao {
         val keywordPatterns = writeModels.flatMap { it.keywordPatterns }
         if (keywordPatterns.isNotEmpty()) upsertKeywordPatterns(keywordPatterns)
         upsertTextRules(writeModels.map { it.textRule })
+        val mcpServers = writeModels.flatMap { it.mcpServers }
+        if (mcpServers.isNotEmpty()) upsertMcpServers(mcpServers)
+        val skills = writeModels.flatMap { it.skills }
+        if (skills.isNotEmpty()) upsertSkills(skills)
     }
 }

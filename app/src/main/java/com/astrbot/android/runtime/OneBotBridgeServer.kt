@@ -502,6 +502,7 @@ object OneBotBridgeServer {
                         enabledTools = activePersona.enabledTools.toSet(),
                     )
                 },
+                configProfileId = config.id,
                 invokeProvider = { request, mode ->
                     invokeProviderForPipeline(
                         request = request,

@@ -3,6 +3,9 @@ package com.astrbot.android.runtime.plugin
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.runtime.plugin.toolsource.FutureToolSourceRegistry
+import com.astrbot.android.runtime.plugin.toolsource.ToolSourceIdentity
+import com.astrbot.android.runtime.plugin.toolsource.ToolSourceInvokeRequest
 
 interface AppChatPluginRuntime {
     fun execute(
@@ -100,24 +103,46 @@ internal class EngineBackedAppChatPluginRuntime(
         input: PluginV2LlmPipelineInput,
     ): PluginV2LlmPipelineResult {
         val hostCapabilityGateway = defaultHostCapabilityGatewayProvider()
-        return AppChatPluginRuntimeCoordinatorProvider.coordinator(hostCapabilityGateway).runPreSendStages(
+        val configProfileId = input.configProfileId.orEmpty()
+        val futureRegistry = FutureToolSourceRegistry()
+        val futureDescriptors = futureRegistry.collectToolDescriptors(configProfileId)
+        val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
+        val snapshot = hostCapabilityGateway.registerHostBuiltinTools(
+            PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+            personaSnapshot = input.personaToolEnablementSnapshot,
+            futureSourceDescriptors = futureDescriptors,
+            activeFutureSourceKinds = activeFutureKinds,
+        )
+        return AppChatPluginRuntimeCoordinatorProvider.coordinator(
+            hostCapabilityGateway = hostCapabilityGateway,
+            futureRegistry = futureRegistry,
+            toolRegistrySnapshot = snapshot.toolRegistrySnapshot,
+        ).runPreSendStages(
             input = input,
-            snapshot = hostCapabilityGateway.registerHostBuiltinTools(
-                PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
-                personaSnapshot = input.personaToolEnablementSnapshot,
-            ),
+            snapshot = snapshot,
         )
     }
 
     override suspend fun deliverLlmPipeline(
         request: PluginV2HostLlmDeliveryRequest,
     ): PluginV2HostLlmDeliveryResult {
-        return AppChatPluginRuntimeCoordinatorProvider.coordinator(request.hostCapabilityGateway).deliverLlmPipeline(
+        val configProfileId = request.pipelineInput.configProfileId.orEmpty()
+        val futureRegistry = FutureToolSourceRegistry()
+        val futureDescriptors = futureRegistry.collectToolDescriptors(configProfileId)
+        val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
+        val snapshot = request.hostCapabilityGateway.registerHostBuiltinTools(
+            PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+            personaSnapshot = request.pipelineInput.personaToolEnablementSnapshot,
+            futureSourceDescriptors = futureDescriptors,
+            activeFutureSourceKinds = activeFutureKinds,
+        )
+        return AppChatPluginRuntimeCoordinatorProvider.coordinator(
+            hostCapabilityGateway = request.hostCapabilityGateway,
+            futureRegistry = futureRegistry,
+            toolRegistrySnapshot = snapshot.toolRegistrySnapshot,
+        ).deliverLlmPipeline(
             request = request,
-            snapshot = request.hostCapabilityGateway.registerHostBuiltinTools(
-                PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
-                personaSnapshot = request.pipelineInput.personaToolEnablementSnapshot,
-            ),
+            snapshot = snapshot,
         )
     }
 
@@ -138,10 +163,39 @@ internal object AppChatPluginRuntimeCoordinatorProvider {
     @Volatile
     private var coordinatorOverrideForTests: PluginV2LlmPipelineCoordinator? = null
 
-    fun coordinator(hostCapabilityGateway: PluginHostCapabilityGateway): PluginV2LlmPipelineCoordinator {
+    fun coordinator(
+        hostCapabilityGateway: PluginHostCapabilityGateway,
+        futureRegistry: FutureToolSourceRegistry? = null,
+        toolRegistrySnapshot: PluginV2ToolRegistrySnapshot? = null,
+    ): PluginV2LlmPipelineCoordinator {
         return coordinatorOverrideForTests ?: PluginV2LlmPipelineCoordinator(
             toolExecutor = PluginV2ToolExecutor { args ->
-                hostCapabilityGateway.executeHostBuiltinTool(args) ?: PluginToolResult(
+                // 1. Try host builtin tools first
+                val hostResult = hostCapabilityGateway.executeHostBuiltinTool(args)
+                if (hostResult != null) return@PluginV2ToolExecutor hostResult
+
+                // 2. Try future source tools (ACTIVE_CAPABILITY, MCP, etc.)
+                if (futureRegistry != null) {
+                    val entry = toolRegistrySnapshot?.activeEntriesByToolId?.get(args.toolId)
+                    if (entry != null) {
+                        val invokeResult = futureRegistry.invoke(
+                            ToolSourceInvokeRequest(
+                                identity = ToolSourceIdentity(
+                                    sourceKind = entry.sourceKind,
+                                    ownerId = entry.pluginId,
+                                    sourceRef = entry.name,
+                                    displayName = entry.name,
+                                ),
+                                args = args,
+                                timeoutMs = 60_000L,
+                            ),
+                        )
+                        if (invokeResult != null) return@PluginV2ToolExecutor invokeResult.result
+                    }
+                }
+
+                // 3. Fallback error
+                PluginToolResult(
                     toolCallId = args.toolCallId,
                     requestId = args.requestId,
                     toolId = args.toolId,

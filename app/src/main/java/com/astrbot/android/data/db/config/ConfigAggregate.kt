@@ -15,6 +15,10 @@ data class ConfigAggregate(
     val keywordPatterns: List<ConfigKeywordPatternEntity>,
     @Relation(parentColumn = "id", entityColumn = "configId")
     val textRules: List<ConfigTextRuleEntity>,
+    @Relation(parentColumn = "id", entityColumn = "configId")
+    val mcpServers: List<ConfigMcpServerEntity>,
+    @Relation(parentColumn = "id", entityColumn = "configId")
+    val skills: List<ConfigSkillEntity>,
 )
 
 data class ConfigWriteModel(
@@ -24,4 +28,6 @@ data class ConfigWriteModel(
     val whitelistEntries: List<ConfigWhitelistEntryEntity>,
     val keywordPatterns: List<ConfigKeywordPatternEntity>,
     val textRule: ConfigTextRuleEntity,
+    val mcpServers: List<ConfigMcpServerEntity>,
+    val skills: List<ConfigSkillEntity>,
 )

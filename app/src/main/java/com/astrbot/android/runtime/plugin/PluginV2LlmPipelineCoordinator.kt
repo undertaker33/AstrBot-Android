@@ -25,6 +25,7 @@ internal data class PluginV2LlmPipelineInput(
     val streamingEnabled: Boolean = streamingMode == PluginV2StreamingMode.NATIVE_STREAM,
     val metadata: JsonLikeMap? = null,
     val personaToolEnablementSnapshot: PersonaToolEnablementSnapshot? = null,
+    val configProfileId: String? = null,
     val invokeProvider: suspend (
         request: PluginProviderRequest,
         streamingMode: PluginV2StreamingMode,

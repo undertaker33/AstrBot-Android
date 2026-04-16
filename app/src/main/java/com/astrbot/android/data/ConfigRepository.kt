@@ -145,6 +145,8 @@ object ConfigRepository {
                 wakeWords = profile.wakeWords.toList(),
                 whitelistEntries = profile.whitelistEntries.toList(),
                 keywordPatterns = profile.keywordPatterns.toList(),
+                mcpServers = profile.mcpServers.toList(),
+                skills = profile.skills.toList(),
             )
         }
     }
@@ -255,6 +257,9 @@ object ConfigRepository {
             rateLimitMaxCount = profile.rateLimitMaxCount.coerceAtLeast(0),
             rateLimitStrategy = profile.rateLimitStrategy.takeIf { it == "drop" || it == "stash" } ?: "drop",
             keywordPatterns = profile.keywordPatterns.normalizeStringList(),
+            contextLimitStrategy = profile.contextLimitStrategy.takeIf { it == "truncate_by_turns" || it == "llm_compress" } ?: "truncate_by_turns",
+            dequeueContextTurns = profile.dequeueContextTurns.coerceAtLeast(1),
+            llmCompressKeepRecent = profile.llmCompressKeepRecent.coerceAtLeast(0),
         )
     }
 
@@ -293,6 +298,10 @@ private object ConfigProfileDaoPlaceholder {
         override suspend fun deleteWhitelistEntries(configIds: List<String>) = Unit
         override suspend fun deleteKeywordPatterns(configIds: List<String>) = Unit
         override suspend fun deleteTextRules(configIds: List<String>) = Unit
+        override suspend fun upsertMcpServers(entities: List<com.astrbot.android.data.db.ConfigMcpServerEntity>) = Unit
+        override suspend fun upsertSkills(entities: List<com.astrbot.android.data.db.ConfigSkillEntity>) = Unit
+        override suspend fun deleteMcpServers(configIds: List<String>) = Unit
+        override suspend fun deleteSkills(configIds: List<String>) = Unit
         override suspend fun count(): Int = 0
     }
 }

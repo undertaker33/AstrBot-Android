@@ -76,8 +76,10 @@ import com.astrbot.android.data.TtsVoiceCatalog
 import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
+import com.astrbot.android.model.McpServerEntry
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
+import com.astrbot.android.model.SkillEntry
 import com.astrbot.android.ui.common.animateToItemWithAppMotion
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.app.ConfigDetailChromeBinding
@@ -91,6 +93,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 @Composable
 fun ConfigDetailScreen(
@@ -249,6 +252,18 @@ private fun ConfigDetailContent(
     var rateLimitStrategy by remember(profile.id) { mutableStateOf(profile.rateLimitStrategy) }
     var keywordDetectionEnabled by remember(profile.id) { mutableStateOf(profile.keywordDetectionEnabled) }
     var keywordPatterns by remember(profile.id) { mutableStateOf(profile.keywordPatterns) }
+
+    // ── Context Strategy ──
+    var contextLimitStrategy by remember(profile.id) { mutableStateOf(profile.contextLimitStrategy) }
+    var maxContextTurns by remember(profile.id) { mutableStateOf(profile.maxContextTurns.toString()) }
+    var dequeueContextTurns by remember(profile.id) { mutableStateOf(profile.dequeueContextTurns.toString()) }
+    var llmCompressInstruction by remember(profile.id) { mutableStateOf(profile.llmCompressInstruction) }
+    var llmCompressKeepRecent by remember(profile.id) { mutableStateOf(profile.llmCompressKeepRecent.toString()) }
+    var llmCompressProviderId by remember(profile.id) { mutableStateOf(profile.llmCompressProviderId) }
+
+    // ── MCP / Skill ──
+    var mcpServers by remember(profile.id) { mutableStateOf(profile.mcpServers) }
+    var skills by remember(profile.id) { mutableStateOf(profile.skills) }
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     val defaultChatProvider = providers.firstOrNull { it.id == defaultChatProviderId }
     val defaultTtsProvider = providers.firstOrNull { it.id == defaultTtsProviderId }
@@ -542,22 +557,211 @@ private fun ConfigDetailContent(
                     }
             }
             item(key = ConfigSection.KnowledgeBase.name) {
-                PlaceholderSectionCard(
+                ConfigSectionCard(
                     title = stringResource(R.string.config_section_knowledge_base),
-                    subtitle = stringResource(R.string.config_placeholder_round_three),
-                )
+                    subtitle = stringResource(R.string.config_knowledge_base_desc),
+                ) {
+                    ConfigFieldGroup {
+                        Text(
+                            text = stringResource(R.string.config_mcp_servers_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonochromeUi.textPrimary,
+                        )
+                        mcpServers.forEachIndexed { index, server ->
+                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                OutlinedTextField(
+                                    value = server.name,
+                                    onValueChange = { value ->
+                                        mcpServers = mcpServers.toMutableList().also { it[index] = server.copy(name = value) }
+                                    },
+                                    label = { Text(stringResource(R.string.config_mcp_server_name)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = monochromeOutlinedTextFieldColors(),
+                                )
+                                OutlinedTextField(
+                                    value = server.url,
+                                    onValueChange = { value ->
+                                        mcpServers = mcpServers.toMutableList().also { it[index] = server.copy(url = value) }
+                                    },
+                                    label = { Text(stringResource(R.string.config_mcp_server_url)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = monochromeOutlinedTextFieldColors(),
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    ConfigToggleField(
+                                        title = stringResource(R.string.config_mcp_server_active),
+                                        subtitle = "",
+                                        checked = server.active,
+                                        onCheckedChange = { value ->
+                                            mcpServers = mcpServers.toMutableList().also { it[index] = server.copy(active = value) }
+                                        },
+                                    )
+                                    OutlinedButton(onClick = {
+                                        mcpServers = mcpServers.toMutableList().also { it.removeAt(index) }
+                                    }) {
+                                        Text(stringResource(R.string.config_mcp_server_remove))
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                mcpServers = mcpServers + McpServerEntry(serverId = UUID.randomUUID().toString().take(8))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.config_mcp_server_add))
+                        }
+
+                        Text(
+                            text = stringResource(R.string.config_skills_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MonochromeUi.textPrimary,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                        skills.forEachIndexed { index, skill ->
+                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                OutlinedTextField(
+                                    value = skill.name,
+                                    onValueChange = { value ->
+                                        skills = skills.toMutableList().also { it[index] = skill.copy(name = value) }
+                                    },
+                                    label = { Text(stringResource(R.string.config_skill_name)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = monochromeOutlinedTextFieldColors(),
+                                )
+                                OutlinedTextField(
+                                    value = skill.description,
+                                    onValueChange = { value ->
+                                        skills = skills.toMutableList().also { it[index] = skill.copy(description = value) }
+                                    },
+                                    label = { Text(stringResource(R.string.config_skill_description)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = monochromeOutlinedTextFieldColors(),
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    ConfigToggleField(
+                                        title = stringResource(R.string.config_skill_active),
+                                        subtitle = "",
+                                        checked = skill.active,
+                                        onCheckedChange = { value ->
+                                            skills = skills.toMutableList().also { it[index] = skill.copy(active = value) }
+                                        },
+                                    )
+                                    OutlinedButton(onClick = {
+                                        skills = skills.toMutableList().also { it.removeAt(index) }
+                                    }) {
+                                        Text(stringResource(R.string.config_skill_remove))
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                skills = skills + SkillEntry(skillId = UUID.randomUUID().toString().take(8))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.config_skill_add))
+                        }
+                    }
+                }
             }
             item(key = ConfigSection.ContextStrategy.name) {
-                PlaceholderSectionCard(
+                ConfigSectionCard(
                     title = stringResource(R.string.config_section_context_strategy),
-                    subtitle = stringResource(R.string.config_placeholder_round_four),
-                )
+                    subtitle = stringResource(R.string.config_context_strategy_desc),
+                ) {
+                    ConfigFieldGroup {
+                        SelectionField(
+                            title = stringResource(R.string.config_context_limit_strategy_title),
+                            selectedId = contextLimitStrategy,
+                            options = listOf(
+                                "truncate_by_turns" to stringResource(R.string.config_context_limit_strategy_truncate),
+                                "llm_compress" to stringResource(R.string.config_context_limit_strategy_compress),
+                            ),
+                            onSelect = { contextLimitStrategy = it },
+                        )
+                        OutlinedTextField(
+                            value = maxContextTurns,
+                            onValueChange = { value ->
+                                maxContextTurns = value.filter { it.isDigit() || it == '-' }.take(5)
+                            },
+                            label = { Text(stringResource(R.string.config_max_context_turns_title)) },
+                            supportingText = { Text(stringResource(R.string.config_max_context_turns_desc)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = monochromeOutlinedTextFieldColors(),
+                        )
+                        if (contextLimitStrategy == "truncate_by_turns") {
+                            OutlinedTextField(
+                                value = dequeueContextTurns,
+                                onValueChange = { value ->
+                                    dequeueContextTurns = value.filter { it.isDigit() }.take(3)
+                                },
+                                label = { Text(stringResource(R.string.config_dequeue_context_turns_title)) },
+                                supportingText = { Text(stringResource(R.string.config_dequeue_context_turns_desc)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                        }
+                        if (contextLimitStrategy == "llm_compress") {
+                            OutlinedTextField(
+                                value = llmCompressInstruction,
+                                onValueChange = { llmCompressInstruction = it },
+                                label = { Text(stringResource(R.string.config_llm_compress_instruction_title)) },
+                                supportingText = { Text(stringResource(R.string.config_llm_compress_instruction_desc)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                            OutlinedTextField(
+                                value = llmCompressKeepRecent,
+                                onValueChange = { value ->
+                                    llmCompressKeepRecent = value.filter { it.isDigit() }.take(3)
+                                },
+                                label = { Text(stringResource(R.string.config_llm_compress_keep_recent_title)) },
+                                supportingText = { Text(stringResource(R.string.config_llm_compress_keep_recent_desc)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                            OutlinedTextField(
+                                value = llmCompressProviderId,
+                                onValueChange = { llmCompressProviderId = it },
+                                label = { Text(stringResource(R.string.config_llm_compress_provider_title)) },
+                                supportingText = { Text(stringResource(R.string.config_llm_compress_provider_desc)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                        }
+                    }
+                }
             }
             item(key = ConfigSection.Automation.name) {
-                PlaceholderSectionCard(
+                ConfigSectionCard(
                     title = stringResource(R.string.config_section_automation),
-                    subtitle = stringResource(R.string.config_placeholder_automation),
-                )
+                    subtitle = stringResource(R.string.config_automation_desc),
+                ) {
+                    ConfigFieldGroup {
+                        ConfigToggleField(
+                            title = stringResource(R.string.config_proactive_title),
+                            subtitle = stringResource(R.string.config_proactive_desc),
+                            checked = proactiveEnabled,
+                            onCheckedChange = { proactiveEnabled = it },
+                        )
+                    }
+                }
             }
             item(key = ConfigSection.Admin.name) {
                 AdminSettingsSection(
@@ -681,6 +885,14 @@ private fun ConfigDetailContent(
                         rateLimitStrategy = rateLimitStrategy,
                         keywordDetectionEnabled = keywordDetectionEnabled,
                         keywordPatterns = keywordPatterns,
+                        contextLimitStrategy = contextLimitStrategy,
+                        maxContextTurns = maxContextTurns.toIntOrNull() ?: profile.maxContextTurns,
+                        dequeueContextTurns = dequeueContextTurns.toIntOrNull()?.coerceAtLeast(1) ?: profile.dequeueContextTurns,
+                        llmCompressInstruction = llmCompressInstruction.trim(),
+                        llmCompressKeepRecent = llmCompressKeepRecent.toIntOrNull()?.coerceAtLeast(0) ?: profile.llmCompressKeepRecent,
+                        llmCompressProviderId = llmCompressProviderId.trim(),
+                        mcpServers = mcpServers,
+                        skills = skills,
                     ),
                 )
             },

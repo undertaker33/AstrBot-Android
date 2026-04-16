@@ -282,11 +282,13 @@ internal fun compileCentralizedToolState(
     additionalToolDescriptors: Collection<PluginToolDescriptor> = emptyList(),
     personaSnapshot: PersonaToolEnablementSnapshot? = null,
     capabilityGateway: PluginV2ToolCapabilityGateway = PluginV2ToolCapabilityGateway { true },
+    activeFutureSourceKinds: Set<PluginToolSourceKind> = emptySet(),
 ): PluginV2ToolRegistryRuntimeSnapshot {
     val rawRegistries = sessionsByPluginId.values
         .filter { session -> session.pluginId != PluginExecutionHostApi.HostBuiltinPluginId }
         .mapNotNull(PluginV2RuntimeSession::rawRegistry)
-    return PluginV2ToolRegistry().compileRuntimeSnapshot(
+    val sourceGateway = PluginV2ToolSourceGateway(activeFutureSourceKinds = activeFutureSourceKinds)
+    return PluginV2ToolRegistry(sourceGateway = sourceGateway).compileRuntimeSnapshot(
         rawRegistries = rawRegistries,
         additionalToolDescriptors = additionalToolDescriptors,
         personaSnapshot = personaSnapshot,

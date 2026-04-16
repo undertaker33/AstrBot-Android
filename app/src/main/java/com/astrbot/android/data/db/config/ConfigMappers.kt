@@ -1,6 +1,10 @@
 package com.astrbot.android.data.db
 
 import com.astrbot.android.model.ConfigProfile
+import com.astrbot.android.model.McpServerEntry
+import com.astrbot.android.model.SkillEntry
+import org.json.JSONArray
+import org.json.JSONObject
 
 fun ConfigAggregate.toProfile(): ConfigProfile {
     return ConfigProfile(
@@ -45,6 +49,14 @@ fun ConfigAggregate.toProfile(): ConfigProfile {
         rateLimitStrategy = config.rateLimitStrategy,
         keywordDetectionEnabled = config.keywordDetectionEnabled,
         keywordPatterns = keywordPatterns.sortedBy { it.sortIndex }.map { it.pattern },
+        contextLimitStrategy = config.contextLimitStrategy,
+        maxContextTurns = config.maxContextTurns,
+        dequeueContextTurns = config.dequeueContextTurns,
+        llmCompressInstruction = config.llmCompressInstruction,
+        llmCompressKeepRecent = config.llmCompressKeepRecent,
+        llmCompressProviderId = config.llmCompressProviderId,
+        mcpServers = mcpServers.sortedBy { it.sortIndex }.map { it.toEntry() },
+        skills = skills.sortedBy { it.sortIndex }.map { it.toEntry() },
     )
 }
 
@@ -87,6 +99,12 @@ fun ConfigProfile.toWriteModel(sortIndex: Int): ConfigWriteModel {
             rateLimitMaxCount = rateLimitMaxCount,
             rateLimitStrategy = rateLimitStrategy,
             keywordDetectionEnabled = keywordDetectionEnabled,
+            contextLimitStrategy = contextLimitStrategy,
+            maxContextTurns = maxContextTurns,
+            dequeueContextTurns = dequeueContextTurns,
+            llmCompressInstruction = llmCompressInstruction,
+            llmCompressKeepRecent = llmCompressKeepRecent,
+            llmCompressProviderId = llmCompressProviderId,
             sortIndex = sortIndex,
             updatedAt = System.currentTimeMillis(),
         ),
@@ -95,5 +113,63 @@ fun ConfigProfile.toWriteModel(sortIndex: Int): ConfigWriteModel {
         whitelistEntries = whitelistEntries.mapIndexed { index, entry -> ConfigWhitelistEntryEntity(id, entry, index) },
         keywordPatterns = keywordPatterns.mapIndexed { index, pattern -> ConfigKeywordPatternEntity(id, pattern, index) },
         textRule = ConfigTextRuleEntity(id, imageCaptionPrompt),
+        mcpServers = mcpServers.mapIndexed { index, entry -> entry.toEntity(id, index) },
+        skills = skills.mapIndexed { index, entry -> entry.toEntity(id, index) },
+    )
+}
+
+private fun ConfigMcpServerEntity.toEntry(): McpServerEntry {
+    return McpServerEntry(
+        serverId = serverId,
+        name = name,
+        url = url,
+        transport = transport,
+        command = command,
+        args = runCatching {
+            val arr = JSONArray(argsJson)
+            (0 until arr.length()).map { arr.getString(it) }
+        }.getOrDefault(emptyList()),
+        headers = runCatching {
+            val obj = JSONObject(headersJson)
+            obj.keys().asSequence().associateWith { key -> obj.getString(key) }
+        }.getOrDefault(emptyMap()),
+        timeoutSeconds = timeoutSeconds,
+        active = active,
+    )
+}
+
+private fun McpServerEntry.toEntity(configId: String, sortIndex: Int): ConfigMcpServerEntity {
+    return ConfigMcpServerEntity(
+        configId = configId,
+        serverId = serverId,
+        name = name,
+        url = url,
+        transport = transport,
+        command = command,
+        argsJson = JSONArray(args).toString(),
+        headersJson = JSONObject(headers).toString(),
+        timeoutSeconds = timeoutSeconds,
+        active = active,
+        sortIndex = sortIndex,
+    )
+}
+
+private fun ConfigSkillEntity.toEntry(): SkillEntry {
+    return SkillEntry(
+        skillId = skillId,
+        name = name,
+        description = description,
+        active = active,
+    )
+}
+
+private fun SkillEntry.toEntity(configId: String, sortIndex: Int): ConfigSkillEntity {
+    return ConfigSkillEntity(
+        configId = configId,
+        skillId = skillId,
+        name = name,
+        description = description,
+        active = active,
+        sortIndex = sortIndex,
     )
 }

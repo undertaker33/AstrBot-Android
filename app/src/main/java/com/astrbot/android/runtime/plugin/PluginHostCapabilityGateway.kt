@@ -16,6 +16,8 @@ interface PluginHostCapabilityGateway {
     fun registerHostBuiltinTools(
         snapshot: PluginV2ActiveRuntimeSnapshot,
         personaSnapshot: PersonaToolEnablementSnapshot? = null,
+        futureSourceDescriptors: Collection<PluginToolDescriptor> = emptyList(),
+        activeFutureSourceKinds: Set<PluginToolSourceKind> = emptySet(),
     ): PluginV2ActiveRuntimeSnapshot
 
     fun executeHostBuiltinTool(
@@ -51,12 +53,16 @@ class DefaultPluginHostCapabilityGateway(
     override fun registerHostBuiltinTools(
         snapshot: PluginV2ActiveRuntimeSnapshot,
         personaSnapshot: PersonaToolEnablementSnapshot?,
+        futureSourceDescriptors: Collection<PluginToolDescriptor>,
+        activeFutureSourceKinds: Set<PluginToolSourceKind>,
     ): PluginV2ActiveRuntimeSnapshot {
         return PluginExecutionHostApi.registerHostBuiltinTools(
             snapshot = snapshot,
             handlers = hostToolHandlers,
             personaSnapshot = personaSnapshot,
             capabilityGateway = PluginV2ToolCapabilityGateway(::isToolAllowed),
+            futureSourceDescriptors = futureSourceDescriptors,
+            activeFutureSourceKinds = activeFutureSourceKinds,
         )
     }
 
@@ -76,7 +82,12 @@ class DefaultPluginHostCapabilityGateway(
                 .registeredHostToolDescriptors(hostToolHandlers)
                 .map(PluginToolDescriptor::name)
                 .toSet()
-            else -> false
+            PluginToolSourceKind.MCP,
+            PluginToolSourceKind.SKILL,
+            PluginToolSourceKind.ACTIVE_CAPABILITY,
+            PluginToolSourceKind.CONTEXT_STRATEGY,
+            PluginToolSourceKind.WEB_SEARCH,
+            -> true
         }
     }
 }

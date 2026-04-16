@@ -307,6 +307,20 @@
     <string name="me_card_assets_subtitle">Download or clear optional runtime assets such as TTS conversion support</string>
     <string name="me_card_backup_title">Data Backup</string>
     <string name="me_card_backup_subtitle">Back up and restore bots, models, personas, conversations, and configs</string>
+    <string name="me_card_cron_title">Event Management</string>
+    <string name="me_card_cron_subtitle">Create and manage scheduled tasks and proactive capabilities</string>
+    <string name="cron_empty_hint">No scheduled tasks yet. Tap + to create one, or ask the bot in chat.</string>
+    <string name="cron_label_run_once">One-time task</string>
+    <string name="cron_label_next_run">Next run: %1$s</string>
+    <string name="cron_label_status">Status: %1$s</string>
+    <string name="cron_create_title">Create Scheduled Task</string>
+    <string name="cron_field_name">Task Name</string>
+    <string name="cron_field_note">Task Description / Instructions</string>
+    <string name="cron_field_cron_expression">Cron Expression (recurring)</string>
+    <string name="cron_field_run_at">Run At (ISO 8601, one-time)</string>
+    <string name="cron_field_run_once">Run once</string>
+    <string name="cron_create_confirm">Create</string>
+    <string name="cron_create_cancel">Cancel</string>
     <string name="me_cache_cleanup_title">Runtime Cache Cleanup</string>
     <string name="me_cache_cleanup_subtitle">Clear downloads, temp audio, apt archives, and QQ logs</string>
     <string name="me_cache_cleanup_action">Clear cache now</string>
@@ -787,6 +801,45 @@
     <string name="config_placeholder_round_three"></string>
     <string name="config_placeholder_round_four"></string>
     <string name="config_placeholder_automation"></string>
+
+    <!-- Context Strategy -->
+    <string name="config_context_strategy_desc">Configure how conversation context is managed when limits are reached.</string>
+    <string name="config_context_limit_strategy_title">Context limit strategy</string>
+    <string name="config_context_limit_strategy_desc">Strategy when context turns exceed the limit.</string>
+    <string name="config_context_limit_strategy_truncate">Truncate by turns</string>
+    <string name="config_context_limit_strategy_compress">LLM compress</string>
+    <string name="config_max_context_turns_title">Max context turns</string>
+    <string name="config_max_context_turns_desc">Maximum number of conversation turns to keep. -1 for unlimited.</string>
+    <string name="config_dequeue_context_turns_title">Dequeue turns</string>
+    <string name="config_dequeue_context_turns_desc">Number of oldest turns to remove when truncating.</string>
+    <string name="config_llm_compress_instruction_title">Compress instruction</string>
+    <string name="config_llm_compress_instruction_desc">Custom instruction for the LLM when compressing context.</string>
+    <string name="config_llm_compress_keep_recent_title">Keep recent turns</string>
+    <string name="config_llm_compress_keep_recent_desc">Number of recent turns to keep uncompressed.</string>
+    <string name="config_llm_compress_provider_title">Compress LLM provider</string>
+    <string name="config_llm_compress_provider_desc">Provider used for context compression. Empty = use default chat provider.</string>
+
+    <!-- MCP -->
+    <string name="config_knowledge_base_desc">Configure MCP servers and skills for this profile.</string>
+    <string name="config_mcp_servers_title">MCP Servers</string>
+    <string name="config_mcp_server_name">Server name</string>
+    <string name="config_mcp_server_url">Server URL</string>
+    <string name="config_mcp_server_transport">Transport</string>
+    <string name="config_mcp_server_timeout">Timeout (s)</string>
+    <string name="config_mcp_server_active">Active</string>
+    <string name="config_mcp_server_add">Add MCP Server</string>
+    <string name="config_mcp_server_remove">Remove</string>
+
+    <!-- Skills -->
+    <string name="config_skills_title">Skills</string>
+    <string name="config_skill_name">Skill name</string>
+    <string name="config_skill_description">Description</string>
+    <string name="config_skill_active">Active</string>
+    <string name="config_skill_add">Add Skill</string>
+    <string name="config_skill_remove">Remove</string>
+
+    <!-- Automation -->
+    <string name="config_automation_desc">Proactive capability and scheduling settings.</string>
 
     <string name="persona_search_placeholder">Search personas</string>
     <string name="persona_new">New Persona</string>

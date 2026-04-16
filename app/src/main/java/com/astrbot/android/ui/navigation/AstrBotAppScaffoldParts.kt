@@ -46,6 +46,7 @@ import com.astrbot.android.ui.settings.ConversationBackupScreen
 import com.astrbot.android.ui.settings.DataBackupHubScreen
 import com.astrbot.android.ui.settings.FullBackupScreen
 import com.astrbot.android.ui.settings.LogScreen
+import com.astrbot.android.ui.settings.CronJobsScreen
 import com.astrbot.android.ui.settings.MeScreen
 import com.astrbot.android.ui.settings.ModuleBackupScreen
 import com.astrbot.android.ui.persona.PersonaScreen
@@ -432,6 +433,9 @@ internal fun AstrBotAppNavGraph(
             )
         }
         composable(AppDestination.Runtime.route) { SettingsScreen(onBack = { AppNavigator.back(navController) }) }
+        composable(AppDestination.CronJobs.route) {
+            CronJobsScreen(onBack = { AppNavigator.back(navController) })
+        }
         composable(AppDestination.BackupHub.route) {
             DataBackupHubScreen(
                 onBack = { AppNavigator.back(navController) },
@@ -596,6 +600,7 @@ private fun MainTopLevelRail(
                         onOpenLogs = { AppNavigator.open(navController, AppDestination.Logs.route) },
                         onOpenAssets = { AppNavigator.open(navController, AppDestination.Assets.route) },
                         onOpenBackup = { AppNavigator.open(navController, AppDestination.BackupHub.route) },
+                        onOpenCronJobs = { AppNavigator.open(navController, AppDestination.CronJobs.route) },
                     )
                 },
             ),

@@ -113,13 +113,16 @@ object PluginExecutionHostApi {
         handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
         personaSnapshot: PersonaToolEnablementSnapshot? = null,
         capabilityGateway: PluginV2ToolCapabilityGateway = PluginV2ToolCapabilityGateway { true },
+        futureSourceDescriptors: Collection<PluginToolDescriptor> = emptyList(),
+        activeFutureSourceKinds: Set<PluginToolSourceKind> = emptySet(),
     ): PluginV2ActiveRuntimeSnapshot {
-        val descriptors = registeredHostToolDescriptors(handlers)
+        val descriptors = registeredHostToolDescriptors(handlers) + futureSourceDescriptors
         val toolState = compileCentralizedToolState(
             sessionsByPluginId = snapshot.toolSourceSessionsByPluginId(),
             additionalToolDescriptors = descriptors,
             personaSnapshot = personaSnapshot,
             capabilityGateway = capabilityGateway,
+            activeFutureSourceKinds = activeFutureSourceKinds,
         )
         return snapshot.copy(
             toolRegistrySnapshot = toolState.activeRegistry,

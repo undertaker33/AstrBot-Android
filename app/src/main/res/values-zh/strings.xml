@@ -278,6 +278,20 @@
     <string name="me_card_assets_subtitle">下载或清除可选运行资产，例如 TTS 转码支持</string>
     <string name="me_card_backup_title">数据备份</string>
     <string name="me_card_backup_subtitle">备份和导入机器人、模型、人格、对话与配置数据</string>
+    <string name="me_card_cron_title">事件管理</string>
+    <string name="me_card_cron_subtitle">创建和管理定时任务与主动能力</string>
+    <string name="cron_empty_hint">暂无定时任务。点击 + 创建，或在聊天中让机器人创建。</string>
+    <string name="cron_label_run_once">一次性任务</string>
+    <string name="cron_label_next_run">下次执行: %1$s</string>
+    <string name="cron_label_status">状态: %1$s</string>
+    <string name="cron_create_title">创建定时任务</string>
+    <string name="cron_field_name">任务名称</string>
+    <string name="cron_field_note">任务描述 / 执行指令</string>
+    <string name="cron_field_cron_expression">Cron 表达式（周期性）</string>
+    <string name="cron_field_run_at">执行时间（ISO 8601，一次性）</string>
+    <string name="cron_field_run_once">仅执行一次</string>
+    <string name="cron_create_confirm">创建</string>
+    <string name="cron_create_cancel">取消</string>
 
 <string name="asset_tts_title">TTS 转码资产</string>
 <string name="asset_tts_list_subtitle">QQ 语音回复转码支持</string>
@@ -579,6 +593,45 @@
     <string name="config_placeholder_round_three"></string>
     <string name="config_placeholder_round_four"></string>
     <string name="config_placeholder_automation"></string>
+
+    <!-- 上下文策略 -->
+    <string name="config_context_strategy_desc">配置对话上下文超限时的管理策略。</string>
+    <string name="config_context_limit_strategy_title">上下文限制策略</string>
+    <string name="config_context_limit_strategy_desc">上下文轮次超限时的处理方式。</string>
+    <string name="config_context_limit_strategy_truncate">按轮次截断</string>
+    <string name="config_context_limit_strategy_compress">LLM 压缩</string>
+    <string name="config_max_context_turns_title">最大上下文轮次</string>
+    <string name="config_max_context_turns_desc">保留的最大对话轮次数，-1 为不限。</string>
+    <string name="config_dequeue_context_turns_title">截断移除轮次</string>
+    <string name="config_dequeue_context_turns_desc">截断时移除的最早轮次数量。</string>
+    <string name="config_llm_compress_instruction_title">压缩指令</string>
+    <string name="config_llm_compress_instruction_desc">LLM 压缩上下文时使用的自定义指令。</string>
+    <string name="config_llm_compress_keep_recent_title">保留最近轮次</string>
+    <string name="config_llm_compress_keep_recent_desc">不参与压缩的最近轮次数量。</string>
+    <string name="config_llm_compress_provider_title">压缩用 LLM 提供商</string>
+    <string name="config_llm_compress_provider_desc">用于上下文压缩的提供商，留空则使用默认聊天提供商。</string>
+
+    <!-- MCP -->
+    <string name="config_knowledge_base_desc">为此配置文件管理 MCP 服务器和技能。</string>
+    <string name="config_mcp_servers_title">MCP 服务器</string>
+    <string name="config_mcp_server_name">服务器名称</string>
+    <string name="config_mcp_server_url">服务器 URL</string>
+    <string name="config_mcp_server_transport">传输方式</string>
+    <string name="config_mcp_server_timeout">超时（秒）</string>
+    <string name="config_mcp_server_active">启用</string>
+    <string name="config_mcp_server_add">添加 MCP 服务器</string>
+    <string name="config_mcp_server_remove">移除</string>
+
+    <!-- 技能 -->
+    <string name="config_skills_title">技能</string>
+    <string name="config_skill_name">技能名称</string>
+    <string name="config_skill_description">描述</string>
+    <string name="config_skill_active">启用</string>
+    <string name="config_skill_add">添加技能</string>
+    <string name="config_skill_remove">移除</string>
+
+    <!-- 自动化 -->
+    <string name="config_automation_desc">主动能力和定时任务设置。</string>
 
     <string name="persona_search_placeholder">搜索人格</string>
     <string name="persona_new">新人格</string>

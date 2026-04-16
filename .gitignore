@@ -16,6 +16,7 @@ docs/plugins/
 .android-sdk/
 .codex-home/
 .gradle-user-home/
+文档/*
 docs/plugins/*
 docs/superpowers/*
 AGENTS.md

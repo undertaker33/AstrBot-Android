@@ -14,6 +14,8 @@ import com.astrbot.android.data.db.core.migration12To13
 import com.astrbot.android.data.db.core.migration13To14
 import com.astrbot.android.data.db.core.migration14To15
 import com.astrbot.android.data.db.core.migration15To16
+import com.astrbot.android.data.db.core.migration16To17
+import com.astrbot.android.data.db.core.migration17To18
 
 @Database(
     entities = [
@@ -27,6 +29,8 @@ import com.astrbot.android.data.db.core.migration15To16
         ConfigWhitelistEntryEntity::class,
         ConfigKeywordPatternEntity::class,
         ConfigTextRuleEntity::class,
+        ConfigMcpServerEntity::class,
+        ConfigSkillEntity::class,
         ConversationEntity::class,
         ConversationMessageEntity::class,
         ConversationAttachmentEntity::class,
@@ -50,8 +54,9 @@ import com.astrbot.android.data.db.core.migration15To16
         TtsVoiceAssetEntity::class,
         TtsVoiceClipEntity::class,
         TtsVoiceProviderBindingEntity::class,
+        CronJobEntity::class,
     ],
-    version = 16,
+    version = 18,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -67,6 +72,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
     abstract fun downloadTaskDao(): DownloadTaskDao
     abstract fun savedQqAccountDao(): SavedQqAccountDao
     abstract fun ttsVoiceAssetAggregateDao(): TtsVoiceAssetAggregateDao
+    abstract fun cronJobDao(): com.astrbot.android.data.db.cron.CronJobDao
 
     companion object {
         @Volatile
@@ -333,6 +339,8 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration13To14,
             migration14To15,
             migration15To16,
+            migration16To17,
+            migration17To18,
         )
 
         fun get(context: Context): AstrBotDatabase {

@@ -61,4 +61,5 @@ internal sealed class AppDestination(
     data object FullBackup : AppDestination("backup/full", Icons.Outlined.Memory)
     data object Models : AppDestination("models", Icons.Outlined.Memory)
     data object Runtime : AppDestination("runtime", Icons.Outlined.Settings)
+    data object CronJobs : AppDestination("cron-jobs", Icons.Outlined.Settings)
 }

@@ -130,6 +130,55 @@ data class ConfigProfile(
     val rateLimitStrategy: String = "drop",
     val keywordDetectionEnabled: Boolean = false,
     val keywordPatterns: List<String> = emptyList(),
+
+    // ── Context Strategy ──
+    val contextLimitStrategy: String = "truncate_by_turns",
+    val maxContextTurns: Int = -1,
+    val dequeueContextTurns: Int = 1,
+    val llmCompressInstruction: String = "",
+    val llmCompressKeepRecent: Int = 6,
+    val llmCompressProviderId: String = "",
+
+    // ── MCP / Skill ──
+    val mcpServers: List<McpServerEntry> = emptyList(),
+    val skills: List<SkillEntry> = emptyList(),
+)
+
+data class McpServerEntry(
+    val serverId: String = "",
+    val name: String = "",
+    val url: String = "",
+    val transport: String = "sse",
+    val command: String = "",
+    val args: List<String> = emptyList(),
+    val headers: Map<String, String> = emptyMap(),
+    val timeoutSeconds: Int = 30,
+    val active: Boolean = true,
+)
+
+data class SkillEntry(
+    val skillId: String = "",
+    val name: String = "",
+    val description: String = "",
+    val active: Boolean = true,
+)
+
+data class CronJob(
+    val jobId: String = "",
+    val name: String = "",
+    val description: String = "",
+    val jobType: String = "active_agent",
+    val cronExpression: String = "",
+    val timezone: String = "",
+    val payloadJson: String = "{}",
+    val enabled: Boolean = true,
+    val runOnce: Boolean = false,
+    val status: String = "scheduled",
+    val lastRunAt: Long = 0L,
+    val nextRunTime: Long = 0L,
+    val lastError: String = "",
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
 )
 
 data class BotRuntimeState(
