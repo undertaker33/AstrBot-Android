@@ -17,7 +17,7 @@ internal enum class NavigationMotionLevel {
     Detail,
 }
 
-// 鎶?route 褰掔被涓轰富瀵艰埅銆佷簩绾ч〉銆佽鎯呴〉锛屾柟渚跨粺涓€鍐冲畾杞満寮哄害銆?
+// 把 route 归类为主导航、二级页、详情页，方便统一决定转场强度。
 internal fun classifyNavigationMotionLevel(route: String?): NavigationMotionLevel {
     val normalizedRoute = route.orEmpty()
     return when {
@@ -42,7 +42,7 @@ internal fun classifyNavigationMotionLevel(route: String?): NavigationMotionLeve
     }
 }
 
-// 搴曢儴瀵艰埅鏍忕殑鍑犱釜涓婚〉闈㈠垏鎹紝缁熶竴浣跨敤鍚屼竴濂楄交閲忚浆鍦恒€?
+// 底部导航栏的几个主页面切换，统一使用同一套轻量转场。
 internal fun isBottomNavigationSwitch(
     initialRoute: String?,
     targetRoute: String?,
@@ -52,7 +52,7 @@ internal fun isBottomNavigationSwitch(
 }
 
 internal object AppNavigationTransitions {
-    // 鍓嶈繘鍔ㄧ敾锛氫富瀵艰埅涔嬮棿鍋忚交锛屽眰绾ц秺娣变綅绉绘劅瓒婃槑鏄俱€?
+    // 前进动画：主导航之间偏轻，层级越深位移感越明显。
     fun enterTransition(
         initialRoute: String?,
         targetRoute: String?,
@@ -76,7 +76,7 @@ internal object AppNavigationTransitions {
         }
     }
 
-    // 褰撳墠椤甸€€鍑哄姩鐢讳笌杩涘叆鍔ㄧ敾閰嶅锛屼繚璇佸眰绾ф劅涓€鑷淬€?
+    // 当前页退出动画与进入动画配对，保证层级感一致。
     fun exitTransition(
         initialRoute: String?,
         targetRoute: String?,
@@ -101,7 +101,7 @@ internal object AppNavigationTransitions {
         }
     }
 
-    // 杩斿洖鍔ㄧ敾涓庡墠杩涙柟鍚戠浉鍙嶏紝璁╃敤鎴锋洿瀹规槗鎰熺煡鈥滃洖閫€鈥濄€?
+    // 返回动画与前进方向相反，让用户更容易感知"回退"。
     fun popEnterTransition(
         initialRoute: String?,
         targetRoute: String?,

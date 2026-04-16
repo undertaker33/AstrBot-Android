@@ -217,11 +217,22 @@ object ProviderRepository {
         )
     }
 
+    /**
+     * Legacy mojibake patterns that appear in corrupted OpenAI provider names.
+     * These originate from the default Chinese name "OpenAI 聊天" being stored via
+     * a Latin-1/GBK encoding mismatch in early database versions. We detect them
+     * here so that corrupted records are silently repaired to "OpenAI Chat".
+     */
+    private val LEGACY_MOJIBAKE_OPENAI_PATTERNS = listOf(
+        "\u9390\u7535\u9426\uff1f",   // 鐎电鐦?  — mojibake of partial "聊天"
+        "\u95fb\u5ea3\u6578\u9862\u5a47\u60c1", // 閻庣數顢婇惁 — mojibake of "OpenAI 聊天" prefix
+    )
+
     private fun normalizeProvider(provider: ProviderProfile): ProviderProfile {
         val normalizedName = when {
             provider.id == "openai-chat" && provider.name.isBlank() -> "OpenAI Chat"
-            provider.id == "openai-chat" && provider.name.contains("鐎电鐦?") -> "OpenAI Chat"
-            provider.id == "openai-chat" && provider.name.contains("閻庣數顢婇惁") -> "OpenAI Chat"
+            provider.id == "openai-chat" && LEGACY_MOJIBAKE_OPENAI_PATTERNS.any { provider.name.contains(it) } ->
+                "OpenAI Chat"
             else -> provider.name
         }
         val normalizedModel = provider.model.trim()

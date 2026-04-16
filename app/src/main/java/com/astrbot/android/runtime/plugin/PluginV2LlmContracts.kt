@@ -89,6 +89,16 @@ class PluginProviderMessageDto(
     }
 }
 
+/**
+ * Protocol-agnostic tool definition carried by [PluginProviderRequest].
+ * Converted to OpenAI/Ollama/Gemini format by the provider invocation layer.
+ */
+data class PluginProviderToolDefinition(
+    val name: String,
+    val description: String,
+    val inputSchema: JsonLikeMap,
+)
+
 class PluginProviderRequest(
     val requestId: String,
     availableProviderIds: List<String>,
@@ -106,6 +116,7 @@ class PluginProviderRequest(
     streamingEnabled: Boolean = false,
     metadata: JsonLikeMap? = null,
     private val allowHostToolMessages: Boolean = false,
+    tools: List<PluginProviderToolDefinition> = emptyList(),
 ) {
     val availableProviderIds: List<String> = sanitizeIdList(availableProviderIds, "availableProviderIds")
     val availableModelIdsByProvider: Map<String, List<String>> = sanitizeModelMap(
@@ -113,6 +124,9 @@ class PluginProviderRequest(
         "availableModelIdsByProvider",
     )
     val messageIds: List<String> = sanitizeIdList(messageIds, "messageIds")
+
+    /** LLM-visible tool definitions to include in the provider request. */
+    val tools: List<PluginProviderToolDefinition> = tools.toList()
 
     var selectedProviderId: String = normalizeSelectedProviderId(selectedProviderId)
         set(value) {

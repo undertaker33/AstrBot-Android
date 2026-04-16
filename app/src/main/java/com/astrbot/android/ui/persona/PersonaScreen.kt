@@ -176,8 +176,8 @@ internal fun PersonaCatalogContent(
                         name = persona.name,
                         tag = persona.tag,
                         systemPrompt = persona.systemPrompt,
-                        enabledTools = emptySet(),
-                        defaultProviderId = "",
+                        enabledTools = persona.enabledTools,
+                        defaultProviderId = persona.defaultProviderId,
                         maxContextMessages = persona.maxContextMessages,
                     )
                 }

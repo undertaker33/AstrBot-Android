@@ -149,4 +149,55 @@ class ChatCompletionServiceTest {
             ),
         )
     }
+
+    // --- F1: OpenAI tool call response parsing ---
+
+    @Test
+    fun parse_openai_response_with_text_only() {
+        val body = """
+            {"choices":[{"message":{"role":"assistant","content":"Hello!"}}]}
+        """.trimIndent()
+        val result = ChatCompletionService.parseOpenAiChatCompletionResult(body)
+        assertEquals("Hello!", result.text)
+        assertEquals(0, result.toolCalls.size)
+    }
+
+    @Test
+    fun parse_openai_response_with_tool_calls_only() {
+        val body = """
+            {"choices":[{"message":{"role":"assistant","content":"","tool_calls":[
+                {"id":"call_1","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"weather\"}"}}
+            ]}}]}
+        """.trimIndent()
+        val result = ChatCompletionService.parseOpenAiChatCompletionResult(body)
+        assertEquals("", result.text)
+        assertEquals(1, result.toolCalls.size)
+        assertEquals("call_1", result.toolCalls[0].id)
+        assertEquals("web_search", result.toolCalls[0].name)
+        assertEquals("{\"query\":\"weather\"}", result.toolCalls[0].arguments)
+    }
+
+    @Test
+    fun parse_openai_response_with_text_and_tool_calls() {
+        val body = """
+            {"choices":[{"message":{"role":"assistant","content":"Let me search for that.",
+            "tool_calls":[
+                {"id":"call_a","type":"function","function":{"name":"get_time","arguments":"{}"}},
+                {"id":"call_b","type":"function","function":{"name":"web_search","arguments":"{\"q\":\"news\"}"}}
+            ]}}]}
+        """.trimIndent()
+        val result = ChatCompletionService.parseOpenAiChatCompletionResult(body)
+        assertEquals("Let me search for that.", result.text)
+        assertEquals(2, result.toolCalls.size)
+        assertEquals("get_time", result.toolCalls[0].name)
+        assertEquals("web_search", result.toolCalls[1].name)
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun parse_openai_response_empty_content_and_no_tool_calls_throws() {
+        val body = """
+            {"choices":[{"message":{"role":"assistant","content":""}}]}
+        """.trimIndent()
+        ChatCompletionService.parseOpenAiChatCompletionResult(body)
+    }
 }

@@ -79,7 +79,7 @@ internal fun StringListManagerField(
                     buildString {
                         append(stringResource(R.string.config_list_count, summary.count))
                         if (summary.previewValues.isNotEmpty()) {
-                            append(" 璺?")
+                            append("：")
                             append(summary.previewValues.joinToString(", "))
                         }
                         val remaining = summary.count - summary.previewValues.size

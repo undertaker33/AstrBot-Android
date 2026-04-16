@@ -1278,7 +1278,7 @@ private fun ProviderEditorDialog(
                                             val result = runCatching {
                                                 providerViewModel.synthesizeSpeech(
                                                     provider = previewProvider,
-                                                    text = "浣犲ソ涓栫晫",
+                                                    text = "你好世界",
                                                     voiceId = selectedVoiceId,
                                                     readBracketedContent = true,
                                                 )
