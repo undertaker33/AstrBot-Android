@@ -12,6 +12,7 @@ import com.astrbot.android.data.http.AstrBotHttpClient
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.HttpResponsePayload
 import com.astrbot.android.data.http.MultipartPartSpec
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -450,14 +451,91 @@ class ChatCompletionServiceTest {
         }
     }
 
-    private class CapturingHttpClient : AstrBotHttpClient {
+    @Test
+    fun configured_chat_stream_ignores_sse_keep_alive_lines() = runBlocking {
+        val captureClient = CapturingHttpClient(
+            streamedLines = listOf(
+                ": keep-alive",
+                """data: {"choices":[{"delta":{"content":"hello"}}]}""",
+                "data: [DONE]",
+            ),
+        )
+        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        try {
+            val deltas = mutableListOf<String>()
+            val text = ChatCompletionService.sendConfiguredChatStream(
+                provider = plainChatProvider(),
+                messages = listOf(
+                    ConversationMessage(
+                        id = "user-stream",
+                        role = "user",
+                        content = "hello",
+                        timestamp = 1L,
+                    ),
+                ),
+                onDelta = { deltas += it },
+            )
+
+            assertEquals("hello", text)
+            assertEquals(listOf("hello"), deltas)
+            assertTrue(captureClient.requireBody().contains("\"stream\":true"))
+        } finally {
+            ChatCompletionService.setHttpClientOverrideForTests(null)
+        }
+    }
+
+    @Test
+    fun configured_chat_stream_with_tools_ignores_sse_keep_alive_lines() = runBlocking {
+        val captureClient = CapturingHttpClient(
+            streamedLines = listOf(
+                ": keep-alive",
+                """data: {"choices":[{"delta":{"content":"tool ok"}}]}""",
+                "data: [DONE]",
+            ),
+        )
+        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        try {
+            val deltas = mutableListOf<String>()
+            val result = ChatCompletionService.sendConfiguredChatStreamWithTools(
+                provider = plainChatProvider(),
+                messages = listOf(
+                    ConversationMessage(
+                        id = "user-tool-stream",
+                        role = "user",
+                        content = "search the web",
+                        timestamp = 1L,
+                    ),
+                ),
+                tools = listOf(
+                    ChatCompletionService.ChatToolDefinition(
+                        name = "web_search",
+                        description = "search the web",
+                        parameters = org.json.JSONObject("{\"type\":\"object\"}"),
+                    ),
+                ),
+                onDelta = { deltas += it },
+            )
+
+            assertEquals("tool ok", result.text)
+            assertEquals(listOf("tool ok"), deltas)
+            assertEquals(0, result.toolCalls.size)
+            assertTrue(captureClient.requireBody().contains("\"stream\":true"))
+        } finally {
+            ChatCompletionService.setHttpClientOverrideForTests(null)
+        }
+    }
+
+    private class CapturingHttpClient(
+        private val executeResponseBody: String = """{"choices":[{"message":{"role":"assistant","content":"ok"}}]}""",
+        private val streamedLines: List<String> = emptyList(),
+    ) : AstrBotHttpClient {
         private var body: String? = null
 
         override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {
             body = requestSpec.body
             return HttpResponsePayload(
                 code = 200,
-                body = """{"choices":[{"message":{"role":"assistant","content":"ok"}}]}""",
+                body = executeResponseBody,
                 headers = emptyMap(),
                 url = requestSpec.url,
             )
@@ -468,7 +546,12 @@ class ChatCompletionServiceTest {
         override suspend fun executeStream(
             requestSpec: HttpRequestSpec,
             onLine: suspend (String) -> Unit,
-        ) = Unit
+        ) {
+            body = requestSpec.body
+            streamedLines.forEach { line ->
+                onLine(line)
+            }
+        }
 
         override fun executeMultipart(
             requestSpec: HttpRequestSpec,

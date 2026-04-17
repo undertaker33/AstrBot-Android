@@ -1316,10 +1316,7 @@ object ChatCompletionService {
                     contentType = "application/json",
                 ),
             ) { rawLine ->
-                val line = rawLine.removePrefix("data:").trim()
-                if (line.isBlank() || line == "[DONE]") {
-                    return@executeStream
-                }
+                val line = extractSseDataPayload(rawLine) ?: return@executeStream
                 // Extract text content delta
                 val textDelta = extractOpenAiStyleStreamingContent(line)
                 if (textDelta.isNotBlank()) {
@@ -2393,8 +2390,7 @@ object ChatCompletionService {
                         contentType = "application/json",
                     ),
                 ) { rawLine ->
-                    val line = rawLine.removePrefix("data:").trim()
-                    if (line.isBlank() || line == "[DONE]") return@executeStream
+                    val line = extractSseDataPayload(rawLine) ?: return@executeStream
                     val chunk = runCatching { chunkParser(line) }.getOrDefault("")
                     if (chunk.isNotBlank()) {
                         chunks += chunk
@@ -2562,6 +2558,12 @@ object ChatCompletionService {
     private fun extractOpenAiStyleStreamingContent(line: String): String {
         return TtsPromptFormatter.extractOpenAiStyleStreamingContent(line)
     }
+
+    private fun extractSseDataPayload(rawLine: String): String? {
+        if (!rawLine.startsWith("data:")) return null
+        val payload = rawLine.removePrefix("data:").trim()
+        return payload.takeUnless { it.isBlank() || it == "[DONE]" }
+    }
         /*
         val delta = JSONObject(line)
             .optJSONArray("choices")
@@ -2674,15 +2676,12 @@ object ChatCompletionService {
                     contentType = "application/json",
                 ),
             ) { rawLine ->
-                    val line = rawLine.removePrefix("data:").trim()
-                    if (line.isBlank() || line == "[DONE]") {
-                        return@executeStream
-                    }
-                    val chunk = runCatching { chunkParser(line) }.getOrDefault("")
-                    if (chunk.isNotBlank()) {
-                        chunks += chunk
-                        onDelta(chunk)
-                    }
+                val line = extractSseDataPayload(rawLine) ?: return@executeStream
+                val chunk = runCatching { chunkParser(line) }.getOrDefault("")
+                if (chunk.isNotBlank()) {
+                    chunks += chunk
+                    onDelta(chunk)
+                }
             }
             chunks.joinToString("").trim().ifBlank {
                 throw IllegalStateException("Model response is empty.")
