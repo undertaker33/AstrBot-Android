@@ -887,6 +887,9 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         compatibilityState: PluginCompatibilityState,
         validationIssues: List<PluginPackageValidationIssue>,
     ): String {
+        validationIssues.firstOrNull { it.code == "legacy_contract" }?.let { issue ->
+            return normalizePackageValidationIssueMessage(issue)
+        }
         if (compatibilityState.protocolSupported == false && compatibilityState.notes.isNotBlank()) {
             return compatibilityState.notes
         }

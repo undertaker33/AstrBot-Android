@@ -114,7 +114,11 @@ class PluginRepositoryTest {
 
         assertEquals(PluginCompatibilityStatus.INCOMPATIBLE, projected?.compatibilityState?.status)
         assertEquals(false, projected?.compatibilityState?.protocolSupported)
-        assertTrue(projected?.compatibilityState?.notes?.contains("Protocol version 1 is not supported.") == true)
+        assertTrue(
+            projected?.compatibilityState?.notes?.contains(
+                "Legacy v1 plugin packages are unsupported.",
+            ) == true,
+        )
         assertEquals(projected, PluginRepository.records.value.single())
     }
 
@@ -571,7 +575,11 @@ class PluginRepositoryTest {
         val projected = PluginRepository.findByPluginId(legacyRecord.pluginId)
 
         assertTrue(failure is IllegalStateException)
-        assertTrue(failure?.message?.contains("Protocol version 1 is not supported.") == true)
+        assertTrue(
+            failure?.message?.contains(
+                "Legacy v1 plugin packages are unsupported.",
+            ) == true,
+        )
         assertEquals(PluginCompatibilityStatus.INCOMPATIBLE, projected?.compatibilityState?.status)
         assertEquals(legacyRecord, runBlocking { dao.getPluginInstallAggregate(legacyRecord.pluginId) }?.toInstallRecord())
     }
@@ -584,7 +592,7 @@ class PluginRepositoryTest {
                 protocolSupported = false,
                 minHostVersionSatisfied = true,
                 maxHostVersionSatisfied = true,
-                notes = "Protocol version 1 is not supported.",
+                notes = "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2.",
             ),
             installable = false,
             validationIssues = listOf(

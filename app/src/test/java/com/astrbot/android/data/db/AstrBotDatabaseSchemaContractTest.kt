@@ -78,8 +78,8 @@ class AstrBotDatabaseSchemaContractTest {
     }
 
     @Test
-    fun latestMigration_targetsVersion15() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 17)
+    fun latestMigration_targetsVersion19() {
+        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 19)
     }
 
     @Test

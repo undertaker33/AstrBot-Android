@@ -91,7 +91,11 @@ class MemeManagerSampleCatalogTest {
 
         assertEquals(false, legacyGate.compatibilityState.protocolSupported)
         assertFalse(legacyGate.installable)
-        assertTrue(legacyGate.compatibilityState.notes.contains("Protocol version 1 is not supported."))
+        assertTrue(
+            legacyGate.compatibilityState.notes.contains(
+                "Legacy v1 plugin packages are unsupported.",
+            ),
+        )
     }
 }
 

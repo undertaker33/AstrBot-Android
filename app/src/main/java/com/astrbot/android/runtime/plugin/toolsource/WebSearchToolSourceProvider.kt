@@ -12,6 +12,14 @@ import com.astrbot.android.runtime.plugin.PluginToolResult
 import com.astrbot.android.runtime.plugin.PluginToolResultStatus
 import com.astrbot.android.runtime.plugin.PluginToolSourceKind
 import com.astrbot.android.runtime.plugin.PluginToolVisibility
+import com.astrbot.android.runtime.plugin.toolsource.search.SearchEngine
+import com.astrbot.android.runtime.plugin.toolsource.search.SearchIntent
+import com.astrbot.android.runtime.plugin.toolsource.search.SearchIntentClassifier
+import com.astrbot.android.runtime.plugin.toolsource.search.SearchPolicy
+import com.astrbot.android.runtime.plugin.toolsource.search.SearchPolicyResolver
+import com.astrbot.android.runtime.plugin.toolsource.search.SearchRelevanceAssessment
+import com.astrbot.android.runtime.plugin.toolsource.search.SearchRelevanceScorer
+import com.astrbot.android.runtime.plugin.toolsource.search.normalizeSearchText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -92,11 +100,17 @@ class WebSearchToolSourceProvider(
         val query = (payload["query"] as? String)?.trim()
             ?: throw IllegalArgumentException("'query' parameter is required.")
         val maxResults = ((payload["max_results"] as? Number)?.toInt() ?: 5).coerceIn(1, 10)
+        val intent = SearchIntentClassifier.classify(query)
+        val policy = SearchPolicyResolver.resolve(intent, query)
 
-        RuntimeLogRepository.append("WebSearch: searching '$query' (max $maxResults)")
+        RuntimeLogRepository.append(
+            "WebSearch: intent=${intent.name} engine_order=[${policy.engineOrder.joinToString(",") { it.name.lowercase() }}] " +
+                "allow_low_relevance_fallback=${policy.allowLowRelevanceFallback} query='$query' max_results=$maxResults",
+        )
         return executeWebSearchQuery(
             query = query,
             maxResults = maxResults,
+            policy = policy,
             bingSearch = ::searchBing,
             sogouSearch = ::searchSogou,
         )
@@ -120,14 +134,8 @@ class WebSearchToolSourceProvider(
             val body = response.bodyString
             if (body.isBlank()) throw IllegalStateException("Empty response from Bing")
             parseBingResults(body, maxResults).also { results ->
-                val bingSearchUrl = "https://www.bing.com/search"
-                val modules = mutableListOf<String>()
-                val richCount = results.count { it.url == bingSearchUrl }
-                val algoCount = results.size - richCount
-                if (richCount > 0) modules += "rich:$richCount"
-                if (algoCount > 0) modules += "b_algo:$algoCount"
                 RuntimeLogRepository.append(
-                    "WebSearch: engine=bing modules=[${modules.joinToString()}] results=${results.size} query='$query'",
+                    "WebSearch: engine=bing modules=[${results.moduleSummary()}] results=${results.size} query='$query'",
                 )
             }
         }
@@ -155,7 +163,9 @@ class WebSearchToolSourceProvider(
                 maxResults = maxResults,
                 searchUrl = url,
             ).also { results ->
-                RuntimeLogRepository.append("WebSearch: engine=sogou results=${results.size} query='$query'")
+                RuntimeLogRepository.append(
+                    "WebSearch: engine=sogou modules=[${results.moduleSummary()}] results=${results.size} query='$query'",
+                )
             }
         }
     }
@@ -197,12 +207,15 @@ internal data class WebSearchResult(
     val url: String,
     val snippet: String,
     val engine: String = "",
+    val module: String = "",
+    val diagnosticReason: String = "",
 )
 
-private enum class WebSearchEngine {
-    BING,
-    SOGOU,
-}
+private data class SearchExecutionFallback(
+    val results: List<WebSearchResult>,
+    val engine: SearchEngine,
+    val assessment: SearchRelevanceAssessment,
+)
 
 internal suspend fun executeWebSearchQuery(
     query: String,
@@ -210,54 +223,89 @@ internal suspend fun executeWebSearchQuery(
     bingSearch: suspend (String, Int) -> List<WebSearchResult>,
     sogouSearch: suspend (String, Int) -> List<WebSearchResult>,
 ): String {
-    val engineOrder = listOf(WebSearchEngine.BING, WebSearchEngine.SOGOU)
+    return executeWebSearchQuery(
+        query = query,
+        maxResults = maxResults,
+        policy = SearchPolicyResolver.resolve(SearchIntent.GENERAL, query),
+        bingSearch = bingSearch,
+        sogouSearch = sogouSearch,
+    )
+}
 
+internal suspend fun executeWebSearchQuery(
+    query: String,
+    maxResults: Int,
+    policy: SearchPolicy,
+    bingSearch: suspend (String, Int) -> List<WebSearchResult>,
+    sogouSearch: suspend (String, Int) -> List<WebSearchResult>,
+): String {
     val attempts = mutableListOf<String>()
-    var lowRelevanceFallback: List<WebSearchResult>? = null
+    var lowRelevanceFallback: SearchExecutionFallback? = null
 
-    for ((index, engine) in engineOrder.withIndex()) {
+    for ((index, engine) in policy.engineOrder.withIndex()) {
         val results = runCatching {
             when (engine) {
-                WebSearchEngine.BING -> bingSearch(query, maxResults)
-                WebSearchEngine.SOGOU -> sogouSearch(query, maxResults)
+                SearchEngine.BING -> bingSearch(query, maxResults)
+                SearchEngine.SOGOU -> sogouSearch(query, maxResults)
             }
         }.onFailure { error ->
             RuntimeLogRepository.append(
-                "WebSearch: engine=${engine.name.lowercase()} failed (${error.message ?: error.javaClass.simpleName}) query='$query'",
+                "WebSearch: intent=${policy.intent.name} engine=${engine.name.lowercase()} failed reason=${error.message ?: error.javaClass.simpleName} query='$query'",
             )
         }.getOrDefault(emptyList()).filterUsefulSearchResults(query, engine)
         attempts += "${engine.name.lowercase()}:${results.size}"
 
-        if (results.isNotEmpty()) {
-            val isLastEngine = index == engineOrder.lastIndex
-            val isRelevant = assessBatchRelevance(query, results)
-            if (isLastEngine || isRelevant) {
-                val payload = formatSearchResults(query, results.take(maxResults))
-                RuntimeLogRepository.append("WebSearch: payload query='$query' ${payload.toSingleLineLog()}")
-                return payload
-            } else {
-                lowRelevanceFallback = lowRelevanceFallback ?: results
-                val queryBigrams = extractQueryBigrams(query)
-                val scores = results.map { r ->
-                    val text = "${r.title} ${r.snippet}"
-                    val matched = queryBigrams.count { text.contains(it) }
-                    "${r.title.take(20)}:$matched/${queryBigrams.size}"
-                }
-                RuntimeLogRepository.append(
-                    "WebSearch: engine=${engine.name.lowercase()} low-relevance for query='$query' scores=[${ scores.joinToString() }], falling back to next engine",
-                )
-            }
+        if (results.isEmpty()) {
+            continue
+        }
+
+        val assessment = SearchRelevanceScorer.assess(
+            query = query,
+            results = results,
+            intent = policy.intent,
+        )
+        val isLastEngine = index == policy.engineOrder.lastIndex
+        val module = assessment.bestModule ?: results.firstOrNull()?.module?.ifBlank { null } ?: "unknown"
+
+        if (assessment.isRelevant || (isLastEngine && !policy.requiresRelevantFinalEngine)) {
+            val payload = formatSearchResults(query, results.take(maxResults))
+            RuntimeLogRepository.append(
+                "WebSearch: intent=${policy.intent.name} engine=${engine.name.lowercase()} module=$module modules=[${results.moduleSummary()}] " +
+                    "relevance_reason=${assessment.reason} fallback_reason=accepted payload=${payload.toSingleLineLog()}",
+            )
+            return payload
+        }
+
+        if (policy.allowLowRelevanceFallback) {
+            lowRelevanceFallback = lowRelevanceFallback ?: SearchExecutionFallback(results = results, engine = engine, assessment = assessment)
+        }
+
+        val fallbackReason = when {
+            isLastEngine && !policy.allowLowRelevanceFallback -> "policy_disallows_low_relevance_fallback"
+            isLastEngine -> "last_engine_below_threshold"
+            else -> "next_engine"
+        }
+        RuntimeLogRepository.append(
+            "WebSearch: intent=${policy.intent.name} engine=${engine.name.lowercase()} module=$module modules=[${results.moduleSummary()}] " +
+                "relevance_reason=${assessment.reason} fallback_reason=$fallbackReason query='$query'",
+        )
+    }
+
+    if (policy.allowLowRelevanceFallback) {
+        lowRelevanceFallback?.let { fallback ->
+            val payload = formatSearchResults(query, fallback.results.take(maxResults))
+            RuntimeLogRepository.append(
+                "WebSearch: intent=${policy.intent.name} engine=${fallback.engine.name.lowercase()} module=${fallback.assessment.bestModule ?: "unknown"} " +
+                    "modules=[${fallback.results.moduleSummary()}] relevance_reason=${fallback.assessment.reason} " +
+                    "fallback_reason=low_relevance_last_resort payload=${payload.toSingleLineLog()}",
+            )
+            return payload
         }
     }
 
-    // Last resort: return low-relevance results rather than failing completely
-    lowRelevanceFallback?.let { fallback ->
-        val payload = formatSearchResults(query, fallback.take(maxResults))
-        RuntimeLogRepository.append("WebSearch: returning low-relevance fallback for query='$query' ${payload.toSingleLineLog()}")
-        return payload
-    }
-
-    throw IllegalStateException("No search results found for query='$query' after ${attempts.joinToString()}.")
+    throw IllegalStateException(
+        "No search results found for query='$query' after ${attempts.joinToString()} intent=${policy.intent.name}.",
+    )
 }
 
 internal fun parseBingResults(
@@ -305,6 +353,7 @@ internal fun parseBingResults(
                 url = href,
                 snippet = snippet,
                 engine = "bing",
+                module = "bing_b_algo",
             )
         }
     }
@@ -355,6 +404,7 @@ private fun extractBingWeatherCard(doc: Document): WebSearchResult? {
         url = "https://www.bing.com/search",
         snippet = snippet.take(MAX_SEARCH_SNIPPET_LENGTH),
         engine = "bing",
+        module = "bing_weather_card",
     )
 }
 
@@ -383,6 +433,7 @@ private fun extractBingAnswerCard(doc: Document): WebSearchResult? {
                 url = "https://www.bing.com/search",
                 snippet = snippet.take(MAX_SEARCH_SNIPPET_LENGTH),
                 engine = "bing",
+                module = "bing_answer_card",
             )
         }
     }
@@ -415,6 +466,7 @@ private fun extractBingContextCard(doc: Document): WebSearchResult? {
         url = "https://www.bing.com/search",
         snippet = snippet.take(MAX_SEARCH_SNIPPET_LENGTH),
         engine = "bing",
+        module = "bing_context_card",
     )
 }
 
@@ -457,6 +509,7 @@ internal fun parseSogouResults(
                 url = href,
                 snippet = snippet,
                 engine = "sogou",
+                module = "sogou_rb",
             )
         }
     }
@@ -505,6 +558,7 @@ private fun extractSogouWeatherCardV2(
         url = searchUrl,
         snippet = snippet.take(MAX_SEARCH_SNIPPET_LENGTH),
         engine = "sogou",
+        module = "sogou_weather_card",
     )
 }
 
@@ -529,6 +583,7 @@ private fun extractSogouSupListResults(html: String): List<WebSearchResult> {
                 url = url,
                 snippet = snippet,
                 engine = "sogou",
+                module = "sogou_sup_list",
             )
         }
     }
@@ -552,6 +607,7 @@ private fun extractSogouAnswerSummaryResult(
         url = searchUrl,
         snippet = summary.take(MAX_SEARCH_SNIPPET_LENGTH),
         engine = "sogou",
+        module = "sogou_answer_summary",
     )
 }
 
@@ -622,7 +678,7 @@ private fun formatSearchResults(
 
 private fun List<WebSearchResult>.filterUsefulSearchResults(
     query: String,
-    engine: WebSearchEngine,
+    engine: SearchEngine,
 ): List<WebSearchResult> {
     val filtered = filterNot { result -> result.looksLikeSearchPortalPlaceholder(query, engine) }
     if (filtered.size != size) {
@@ -635,7 +691,7 @@ private fun List<WebSearchResult>.filterUsefulSearchResults(
 
 private fun WebSearchResult.looksLikeSearchPortalPlaceholder(
     query: String,
-    engine: WebSearchEngine,
+    engine: SearchEngine,
 ): Boolean {
     val normalizedTitle = title.normalizeSearchText()
     val normalizedQuery = query.normalizeSearchText()
@@ -650,17 +706,11 @@ private fun WebSearchResult.looksLikeSearchPortalPlaceholder(
         "\u641c\u7d22".normalizeSearchText(),
     )
     val searchPortalUrl = when (engine) {
-        WebSearchEngine.BING -> normalizedUrl.contains("bing.com/search?")
-        WebSearchEngine.SOGOU -> normalizedUrl.contains("sogou.com/web?")
+        SearchEngine.BING -> normalizedUrl.contains("bing.com/search?")
+        SearchEngine.SOGOU -> normalizedUrl.contains("sogou.com/web?")
     }
 
     return searchPortalUrl && (titleEqualsQuery || genericSnippet)
-}
-
-private fun String.normalizeSearchText(): String {
-    return lowercase()
-        .replace(Regex("\\s+"), "")
-        .trim()
 }
 
 private fun String.toSingleLineLog(maxLength: Int = 4000): String {
@@ -679,34 +729,19 @@ internal fun assessBatchRelevance(
     query: String,
     results: List<WebSearchResult>,
 ): Boolean {
-    if (results.isEmpty()) return false
-    // Only assess queries with significant CJK content; Latin bigrams are too noisy
-    val cjkCount = query.count { it.code in 0x4E00..0x9FFF || it.code in 0x3400..0x4DBF }
-    if (cjkCount < 2) return true
-    val queryBigrams = extractQueryBigrams(query)
-    if (queryBigrams.size < 3) return true // Too short to reliably assess
-    return results.any { result ->
-        val text = "${result.title} ${result.snippet}"
-        val matchCount = queryBigrams.count { bigram -> text.contains(bigram) }
-        val ratio = matchCount.toDouble() / queryBigrams.size
-        ratio >= RELEVANCE_PER_RESULT_THRESHOLD
-    }
+    return SearchRelevanceScorer.assess(query, results).isRelevant
 }
-
-private fun extractQueryBigrams(query: String): Set<String> {
-    val segments = query.split(Regex("\\s+")).filter(String::isNotBlank)
-    val bigrams = mutableSetOf<String>()
-    for (segment in segments) {
-        val cleaned = segment.replace(Regex("[\\p{Punct}]+"), "")
-        if (cleaned.length >= 2) {
-            for (i in 0 until cleaned.length - 1) {
-                bigrams.add(cleaned.substring(i, i + 2))
-            }
-        }
-    }
-    return bigrams
-}
-
-private const val RELEVANCE_PER_RESULT_THRESHOLD = 0.25
 
 private const val MAX_SEARCH_SNIPPET_LENGTH = 700
+
+private fun List<WebSearchResult>.moduleSummary(): String {
+    return if (isEmpty()) {
+        "none"
+    } else {
+        groupingBy { it.module.ifBlank { "${it.engine}_unknown" } }
+            .eachCount()
+            .entries
+            .sortedBy { it.key }
+            .joinToString(",") { "${it.key}:${it.value}" }
+    }
+}

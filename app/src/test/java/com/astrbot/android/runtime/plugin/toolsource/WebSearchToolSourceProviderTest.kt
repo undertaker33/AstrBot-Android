@@ -386,9 +386,9 @@ class WebSearchToolSourceProviderTest {
     }
 
     @Test
-    fun assess_batch_relevance_short_query_always_passes() {
-        // Queries with < 3 bigrams should always pass (too short to assess)
-        val query = "\u5929\u6c14"
+    fun assess_batch_relevance_short_general_query_always_passes() {
+        // General queries with < 3 bigrams should always pass (too short to assess).
+        val query = "\u798f\u5dde"
         val results = listOf(
             WebSearchResult(title = "foo", url = "https://example.com", snippet = "bar"),
         )
@@ -552,9 +552,10 @@ class WebSearchToolSourceProviderTest {
 
         val logs = RuntimeLogRepository.logs.value.joinToString("\n")
         assertTrue(logs.contains("query='\u798f\u5dde\u660e\u5929\u5929\u6c14\u9884\u62a5'"))
-        assertTrue(logs.contains("modules=[bing_b_algo"))
-        assertTrue(logs.contains("reason=no_result_passed_threshold"))
-        assertTrue(logs.contains("fallback_engine=sogou"))
+        assertTrue(logs.contains("modules=[bing_b_algo:2]"))
+        assertTrue(logs.contains("relevance_reason=no_result_passed_threshold"))
+        assertTrue(logs.contains("fallback_reason=next_engine"))
+        assertTrue(logs.contains("engine=sogou"))
     }
 
     @Test
