@@ -6,6 +6,11 @@ import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
+import com.astrbot.android.feature.chat.data.LegacyConversationRepositoryAdapter
+import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
+import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
+import com.astrbot.android.feature.chat.runtime.AppChatRuntimeService
 import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.NapCatLoginService
@@ -1040,6 +1045,10 @@ interface ChatViewModelDependencies {
     suspend fun <T> withSessionLock(sessionId: String, block: suspend () -> T): T
 
     fun log(message: String)
+
+    val conversationRepositoryPort: ConversationRepositoryPort
+    val appChatRuntimePort: AppChatRuntimePort
+    val sendAppMessageUseCase: SendAppMessageUseCase
 }
 
 object DefaultChatViewModelDependencies : ChatViewModelDependencies {
@@ -1225,6 +1234,24 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
 
     override fun log(message: String) {
         RuntimeLogRepository.append(message)
+    }
+
+    override val conversationRepositoryPort: ConversationRepositoryPort by lazy {
+        LegacyConversationRepositoryAdapter(ConversationRepository)
+    }
+
+    override val appChatRuntimePort: AppChatRuntimePort by lazy {
+        AppChatRuntimeService(
+            chatDependencies = this,
+            appChatPluginRuntime = com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime,
+        )
+    }
+
+    override val sendAppMessageUseCase: SendAppMessageUseCase by lazy {
+        SendAppMessageUseCase(
+            conversations = conversationRepositoryPort,
+            runtime = appChatRuntimePort,
+        )
     }
 }
 

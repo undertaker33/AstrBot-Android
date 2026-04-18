@@ -27,17 +27,17 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class AstrBotAppContainerTest {
     @Test
-    fun bootstrap_initializes_config_repository_before_resource_center_repository() {
+    fun bootstrap_runs_config_initializer_before_resource_center_repository() {
         val sourceFile = listOf(
             File("src/main/java/com/astrbot/android/di/AstrBotAppContainer.kt"),
             File("app/src/main/java/com/astrbot/android/di/AstrBotAppContainer.kt"),
         ).first { it.exists() }
         val source = sourceFile.readText()
 
-        val configIndex = source.indexOf("ConfigRepository.initialize(application)")
+        val configIndex = source.indexOf("ConfigRepositoryInitializer()")
         val resourceCenterIndex = source.indexOf("ResourceCenterRepository.initialize(application)")
 
-        assertTrue("ConfigRepository bootstrap call must exist", configIndex >= 0)
+        assertTrue("Config repository initializer bootstrap call must exist", configIndex >= 0)
         assertTrue("ResourceCenterRepository bootstrap call must exist", resourceCenterIndex >= 0)
         assertTrue(
             "ResourceCenterRepository seeds from config tables, so ConfigRepository must initialize first",

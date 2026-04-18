@@ -9,6 +9,8 @@ keystore.properties
 .externalNativeBuild/
 captures/
 artifacts/*
+docs/*
+!docs/architecture.md
 docs/plugins/
 .superpowers/
 .worktrees/

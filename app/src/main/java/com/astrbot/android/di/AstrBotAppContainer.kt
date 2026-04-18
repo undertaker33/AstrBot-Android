@@ -5,23 +5,24 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.astrbot.android.AppStrings
+import com.astrbot.android.core.di.InitializationCoordinator
 import com.astrbot.android.data.AppBackupRepository
-import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
-import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationBackupRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.CronJobRepository
 import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.NapCatLoginRepository
-import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.PluginRepository
-import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.ResourceCenterRepository
 import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.SherpaOnnxBridge
 import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.download.AppDownloadManager
+import com.astrbot.android.feature.bot.data.BotRepositoryInitializer
+import com.astrbot.android.feature.config.data.ConfigRepositoryInitializer
+import com.astrbot.android.feature.persona.data.PersonaRepositoryInitializer
+import com.astrbot.android.feature.provider.data.ProviderRepositoryInitializer
 import com.astrbot.android.runtime.ContainerRuntimeInstaller
 import com.astrbot.android.runtime.OneBotBridgeServer
 import com.astrbot.android.runtime.RuntimeLogRepository
@@ -91,6 +92,7 @@ class AstrBotAppContainer(
 
     val viewModelFactory: ViewModelProvider.Factory = AstrBotViewModelFactory(this, application)
 
+    // Keep the config coordinator seam before ResourceCenterRepository startup.
     fun bootstrap() {
         if (!bootstrapped.compareAndSet(false, true)) return
         Log.i("AstrBotRuntime", "AstrBotAppContainer.bootstrap entered")
@@ -115,15 +117,23 @@ class AstrBotAppContainer(
         RuntimeAssetRepository.initialize(application)
         SherpaOnnxBridge.initialize(application)
         TtsVoiceAssetRepository.initialize(application)
-        ConfigRepository.initialize(application)
+        InitializationCoordinator(
+            listOf(
+                ConfigRepositoryInitializer(),
+            ),
+        ).initializeAll(application)
         ActiveCapabilityToolSourceProvider.initialize(application)
         CronJobRepository.initialize(application)
         ResourceCenterRepository.initialize(application)
         CronJobExecutionBridge.instance = CronJobExecutionBridge { context ->
             ScheduledTaskRuntimeExecutor.execute(context)
         }
-        ProviderRepository.initialize(application)
-        PersonaRepository.initialize(application)
+        InitializationCoordinator(
+            listOf(
+                ProviderRepositoryInitializer(),
+                PersonaRepositoryInitializer(),
+            ),
+        ).initializeAll(application)
         ConversationRepository.initialize(application)
         PluginRepository.initialize(application)
         CronJobScheduler.initialize(application)
@@ -145,7 +155,12 @@ class AstrBotAppContainer(
         AppBackupRepository.initialize(application)
         OneBotBridgeServer.start()
         appScope.launch(Dispatchers.IO) {
-            BotRepository.initialize(application)
+            InitializationCoordinator(
+                listOf(
+                    ConfigRepositoryInitializer(),
+                    BotRepositoryInitializer(),
+                ),
+            ).initializeAll(application)
         }
         ContainerRuntimeInstaller.warmUpAsync(application, appScope)
         RuntimeLogRepository.append("App started")

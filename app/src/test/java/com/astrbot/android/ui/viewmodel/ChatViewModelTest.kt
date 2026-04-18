@@ -6,6 +6,9 @@ import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.di.ChatViewModelDependencies
+import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
+import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -1403,6 +1406,45 @@ class ChatViewModelTest {
         override fun log(message: String) {
             loggedMessages += message
         }
+
+        override val conversationRepositoryPort: ConversationRepositoryPort = object : ConversationRepositoryPort {
+            override val sessions: StateFlow<List<ConversationSession>>
+                get() = this@FakeChatDependencies.sessions
+
+            override fun session(sessionId: String): ConversationSession {
+                return this@FakeChatDependencies.session(sessionId)
+            }
+
+            override fun appendMessage(
+                sessionId: String,
+                role: String,
+                content: String,
+                attachments: List<ConversationAttachment>,
+            ): String {
+                return this@FakeChatDependencies.appendMessage(sessionId, role, content, attachments)
+            }
+
+            override fun updateMessage(
+                sessionId: String,
+                messageId: String,
+                content: String?,
+                attachments: List<ConversationAttachment>?,
+            ) {
+                this@FakeChatDependencies.updateMessage(sessionId, messageId, content, attachments)
+            }
+
+            override fun renameSession(sessionId: String, title: String) {
+                this@FakeChatDependencies.renameSession(sessionId, title)
+            }
+
+            override fun deleteSession(sessionId: String) {
+                this@FakeChatDependencies.deleteSession(sessionId)
+            }
+        }
+        override val appChatRuntimePort: AppChatRuntimePort
+            get() = error("Not needed in test")
+        override val sendAppMessageUseCase: SendAppMessageUseCase
+            get() = error("Not needed in test")
 
         fun clearRecordedSignals() {
             signalLog.clear()

@@ -101,8 +101,12 @@ class Task8Phase1And2VerificationTest {
         val methods = vmClass.declaredMethods.map { it.name }
 
         assertTrue(
-            "deliverAppChatLlmPipeline must exist",
-            methods.contains("deliverAppChatLlmPipeline"),
+            "deliverViaRuntimePort must NOT exist (send path moved to feature/chat use case)",
+            !methods.contains("deliverViaRuntimePort"),
+        )
+        assertTrue(
+            "deliverAppChatLlmPipeline must NOT exist (moved to AppChatRuntimeService)",
+            !methods.contains("deliverAppChatLlmPipeline"),
         )
         assertTrue(
             "deliverAppChatLlmPipelineIfSupported must NOT exist (Track B removed)",

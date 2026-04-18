@@ -1,10 +1,13 @@
 package com.astrbot.android.runtime.cron
 
+import com.astrbot.android.core.runtime.llm.LlmClientPort
+import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
+import com.astrbot.android.core.runtime.llm.LlmInvocationResult
+import com.astrbot.android.core.runtime.llm.LlmStreamEvent
+import com.astrbot.android.core.runtime.llm.LlmToolDefinition
 import com.astrbot.android.data.BotRepository
-import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.model.ProviderCapability
-import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.MessageType
@@ -17,6 +20,7 @@ import com.astrbot.android.runtime.context.RuntimeContextResolver
 import com.astrbot.android.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.runtime.context.RuntimePlatform
 import com.astrbot.android.runtime.context.SenderInfo
+import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.runtime.plugin.PluginLlmResponse
@@ -32,6 +36,8 @@ import com.astrbot.android.runtime.plugin.RuntimeOrchestrator
 import org.json.JSONObject
 
 internal object ScheduledTaskRuntimeExecutor {
+
+    private val llmClient: LlmClientPort = LegacyChatCompletionServiceAdapter()
 
     suspend fun execute(context: CronJobExecutionContext): CronJobDeliverySummary {
         val note = context.note.trim().ifBlank { context.description.trim() }
@@ -172,23 +178,26 @@ internal object ScheduledTaskRuntimeExecutor {
                 } ?: error("Selected provider is unavailable: ${request.selectedProviderId}")
 
                 val messages = request.messages.toConversationMessages(request.requestId)
-                val chatTools = request.tools.map { def ->
-                    ChatCompletionService.ChatToolDefinition(
+                val llmTools = request.tools.map { def ->
+                    LlmToolDefinition(
                         name = def.name,
                         description = def.description,
-                        parameters = JSONObject(def.inputSchema.filterValues { it != null } as Map<*, *>),
+                        parametersJson = JSONObject(
+                            def.inputSchema.filterValues { it != null } as Map<*, *>,
+                        ).toString(),
                     )
                 }
+                val llmRequest = LlmInvocationRequest(
+                    provider = resolvedProvider,
+                    messages = messages,
+                    systemPrompt = request.systemPrompt,
+                    config = ctx.config,
+                    availableProviders = ctx.availableProviders,
+                    tools = llmTools,
+                )
 
                 return if (mode != PluginV2StreamingMode.NATIVE_STREAM || !request.streamingEnabled) {
-                    val result = ChatCompletionService.sendConfiguredChatWithTools(
-                        provider = resolvedProvider,
-                        messages = messages,
-                        systemPrompt = request.systemPrompt,
-                        config = ctx.config,
-                        availableProviders = ctx.availableProviders,
-                        tools = chatTools,
-                    )
+                    val result = llmClient.sendWithTools(llmRequest)
                     PluginV2ProviderInvocationResult.NonStreaming(
                         response = PluginLlmResponse(
                             requestId = request.requestId,
@@ -206,20 +215,24 @@ internal object ScheduledTaskRuntimeExecutor {
                     )
                 } else {
                     val chunks = mutableListOf<PluginV2ProviderStreamChunk>()
-                    val result = ChatCompletionService.sendConfiguredChatStreamWithTools(
-                        provider = resolvedProvider,
-                        messages = messages,
-                        systemPrompt = request.systemPrompt,
-                        config = ctx.config,
-                        availableProviders = ctx.availableProviders,
-                        tools = chatTools,
-                        onDelta = { delta ->
-                            if (delta.isNotBlank()) {
-                                chunks += PluginV2ProviderStreamChunk(deltaText = delta)
+                    var completedResult: LlmInvocationResult? = null
+                    llmClient.streamWithTools(llmRequest).collect { event ->
+                        when (event) {
+                            is LlmStreamEvent.TextDelta -> {
+                                chunks += PluginV2ProviderStreamChunk(deltaText = event.text)
                             }
-                        },
-                        onToolCallDelta = { _, _, _ -> },
-                    )
+                            is LlmStreamEvent.ToolCallDelta -> {
+                                // Collect tool call deltas; finalization happens on Completed.
+                            }
+                            is LlmStreamEvent.Completed -> {
+                                completedResult = event.result
+                            }
+                            is LlmStreamEvent.Failed -> {
+                                throw event.throwable
+                            }
+                        }
+                    }
+                    val result = completedResult ?: LlmInvocationResult(text = "")
                     val finalizedToolDeltas = result.toolCalls.mapIndexedNotNull { index, toolCall ->
                         val normalizedName = toolCall.name.trim()
                         if (normalizedName.isBlank()) {

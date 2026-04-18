@@ -119,9 +119,7 @@ fun ChatScreen(
 
     val currentBot = chatViewModel.selectedBot()
     val messages = chatViewModel.sessionMessages(uiState.selectedSessionId)
-    val latestMessageScrollKey = messages.lastOrNull()?.let { message ->
-        "${message.id}:${message.content.length}:${message.attachments.size}"
-    }
+    val latestMessageId = messages.lastOrNull()?.id
     val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
 
     var showQqConversations by remember { mutableStateOf(false) }
@@ -144,7 +142,7 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size, latestMessageScrollKey) {
+    LaunchedEffect(messages.size, latestMessageId) {
         if (messages.isNotEmpty()) {
             listState.animateToItemWithAppMotion(messages.lastIndex)
         }
