@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import com.astrbot.android.R
+import com.astrbot.android.feature.resource.presentation.ResourceCenterPresentationController
 import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.SkillResourceKind
 import com.astrbot.android.ui.app.FloatingBottomNavFabBottomPadding
@@ -67,13 +68,14 @@ fun ResourceCenterScreen(
     onBack: () -> Unit,
     onOpenResourceList: (ResourceKind) -> Unit,
 ) {
+    val controller: ResourceCenterPresentationController = defaultResourceCenterPresentationController()
     SubPageScaffold(
         route = AppDestination.ResourceCenter.route,
         title = stringResource(R.string.resource_center_title),
         onBack = onBack,
     ) { innerPadding ->
         EntryListPage(
-            entries = buildResourceCenterPresentation().entries.map { entry ->
+            entries = buildResourceCenterPresentation(controller).entries.map { entry ->
                 EntryCardState(
                     title = entry.kind.titleText(),
                     subtitle = entry.kind.subtitleText(),

@@ -131,6 +131,279 @@ class FeatureFirstBoundaryContractTest {
         )
     }
 
+    @Test
+    fun feature_qq_domain_must_not_import_legacy_data_or_chat_completion_service() {
+        val violations = kotlinFilesUnder("feature/qq/domain")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                listOf(
+                    "import com.astrbot.android.data.",
+                    "import com.astrbot.android.runtime.plugin.",
+                    "ChatCompletionService",
+                ).mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative imports $forbidden" else null
+                }
+            }
+        assertTrue(
+            "feature/qq/domain boundary violations (phase 5): $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun feature_qq_runtime_must_not_import_legacy_repository_objects() {
+        val forbiddenLegacyImports = listOf(
+            "import com.astrbot.android.data.BotRepository",
+            "import com.astrbot.android.data.ConfigRepository",
+            "import com.astrbot.android.data.ProviderRepository",
+            "import com.astrbot.android.data.PersonaRepository",
+            "import com.astrbot.android.data.ConversationRepository",
+            "import com.astrbot.android.data.PluginRepository",
+        )
+        val violations = kotlinFilesUnder("feature/qq/runtime")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                forbiddenLegacyImports.mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative imports $forbidden" else null
+                }
+            }
+        assertTrue(
+            "feature/qq/runtime must not import legacy repository objects (phase 5): $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun feature_qq_runtime_must_not_call_chat_completion_service_directly() {
+        val violations = kotlinFilesUnder("feature/qq/runtime")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                listOf(
+                    "sendConfiguredChatWithTools",
+                    "sendConfiguredChatStreamWithTools",
+                ).mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative calls $forbidden" else null
+                }
+            }
+        assertTrue(
+            "feature/qq/runtime must not call ChatCompletionService directly (phase 5): $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun one_bot_bridge_server_uses_phase5_feature_qq_adapter_path() {
+        val source = mainRoot.resolve("runtime/OneBotBridgeServer.kt").readText()
+        assertTrue(
+            "OneBotBridgeServer must delegate QQ ingress to OneBotServerAdapter during phase 5",
+            source.contains("OneBotServerAdapter"),
+        )
+        assertTrue(
+            "OneBotBridgeServer should not keep the old QQ processMessageEvent chain after phase 5 migration",
+            !source.contains("private suspend fun processMessageEvent("),
+        )
+        assertTrue(
+            "OneBotBridgeServer should not keep invokeProviderForPipeline after phase 5 migration",
+            !source.contains("private suspend fun invokeProviderForPipeline("),
+        )
+    }
+
+    @Test
+    fun feature_plugin_domain_must_not_import_legacy_data_or_runtime() {
+        val violations = kotlinFilesUnder("feature/plugin/domain")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                forbiddenDomainImports.mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative imports $forbidden" else null
+                }
+            }
+        assertTrue(
+            "feature/plugin/domain must not import legacy data/runtime (phase 6): $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun plugin_view_model_routes_management_actions_through_plugin_presentation_controller() {
+        val file = mainRoot.resolve("ui/viewmodel/PluginViewModel.kt")
+        assertTrue("PluginViewModel.kt must exist", file.exists())
+        val text = file.readText()
+        val enableBody = functionBody(text, "updateSelectedPluginEnabled")
+        val recoverBody = functionBody(text, "recoverSelectedPluginFromSuspension")
+        assertTrue(
+            "PluginViewModel must wire PluginPresentationController for phase 6 management paths",
+            text.contains("PluginPresentationController"),
+        )
+        assertTrue(
+            "PluginViewModel enable/disable path must delegate through PluginPresentationController",
+            enableBody.contains("pluginPresentationController.enablePlugin(") ||
+                enableBody.contains("pluginPresentationController.disablePlugin("),
+        )
+        assertTrue(
+            "PluginViewModel recover path must delegate through PluginPresentationController",
+            recoverBody.contains("pluginPresentationController.recoverPlugin("),
+        )
+        assertTrue(
+            "PluginViewModel enable/disable path must not call dependencies.setPluginEnabled directly",
+            !enableBody.contains("dependencies.setPluginEnabled("),
+        )
+        assertTrue(
+            "PluginViewModel recover path must not call dependencies.recoverPluginFailureState directly",
+            !recoverBody.contains("dependencies.recoverPluginFailureState("),
+        )
+    }
+
+    @Test
+    fun feature_cron_domain_must_not_import_legacy_repository_objects() {
+        val forbiddenLegacyImports = listOf(
+            "import com.astrbot.android.data.CronJobRepository",
+            "import com.astrbot.android.data.BotRepository",
+            "import com.astrbot.android.data.ConfigRepository",
+        )
+        val violations = kotlinFilesUnder("feature/cron/domain")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                forbiddenLegacyImports.mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative imports $forbidden" else null
+                }
+            }
+        assertTrue(
+            "feature/cron/domain must not import legacy repository objects (phase 6): $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun cron_jobs_view_model_routes_create_update_delete_schedule_through_controller() {
+        val file = mainRoot.resolve("ui/settings/CronJobsViewModel.kt")
+        assertTrue("CronJobsViewModel.kt must exist", file.exists())
+        val text = file.readText()
+        assertTrue(
+            "CronJobsViewModel must wire CronJobsPresentationController",
+            text.contains("CronJobsPresentationController"),
+        )
+        val forbiddenTokens = listOf(
+            "import com.astrbot.android.data.CronJobRepository",
+            "import com.astrbot.android.runtime.cron.CronJobScheduler",
+            "ActiveCapabilityRuntimeFacade",
+            "createFacade(",
+        ).filter(text::contains)
+        assertTrue(
+            "CronJobsViewModel must not keep direct cron runtime orchestration after phase 6 wiring: $forbiddenTokens",
+            forbiddenTokens.isEmpty(),
+        )
+    }
+
+    @Test
+    fun feature_resource_domain_must_not_import_legacy_data_or_android() {
+        val violations = kotlinFilesUnder("feature/resource/domain")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                forbiddenDomainImports.mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative imports $forbidden" else null
+                }
+            }
+        assertTrue(
+            "feature/resource/domain must not import legacy data/runtime (phase 6): $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun resource_center_ui_routes_presentation_through_feature_controller() {
+        val screenFile = mainRoot.resolve("ui/settings/ResourceCenterScreen.kt")
+        val presentationFile = mainRoot.resolve("ui/settings/ResourceCenterPresentation.kt")
+        assertTrue("ResourceCenterScreen.kt must exist", screenFile.exists())
+        assertTrue("ResourceCenterPresentation.kt must exist", presentationFile.exists())
+        val screenText = screenFile.readText()
+        val presentationText = presentationFile.readText()
+        assertTrue(
+            "ResourceCenter screen/presentation must wire ResourceCenterPresentationController",
+            screenText.contains("ResourceCenterPresentationController") ||
+                presentationText.contains("ResourceCenterPresentationController"),
+        )
+        assertTrue(
+            "ResourceCenter presentation must delegate compatibility snapshots through the controller path",
+            presentationText.contains("compatibilitySnapshotForConfig"),
+        )
+    }
+
+    @Test
+    fun core_runtime_tool_must_not_import_feature_or_legacy() {
+        val forbiddenImports = listOf(
+            "import com.astrbot.android.feature.",
+            "import com.astrbot.android.data.",
+            "import com.astrbot.android.ui.",
+        )
+        val violations = kotlinFilesUnder("core/runtime/tool")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                forbiddenImports.mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative imports $forbidden" else null
+                }
+            }
+        assertTrue(
+            "core/runtime/tool must not import feature or legacy packages: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun plugin_v1_runtime_boundary_is_frozen_behind_explicit_legacy_adapter() {
+        val adapterFile = mainRoot.resolve("feature/plugin/runtime/PluginV1LegacyAdapter.kt")
+        val facadeFile = mainRoot.resolve("feature/plugin/runtime/PluginRuntimeFacade.kt")
+        assertTrue("PluginV1LegacyAdapter.kt must exist for the phase 6 V1 freeze boundary", adapterFile.exists())
+        assertTrue("PluginRuntimeFacade.kt must exist", facadeFile.exists())
+
+        val adapterText = adapterFile.readText()
+        val facadeText = facadeFile.readText()
+
+        assertTrue(
+            "PluginV1LegacyAdapter must document the V1 legacy/frozen boundary explicitly",
+            adapterText.contains("legacy") && adapterText.contains("freeze"),
+        )
+        assertTrue(
+            "PluginRuntimeFacade must depend on PluginV1LegacyAdapter instead of keeping V1 logic implicit",
+            facadeText.contains("PluginV1LegacyAdapter"),
+        )
+    }
+
+    @Test
+    fun future_tool_source_registry_is_compatibility_shell_over_core_runtime_contract() {
+        val contractsFile = mainRoot.resolve("runtime/plugin/toolsource/FutureToolSourceContracts.kt")
+        val registryFile = mainRoot.resolve("runtime/plugin/toolsource/FutureToolSourceRegistry.kt")
+        assertTrue("FutureToolSourceContracts.kt must exist", contractsFile.exists())
+        assertTrue("FutureToolSourceRegistry.kt must exist", registryFile.exists())
+
+        val contractsText = contractsFile.readText()
+        val registryText = registryFile.readText()
+        val collectBody = functionBody(registryText, "collectToolDescriptors")
+
+        assertTrue(
+            "Future toolsource contracts must bridge through core/runtime/tool ToolSourceProviderPort",
+            contractsText.contains("ToolSourceProviderPort") && contractsText.contains("ToolDescriptor"),
+        )
+        assertTrue(
+            "FutureToolSourceRegistry must import the core runtime tool contract for phase 6 ownership",
+            registryText.contains("import com.astrbot.android.core.runtime.tool."),
+        )
+        assertTrue(
+            "FutureToolSourceRegistry must expose a contract-first collection path",
+            registryText.contains("fun collectContractDescriptors("),
+        )
+        assertTrue(
+            "Legacy collectToolDescriptors path must be a compatibility shell over collectContractDescriptors",
+            collectBody.contains("collectContractDescriptors("),
+        )
+    }
+
     private fun kotlinFilesUnder(relative: String): List<Path> {
         val root = mainRoot.resolve(relative)
         if (!root.exists()) return emptyList()
@@ -139,6 +412,26 @@ class FeatureFirstBoundaryContractTest {
                 .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
                 .toList()
         }
+    }
+
+    private fun functionBody(source: String, functionName: String): String {
+        val start = source.indexOf("fun $functionName(")
+        if (start < 0) return ""
+        val braceStart = source.indexOf('{', start)
+        if (braceStart < 0) return ""
+        var depth = 0
+        for (index in braceStart until source.length) {
+            when (source[index]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) {
+                        return source.substring(braceStart, index + 1)
+                    }
+                }
+            }
+        }
+        return source.substring(braceStart)
     }
 
     private companion object {

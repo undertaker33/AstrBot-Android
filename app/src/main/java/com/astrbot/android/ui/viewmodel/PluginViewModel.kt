@@ -6,6 +6,12 @@ import com.astrbot.android.R
 import com.astrbot.android.data.PluginUninstallResult
 import com.astrbot.android.di.DefaultPluginViewModelDependencies
 import com.astrbot.android.di.PluginViewModelDependencies
+import com.astrbot.android.feature.plugin.domain.PluginGovernancePort
+import com.astrbot.android.feature.plugin.domain.PluginManagementUseCases
+import com.astrbot.android.feature.plugin.domain.PluginRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginRuntimePort
+import com.astrbot.android.feature.plugin.domain.PluginUninstallResult as FeaturePluginUninstallResult
+import com.astrbot.android.feature.plugin.presentation.PluginPresentationController
 import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.CardResult
@@ -367,6 +373,94 @@ class PluginViewModel(
 
     private val hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
         hostActionExecutor = ExternalPluginHostActionExecutor(),
+    )
+    private val pluginPresentationController = PluginPresentationController(
+        PluginManagementUseCases(
+            repository = object : PluginRepositoryPort {
+                override fun findByPluginId(pluginId: String): PluginInstallRecord? {
+                    return dependencies.records.value.firstOrNull { it.pluginId == pluginId }
+                }
+
+                override fun upsert(record: PluginInstallRecord) {
+                    error("PluginViewModel phase 6 controller does not own repository upsert mutations.")
+                }
+
+                override fun delete(pluginId: String) {
+                    error("PluginViewModel phase 6 controller does not own repository delete mutations.")
+                }
+
+                override fun setEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
+                    return dependencies.setPluginEnabled(pluginId, enabled)
+                }
+
+                override fun updateFailureState(
+                    pluginId: String,
+                    failureState: com.astrbot.android.model.plugin.PluginFailureState,
+                ): PluginInstallRecord {
+                    error("PluginViewModel phase 6 controller does not own failure-state writes.")
+                }
+
+                override fun uninstall(
+                    pluginId: String,
+                    policy: PluginUninstallPolicy,
+                ): FeaturePluginUninstallResult {
+                    val result = dependencies.uninstallPlugin(pluginId, policy)
+                    return FeaturePluginUninstallResult(
+                        success = true,
+                        pluginId = result.pluginId,
+                        reason = "",
+                    )
+                }
+
+                override fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
+                    return dependencies.getPluginStaticConfigSchema(pluginId)
+                }
+
+                override fun saveCoreConfig(
+                    pluginId: String,
+                    boundary: PluginConfigStorageBoundary,
+                    coreValues: Map<String, PluginStaticConfigValue>,
+                ): com.astrbot.android.model.plugin.PluginConfigStoreSnapshot {
+                    error("PluginViewModel phase 6 controller does not own core config persistence.")
+                }
+
+                override fun saveExtensionConfig(
+                    pluginId: String,
+                    boundary: PluginConfigStorageBoundary,
+                    extensionValues: Map<String, PluginStaticConfigValue>,
+                ): com.astrbot.android.model.plugin.PluginConfigStoreSnapshot {
+                    error("PluginViewModel phase 6 controller does not own extension config persistence.")
+                }
+            },
+            runtime = object : PluginRuntimePort {
+                override suspend fun refreshRuntimeRegistry() = Unit
+
+                override fun runtimeLogSummary(pluginId: String): String = ""
+
+                override fun isPluginLoaded(pluginId: String): Boolean = false
+            },
+            governance = object : PluginGovernancePort {
+                override fun isSuspended(pluginId: String): Boolean {
+                    return dependencies.records.value
+                        .firstOrNull { it.pluginId == pluginId }
+                        ?.failureState
+                        ?.let { state ->
+                            state.suspendedUntilEpochMillis?.let { it > System.currentTimeMillis() } == true
+                        } == true
+                }
+
+                override fun recoverPlugin(pluginId: String) {
+                    dependencies.recoverPluginFailureState(pluginId)
+                }
+
+                override fun suspendPlugin(pluginId: String, reason: String) {
+                    error("Plugin suspension mutation is not wired through PluginViewModel in phase 6.")
+                }
+
+                override fun currentFailureState(pluginId: String) =
+                    dependencies.records.value.firstOrNull { it.pluginId == pluginId }?.failureState
+            },
+        ),
     )
     private val selectedPluginId = MutableStateFlow<String?>(null)
     private val showingDetail = MutableStateFlow(false)
@@ -836,7 +930,7 @@ class PluginViewModel(
                 ?: selected.failureState.suspendedUntilEpochMillis,
         )
         runCatching {
-            dependencies.recoverPluginFailureState(selected.pluginId)
+            pluginPresentationController.recoverPlugin(selected.pluginId)
         }.onSuccess {
             dependencies.logBus.publishPluginRecoveryCompleted(
                 pluginId = selected.pluginId,
@@ -1780,7 +1874,11 @@ class PluginViewModel(
             return
         }
         runCatching {
-            dependencies.setPluginEnabled(selected.pluginId, enabled)
+            if (enabled) {
+                pluginPresentationController.enablePlugin(selected.pluginId)
+            } else {
+                pluginPresentationController.disablePlugin(selected.pluginId)
+            }
         }.onSuccess {
             lastActionMessage.value = PluginActionFeedback.Resource(
                 resId = if (enabled) {

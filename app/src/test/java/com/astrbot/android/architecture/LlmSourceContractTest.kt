@@ -52,7 +52,6 @@ class LlmSourceContractTest {
         val allowedFiles = setOf(
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
             // Legacy files not yet migrated — allowlist with phase notes:
-            "runtime/OneBotBridgeServer.kt",                          // phase 5 migration target
             "di/AstrBotViewModelDependencies.kt",                     // legacy bridge, future migration
             "feature/chat/runtime/AppChatRuntimeService.kt",          // uses via dependencies interface
             "data/ChatCompletionService.kt",                          // definition site
@@ -84,7 +83,6 @@ class LlmSourceContractTest {
         val allowedFiles = setOf(
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
             // Legacy files not yet migrated — allowlist with phase notes:
-            "runtime/OneBotBridgeServer.kt",                          // phase 5 migration target
             "di/AstrBotViewModelDependencies.kt",                     // legacy bridge, future migration
             "feature/chat/runtime/AppChatRuntimeService.kt",          // uses via dependencies interface
             "data/ChatCompletionService.kt",                          // definition site

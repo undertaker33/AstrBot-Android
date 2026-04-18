@@ -11,6 +11,20 @@ import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.StreamingResponseSegmenter
 import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.feature.bot.data.LegacyBotRepositoryAdapter
+import com.astrbot.android.feature.config.data.LegacyConfigRepositoryAdapter
+import com.astrbot.android.feature.persona.data.LegacyPersonaRepositoryAdapter
+import com.astrbot.android.feature.provider.data.LegacyProviderRepositoryAdapter
+import com.astrbot.android.feature.qq.data.LegacyQqConversationAdapter
+import com.astrbot.android.feature.qq.data.LegacyQqPlatformConfigAdapter
+import com.astrbot.android.feature.qq.domain.IncomingQqMessage
+import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
+import com.astrbot.android.feature.qq.runtime.OneBotPayloadParser
+import com.astrbot.android.feature.qq.runtime.OneBotServerAdapter
+import com.astrbot.android.feature.qq.runtime.OneBotServerAdapterResult
+import com.astrbot.android.feature.qq.runtime.QqMessageRuntimeService
+import com.astrbot.android.feature.qq.runtime.QqReplySender
+import com.astrbot.android.feature.qq.runtime.QqRuntimeCompatBridge
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationToolCall
@@ -99,6 +113,8 @@ import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.PluginV2LifecycleManagerProvider
 import com.astrbot.android.runtime.plugin.publishLifecycleRecord
+import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
+import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
 import com.astrbot.android.runtime.qq.QqKeywordDetector
 import com.astrbot.android.runtime.qq.QqConversationTitleResolver
 import com.astrbot.android.runtime.qq.QqReplyFormatter
@@ -328,6 +344,146 @@ object OneBotBridgeServer {
         }
     }
 
+    private fun buildServerAdapter(): OneBotServerAdapter {
+        return OneBotServerAdapter(
+            parser = OneBotPayloadParser(),
+            runtime = buildQqRuntimeService(),
+            log = RuntimeLogRepository::append,
+        )
+    }
+
+    private fun buildQqRuntimeService(): QqMessageRuntimeService {
+        return QqMessageRuntimeService(
+            botPort = LegacyBotRepositoryAdapter(),
+            configPort = LegacyConfigRepositoryAdapter(),
+            personaPort = LegacyPersonaRepositoryAdapter(),
+            providerPort = LegacyProviderRepositoryAdapter(),
+            conversationPort = LegacyQqConversationAdapter(),
+            platformConfigPort = LegacyQqPlatformConfigAdapter(),
+            orchestrator = LegacyRuntimeOrchestratorAdapter(),
+            replySender = buildReplySender(),
+            llmRuntime = appChatPluginRuntime,
+            providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
+            rateLimiter = rateLimiter,
+            markMessageId = ::markMessageId,
+            scheduleStashReplay = ::scheduleStashReplay,
+            compatBridge = object : QqRuntimeCompatBridge {
+                override fun currentLanguageTag(): String = this@OneBotBridgeServer.currentLanguageTag()
+
+                override fun transcribeAudio(
+                    provider: ProviderProfile,
+                    attachment: ConversationAttachment,
+                ): String {
+                    return ChatCompletionService.transcribeAudio(provider, attachment)
+                }
+
+                override fun buildVoiceReplyAttachments(
+                    provider: ProviderProfile,
+                    response: String,
+                    config: com.astrbot.android.model.ConfigProfile,
+                ): List<ConversationAttachment> {
+                    return this@OneBotBridgeServer.buildVoiceReplyAttachments(
+                        provider = provider,
+                        response = response,
+                        voiceId = config.ttsVoiceId,
+                        voiceStreamingEnabled = config.voiceStreamingEnabled,
+                        readBracketedContent = config.ttsReadBracketedContent,
+                    )
+                }
+
+                override suspend fun sendPreparedReply(
+                    message: IncomingQqMessage,
+                    prepared: PluginV2HostPreparedReply,
+                    config: com.astrbot.android.model.ConfigProfile,
+                    streamingMode: PluginV2StreamingMode,
+                ): PluginV2HostSendResult {
+                    val event = message.toLegacyIncomingMessageEvent()
+                    val sendResult = if (
+                        prepared.attachments.size > 1 &&
+                        prepared.attachments.all { attachment -> attachment.type == "audio" }
+                    ) {
+                        sendStreamingVoiceReplyWithOutcome(
+                            event = event,
+                            attachments = prepared.attachments,
+                            config = config,
+                        )
+                    } else if (
+                        streamingMode != PluginV2StreamingMode.NON_STREAM &&
+                        prepared.attachments.isEmpty()
+                    ) {
+                        sendPseudoStreamingReplyWithOutcome(
+                            event = event,
+                            response = prepared.text,
+                            config = config,
+                        )
+                    } else {
+                        sendReplyWithOutcome(
+                            event = event,
+                            text = prepared.text,
+                            attachments = prepared.attachments,
+                        )
+                    }
+                    return sendResult.toHostSendResult()
+                }
+
+                override fun resolvePluginPrivateRootPath(pluginId: String): String {
+                    return this@OneBotBridgeServer.resolvePluginPrivateRootPath(pluginId)
+                }
+            },
+            log = RuntimeLogRepository::append,
+        )
+    }
+
+    private fun buildReplySender(): QqReplySender {
+        return QqReplySender(
+            socketSender = { payload: String ->
+                val socket = activeSocket ?: error("reverse_ws_not_connected")
+                socket.send(payload)
+            },
+            resolveReplyConfig = ::resolveReplyConfig,
+            mapAudioAttachment = ::materializeAudioAttachmentForOneBot,
+            sendOverride = replySenderOverrideForTests?.let { override ->
+                { payload, originalMessage ->
+                    override(
+                        originalMessage.toLegacyIncomingMessageEvent(),
+                        payload.text,
+                        payload.attachments,
+                    ).toHostSendResult()
+                }
+            },
+            log = RuntimeLogRepository::append,
+        )
+    }
+
+    private fun resolveReplyConfig(selfId: String): QqReplySender.ReplyConfig? {
+        val bot = BotRepository.resolveBoundBot(selfId) ?: return null
+        val config = ConfigRepository.resolve(bot.configProfileId)
+        return QqReplySender.ReplyConfig(
+            replyTextPrefix = config.replyTextPrefix,
+            quoteSenderMessageEnabled = config.quoteSenderMessageEnabled,
+            mentionSenderEnabled = config.mentionSenderEnabled,
+        )
+    }
+
+    private fun IncomingQqMessage.toLegacyIncomingMessageEvent(): IncomingMessageEvent {
+        return IncomingMessageEvent(
+            selfId = selfId,
+            userId = senderId,
+            groupId = if (messageType == MessageType.GroupMessage) conversationId else "",
+            messageId = messageId,
+            messageType = messageType,
+            text = text,
+            promptContent = when (messageType) {
+                MessageType.GroupMessage -> "${senderName.ifBlank { senderId }}: $text".trim()
+                else -> text
+            },
+            mentionsSelf = mentionsSelf,
+            mentionsAll = mentionsAll,
+            attachments = attachments,
+            senderName = senderName,
+        )
+    }
+
     private suspend fun handlePayload(payload: String) {
         val json = runCatching { JSONObject(payload) }
             .getOrElse { error ->
@@ -343,66 +499,18 @@ object OneBotBridgeServer {
             val retcode = json.opt("retcode")?.toString().orEmpty()
             RuntimeLogRepository.append(
                 "OneBot action response: status=$status retcode=${retcode.ifBlank { "-" }} echo=${echo.ifBlank { "-" }}",
-            )
-            return
-        }
-
-        if (json.optString("post_type") != "message") {
-            return
-        }
-
-        val event = OneBotPayloadCodec.parseIncomingMessageEvent(json) ?: return
-        val bot = resolveReplyBot(event) ?: return
-        if (!bot.autoReplyEnabled) return
-        val config = ConfigRepository.resolve(bot.configProfileId)
-        val replyDecision = evaluateReplyPolicy(event, bot, config)
-        if (!replyDecision.shouldReply) {
-            if (replyDecision.shouldLogInfo) {
-                RuntimeLogRepository.append(
-                    "QQ reply blocked: reason=${replyDecision.reason} user=${event.userId} group=${event.groupId.ifBlank { "-" }}",
                 )
+                return
             }
-            replyDecision.permissionDeniedNotice?.let { notice ->
-                sendReply(event, notice)
-            }
-            return
-        }
-        if (config.keywordDetectionEnabled && QqKeywordDetector(config.keywordPatterns).matches(event.text)) {
-            RuntimeLogRepository.append("QQ inbound keyword blocked: user=${event.userId} group=${event.groupId.ifBlank { "-" }}")
-            sendReply(event, KEYWORD_BLOCK_NOTICE)
-            return
-        }
-        val rateLimitResult = rateLimiter.tryAcquire(
-            sourceKey = buildRateLimitSourceKey(bot, event),
-            windowSeconds = config.rateLimitWindowSeconds,
-            maxCount = config.rateLimitMaxCount,
-            strategy = config.rateLimitStrategy,
-            payload = event,
-        )
-        if (!rateLimitResult.allowed) {
-            RuntimeLogRepository.append(
-                "QQ rate limit blocked: bot=${bot.id} user=${event.userId} group=${event.groupId.ifBlank { "-" }} strategy=${config.rateLimitStrategy}",
-            )
-            if (rateLimitResult.stashed) {
-                scheduleStashReplay(
-                    bot = bot,
-                    config = config,
-                    sourceKey = buildRateLimitSourceKey(bot, event),
-                )
-            } else if (config.replyWhenPermissionDenied) {
-                sendReply(event, "Rate limit exceeded.")
-            }
-            return
-        }
-        if (event.messageId.isNotBlank() && !markMessageId(event.messageId)) {
-            RuntimeLogRepository.append("OneBot duplicate message ignored: ${event.messageId}")
-            return
-        }
 
-        processMessageEvent(event, bot, config)
+        when (val result = buildServerAdapter().handlePayload(payload)) {
+            is OneBotServerAdapterResult.Handled -> Unit
+            is OneBotServerAdapterResult.Ignored -> RuntimeLogRepository.append("OneBot payload ignored: ${result.reason}")
+            is OneBotServerAdapterResult.Invalid -> RuntimeLogRepository.append("OneBot payload invalid: ${result.reason}")
+        }
     }
 
-    private suspend fun processMessageEvent(
+    private suspend fun legacyProcessMessageEventDoNotUse(
         event: IncomingMessageEvent,
         bot: BotProfile,
         config: com.astrbot.android.model.ConfigProfile,
@@ -701,12 +809,12 @@ object OneBotBridgeServer {
                     request: PluginProviderRequest,
                     mode: PluginV2StreamingMode,
                     ctx: ResolvedRuntimeContext,
-                ): PluginV2ProviderInvocationResult {
-                    return invokeProviderForPipeline(
-                        request = request,
-                        mode = mode,
-                        config = config,
-                        availableProviders = ctx.availableProviders,
+                    ): PluginV2ProviderInvocationResult {
+                        return legacyProviderPipelineInvokerDoNotUse(
+                            request = request,
+                            mode = mode,
+                            config = config,
+                            availableProviders = ctx.availableProviders,
                     )
                 }
             }
@@ -830,17 +938,8 @@ object OneBotBridgeServer {
                         continue
                     }
                     replayEvents.forEach { payload ->
-                        val event = payload as? IncomingMessageEvent ?: return@forEach
-                        val reboundConfig = ConfigRepository.resolve(bot.configProfileId)
-                        val replyDecision = evaluateReplyPolicy(event, bot, reboundConfig)
-                        if (!replyDecision.shouldReply) return@forEach
-                        if (reboundConfig.keywordDetectionEnabled && QqKeywordDetector(reboundConfig.keywordPatterns).matches(event.text)) {
-                            return@forEach
-                        }
-                        if (event.messageId.isNotBlank() && !markMessageId(event.messageId)) {
-                            return@forEach
-                        }
-                        processMessageEvent(event, bot, reboundConfig)
+                        val message = payload as? IncomingQqMessage ?: return@forEach
+                        buildQqRuntimeService().handleIncomingMessage(message)
                     }
                     if (rateLimiter.drainReady(sourceKey).isEmpty()) {
                         return@launch
@@ -1006,100 +1105,16 @@ object OneBotBridgeServer {
         }
     }
 
-    private suspend fun invokeProviderForPipeline(
+    private suspend fun legacyProviderPipelineInvokerDoNotUse(
         request: com.astrbot.android.runtime.plugin.PluginProviderRequest,
         mode: PluginV2StreamingMode,
         config: com.astrbot.android.model.ConfigProfile,
         availableProviders: List<ProviderProfile>,
     ): PluginV2ProviderInvocationResult {
-        val provider = availableProviders.firstOrNull { profile ->
-            profile.id == request.selectedProviderId &&
-                profile.enabled &&
-                ProviderCapability.CHAT in profile.capabilities
-        } ?: error("Selected provider is unavailable: ${request.selectedProviderId}")
-
-        val messages = request.messages.toConversationMessages(
-            requestId = request.requestId,
+        error(
+            "Phase 5 migrated QQ provider invocation to feature/qq/runtime. " +
+                "This legacy bridge should not be used.",
         )
-        val chatTools = request.tools.map { def ->
-            ChatCompletionService.ChatToolDefinition(
-                name = def.name,
-                description = def.description,
-                parameters = org.json.JSONObject(def.inputSchema.filterValues { it != null } as Map<*, *>),
-            )
-        }
-        return if (mode != PluginV2StreamingMode.NATIVE_STREAM || !request.streamingEnabled) {
-            val result = ChatCompletionService.sendConfiguredChatWithTools(
-                provider = provider,
-                messages = messages,
-                systemPrompt = request.systemPrompt,
-                config = config,
-                availableProviders = availableProviders,
-                tools = chatTools,
-            )
-            PluginV2ProviderInvocationResult.NonStreaming(
-                response = PluginLlmResponse(
-                    requestId = request.requestId,
-                    providerId = provider.id,
-                    modelId = request.selectedModelId.ifBlank { provider.model },
-                    text = result.text,
-                    toolCalls = result.toolCalls.map { tc ->
-                        PluginLlmToolCall(
-                            toolCallId = tc.id,
-                            toolName = tc.name,
-                            arguments = parseToolCallArguments(tc.arguments),
-                        )
-                    },
-                ),
-            )
-        } else {
-            val chunks = mutableListOf<PluginV2ProviderStreamChunk>()
-            val result = ChatCompletionService.sendConfiguredChatStreamWithTools(
-                provider = provider,
-                messages = messages,
-                systemPrompt = request.systemPrompt,
-                config = config,
-                availableProviders = availableProviders,
-                tools = chatTools,
-                onDelta = { delta ->
-                    if (delta.isNotBlank()) {
-                        chunks += PluginV2ProviderStreamChunk(deltaText = delta)
-                    }
-                },
-                onToolCallDelta = { _, _, _ -> },
-            )
-            val finalizedToolDeltas = result.toolCalls.mapIndexedNotNull { index, toolCall ->
-                val normalizedName = toolCall.name.trim()
-                if (normalizedName.isBlank()) {
-                    null
-                } else {
-                    PluginLlmToolCallDelta(
-                        index = index,
-                        toolCallId = toolCall.id,
-                        toolName = normalizedName,
-                        arguments = parseToolCallArguments(toolCall.arguments),
-                    )
-                }
-            }
-            if (finalizedToolDeltas.isNotEmpty()) {
-                chunks += PluginV2ProviderStreamChunk(toolCallDeltas = finalizedToolDeltas)
-            }
-            val finishReason = if (result.toolCalls.isNotEmpty()) "tool_calls" else "stop"
-            chunks += PluginV2ProviderStreamChunk(
-                deltaText = "",
-                isCompletion = true,
-                finishReason = finishReason,
-            )
-            if (result.text.isNotBlank() && chunks.size == 1) {
-                chunks.add(
-                    0,
-                    PluginV2ProviderStreamChunk(deltaText = result.text),
-                )
-            }
-            PluginV2ProviderInvocationResult.Streaming(
-                events = chunks.toList(),
-            )
-        }
     }
 
     private fun parseToolCallArguments(json: String): Map<String, Any?> {

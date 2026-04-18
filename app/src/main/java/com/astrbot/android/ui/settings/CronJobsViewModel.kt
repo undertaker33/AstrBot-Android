@@ -6,17 +6,19 @@ import androidx.lifecycle.viewModelScope
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
-import com.astrbot.android.data.CronJobRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.feature.cron.data.LegacyCronJobRepositoryAdapter
+import com.astrbot.android.feature.cron.data.LegacyCronSchedulerAdapter
+import com.astrbot.android.feature.cron.domain.CronJobUseCases
+import com.astrbot.android.feature.cron.domain.CronTaskCreateRequest
+import com.astrbot.android.feature.cron.domain.CronTaskCreateResult
+import com.astrbot.android.feature.cron.presentation.CronJobsPresentationController
+import com.astrbot.android.feature.cron.runtime.CronRuntimeService
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.runtime.cron.CronJobScheduler
 import com.astrbot.android.runtime.context.RuntimePlatform
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityCreateTaskRequest
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityRuntimeFacade
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityScheduler
 import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityTargetContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,8 +28,14 @@ import kotlinx.coroutines.launch
 import java.time.ZoneId
 
 internal class CronJobsViewModel : ViewModel() {
+    private val repository = LegacyCronJobRepositoryAdapter()
+    private val scheduler = LegacyCronSchedulerAdapter(contextProvider = { appContextRef })
+    private val controller = CronJobsPresentationController(
+        useCases = CronJobUseCases(repository = repository, scheduler = scheduler),
+        taskPort = CronRuntimeService(schedulerPort = scheduler),
+    )
 
-    val jobs: StateFlow<List<CronJob>> = CronJobRepository.jobs
+    val jobs: StateFlow<List<CronJob>> = repository.jobs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Tracks whether the create/edit dialog is showing. */
@@ -36,23 +44,13 @@ internal class CronJobsViewModel : ViewModel() {
 
     fun toggleEnabled(job: CronJob) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = job.copy(enabled = !job.enabled, updatedAt = System.currentTimeMillis())
-            CronJobRepository.update(updated)
-            val ctx = appContextRef
-            if (ctx != null) {
-                if (updated.enabled) {
-                    CronJobScheduler.scheduleJob(ctx, updated)
-                } else {
-                    CronJobScheduler.cancelJob(ctx, updated.jobId)
-                }
-            }
+            controller.toggleEnabled(job)
         }
     }
 
     fun deleteJob(jobId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            CronJobRepository.delete(jobId)
-            appContextRef?.let { CronJobScheduler.cancelJob(it, jobId) }
+            controller.deleteJob(jobId)
         }
     }
 
@@ -87,11 +85,11 @@ internal class CronJobsViewModel : ViewModel() {
                 runOnce = runOnce,
                 targetContext = targetContext,
             )
-            when (val result = createFacade().createFutureTask(request)) {
-                is com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityTaskCreation.Created -> Unit
-                is com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityTaskCreation.Failed -> {
+            when (val result = controller.createFutureTask(request)) {
+                is CronTaskCreateResult.Created -> Unit
+                is CronTaskCreateResult.Failed -> {
                     RuntimeLogRepository.append(
-                        "CronJobsViewModel createJob failed: ${result.error.code} ${result.error.message}",
+                        "CronJobsViewModel createJob failed: ${result.code} ${result.message}",
                     )
                 }
             }
@@ -116,34 +114,6 @@ internal class CronJobsViewModel : ViewModel() {
             }
     }
 
-    private fun createFacade(): ActiveCapabilityRuntimeFacade {
-        return ActiveCapabilityRuntimeFacade(
-            scheduler = object : ActiveCapabilityScheduler {
-                override fun schedule(job: CronJob) {
-                    val context = appContextRef
-                    if (context != null) {
-                        CronJobScheduler.scheduleJob(context, job)
-                    } else {
-                        RuntimeLogRepository.append(
-                            "CronJobsViewModel schedule skipped: app context unavailable for job=${job.jobId}",
-                        )
-                    }
-                }
-
-                override fun cancel(jobId: String) {
-                    val context = appContextRef
-                    if (context != null) {
-                        CronJobScheduler.cancelJob(context, jobId)
-                    } else {
-                        RuntimeLogRepository.append(
-                            "CronJobsViewModel cancel skipped: app context unavailable for jobId=$jobId",
-                        )
-                    }
-                }
-            },
-        )
-    }
-
     companion object {
         /** Set by the Screen composable to give scheduling access. */
         @Volatile
@@ -158,8 +128,9 @@ internal fun buildCronJobCreateRequest(
     note: String,
     runOnce: Boolean,
     targetContext: ActiveCapabilityTargetContext? = null,
-): ActiveCapabilityCreateTaskRequest {
-    return ActiveCapabilityCreateTaskRequest(
+): CronTaskCreateRequest {
+    val resolvedTarget = targetContext ?: defaultCronJobTargetContext()
+    return CronTaskCreateRequest(
         payload = mapOf(
             "name" to name,
             "note" to note,
@@ -170,9 +141,13 @@ internal fun buildCronJobCreateRequest(
             "enabled" to true,
             "origin" to "ui",
         ),
-        metadata = null,
-        toolSourceContext = null,
-        targetContext = targetContext ?: defaultCronJobTargetContext(),
+        targetPlatform = resolvedTarget.platform,
+        targetConversationId = resolvedTarget.conversationId,
+        targetBotId = resolvedTarget.botId,
+        targetConfigProfileId = resolvedTarget.configProfileId,
+        targetPersonaId = resolvedTarget.personaId,
+        targetProviderId = resolvedTarget.providerId,
+        targetOrigin = resolvedTarget.origin,
     )
 }
 

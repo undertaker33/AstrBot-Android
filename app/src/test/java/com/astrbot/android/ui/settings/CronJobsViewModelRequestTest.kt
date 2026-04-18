@@ -37,9 +37,13 @@ class CronJobsViewModelRequestTest {
             targetContext = target,
         )
 
-        assertEquals(target, request.targetContext)
-        assertEquals(null, request.metadata)
-        assertEquals(null, request.toolSourceContext)
+        assertEquals(target.platform, request.targetPlatform)
+        assertEquals(target.conversationId, request.targetConversationId)
+        assertEquals(target.botId, request.targetBotId)
+        assertEquals(target.configProfileId, request.targetConfigProfileId)
+        assertEquals(target.personaId, request.targetPersonaId)
+        assertEquals(target.providerId, request.targetProviderId)
+        assertEquals(target.origin, request.targetOrigin)
         assertEquals("Morning check", request.payload["name"])
         assertEquals("0 9 * * *", request.payload["cron_expression"])
         assertEquals("", request.payload["run_at"])

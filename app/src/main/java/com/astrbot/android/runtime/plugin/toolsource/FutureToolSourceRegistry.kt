@@ -1,5 +1,10 @@
 package com.astrbot.android.runtime.plugin.toolsource
 
+import com.astrbot.android.core.runtime.tool.DefaultToolDescriptorCachePolicy
+import com.astrbot.android.core.runtime.tool.ToolDescriptor
+import com.astrbot.android.core.runtime.tool.ToolDescriptorCachePolicy
+import com.astrbot.android.core.runtime.tool.ToolSourceRequestContext
+import com.astrbot.android.feature.plugin.runtime.PluginToolSourceBridge
 import com.astrbot.android.runtime.plugin.PluginToolDescriptor
 import com.astrbot.android.runtime.plugin.PluginToolSourceKind
 import com.astrbot.android.data.ConfigRepository
@@ -17,23 +22,47 @@ import com.astrbot.android.runtime.context.RuntimeSkillProjectionResolver
  */
 class FutureToolSourceRegistry(
     private val providers: List<FutureToolSourceProvider> = defaultProviders(),
+    private val cachePolicy: ToolDescriptorCachePolicy = DefaultToolDescriptorCachePolicy(),
 ) {
     private val providersByKind: Map<PluginToolSourceKind, FutureToolSourceProvider> =
         providers.associateBy { it.sourceKind }
+    private val bridgesByKind: Map<PluginToolSourceKind, PluginToolSourceBridge> =
+        providers.associate { provider ->
+            provider.sourceKind to PluginToolSourceBridge(
+                provider = provider,
+                cachePolicy = cachePolicy,
+            )
+        }
 
     suspend fun collectToolDescriptors(
         configProfileId: String,
     ): List<PluginToolDescriptor> {
-        val context = ToolSourceRegistryIngestContext(toolSourceContext = contextForConfig(configProfileId))
-        return collectToolDescriptors(context.toolSourceContext)
+        return collectContractDescriptors(configProfileId).map(ToolDescriptor::toPluginToolDescriptor)
     }
 
     suspend fun collectToolDescriptors(
         toolSourceContext: ToolSourceContext,
     ): List<PluginToolDescriptor> {
-        val context = ToolSourceRegistryIngestContext(toolSourceContext = toolSourceContext)
+        return collectContractDescriptors(toolSourceContext).map(ToolDescriptor::toPluginToolDescriptor)
+    }
+
+    suspend fun collectContractDescriptors(
+        configProfileId: String,
+    ): List<ToolDescriptor> {
+        return collectContractDescriptors(contextForConfig(configProfileId))
+    }
+
+    suspend fun collectContractDescriptors(
+        toolSourceContext: ToolSourceContext,
+    ): List<ToolDescriptor> {
+        val requestContext = ToolSourceRequestContext(
+            botId = "",
+            configId = toolSourceContext.configProfileId,
+            personaId = "",
+            conversationId = toolSourceContext.conversationId,
+        )
         return providers.flatMap { provider ->
-            provider.listBindings(context).map { binding -> binding.descriptor }
+            bridgesByKind.getValue(provider.sourceKind).descriptors(requestContext)
         }
     }
 
@@ -107,6 +136,13 @@ class FutureToolSourceRegistry(
                 mcpServers = resourceProjection.mcpServers,
                 promptSkills = resourceProjection.promptSkills,
                 toolSkills = resourceProjection.toolSkills,
+            )
+        }
+
+        fun contextForContractRequest(requestContext: ToolSourceRequestContext): ToolSourceContext {
+            return contextForConfig(requestContext.configId).copy(
+                requestId = requestContext.conversationId,
+                conversationId = requestContext.conversationId,
             )
         }
     }

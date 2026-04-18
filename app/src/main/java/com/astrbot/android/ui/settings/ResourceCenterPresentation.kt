@@ -2,6 +2,10 @@ package com.astrbot.android.ui.settings
 
 import androidx.annotation.StringRes
 import com.astrbot.android.R
+import com.astrbot.android.feature.resource.data.LegacyResourceCenterRepositoryAdapter
+import com.astrbot.android.feature.resource.domain.ResourceCompatibilityUseCase
+import com.astrbot.android.feature.resource.presentation.ResourceCenterPresentationController
+import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.ResourceCenterKind
@@ -36,6 +40,7 @@ enum class ResourceKind(val routeSegment: String) {
 
 data class ResourceCenterEntryPresentation(
     val kind: ResourceKind,
+    val resourceCount: Int,
 )
 
 data class ResourceCenterPresentation(
@@ -206,11 +211,27 @@ internal fun buildMeEntryKinds(): List<MeEntryKind> {
 }
 
 internal fun buildResourceCenterPresentation(): ResourceCenterPresentation {
+    return buildResourceCenterPresentation(controller = defaultResourceCenterPresentationController())
+}
+
+internal fun buildResourceCenterPresentation(
+    controller: ResourceCenterPresentationController,
+): ResourceCenterPresentation {
+    val resources = controller.listResources()
     return ResourceCenterPresentation(
         entries = listOf(
-            ResourceCenterEntryPresentation(ResourceKind.MCP),
-            ResourceCenterEntryPresentation(ResourceKind.SKILL),
-            ResourceCenterEntryPresentation(ResourceKind.TOOL),
+            ResourceCenterEntryPresentation(
+                kind = ResourceKind.MCP,
+                resourceCount = resources.count { ResourceKind.MCP.matches(it) },
+            ),
+            ResourceCenterEntryPresentation(
+                kind = ResourceKind.SKILL,
+                resourceCount = resources.count { ResourceKind.SKILL.matches(it) },
+            ),
+            ResourceCenterEntryPresentation(
+                kind = ResourceKind.TOOL,
+                resourceCount = resources.count { ResourceKind.TOOL.matches(it) },
+            ),
         ),
     )
 }
@@ -264,8 +285,11 @@ internal fun buildResourceListPresentation(
 internal fun buildResourceCards(
     kind: ResourceKind,
     resources: List<ResourceCenterItem>,
+    controller: ResourceCenterPresentationController = defaultResourceCenterPresentationController(),
 ): List<ResourceCardPresentation> {
-    return resources
+    val liveResources = controller.listResources()
+    val sourceResources = if (liveResources.isNotEmpty()) liveResources else resources
+    return sourceResources
         .filter { resource -> kind.matches(resource) }
         .sortedWith(compareBy<ResourceCenterItem> { it.name.lowercase() }.thenBy { it.resourceId })
         .map { resource ->
@@ -291,6 +315,11 @@ internal fun sampleResourceCards(kind: ResourceKind): List<ResourceCardPresentat
         )
     }
 }
+
+internal fun buildResourceCompatibilitySnapshotPresentation(
+    profile: ConfigProfile,
+    controller: ResourceCenterPresentationController = defaultResourceCenterPresentationController(),
+) = controller.compatibilitySnapshotForConfig(profile)
 
 internal fun buildCronJobsPresentation(
     jobs: List<CronJob>,
@@ -364,4 +393,12 @@ private fun buildResourceId(prefix: String, value: String): String {
     } else {
         "$prefix-${System.currentTimeMillis()}"
     }
+}
+
+internal fun defaultResourceCenterPresentationController(): ResourceCenterPresentationController {
+    val port = LegacyResourceCenterRepositoryAdapter()
+    return ResourceCenterPresentationController(
+        port = port,
+        compatibilityUseCase = ResourceCompatibilityUseCase(port),
+    )
 }
