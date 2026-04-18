@@ -1,7 +1,7 @@
 package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.feature.plugin.domain.PluginRuntimePort
-import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 
 class PluginRuntimeFacade(
     dispatcher: PluginRuntimeDispatcher,

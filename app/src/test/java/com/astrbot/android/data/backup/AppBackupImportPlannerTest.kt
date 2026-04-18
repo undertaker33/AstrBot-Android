@@ -1,4 +1,4 @@
-package com.astrbot.android.data.backup
+package com.astrbot.android.core.db.backup
 
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile

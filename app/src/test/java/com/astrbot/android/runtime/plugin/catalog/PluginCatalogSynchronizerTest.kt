@@ -1,7 +1,7 @@
-package com.astrbot.android.runtime.plugin.catalog
+package com.astrbot.android.feature.plugin.runtime.catalog
 
 import com.astrbot.android.data.PluginRepository
-import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
+import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
 import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
@@ -10,9 +10,9 @@ import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginRiskLevel
-import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.runtime.plugin.InMemoryPluginRuntimeLogBus
-import com.astrbot.android.runtime.plugin.PluginRuntimeLogBusProvider
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

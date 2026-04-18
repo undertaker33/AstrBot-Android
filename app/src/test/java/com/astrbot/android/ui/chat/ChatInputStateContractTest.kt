@@ -43,11 +43,11 @@ class ChatInputStateContractTest {
         )
         assertFalse(
             "ChatScreen must not import RuntimeOrchestrator",
-            text.contains("import com.astrbot.android.runtime.plugin.RuntimeOrchestrator"),
+            text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
         )
         assertFalse(
             "ChatScreen must not import RuntimeContextResolver",
-            text.contains("import com.astrbot.android.runtime.context.RuntimeContextResolver"),
+            text.contains("import com.astrbot.android.core.runtime.context.RuntimeContextResolver"),
         )
     }
 }

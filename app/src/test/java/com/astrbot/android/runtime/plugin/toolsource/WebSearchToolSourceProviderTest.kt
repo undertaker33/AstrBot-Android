@@ -1,6 +1,6 @@
-package com.astrbot.android.runtime.plugin.toolsource
+package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

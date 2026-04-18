@@ -1,6 +1,6 @@
-package com.astrbot.android.runtime.plugin.catalog
+package com.astrbot.android.feature.plugin.runtime.catalog
 
-import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
+import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
 import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState

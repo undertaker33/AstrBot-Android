@@ -1,7 +1,7 @@
-package com.astrbot.android.feature.qq.data
+﻿package com.astrbot.android.feature.qq.data
 
-import com.astrbot.android.data.BotRepository
-import com.astrbot.android.data.ConfigRepository
+import com.astrbot.android.feature.bot.data.FeatureBotRepository
+import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.feature.qq.domain.QqPlatformConfigPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.MessageType
@@ -9,7 +9,7 @@ import com.astrbot.android.model.chat.MessageType
 class LegacyQqPlatformConfigAdapter : QqPlatformConfigPort {
 
     override fun resolveQqBot(selfId: String): BotProfile? {
-        return BotRepository.resolveBoundBot(selfId)
+        return FeatureBotRepository.resolveBoundBot(selfId)
     }
 
     override fun qqReplyQuoteEnabled(botId: String): Boolean {
@@ -23,12 +23,12 @@ class LegacyQqPlatformConfigAdapter : QqPlatformConfigPort {
     }
 
     override fun qqAutoReplyEnabled(botId: String): Boolean {
-        val bot = BotRepository.botProfiles.value.firstOrNull { it.id == botId }
+        val bot = FeatureBotRepository.botProfiles.value.firstOrNull { it.id == botId }
         return bot?.autoReplyEnabled == true
     }
 
     override fun qqWakeWords(botId: String): List<String> {
-        val bot = BotRepository.botProfiles.value.firstOrNull { it.id == botId } ?: return emptyList()
+        val bot = FeatureBotRepository.botProfiles.value.firstOrNull { it.id == botId } ?: return emptyList()
         val config = resolveConfigForBot(botId)
         return ((bot.triggerWords) + (config?.wakeWords ?: emptyList())).distinct()
     }
@@ -64,7 +64,9 @@ class LegacyQqPlatformConfigAdapter : QqPlatformConfigPort {
     }
 
     private fun resolveConfigForBot(botId: String): com.astrbot.android.model.ConfigProfile? {
-        val bot = BotRepository.botProfiles.value.firstOrNull { it.id == botId } ?: return null
-        return ConfigRepository.resolve(bot.configProfileId)
+        val bot = FeatureBotRepository.botProfiles.value.firstOrNull { it.id == botId } ?: return null
+        return FeatureConfigRepository.resolve(bot.configProfileId)
     }
 }
+
+

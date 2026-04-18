@@ -1,10 +1,10 @@
-package com.astrbot.android.runtime.plugin.samples
+package com.astrbot.android.feature.plugin.runtime.samples
 
 import com.astrbot.android.data.PluginRepository
-import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
-import com.astrbot.android.runtime.plugin.PluginInstaller
-import com.astrbot.android.runtime.plugin.PluginPackageValidator
+import com.astrbot.android.feature.plugin.runtime.PluginInstaller
+import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking

@@ -6,40 +6,65 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.astrbot.android.AppStrings
 import com.astrbot.android.core.di.InitializationCoordinator
-import com.astrbot.android.data.AppBackupRepository
-import com.astrbot.android.data.ChatCompletionService
-import com.astrbot.android.data.ConversationBackupRepository
-import com.astrbot.android.data.ConversationRepository
-import com.astrbot.android.data.CronJobRepository
-import com.astrbot.android.data.NapCatBridgeRepository
-import com.astrbot.android.data.NapCatLoginRepository
-import com.astrbot.android.data.PluginRepository
-import com.astrbot.android.data.ResourceCenterRepository
+import com.astrbot.android.core.db.backup.AppBackupDataPort
+import com.astrbot.android.core.db.backup.AppBackupDataRegistry
+import com.astrbot.android.core.db.backup.AppBackupExternalState
+import com.astrbot.android.core.db.backup.AppBackupRepository
+import com.astrbot.android.core.db.backup.ConversationBackupDataPort
+import com.astrbot.android.core.db.backup.ConversationBackupDataRegistry
+import com.astrbot.android.core.db.backup.ConversationImportPreview
+import com.astrbot.android.core.db.backup.ConversationImportResult
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
+import com.astrbot.android.core.db.backup.ConversationBackupRepository
+import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
+import com.astrbot.android.core.runtime.container.ContainerBridgeStateRegistry
+import com.astrbot.android.feature.chat.data.FeatureConversationRepository as ConversationRepository
+import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
+import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
+import com.astrbot.android.feature.cron.data.FeatureCronJobRepository as CronJobRepository
+import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
+import com.astrbot.android.feature.qq.data.NapCatLoginRepository
+import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
+import com.astrbot.android.feature.plugin.data.FeaturePluginRepository as PluginRepository
+import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
+import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
 import com.astrbot.android.data.RuntimeAssetRepository
-import com.astrbot.android.data.SherpaOnnxBridge
-import com.astrbot.android.data.TtsVoiceAssetRepository
+import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
+import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
 import com.astrbot.android.download.AppDownloadManager
 import com.astrbot.android.feature.bot.data.BotRepositoryInitializer
 import com.astrbot.android.feature.config.data.ConfigRepositoryInitializer
 import com.astrbot.android.feature.persona.data.PersonaRepositoryInitializer
 import com.astrbot.android.feature.provider.data.ProviderRepositoryInitializer
-import com.astrbot.android.runtime.ContainerRuntimeInstaller
-import com.astrbot.android.runtime.OneBotBridgeServer
-import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.runtime.RuntimeSecretRepository
-import com.astrbot.android.runtime.TencentSilkEncoder
-import com.astrbot.android.runtime.plugin.PluginRuntimeLogCleanupRepository
-import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
-import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
-import com.astrbot.android.runtime.plugin.PluginV2LifecycleManager
-import com.astrbot.android.runtime.plugin.PluginV2LifecycleManagerProvider
-import com.astrbot.android.runtime.plugin.PluginV2RuntimeLoaderProvider
-import com.astrbot.android.runtime.plugin.PluginV2RuntimeSyncResult
-import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityToolSourceProvider
-import com.astrbot.android.runtime.cron.CronJobExecutionBridge
-import com.astrbot.android.runtime.cron.CronJobScheduler
-import com.astrbot.android.runtime.cron.ScheduledTaskRuntimeExecutor
+import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
+import com.astrbot.android.feature.qq.runtime.QqOneBotBridgeServer
+import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
+import com.astrbot.android.core.runtime.audio.TencentSilkEncoder
+import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
+import com.astrbot.android.core.runtime.context.RuntimeContextDataRegistry
+import com.astrbot.android.feature.bot.data.LegacyBotRepositoryAdapter
+import com.astrbot.android.feature.config.data.LegacyConfigRepositoryAdapter
+import com.astrbot.android.feature.persona.data.LegacyPersonaRepositoryAdapter
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogCleanupRepository
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
+import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManagerProvider
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoaderProvider
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSyncResult
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
+import com.astrbot.android.feature.provider.data.LegacyProviderRepositoryAdapter
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityToolSourceProvider
+import com.astrbot.android.feature.cron.runtime.CronJobExecutionBridge
+import com.astrbot.android.feature.cron.runtime.CronJobScheduler
+import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeExecutor
+import com.astrbot.android.feature.qq.data.LegacyQqConversationAdapter
+import com.astrbot.android.feature.qq.data.LegacyQqPlatformConfigAdapter
+import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
+import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
+import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.ui.viewmodel.BotViewModel
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
@@ -106,8 +131,23 @@ class AstrBotAppContainer(
         AppStrings.initialize(application)
         RuntimeSecretRepository.initialize(application)
         ChatCompletionService.initialize(application)
-        OneBotBridgeServer.initialize(application)
-        OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(DefaultAppChatPluginRuntime)
+        ScheduledTaskRuntimeExecutor.configureLlmClientProvider {
+            LegacyChatCompletionServiceAdapter()
+        }
+        QqOneBotBridgeServer.configureRuntimeDependenciesProvider {
+            QqOneBotRuntimeDependencies(
+                botPort = LegacyBotRepositoryAdapter(),
+                configPort = LegacyConfigRepositoryAdapter(),
+                personaPort = LegacyPersonaRepositoryAdapter(),
+                providerPort = LegacyProviderRepositoryAdapter(),
+                conversationPort = LegacyQqConversationAdapter(),
+                platformConfigPort = LegacyQqPlatformConfigAdapter(),
+                orchestrator = LegacyRuntimeOrchestratorAdapter(),
+                providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
+            )
+        }
+        QqOneBotBridgeServer.initialize(application)
+        QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(DefaultAppChatPluginRuntime)
         TencentSilkEncoder.initialize(application)
         appScope.launch(Dispatchers.IO) {
             AppDownloadManager.initialize(application)
@@ -136,6 +176,150 @@ class AstrBotAppContainer(
         ).initializeAll(application)
         ConversationRepository.initialize(application)
         PluginRepository.initialize(application)
+        RuntimeContextDataRegistry.port = object : RuntimeContextDataPort {
+            override fun resolveConfig(configProfileId: String) = ConfigRepository.resolve(configProfileId)
+
+            override fun listProviders() = ProviderRepository.providers.value
+
+            override fun findEnabledPersona(personaId: String) =
+                PersonaRepository.personas.value.firstOrNull { it.id == personaId && it.enabled }
+
+            override fun session(sessionId: String) = ConversationRepository.session(sessionId)
+
+            override fun compatibilitySnapshotForConfig(config: com.astrbot.android.model.ConfigProfile) =
+                ResourceCenterRepository.compatibilitySnapshotForConfig(config)
+        }
+        ContainerBridgeStateRegistry.port = object : ContainerBridgeStatePort {
+            override val config = NapCatBridgeRepository.config
+            override val runtimeState = NapCatBridgeRepository.runtimeState
+
+            override fun applyRuntimeDefaults(defaults: com.astrbot.android.model.NapCatBridgeConfig) {
+                NapCatBridgeRepository.applyRuntimeDefaults(defaults)
+            }
+
+            override fun markStarting() = NapCatBridgeRepository.markStarting()
+
+            override fun markRunning(pidHint: String, details: String) {
+                NapCatBridgeRepository.markRunning(pidHint = pidHint, details = details)
+            }
+
+            override fun markProcessRunning(pidHint: String, details: String) {
+                NapCatBridgeRepository.markProcessRunning(pidHint = pidHint, details = details)
+            }
+
+            override fun markStopped(reason: String) = NapCatBridgeRepository.markStopped(reason)
+
+            override fun markChecking() = NapCatBridgeRepository.markChecking()
+
+            override fun markError(message: String) = NapCatBridgeRepository.markError(message)
+
+            override fun updateProgress(label: String, percent: Int, indeterminate: Boolean, installerCached: Boolean) {
+                NapCatBridgeRepository.updateProgress(
+                    label = label,
+                    percent = percent,
+                    indeterminate = indeterminate,
+                    installerCached = installerCached,
+                )
+            }
+
+            override fun markInstallerCached(cached: Boolean) = NapCatBridgeRepository.markInstallerCached(cached)
+        }
+        ConversationBackupDataRegistry.port = object : ConversationBackupDataPort {
+            override val isReady = ConversationRepository.isReady
+            override val sessions = ConversationRepository.sessions
+            override val defaultSessionTitle: String = ConversationRepository.DEFAULT_SESSION_TITLE
+
+            override fun selectedBotId(): String = BotRepository.selectedBotId.value
+
+            override fun snapshotSessions() = ConversationRepository.snapshotSessions()
+
+            override fun restoreSessions(restoredSessions: List<com.astrbot.android.model.chat.ConversationSession>) {
+                ConversationRepository.restoreSessions(restoredSessions)
+            }
+
+            override fun previewImportedSessions(
+                importedSessions: List<com.astrbot.android.model.chat.ConversationSession>,
+            ): ConversationImportPreview {
+                val preview = ConversationRepository.previewImportedSessions(importedSessions)
+                return ConversationImportPreview(
+                    totalSessions = preview.totalSessions,
+                    duplicateSessions = preview.duplicateSessions,
+                    newSessions = preview.newSessions,
+                )
+            }
+
+            override fun importSessions(
+                importedSessions: List<com.astrbot.android.model.chat.ConversationSession>,
+                overwriteDuplicates: Boolean,
+            ): ConversationImportResult {
+                val result = ConversationRepository.importSessions(
+                    importedSessions = importedSessions,
+                    overwriteDuplicates = overwriteDuplicates,
+                )
+                return ConversationImportResult(
+                    importedCount = result.importedCount,
+                    overwrittenCount = result.overwrittenCount,
+                    skippedCount = result.skippedCount,
+                )
+            }
+        }
+        AppBackupDataRegistry.port = object : AppBackupDataPort {
+            override fun snapshotBots() = BotRepository.snapshotProfiles()
+
+            override fun snapshotProviders() = ProviderRepository.snapshotProfiles()
+
+            override fun snapshotPersonas() = PersonaRepository.snapshotProfiles()
+
+            override fun snapshotConfigs() = ConfigRepository.snapshotProfiles()
+
+            override fun snapshotConversations() = ConversationRepository.snapshotSessions()
+
+            override fun snapshotExternalState(): AppBackupExternalState {
+                val loginState = NapCatLoginRepository.loginState.value
+                return AppBackupExternalState(
+                    selectedBotId = BotRepository.selectedBotId.value,
+                    selectedConfigId = ConfigRepository.selectedProfileId.value,
+                    quickLoginUin = loginState.quickLoginUin,
+                    savedAccounts = loginState.savedAccounts,
+                )
+            }
+
+            override suspend fun restoreBots(
+                profiles: List<com.astrbot.android.model.BotProfile>,
+                selectedBotId: String,
+            ) {
+                BotRepository.restoreProfiles(profiles, selectedBotId)
+            }
+
+            override fun restoreProviders(profiles: List<com.astrbot.android.model.ProviderProfile>) {
+                ProviderRepository.restoreProfiles(profiles)
+            }
+
+            override fun restorePersonas(profiles: List<com.astrbot.android.model.PersonaProfile>) {
+                PersonaRepository.restoreProfiles(profiles)
+            }
+
+            override fun restoreConfigs(
+                profiles: List<com.astrbot.android.model.ConfigProfile>,
+                selectedConfigId: String,
+            ) {
+                ConfigRepository.restoreProfiles(profiles, selectedConfigId)
+            }
+
+            override fun restoreConversations(sessions: List<com.astrbot.android.model.chat.ConversationSession>) {
+                ConversationRepository.restoreSessions(sessions)
+            }
+
+            override fun restoreQqLoginState(
+                quickLoginUin: String,
+                savedAccounts: List<com.astrbot.android.model.SavedQqAccount>,
+            ) {
+                NapCatLoginRepository.restoreSavedLoginState(
+                    quickLoginUin = quickLoginUin,
+                    savedAccounts = savedAccounts,
+                )
+            }
+        }
         CronJobScheduler.initialize(application)
         PluginRuntimeLogCleanupRepository.initialize(application)
         PluginRuntimeRegistry.registerExternalProvider {
@@ -153,7 +337,7 @@ class AstrBotAppContainer(
         )
         ConversationBackupRepository.initialize(application)
         AppBackupRepository.initialize(application)
-        OneBotBridgeServer.start()
+        QqOneBotBridgeServer.start()
         appScope.launch(Dispatchers.IO) {
             InitializationCoordinator(
                 listOf(
@@ -170,7 +354,7 @@ class AstrBotAppContainer(
 
 internal suspend fun syncPluginRuntimeRecordsAndSignalReady(
     records: List<PluginInstallRecord>,
-    loader: com.astrbot.android.runtime.plugin.PluginV2RuntimeLoader,
+    loader: com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoader,
     lifecycleManager: PluginV2LifecycleManager,
     platformInstanceKey: String = ANDROID_PLATFORM_INSTANCE_KEY,
 ): PluginV2RuntimeSyncResult {
@@ -225,3 +409,4 @@ private class AstrBotViewModelFactory(
         }
     }
 }
+

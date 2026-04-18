@@ -1,10 +1,10 @@
-package com.astrbot.android.runtime.plugin.toolsource
+package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import com.astrbot.android.runtime.context.PromptSkillProjection
-import com.astrbot.android.runtime.context.RuntimePlatform
-import com.astrbot.android.runtime.context.ToolSkillProjection
-import com.astrbot.android.runtime.plugin.PluginToolArgs
-import com.astrbot.android.runtime.plugin.PluginToolResultStatus
+import com.astrbot.android.core.runtime.context.PromptSkillProjection
+import com.astrbot.android.core.runtime.context.RuntimePlatform
+import com.astrbot.android.core.runtime.context.ToolSkillProjection
+import com.astrbot.android.feature.plugin.runtime.PluginToolArgs
+import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

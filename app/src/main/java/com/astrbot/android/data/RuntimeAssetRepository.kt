@@ -1,5 +1,7 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager
+
 import android.content.Context
 import com.astrbot.android.R
 import com.astrbot.android.download.AppDownloadManager
@@ -9,9 +11,9 @@ import com.astrbot.android.model.RuntimeAssetCatalogItem
 import com.astrbot.android.model.RuntimeAssetEntryState
 import com.astrbot.android.model.RuntimeAssetId
 import com.astrbot.android.model.RuntimeAssetState
-import com.astrbot.android.runtime.BridgeCommandRunner
-import com.astrbot.android.runtime.ContainerRuntimeInstaller
-import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.core.runtime.container.BridgeCommandRunner
+import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

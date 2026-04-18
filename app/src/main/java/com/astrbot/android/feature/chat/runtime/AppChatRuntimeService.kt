@@ -1,7 +1,9 @@
 package com.astrbot.android.feature.chat.runtime
 
-import com.astrbot.android.data.ChatCompletionService
-import com.astrbot.android.data.StreamingResponseSegmenter
+import kotlinx.coroutines.flow.flow
+
+import com.astrbot.android.core.runtime.llm.LlmResponseSegmenter
+import com.astrbot.android.core.runtime.llm.LlmToolDefinition
 import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.feature.chat.domain.AppChatRequest
 import com.astrbot.android.feature.chat.domain.AppChatRuntimeEvent
@@ -12,35 +14,34 @@ import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
-import com.astrbot.android.runtime.context.MessageConverters.toConversationMessages
-import com.astrbot.android.runtime.context.ResolvedRuntimeContext
-import com.astrbot.android.runtime.context.RuntimeContextResolver
-import com.astrbot.android.runtime.context.RuntimeIngressEvent
-import com.astrbot.android.runtime.context.RuntimePlatform
-import com.astrbot.android.runtime.context.SenderInfo
-import com.astrbot.android.runtime.context.StreamingModeResolver
-import com.astrbot.android.runtime.plugin.AppChatLlmPipelineRuntime
-import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
-import com.astrbot.android.runtime.plugin.DefaultPluginHostCapabilityGateway
-import com.astrbot.android.runtime.plugin.PlatformLlmCallbacks
-import com.astrbot.android.runtime.plugin.PluginLlmResponse
-import com.astrbot.android.runtime.plugin.PluginLlmToolCall
-import com.astrbot.android.runtime.plugin.PluginLlmToolCallDelta
-import com.astrbot.android.runtime.plugin.PluginProviderRequest
-import com.astrbot.android.runtime.plugin.PluginV2AfterSentView
-import com.astrbot.android.runtime.plugin.PluginV2FollowupSender
-import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult
-import com.astrbot.android.runtime.plugin.PluginV2HostPreparedReply
-import com.astrbot.android.runtime.plugin.PluginV2HostSendResult
-import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineResult
-import com.astrbot.android.runtime.plugin.PluginV2ProviderInvocationResult
-import com.astrbot.android.runtime.plugin.PluginMessageEventResult
-import com.astrbot.android.runtime.plugin.PluginV2ProviderStreamChunk
-import com.astrbot.android.runtime.plugin.RuntimeOrchestrator
+import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
+import com.astrbot.android.core.runtime.context.RuntimeContextResolver
+import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
+import com.astrbot.android.core.runtime.context.RuntimePlatform
+import com.astrbot.android.core.runtime.context.SenderInfo
+import com.astrbot.android.core.runtime.context.StreamingModeResolver
+import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
+import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.MessageConverters.toConversationMessages
+import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
+import com.astrbot.android.feature.plugin.runtime.PluginLlmResponse
+import com.astrbot.android.feature.plugin.runtime.PluginLlmToolCall
+import com.astrbot.android.feature.plugin.runtime.PluginLlmToolCallDelta
+import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
+import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
+import com.astrbot.android.feature.plugin.runtime.PluginV2FollowupSender
+import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
+import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
+import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderStreamChunk
+import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 
@@ -189,7 +190,7 @@ class AppChatRuntimeService(
                         attachments.isEmpty() &&
                         text.isNotBlank()
                     ) {
-                        val segments = StreamingResponseSegmenter.split(
+                        val segments = LlmResponseSegmenter.split(
                             text = text,
                             stripTrailingBoundaryPunctuation = true,
                         )
@@ -247,10 +248,11 @@ class AppChatRuntimeService(
         val messages = request.messages.toConversationMessages(request.requestId)
 
         val chatTools = request.tools.map { def ->
-            ChatCompletionService.ChatToolDefinition(
+            LlmToolDefinition(
                 name = def.name,
                 description = def.description,
-                parameters = org.json.JSONObject(def.inputSchema.filterValues { it != null } as Map<*, *>),
+                parametersJson = org.json.JSONObject(def.inputSchema.filterValues { it != null } as Map<*, *>)
+                    .toString(),
             )
         }
 
@@ -358,7 +360,7 @@ class AppChatRuntimeService(
             return synthesizeSingleVoiceReply(provider, response, voiceId, readBracketedContent)
                 ?.let(::listOf) ?: emptyList()
         }
-        val segments = StreamingResponseSegmenter.splitForVoiceStreaming(response)
+        val segments = LlmResponseSegmenter.splitForVoiceStreaming(response)
         if (segments.size <= 1) {
             return synthesizeSingleVoiceReply(provider, response, voiceId, readBracketedContent)
                 ?.let(::listOf) ?: emptyList()

@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.network
+package com.astrbot.android.core.runtime.network
 
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit

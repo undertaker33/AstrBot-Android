@@ -1,6 +1,6 @@
-package com.astrbot.android.feature.config.data
+﻿package com.astrbot.android.feature.config.data
 
-import com.astrbot.android.data.ConfigRepository
+import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.model.ConfigProfile
 import kotlinx.coroutines.flow.StateFlow
@@ -8,29 +8,31 @@ import kotlinx.coroutines.flow.StateFlow
 class LegacyConfigRepositoryAdapter : ConfigRepositoryPort {
 
     override val profiles: StateFlow<List<ConfigProfile>>
-        get() = ConfigRepository.profiles
+        get() = FeatureConfigRepository.profiles
 
     override val selectedProfileId: StateFlow<String>
-        get() = ConfigRepository.selectedProfileId
+        get() = FeatureConfigRepository.selectedProfileId
 
     override fun snapshotProfiles(): List<ConfigProfile> =
-        ConfigRepository.snapshotProfiles()
+        FeatureConfigRepository.snapshotProfiles()
 
     override fun resolve(id: String): ConfigProfile =
-        ConfigRepository.resolve(id)
+        FeatureConfigRepository.resolve(id)
 
     override fun resolveExistingId(id: String?): String =
-        ConfigRepository.resolveExistingId(id)
+        FeatureConfigRepository.resolveExistingId(id)
 
     override suspend fun save(profile: ConfigProfile) {
-        ConfigRepository.save(profile)
+        FeatureConfigRepository.save(profile)
     }
 
     override suspend fun delete(id: String) {
-        ConfigRepository.delete(id)
+        FeatureConfigRepository.delete(id)
     }
 
     override suspend fun select(id: String) {
-        ConfigRepository.select(id)
+        FeatureConfigRepository.select(id)
     }
 }
+
+

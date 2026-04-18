@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin.samples
+package com.astrbot.android.feature.plugin.runtime.samples
 
 import java.io.File
 

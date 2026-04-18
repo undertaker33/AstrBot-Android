@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin
+package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.model.plugin.ErrorResult
 import com.astrbot.android.model.plugin.PluginExecutionStage

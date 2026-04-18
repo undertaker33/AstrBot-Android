@@ -1,7 +1,7 @@
-package com.astrbot.android.runtime
+package com.astrbot.android.core.runtime.container
 
 import com.astrbot.android.data.BotRepository
-import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
@@ -20,29 +20,29 @@ import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginTriggerSource
-import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
-import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
-import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
-import com.astrbot.android.runtime.plugin.InMemoryPluginRuntimeLogBus
-import com.astrbot.android.runtime.plugin.InMemoryPluginFailureStateStore
-import com.astrbot.android.runtime.plugin.InMemoryPluginScopedFailureStateStore
-import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStore
-import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStoreProvider
-import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
-import com.astrbot.android.runtime.plugin.PluginRuntimeScopedFailureStateStoreProvider
-import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
-import com.astrbot.android.runtime.plugin.PluginV2QuickJsTestGate
-import com.astrbot.android.runtime.plugin.PluginV2RegistryCompiler
-import com.astrbot.android.runtime.plugin.PluginV2RuntimeLoadStatus
-import com.astrbot.android.runtime.plugin.PluginV2RuntimeLoader
-import com.astrbot.android.runtime.plugin.PluginV2RuntimeSessionFactory
-import com.astrbot.android.runtime.plugin.PluginV2LifecycleManager
-import com.astrbot.android.runtime.plugin.QuickJsExternalPluginScriptExecutor
-import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
-import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
-import com.astrbot.android.runtime.plugin.executionContextFor
-import com.astrbot.android.runtime.plugin.runtimePlugin
-import com.astrbot.android.runtime.plugin.samplePluginV2InstallRecord
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
+import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStoreProvider
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScopedFailureStateStoreProvider
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
+import com.astrbot.android.feature.plugin.runtime.PluginV2QuickJsTestGate
+import com.astrbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoadStatus
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSessionFactory
+import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
+import com.astrbot.android.feature.plugin.runtime.QuickJsExternalPluginScriptExecutor
+import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
+import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
+import com.astrbot.android.feature.plugin.runtime.executionContextFor
+import com.astrbot.android.feature.plugin.runtime.runtimePlugin
+import com.astrbot.android.feature.plugin.runtime.samplePluginV2InstallRecord
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
@@ -58,7 +58,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OneBotBridgeServerTest {
+class QqOneBotBridgeServerTest {
     @Test
     fun `replyable qq message triggers plugins around model dispatch and reuses qq session semantics`() = runTest {
         withOneBotState(
@@ -217,7 +217,7 @@ class OneBotBridgeServerTest {
             providers = listOf(defaultChatProvider()),
         ) {
             val sentReplies = CopyOnWriteArrayList<String>()
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
                 sentReplies += text
                 OneBotSendResult.success(listOf("failure-notice"))
             }
@@ -644,7 +644,7 @@ class OneBotBridgeServerTest {
                 RuntimeLogRepository.clear()
                 PluginV2ActiveRuntimeStoreProvider.setStoreOverrideForTests(store)
                 val sentAttachments = CopyOnWriteArrayList<List<ConversationAttachment>>()
-                OneBotBridgeServer.setReplySenderOverrideForTests { _, _, attachments ->
+                QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, attachments ->
                     sentAttachments += attachments
                     OneBotSendResult.success(listOf("meme-receipt"))
                 }
@@ -779,7 +779,7 @@ class OneBotBridgeServerTest {
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
                 InMemoryPluginScopedFailureStateStore(),
             )
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success(listOf("test-receipt"))
             }
             BotRepository.restoreProfiles(listOf(bot), bot.id)
@@ -789,7 +789,7 @@ class OneBotBridgeServerTest {
             block()
         } finally {
             ChatCompletionService.setHttpClientOverrideForTests(null)
-            OneBotBridgeServer.setReplySenderOverrideForTests(null)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests(null)
             PluginRuntimeRegistry.reset()
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
@@ -828,14 +828,14 @@ class OneBotBridgeServerTest {
     }
 
     private suspend fun invokeHandlePayload(payload: String) {
-        val method = OneBotBridgeServer::class.java.getDeclaredMethod(
+        val method = QqOneBotBridgeServer::class.java.getDeclaredMethod(
             "handlePayload",
             String::class.java,
             Continuation::class.java,
         )
         method.isAccessible = true
         suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
-            val result = method.invoke(OneBotBridgeServer, payload, continuation)
+            val result = method.invoke(QqOneBotBridgeServer, payload, continuation)
             if (result === COROUTINE_SUSPENDED) {
                 COROUTINE_SUSPENDED
             } else {

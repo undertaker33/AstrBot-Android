@@ -1,4 +1,4 @@
-package com.astrbot.android.data.backup
+package com.astrbot.android.core.db.backup
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

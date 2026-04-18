@@ -1,14 +1,15 @@
 package com.astrbot.android.runtime.llm
 
+import kotlinx.coroutines.flow.flow
+
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmStreamEvent
 import com.astrbot.android.core.runtime.llm.LlmToolCall
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
-import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import org.json.JSONObject
 
 internal class LegacyChatCompletionServiceAdapter : LlmClientPort {

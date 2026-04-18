@@ -1,18 +1,18 @@
-package com.astrbot.android.runtime.context
+package com.astrbot.android.core.runtime.context
 
 import com.astrbot.android.data.http.HttpMethod
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
 import com.astrbot.android.model.ConfigProfile
-import com.astrbot.android.runtime.network.RuntimeNetworkCapability
-import com.astrbot.android.runtime.network.RuntimeNetworkFailure
-import com.astrbot.android.runtime.network.RuntimeNetworkRequest
-import com.astrbot.android.runtime.network.RuntimeNetworkResponse
-import com.astrbot.android.runtime.network.RuntimeNetworkTransport
-import com.astrbot.android.runtime.network.RuntimeTimeoutProfile
-import com.astrbot.android.runtime.network.SharedRuntimeNetworkTransport
-import com.astrbot.android.runtime.network.SseEvent
+import com.astrbot.android.core.runtime.network.RuntimeNetworkCapability
+import com.astrbot.android.core.runtime.network.RuntimeNetworkFailure
+import com.astrbot.android.core.runtime.network.RuntimeNetworkRequest
+import com.astrbot.android.core.runtime.network.RuntimeNetworkResponse
+import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
+import com.astrbot.android.core.runtime.network.RuntimeTimeoutProfile
+import com.astrbot.android.core.runtime.network.SharedRuntimeNetworkTransport
+import com.astrbot.android.core.runtime.network.SseEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -168,7 +168,7 @@ class Task8Phase1And2VerificationTest {
 
         for (type in failureClasses) {
             val cls = runCatching {
-                Class.forName("com.astrbot.android.runtime.network.RuntimeNetworkFailure\$$type")
+                Class.forName("com.astrbot.android.core.runtime.network.RuntimeNetworkFailure\$$type")
             }.getOrNull()
 
             assertNotNull(

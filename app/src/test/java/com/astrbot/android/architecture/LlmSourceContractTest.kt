@@ -20,10 +20,18 @@ class LlmSourceContractTest {
         val required = listOf(
             "core/runtime/llm/LlmInvocationContracts.kt",
             "core/runtime/llm/LlmClientPort.kt",
-            "core/runtime/llm/RuntimeLlmOrchestratorPort.kt",
         )
         val missing = required.filterNot { mainRoot.resolve(it).exists() }
         assertTrue("Missing LLM contract files: $missing", missing.isEmpty())
+    }
+
+    @Test
+    fun feature_runtime_orchestrator_port_exists_at_phase7_location() {
+        val file = mainRoot.resolve("feature/plugin/runtime/RuntimeLlmOrchestratorPort.kt")
+        assertTrue(
+            "RuntimeLlmOrchestratorPort must live under feature/plugin/runtime after phase 7 ownership migration",
+            file.exists(),
+        )
     }
 
     @Test
@@ -38,12 +46,12 @@ class LlmSourceContractTest {
 
     @Test
     fun scheduled_task_runtime_executor_does_not_import_chat_completion_service() {
-        val file = mainRoot.resolve("runtime/cron/ScheduledTaskRuntimeExecutor.kt")
+        val file = mainRoot.resolve("feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt")
         assertTrue("ScheduledTaskRuntimeExecutor.kt must exist", file.exists())
         val text = file.readText()
         assertTrue(
             "ScheduledTaskRuntimeExecutor must not directly import ChatCompletionService (phase 3 migration)",
-            !text.contains("import com.astrbot.android.data.ChatCompletionService"),
+            !text.contains("import com.astrbot.android.core.runtime.llm.ChatCompletionService"),
         )
     }
 
@@ -54,7 +62,7 @@ class LlmSourceContractTest {
             // Legacy files not yet migrated — allowlist with phase notes:
             "di/AstrBotViewModelDependencies.kt",                     // legacy bridge, future migration
             "feature/chat/runtime/AppChatRuntimeService.kt",          // uses via dependencies interface
-            "data/ChatCompletionService.kt",                          // definition site
+            "core/runtime/llm/ChatCompletionService.kt",              // definition site
         )
 
         val violations = kotlinFilesUnder(".")
@@ -65,7 +73,9 @@ class LlmSourceContractTest {
             .flatMap { file ->
                 val text = file.readText()
                 val relative = mainRoot.relativize(file).toString().replace('\\', '/')
-                if (text.contains("sendConfiguredChatWithTools") && !relative.startsWith("data/")) {
+                if (text.contains("sendConfiguredChatWithTools") &&
+                    !relative.startsWith("core/runtime/llm/")
+                ) {
                     listOf("$relative calls sendConfiguredChatWithTools directly")
                 } else {
                     emptyList()
@@ -85,7 +95,7 @@ class LlmSourceContractTest {
             // Legacy files not yet migrated — allowlist with phase notes:
             "di/AstrBotViewModelDependencies.kt",                     // legacy bridge, future migration
             "feature/chat/runtime/AppChatRuntimeService.kt",          // uses via dependencies interface
-            "data/ChatCompletionService.kt",                          // definition site
+            "core/runtime/llm/ChatCompletionService.kt",              // definition site
         )
 
         val violations = kotlinFilesUnder(".")
@@ -96,7 +106,9 @@ class LlmSourceContractTest {
             .flatMap { file ->
                 val text = file.readText()
                 val relative = mainRoot.relativize(file).toString().replace('\\', '/')
-                if (text.contains("sendConfiguredChatStreamWithTools") && !relative.startsWith("data/")) {
+                if (text.contains("sendConfiguredChatStreamWithTools") &&
+                    !relative.startsWith("core/runtime/llm/")
+                ) {
                     listOf("$relative calls sendConfiguredChatStreamWithTools directly")
                 } else {
                     emptyList()
@@ -111,7 +123,7 @@ class LlmSourceContractTest {
 
     @Test
     fun migrated_runtime_files_do_not_use_legacy_tool_definition() {
-        val migratedPaths = listOf("runtime/cron")
+        val migratedPaths = listOf("feature/cron/runtime")
         val violations = migratedPaths.flatMap { path ->
             kotlinFilesUnder(path).flatMap { file ->
                 val text = file.readText()

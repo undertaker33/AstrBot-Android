@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin.validation
+package com.astrbot.android.feature.plugin.runtime.validation
 
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginValidationSeverity

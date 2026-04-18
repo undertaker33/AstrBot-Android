@@ -1,15 +1,15 @@
-package com.astrbot.android.runtime.plugin.samples
+package com.astrbot.android.feature.plugin.runtime.samples
 
 import com.astrbot.android.data.PluginRepository
-import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
+import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
 import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginRepositorySource
-import com.astrbot.android.runtime.plugin.catalog.PluginCatalogFetcher
-import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogFetcher
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -66,7 +66,7 @@ class MemeManagerSampleCatalogTest {
         assertTrue("Missing fixture: ${fixtureFile.absolutePath}", fixtureFile.exists())
         val fixtureJson = fixtureFile.readText(Charsets.UTF_8)
 
-        val decoded = com.astrbot.android.data.plugin.catalog.PluginCatalogJson.decodeRepositorySource(fixtureJson)
+        val decoded = com.astrbot.android.feature.plugin.data.catalog.PluginCatalogJson.decodeRepositorySource(fixtureJson)
         val sampleEntry = decoded.plugins.first { it.pluginId == SAMPLE_PLUGIN_ID }
         val v2Gate = sampleEntry.versions.associateBy({ it.version }) { version ->
             PluginRepository.evaluateCatalogVersion(

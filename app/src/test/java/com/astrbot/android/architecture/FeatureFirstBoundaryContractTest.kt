@@ -113,7 +113,7 @@ class FeatureFirstBoundaryContractTest {
 
     @Test
     fun chat_view_model_send_path_delegates_to_feature_chat_without_direct_runtime_send() {
-        val viewModelFile = mainRoot.resolve("ui/viewmodel/ChatViewModel.kt")
+        val viewModelFile = mainRoot.resolve("feature/chat/presentation/ChatViewModel.kt")
         assertTrue("ChatViewModel.kt must exist", viewModelFile.exists())
         val text = viewModelFile.readText()
         assertTrue(
@@ -139,7 +139,7 @@ class FeatureFirstBoundaryContractTest {
                 val relative = mainRoot.relativize(file).toString().replace('\\', '/')
                 listOf(
                     "import com.astrbot.android.data.",
-                    "import com.astrbot.android.runtime.plugin.",
+                    "import com.astrbot.android.feature.plugin.runtime.",
                     "ChatCompletionService",
                 ).mapNotNull { forbidden ->
                     if (text.contains(forbidden)) "$relative imports $forbidden" else null
@@ -196,17 +196,17 @@ class FeatureFirstBoundaryContractTest {
 
     @Test
     fun one_bot_bridge_server_uses_phase5_feature_qq_adapter_path() {
-        val source = mainRoot.resolve("runtime/OneBotBridgeServer.kt").readText()
+        val source = mainRoot.resolve("feature/qq/runtime/QqOneBotBridgeServer.kt").readText()
         assertTrue(
-            "OneBotBridgeServer must delegate QQ ingress to OneBotServerAdapter during phase 5",
+            "QqOneBotBridgeServer must delegate QQ ingress to OneBotServerAdapter during phase 5",
             source.contains("OneBotServerAdapter"),
         )
         assertTrue(
-            "OneBotBridgeServer should not keep the old QQ processMessageEvent chain after phase 5 migration",
+            "QqOneBotBridgeServer should not keep the old QQ processMessageEvent chain after phase 5 migration",
             !source.contains("private suspend fun processMessageEvent("),
         )
         assertTrue(
-            "OneBotBridgeServer should not keep invokeProviderForPipeline after phase 5 migration",
+            "QqOneBotBridgeServer should not keep invokeProviderForPipeline after phase 5 migration",
             !source.contains("private suspend fun invokeProviderForPipeline("),
         )
     }
@@ -229,7 +229,7 @@ class FeatureFirstBoundaryContractTest {
 
     @Test
     fun plugin_view_model_routes_management_actions_through_plugin_presentation_controller() {
-        val file = mainRoot.resolve("ui/viewmodel/PluginViewModel.kt")
+        val file = mainRoot.resolve("feature/plugin/presentation/PluginViewModel.kt")
         assertTrue("PluginViewModel.kt must exist", file.exists())
         val text = file.readText()
         val enableBody = functionBody(text, "updateSelectedPluginEnabled")
@@ -280,7 +280,7 @@ class FeatureFirstBoundaryContractTest {
 
     @Test
     fun cron_jobs_view_model_routes_create_update_delete_schedule_through_controller() {
-        val file = mainRoot.resolve("ui/settings/CronJobsViewModel.kt")
+        val file = mainRoot.resolve("feature/cron/presentation/CronJobsViewModel.kt")
         assertTrue("CronJobsViewModel.kt must exist", file.exists())
         val text = file.readText()
         assertTrue(
@@ -289,7 +289,7 @@ class FeatureFirstBoundaryContractTest {
         )
         val forbiddenTokens = listOf(
             "import com.astrbot.android.data.CronJobRepository",
-            "import com.astrbot.android.runtime.cron.CronJobScheduler",
+            "import com.astrbot.android.feature.cron.runtime.CronJobScheduler",
             "ActiveCapabilityRuntimeFacade",
             "createFacade(",
         ).filter(text::contains)
@@ -317,8 +317,8 @@ class FeatureFirstBoundaryContractTest {
 
     @Test
     fun resource_center_ui_routes_presentation_through_feature_controller() {
-        val screenFile = mainRoot.resolve("ui/settings/ResourceCenterScreen.kt")
-        val presentationFile = mainRoot.resolve("ui/settings/ResourceCenterPresentation.kt")
+        val screenFile = mainRoot.resolve("feature/resource/presentation/ResourceCenterScreen.kt")
+        val presentationFile = mainRoot.resolve("feature/resource/presentation/ResourceCenterPresentation.kt")
         assertTrue("ResourceCenterScreen.kt must exist", screenFile.exists())
         assertTrue("ResourceCenterPresentation.kt must exist", presentationFile.exists())
         val screenText = screenFile.readText()
@@ -356,6 +356,56 @@ class FeatureFirstBoundaryContractTest {
     }
 
     @Test
+    fun core_sources_must_not_import_feature_packages_or_legacy_repository_aliases() {
+        val legacyRepositoryAliases = listOf(
+            "as BotRepository",
+            "as ConfigRepository",
+            "as PersonaRepository",
+            "as ProviderRepository",
+            "as ConversationRepository",
+            "as CronJobRepository",
+            "as PluginRepository",
+            "as ResourceCenterRepository",
+            "as NapCatBridgeRepository",
+        )
+        val violations = kotlinFilesUnder("core")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                buildList {
+                    text.lineSequence()
+                        .filter { it.trim().startsWith("import com.astrbot.android.feature.") }
+                        .forEach { line -> add("$relative imports ${line.trim()}") }
+                    legacyRepositoryAliases
+                        .filter(text::contains)
+                        .forEach { alias -> add("$relative uses legacy root repository alias $alias") }
+                }
+            }
+
+        assertTrue(
+            "core/** must not depend on feature packages or old root repository aliases: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun core_runtime_llm_must_not_expose_feature_plugin_contracts() {
+        val violations = kotlinFilesUnder("core/runtime/llm")
+            .flatMap { file ->
+                val text = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                listOf("com.astrbot.android.feature.plugin.runtime").mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative references $forbidden" else null
+                }
+            }
+
+        assertTrue(
+            "core/runtime/llm contracts must stay core-owned and must not expose feature plugin types: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
     fun plugin_v1_runtime_boundary_is_frozen_behind_explicit_legacy_adapter() {
         val adapterFile = mainRoot.resolve("feature/plugin/runtime/PluginV1LegacyAdapter.kt")
         val facadeFile = mainRoot.resolve("feature/plugin/runtime/PluginRuntimeFacade.kt")
@@ -377,8 +427,8 @@ class FeatureFirstBoundaryContractTest {
 
     @Test
     fun future_tool_source_registry_is_compatibility_shell_over_core_runtime_contract() {
-        val contractsFile = mainRoot.resolve("runtime/plugin/toolsource/FutureToolSourceContracts.kt")
-        val registryFile = mainRoot.resolve("runtime/plugin/toolsource/FutureToolSourceRegistry.kt")
+        val contractsFile = mainRoot.resolve("feature/plugin/runtime/toolsource/FutureToolSourceContracts.kt")
+        val registryFile = mainRoot.resolve("feature/plugin/runtime/toolsource/FutureToolSourceRegistry.kt")
         assertTrue("FutureToolSourceContracts.kt must exist", contractsFile.exists())
         assertTrue("FutureToolSourceRegistry.kt must exist", registryFile.exists())
 

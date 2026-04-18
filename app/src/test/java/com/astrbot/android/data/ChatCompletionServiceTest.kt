@@ -1,5 +1,6 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability

@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime
+package com.astrbot.android.core.runtime.container
 
 import java.io.File
 import kotlin.io.path.createTempDirectory

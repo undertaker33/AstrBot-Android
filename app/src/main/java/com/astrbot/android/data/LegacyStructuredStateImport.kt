@@ -1,11 +1,12 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.model.SavedQqAccount
 import org.json.JSONArray
 import org.json.JSONObject
 
 data class LegacyBotBindingState(
-    val configProfileId: String = ConfigRepository.DEFAULT_CONFIG_ID,
+    val configProfileId: String = FeatureConfigRepository.DEFAULT_CONFIG_ID,
     val boundQqUins: List<String> = emptyList(),
     val persistConversationLocally: Boolean = false,
 )
@@ -21,13 +22,13 @@ fun parseLegacyBotBindings(raw: String?): Map<String, LegacyBotBindingState> {
                 when (rawValue) {
                     is JSONObject -> LegacyBotBindingState(
                         configProfileId = rawValue.optString("configProfileId")
-                            .ifBlank { ConfigRepository.DEFAULT_CONFIG_ID },
+                            .ifBlank { FeatureConfigRepository.DEFAULT_CONFIG_ID },
                         boundQqUins = rawValue.optStringList("boundQqUins"),
                         persistConversationLocally = rawValue.optBoolean("persistConversationLocally", false),
                     )
 
                     else -> LegacyBotBindingState(
-                        configProfileId = objectJson.optString(key).ifBlank { ConfigRepository.DEFAULT_CONFIG_ID },
+                        configProfileId = objectJson.optString(key).ifBlank { FeatureConfigRepository.DEFAULT_CONFIG_ID },
                     )
                 },
             )

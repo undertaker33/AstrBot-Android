@@ -2,7 +2,7 @@ package com.astrbot.android.runtime.llm
 
 import com.astrbot.android.core.runtime.llm.LlmToolCall
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
-import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter.Companion.toLegacyToolDefinition
 import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter.Companion.toLlmInvocationResult
 import org.junit.Assert.assertEquals

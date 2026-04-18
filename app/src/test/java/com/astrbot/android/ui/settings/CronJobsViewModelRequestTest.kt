@@ -2,8 +2,8 @@ package com.astrbot.android.ui.settings
 
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.model.BotProfile
-import com.astrbot.android.runtime.context.RuntimePlatform
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityTargetContext
+import com.astrbot.android.core.runtime.context.RuntimePlatform
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTargetContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

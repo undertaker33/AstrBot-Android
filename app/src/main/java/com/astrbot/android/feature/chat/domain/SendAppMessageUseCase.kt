@@ -1,9 +1,12 @@
 package com.astrbot.android.feature.chat.domain
 
+import kotlinx.coroutines.flow.collect
+
+import kotlinx.coroutines.flow.flow
+
 import com.astrbot.android.model.chat.ConversationAttachment
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 
 class SendAppMessageUseCase(
     private val conversations: ConversationRepositoryPort,

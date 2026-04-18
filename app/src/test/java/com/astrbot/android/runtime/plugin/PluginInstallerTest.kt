@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin
+package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.PluginPackageInstallBlockedException
@@ -11,7 +11,7 @@ import com.astrbot.android.data.db.PluginManifestSnapshotEntity
 import com.astrbot.android.data.db.PluginPackageContractSnapshotEntity
 import com.astrbot.android.data.db.PluginPermissionSnapshotEntity
 import com.astrbot.android.data.db.toInstallRecord
-import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginDownloadProgress
@@ -42,11 +42,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import com.astrbot.android.runtime.plugin.catalog.PluginCatalogFetcher
-import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
-import com.astrbot.android.runtime.plugin.catalog.PluginInstallIntentHandler
-import com.astrbot.android.runtime.plugin.catalog.PluginRepositorySubscriptionManager
-import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogFetcher
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginRepositorySubscriptionManager
+import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogVersion

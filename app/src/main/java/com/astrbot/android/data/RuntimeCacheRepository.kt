@@ -1,7 +1,7 @@
 package com.astrbot.android.data
 
 import android.content.Context
-import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow

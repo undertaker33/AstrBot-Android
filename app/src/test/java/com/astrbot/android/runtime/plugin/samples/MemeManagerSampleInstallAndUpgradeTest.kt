@@ -1,14 +1,14 @@
-package com.astrbot.android.runtime.plugin.samples
+package com.astrbot.android.feature.plugin.runtime.samples
 
 import com.astrbot.android.data.PluginRepository
-import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
-import com.astrbot.android.runtime.plugin.PluginInstaller
-import com.astrbot.android.runtime.plugin.PluginPackageValidator
-import com.astrbot.android.runtime.plugin.RemotePluginPackageDownloader
+import com.astrbot.android.feature.plugin.runtime.PluginInstaller
+import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
+import com.astrbot.android.feature.plugin.runtime.RemotePluginPackageDownloader
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
@@ -197,7 +197,7 @@ class MemeManagerSampleInstallAndUpgradeTest {
             // Catalog fixture includes both 1.0.0 and 1.1.0, and the repository logic should prefer latest.
             val fixtureJson = SampleAssetPaths.catalogFixture.readText(Charsets.UTF_8)
             PluginRepository.replaceRepositoryCatalog(
-                com.astrbot.android.data.plugin.catalog.PluginCatalogJson.decodeRepositorySource(fixtureJson).copy(
+                com.astrbot.android.feature.plugin.data.catalog.PluginCatalogJson.decodeRepositorySource(fixtureJson).copy(
                     sourceId = "sample",
                     catalogUrl = "https://samples.astrbot.local/catalog/meme-manager.json",
                 ),

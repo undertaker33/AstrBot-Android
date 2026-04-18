@@ -37,7 +37,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.astrbot.android.R
 import com.astrbot.android.di.astrBotViewModel
-import com.astrbot.android.runtime.ContainerBridgeController
+import com.astrbot.android.core.runtime.container.ContainerBridgeController
 import com.astrbot.android.ui.navigation.AstrBotAppNavGraph
 import com.astrbot.android.ui.navigation.AstrBotAppTopBar
 import com.astrbot.android.ui.navigation.activeMainDestination

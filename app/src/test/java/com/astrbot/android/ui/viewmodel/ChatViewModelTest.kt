@@ -1,7 +1,10 @@
 package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
-import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
+import com.astrbot.android.core.runtime.context.RuntimeContextDataRegistry
+import com.astrbot.android.core.runtime.llm.LlmInvocationResult
+import com.astrbot.android.core.runtime.llm.LlmToolDefinition
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
@@ -9,6 +12,7 @@ import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
+import com.astrbot.android.feature.resource.data.ResourceCenterCompatibility
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -37,61 +41,61 @@ import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
-import com.astrbot.android.runtime.plugin.AppChatLlmPipelineRuntime
-import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
-import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
-import com.astrbot.android.runtime.plugin.EngineBackedAppChatPluginRuntime
-import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
-import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
-import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
-import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
-import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
-import com.astrbot.android.runtime.plugin.InMemoryPluginFailureStateStore
-import com.astrbot.android.runtime.plugin.InMemoryPluginRuntimeLogBus
-import com.astrbot.android.runtime.plugin.BaseHandlerRegistrationInput
-import com.astrbot.android.runtime.plugin.BootstrapFilterDescriptor
-import com.astrbot.android.runtime.plugin.CommandHandlerRegistrationInput
-import com.astrbot.android.runtime.plugin.DiagnosticSeverity
-import com.astrbot.android.runtime.plugin.PluginExecutionBatchResult
-import com.astrbot.android.runtime.plugin.PluginExecutionEngine
-import com.astrbot.android.runtime.plugin.PluginDispatchSkip
-import com.astrbot.android.runtime.plugin.PluginDispatchSkipReason
-import com.astrbot.android.runtime.plugin.PluginFailureGuard
-import com.astrbot.android.runtime.plugin.PluginMessageEvent
-import com.astrbot.android.runtime.plugin.PluginCommandEvent
-import com.astrbot.android.runtime.plugin.PluginLlmResponse
-import com.astrbot.android.runtime.plugin.PluginMessageEventResult
-import com.astrbot.android.runtime.plugin.PluginProviderRequest
-import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
-import com.astrbot.android.runtime.plugin.PluginRuntimeHandler
-import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
-import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeEntry
-import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStore
-import com.astrbot.android.runtime.plugin.PluginV2AfterSentView
-import com.astrbot.android.runtime.plugin.PluginV2BootstrapHostApi
-import com.astrbot.android.runtime.plugin.PluginV2BootstrapSummary
-import com.astrbot.android.runtime.plugin.PluginV2CallbackHandle
-import com.astrbot.android.runtime.plugin.PluginV2CompiledRegistrySnapshot
-import com.astrbot.android.runtime.plugin.PluginV2CustomFilterAwareCallbackHandle
-import com.astrbot.android.runtime.plugin.PluginV2CustomFilterRequest
-import com.astrbot.android.runtime.plugin.PluginV2DispatchEngine
-import com.astrbot.android.runtime.plugin.PluginV2DispatchEngineProvider
-import com.astrbot.android.runtime.plugin.PluginV2EventAwareCallbackHandle
-import com.astrbot.android.runtime.plugin.PluginV2EventResultCoordinator
-import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryRequest
-import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult
-import com.astrbot.android.runtime.plugin.PluginV2RegistryCompiler
-import com.astrbot.android.runtime.plugin.PluginV2RuntimeSession
-import com.astrbot.android.runtime.plugin.PluginV2RuntimeSessionState
-import com.astrbot.android.runtime.plugin.PluginV2InternalStage
-import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineInput
-import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineResult
-import com.astrbot.android.runtime.plugin.PluginV2LlmStageDispatchResult
-import com.astrbot.android.runtime.plugin.PluginV2ProviderInvocationResult
-import com.astrbot.android.runtime.plugin.PluginErrorEventPayload
-import com.astrbot.android.runtime.plugin.LlmPipelineAdmission
-import com.astrbot.android.runtime.plugin.MessageHandlerRegistrationInput
-import com.astrbot.android.runtime.plugin.samplePluginV2InstallRecord
+import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
+import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
+import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
+import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.BaseHandlerRegistrationInput
+import com.astrbot.android.feature.plugin.runtime.BootstrapFilterDescriptor
+import com.astrbot.android.feature.plugin.runtime.CommandHandlerRegistrationInput
+import com.astrbot.android.feature.plugin.runtime.DiagnosticSeverity
+import com.astrbot.android.feature.plugin.runtime.PluginExecutionBatchResult
+import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
+import com.astrbot.android.feature.plugin.runtime.PluginDispatchSkip
+import com.astrbot.android.feature.plugin.runtime.PluginDispatchSkipReason
+import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
+import com.astrbot.android.feature.plugin.runtime.PluginCommandEvent
+import com.astrbot.android.feature.plugin.runtime.PluginLlmResponse
+import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
+import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeHandler
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
+import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeEntry
+import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
+import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
+import com.astrbot.android.feature.plugin.runtime.PluginV2BootstrapHostApi
+import com.astrbot.android.feature.plugin.runtime.PluginV2BootstrapSummary
+import com.astrbot.android.feature.plugin.runtime.PluginV2CallbackHandle
+import com.astrbot.android.feature.plugin.runtime.PluginV2CompiledRegistrySnapshot
+import com.astrbot.android.feature.plugin.runtime.PluginV2CustomFilterAwareCallbackHandle
+import com.astrbot.android.feature.plugin.runtime.PluginV2CustomFilterRequest
+import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
+import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
+import com.astrbot.android.feature.plugin.runtime.PluginV2EventAwareCallbackHandle
+import com.astrbot.android.feature.plugin.runtime.PluginV2EventResultCoordinator
+import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryRequest
+import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSession
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSessionState
+import com.astrbot.android.feature.plugin.runtime.PluginV2InternalStage
+import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineInput
+import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2LlmStageDispatchResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
+import com.astrbot.android.feature.plugin.runtime.PluginErrorEventPayload
+import com.astrbot.android.feature.plugin.runtime.LlmPipelineAdmission
+import com.astrbot.android.feature.plugin.runtime.MessageHandlerRegistrationInput
+import com.astrbot.android.feature.plugin.runtime.samplePluginV2InstallRecord
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -121,6 +125,7 @@ class ChatViewModelTest {
     private var savedConfig: List<ConfigProfile> = emptyList()
     private var savedConfigSelectedId: String? = null
     private var savedSessions: List<ConversationSession> = emptyList()
+    private lateinit var savedRuntimeContextDataPort: RuntimeContextDataPort
 
     @org.junit.Before
     fun setUp() {
@@ -128,6 +133,7 @@ class ChatViewModelTest {
         savedConfig = ConfigRepository.snapshotProfiles()
         savedConfigSelectedId = ConfigRepository.selectedProfileId.value
         savedSessions = ConversationRepository.snapshotSessions()
+        savedRuntimeContextDataPort = RuntimeContextDataRegistry.port
     }
 
     @org.junit.After
@@ -137,6 +143,7 @@ class ChatViewModelTest {
         ProviderRepository.restoreProfiles(savedProviders)
         ConfigRepository.restoreProfiles(savedConfig, savedConfigSelectedId)
         ConversationRepository.restoreSessions(savedSessions)
+        RuntimeContextDataRegistry.port = savedRuntimeContextDataPort
     }
 
     @Test
@@ -1157,6 +1164,31 @@ class ChatViewModelTest {
             defaultChatProviderId = providers.firstOrNull { ProviderCapability.CHAT in it.capabilities }?.id.orEmpty(),
         ),
     ) : ChatViewModelDependencies {
+        init {
+            RuntimeContextDataRegistry.port = object : RuntimeContextDataPort {
+                override fun resolveConfig(configProfileId: String): ConfigProfile {
+                    return this@FakeChatDependencies.resolveConfig(configProfileId)
+                }
+
+                override fun listProviders(): List<ProviderProfile> {
+                    return this@FakeChatDependencies.providers.value
+                }
+
+                override fun findEnabledPersona(personaId: String): PersonaProfile? {
+                    return this@FakeChatDependencies.personas.value.firstOrNull {
+                        it.id == personaId && it.enabled
+                    }
+                }
+
+                override fun session(sessionId: String): ConversationSession {
+                    return this@FakeChatDependencies.session(sessionId)
+                }
+
+                override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
+                    ResourceCenterCompatibility.projectionsFromConfigProfile(config)
+            }
+        }
+
         override val defaultSessionId: String = "chat-main"
         override val defaultSessionTitle: String = "Default session"
         override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(bots)
@@ -1357,12 +1389,12 @@ class ChatViewModelTest {
             systemPrompt: String?,
             config: ConfigProfile?,
             availableProviders: List<ProviderProfile>,
-            tools: List<ChatCompletionService.ChatToolDefinition>,
-        ): ChatCompletionService.ChatCompletionResult {
+            tools: List<LlmToolDefinition>,
+        ): LlmInvocationResult {
             sentChatRequests += 1
             signalLog += "model:sync:tools"
             sendConfiguredChatFailure?.let { throw it }
-            return ChatCompletionService.ChatCompletionResult(text = chatResponse)
+            return LlmInvocationResult(text = chatResponse)
         }
 
         override suspend fun sendConfiguredChatStreamWithTools(
@@ -1371,14 +1403,14 @@ class ChatViewModelTest {
             systemPrompt: String?,
             config: ConfigProfile?,
             availableProviders: List<ProviderProfile>,
-            tools: List<ChatCompletionService.ChatToolDefinition>,
+            tools: List<LlmToolDefinition>,
             onDelta: suspend (String) -> Unit,
             onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
-        ): ChatCompletionService.ChatCompletionResult {
+        ): LlmInvocationResult {
             sentStreamingRequests += 1
             signalLog += "model:stream:tools"
             streamingDeltas.forEach { delta -> onDelta(delta) }
-            return ChatCompletionService.ChatCompletionResult(text = streamingResponse)
+            return LlmInvocationResult(text = streamingResponse)
         }
 
         override suspend fun synthesizeSpeech(

@@ -1,10 +1,12 @@
 package com.astrbot.android.ui.common
 
+import com.astrbot.android.core.common.profile.ProfileCatalogKind
+
+import com.astrbot.android.core.common.profile.LastProfileDeletionBlockedException
+
 import android.content.Context
 import android.widget.Toast
 import com.astrbot.android.R
-import com.astrbot.android.data.LastProfileDeletionBlockedException
-import com.astrbot.android.data.ProfileCatalogKind
 
 internal fun showProfileDeletionFailureToast(
     context: Context,

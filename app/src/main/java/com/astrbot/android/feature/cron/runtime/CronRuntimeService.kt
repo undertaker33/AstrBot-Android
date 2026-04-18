@@ -4,11 +4,11 @@ import com.astrbot.android.feature.cron.domain.ActiveCapabilityTaskPort
 import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.feature.cron.domain.CronTaskCreateRequest
 import com.astrbot.android.feature.cron.domain.CronTaskCreateResult
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityCreateTaskRequest
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityRuntimeFacade
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityScheduler
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityTargetContext
-import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityTaskCreation
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityCreateTaskRequest
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityRuntimeFacade
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityScheduler
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTargetContext
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTaskCreation
 import com.astrbot.android.model.CronJob
 
 class CronRuntimeService(

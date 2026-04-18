@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.NapCatBridgeConfig
-import com.astrbot.android.runtime.ContainerBridgeController
+import com.astrbot.android.core.runtime.container.ContainerBridgeController
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.app.RegisterSecondaryTopBar
 import com.astrbot.android.ui.app.SecondaryTopBarPlaceholder

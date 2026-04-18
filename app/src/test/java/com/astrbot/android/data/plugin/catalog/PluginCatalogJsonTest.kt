@@ -1,7 +1,7 @@
-package com.astrbot.android.data.plugin.catalog
+package com.astrbot.android.feature.plugin.data.catalog
 
 import com.astrbot.android.model.plugin.PluginRiskLevel
-import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

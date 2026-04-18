@@ -1,9 +1,9 @@
-package com.astrbot.android.runtime.plugin.toolsource.search
+package com.astrbot.android.feature.plugin.runtime.toolsource.search
 
-import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.runtime.plugin.toolsource.WebSearchResult
-import com.astrbot.android.runtime.plugin.toolsource.assessBatchRelevance
-import com.astrbot.android.runtime.plugin.toolsource.executeWebSearchQuery
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.feature.plugin.runtime.toolsource.WebSearchResult
+import com.astrbot.android.feature.plugin.runtime.toolsource.assessBatchRelevance
+import com.astrbot.android.feature.plugin.runtime.toolsource.executeWebSearchQuery
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

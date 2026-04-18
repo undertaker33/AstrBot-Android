@@ -1,4 +1,4 @@
-package com.astrbot.android.data.backup
+package com.astrbot.android.core.db.backup
 
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession

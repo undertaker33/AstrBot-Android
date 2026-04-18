@@ -3,7 +3,7 @@ package com.astrbot.android.ui.viewmodel
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.di.QQLoginViewModelDependencies
 import com.astrbot.android.model.NapCatLoginState
-import com.astrbot.android.data.NapCatLoginService
+import com.astrbot.android.feature.qq.data.NapCatLoginService
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

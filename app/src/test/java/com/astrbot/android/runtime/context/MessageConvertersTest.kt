@@ -1,9 +1,9 @@
-package com.astrbot.android.runtime.context
+package com.astrbot.android.core.runtime.context
 
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationToolCall
-import com.astrbot.android.runtime.context.MessageConverters.toPluginProviderMessages
-import com.astrbot.android.runtime.plugin.PluginProviderMessageRole
+import com.astrbot.android.feature.plugin.runtime.MessageConverters.toPluginProviderMessages
+import com.astrbot.android.feature.plugin.runtime.PluginProviderMessageRole
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

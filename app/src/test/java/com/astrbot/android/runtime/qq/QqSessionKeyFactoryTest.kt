@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.qq
+package com.astrbot.android.feature.qq.runtime
 
 import com.astrbot.android.model.chat.MessageType
 import org.junit.Assert.assertEquals

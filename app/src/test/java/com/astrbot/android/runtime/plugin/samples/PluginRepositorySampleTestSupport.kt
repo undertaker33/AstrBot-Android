@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin.samples
+package com.astrbot.android.feature.plugin.runtime.samples
 
 import com.astrbot.android.data.NoOpPluginDataRemover
 import com.astrbot.android.data.PluginRepository

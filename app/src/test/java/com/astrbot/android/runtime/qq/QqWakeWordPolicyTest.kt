@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.qq
+package com.astrbot.android.feature.qq.runtime
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

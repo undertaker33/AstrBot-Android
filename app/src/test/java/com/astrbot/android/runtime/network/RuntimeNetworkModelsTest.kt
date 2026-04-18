@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.network
+package com.astrbot.android.core.runtime.network
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

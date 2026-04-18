@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.context
+package com.astrbot.android.core.runtime.context
 
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.ResourceCenterCompatibilitySnapshot

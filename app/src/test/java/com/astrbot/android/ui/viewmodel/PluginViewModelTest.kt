@@ -62,22 +62,22 @@ import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.PluginHostAction
-import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
-import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
-import com.astrbot.android.runtime.plugin.PluginGovernanceFailureProjection
-import com.astrbot.android.runtime.plugin.PluginGovernanceReadModel
-import com.astrbot.android.runtime.plugin.PluginGovernanceRecoveryStatus
-import com.astrbot.android.runtime.plugin.InMemoryPluginRuntimeLogBus
-import com.astrbot.android.runtime.plugin.NoOpPluginRuntimeLogBus
-import com.astrbot.android.runtime.plugin.PluginObservabilitySummary
-import com.astrbot.android.runtime.plugin.PluginRuntimeLogBus
-import com.astrbot.android.runtime.plugin.PluginRuntimeLogBusProvider
-import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
-import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
-import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
-import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
-import com.astrbot.android.runtime.plugin.samplePluginV2InstallRecord
-import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.PluginGovernanceFailureProjection
+import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
+import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRecoveryStatus
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.NoOpPluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginObservabilitySummary
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
+import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
+import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
+import com.astrbot.android.feature.plugin.runtime.samplePluginV2InstallRecord
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.data.PluginCatalogVersionGateResult
 import java.lang.reflect.Method
 import java.nio.file.Files
@@ -203,6 +203,7 @@ class PluginViewModelTest {
 
         viewModel.refreshMarketCatalog()
         advanceUntilIdle()
+        RuntimeLogRepository.flush()
 
         assertEquals(1, deps.marketRefreshRequests)
         assertFalse(viewModel.uiState.value.isMarketRefreshRunning)

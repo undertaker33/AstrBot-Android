@@ -1,6 +1,6 @@
-package com.astrbot.android.feature.qq.data
+﻿package com.astrbot.android.feature.qq.data
 
-import com.astrbot.android.data.ConversationRepository
+import com.astrbot.android.feature.chat.data.FeatureConversationRepository
 import com.astrbot.android.feature.qq.domain.QqConversationPort
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
@@ -10,7 +10,7 @@ import com.astrbot.android.model.chat.MessageType
 class LegacyQqConversationAdapter : QqConversationPort {
 
     override fun sessions(): List<ConversationSession> {
-        return ConversationRepository.sessions.value
+        return FeatureConversationRepository.sessions.value
     }
 
     override fun resolveOrCreateSession(
@@ -18,15 +18,15 @@ class LegacyQqConversationAdapter : QqConversationPort {
         title: String,
         messageType: MessageType,
     ): ConversationSession {
-        val existing = ConversationRepository.session(sessionId)
+        val existing = FeatureConversationRepository.session(sessionId)
         if (existing.title != title || !existing.titleCustomized) {
-            ConversationRepository.syncSystemSessionTitle(sessionId, title)
+            FeatureConversationRepository.syncSystemSessionTitle(sessionId, title)
         }
-        return ConversationRepository.session(sessionId)
+        return FeatureConversationRepository.session(sessionId)
     }
 
     override fun session(sessionId: String): ConversationSession {
-        return ConversationRepository.session(sessionId)
+        return FeatureConversationRepository.session(sessionId)
     }
 
     override fun appendMessage(
@@ -35,7 +35,7 @@ class LegacyQqConversationAdapter : QqConversationPort {
         content: String,
         attachments: List<ConversationAttachment>,
     ): String {
-        return ConversationRepository.appendMessage(
+        return FeatureConversationRepository.appendMessage(
             sessionId = sessionId,
             role = role,
             content = content,
@@ -49,7 +49,7 @@ class LegacyQqConversationAdapter : QqConversationPort {
         providerId: String,
         personaId: String,
     ) {
-        ConversationRepository.updateSessionBindings(
+        FeatureConversationRepository.updateSessionBindings(
             sessionId = sessionId,
             providerId = providerId,
             personaId = personaId,
@@ -62,7 +62,7 @@ class LegacyQqConversationAdapter : QqConversationPort {
         sessionSttEnabled: Boolean?,
         sessionTtsEnabled: Boolean?,
     ) {
-        ConversationRepository.updateSessionServiceFlags(
+        FeatureConversationRepository.updateSessionServiceFlags(
             sessionId = sessionId,
             sessionSttEnabled = sessionSttEnabled,
             sessionTtsEnabled = sessionTtsEnabled,
@@ -73,14 +73,16 @@ class LegacyQqConversationAdapter : QqConversationPort {
         sessionId: String,
         messages: List<ConversationMessage>,
     ) {
-        ConversationRepository.replaceMessages(sessionId, messages)
+        FeatureConversationRepository.replaceMessages(sessionId, messages)
     }
 
     override fun renameSession(sessionId: String, title: String) {
-        ConversationRepository.renameSession(sessionId, title)
+        FeatureConversationRepository.renameSession(sessionId, title)
     }
 
     override fun deleteSession(sessionId: String) {
-        ConversationRepository.deleteSession(sessionId)
+        FeatureConversationRepository.deleteSession(sessionId)
     }
 }
+
+

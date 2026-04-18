@@ -2,9 +2,9 @@ package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.model.plugin.PluginExecutionStage
 import com.astrbot.android.model.plugin.PluginTriggerSource
-import com.astrbot.android.runtime.plugin.PluginLegacyDispatchAttempt
-import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
-import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import com.astrbot.android.feature.plugin.runtime.PluginLegacyDispatchAttempt
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 
 /**
  * Explicit legacy/freeze boundary for V1 plugin dispatch.

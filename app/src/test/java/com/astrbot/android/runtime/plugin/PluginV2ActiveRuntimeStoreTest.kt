@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin
+package com.astrbot.android.feature.plugin.runtime
 
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread

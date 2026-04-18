@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin
+package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import java.io.File
@@ -8,7 +8,7 @@ import org.junit.Ignore
 import org.junit.Test
 
 @Ignore(
-    "Gated QuickJS integration asset. Run manually with .\\gradlew.bat :app:testDebugUnitTest --tests \"com.astrbot.android.runtime.plugin.PluginV2QuickJsBootstrapIntegrationTest\" in a JVM-native QuickJS environment.",
+    "Gated QuickJS integration asset. Run manually with .\\gradlew.bat :app:testDebugUnitTest --tests \"com.astrbot.android.feature.plugin.runtime.PluginV2QuickJsBootstrapIntegrationTest\" in a JVM-native QuickJS environment.",
 )
 class PluginV2QuickJsBootstrapIntegrationTest {
 

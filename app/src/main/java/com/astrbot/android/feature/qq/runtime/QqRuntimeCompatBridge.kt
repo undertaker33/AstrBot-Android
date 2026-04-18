@@ -5,8 +5,8 @@ import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
-import com.astrbot.android.runtime.plugin.PluginV2HostPreparedReply
-import com.astrbot.android.runtime.plugin.PluginV2HostSendResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
+import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 
 internal interface QqRuntimeCompatBridge {
     fun currentLanguageTag(): String

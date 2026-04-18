@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.cron
+package com.astrbot.android.feature.cron.runtime
 
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord

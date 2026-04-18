@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.botcommand
+package com.astrbot.android.feature.chat.runtime.botcommand
 
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.chat.ConversationSession

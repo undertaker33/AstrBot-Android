@@ -1,6 +1,6 @@
 package com.astrbot.android.model.plugin
 
-import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals

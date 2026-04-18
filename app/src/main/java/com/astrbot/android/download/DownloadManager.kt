@@ -1,5 +1,7 @@
 package com.astrbot.android.download
 
+import kotlinx.coroutines.flow.collect
+
 import android.content.Context
 import com.astrbot.android.data.db.AstrBotDatabase
 import java.io.File

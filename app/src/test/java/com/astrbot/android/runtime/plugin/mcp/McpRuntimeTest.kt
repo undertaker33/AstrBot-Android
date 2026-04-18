@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin.mcp
+package com.astrbot.android.feature.plugin.runtime.mcp
 
 import com.astrbot.android.model.McpServerEntry
 import java.util.concurrent.TimeUnit

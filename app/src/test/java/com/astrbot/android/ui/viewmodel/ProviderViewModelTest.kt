@@ -1,6 +1,6 @@
 package com.astrbot.android.ui.viewmodel
 
-import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.di.ProviderViewModelDependencies
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -193,7 +193,7 @@ class ProviderViewModelTest {
 
         override fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>> = emptyList()
 
-        override fun ttsAssetState(context: android.content.Context): com.astrbot.android.data.SherpaOnnxAssetManager.TtsAssetState {
+        override fun ttsAssetState(context: android.content.Context): com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager.TtsAssetState {
             error("Not needed in test")
         }
 

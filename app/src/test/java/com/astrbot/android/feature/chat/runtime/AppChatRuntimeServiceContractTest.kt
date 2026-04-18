@@ -25,11 +25,11 @@ class AppChatRuntimeServiceContractTest {
         val text = serviceFile.readText()
         assertTrue(
             "Must import RuntimeContextResolver",
-            text.contains("import com.astrbot.android.runtime.context.RuntimeContextResolver"),
+            text.contains("import com.astrbot.android.core.runtime.context.RuntimeContextResolver"),
         )
         assertTrue(
             "Must import RuntimeOrchestrator",
-            text.contains("import com.astrbot.android.runtime.plugin.RuntimeOrchestrator"),
+            text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
         )
     }
 
@@ -45,11 +45,11 @@ class AppChatRuntimeServiceContractTest {
         val text = viewModelFile.readText()
         assertTrue(
             "ChatViewModel must NOT import RuntimeContextResolver",
-            !text.contains("import com.astrbot.android.runtime.context.RuntimeContextResolver"),
+            !text.contains("import com.astrbot.android.core.runtime.context.RuntimeContextResolver"),
         )
         assertTrue(
             "ChatViewModel must NOT import RuntimeOrchestrator",
-            !text.contains("import com.astrbot.android.runtime.plugin.RuntimeOrchestrator"),
+            !text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
         )
     }
 }

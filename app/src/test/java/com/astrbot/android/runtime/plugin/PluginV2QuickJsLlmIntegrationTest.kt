@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin
+package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import java.io.File
@@ -11,7 +11,7 @@ import org.junit.Test
  * Gated QuickJS LLM integration assets.
  *
  * Manual run:
- * `.\gradlew.bat :app:testDebugUnitTest --tests "com.astrbot.android.runtime.plugin.PluginV2QuickJsLlmIntegrationTest"`
+ * `.\gradlew.bat :app:testDebugUnitTest --tests "com.astrbot.android.feature.plugin.runtime.PluginV2QuickJsLlmIntegrationTest"`
  */
 class PluginV2QuickJsLlmIntegrationTest {
 

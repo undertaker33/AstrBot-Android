@@ -4,10 +4,10 @@ import com.astrbot.android.feature.qq.domain.IncomingQqMessage
 import com.astrbot.android.feature.qq.domain.QqReplyPayload
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.MessageType
-import com.astrbot.android.runtime.OneBotPayloadCodec
-import com.astrbot.android.runtime.plugin.PluginV2HostSendResult
-import com.astrbot.android.runtime.qq.QqReplyDecoration
-import com.astrbot.android.runtime.qq.QqReplyFormatter
+import com.astrbot.android.feature.qq.runtime.QqOneBotPayloadCodec
+import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
+import com.astrbot.android.feature.qq.runtime.QqReplyDecoration
+import com.astrbot.android.feature.qq.runtime.QqReplyFormatter
 import org.json.JSONObject
 
 internal class QqReplySender(
@@ -34,7 +34,7 @@ internal class QqReplySender(
             quoteSenderMessageEnabled = config?.quoteSenderMessageEnabled == true,
             mentionSenderEnabled = config?.mentionSenderEnabled == true,
         )
-        val messagePayload: Any = OneBotPayloadCodec.buildReplyPayload(
+        val messagePayload: Any = QqOneBotPayloadCodec.buildReplyPayload(
             text = payload.text,
             attachments = payload.attachments,
             decoration = decoration,

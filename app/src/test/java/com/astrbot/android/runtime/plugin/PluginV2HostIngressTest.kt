@@ -1,7 +1,7 @@
-package com.astrbot.android.runtime.plugin
+package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.data.BotRepository
-import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
@@ -30,10 +30,10 @@ import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
 import com.astrbot.android.runtime.IncomingMessageEvent
-import com.astrbot.android.runtime.OneBotBridgeServer
-import com.astrbot.android.runtime.OneBotSendResult
-import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.runtime.qq.QqSessionKeyFactory
+import com.astrbot.android.feature.qq.runtime.QqOneBotBridgeServer
+import com.astrbot.android.feature.qq.runtime.OneBotSendResult
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.feature.qq.runtime.QqSessionKeyFactory
 import java.nio.file.Files
 import java.util.AbstractMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -344,7 +344,7 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
                 replies += text
                 OneBotSendResult.success(receiptIds = listOf("receipt-v2-command"))
             }
@@ -398,7 +398,7 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, attachments ->
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, attachments ->
                 replyAttachments += attachments
                 OneBotSendResult.success(receiptIds = listOf("receipt-v2-command-attachment"))
             }
@@ -541,8 +541,8 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success()
             }
 
@@ -587,8 +587,8 @@ class PluginV2HostIngressTest {
             config = config,
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success()
             }
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
@@ -631,8 +631,8 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success()
             }
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
@@ -680,8 +680,8 @@ class PluginV2HostIngressTest {
             config = config,
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success(receiptIds = listOf("receipt-domain"))
             }
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
@@ -721,8 +721,8 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success()
             }
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
@@ -751,8 +751,8 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 sendAttempts.incrementAndGet()
                 OneBotSendResult.success()
             }
@@ -792,8 +792,8 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 sendAttempts.incrementAndGet()
                 OneBotSendResult.success(receiptIds = listOf("receipt-123"))
             }
@@ -829,8 +829,8 @@ class PluginV2HostIngressTest {
         ) {
             PluginRuntimeLogBusProvider.setBusOverrideForTests(logBus)
             try {
-                OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-                OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+                QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                     OneBotSendResult.failure("send-boom")
                 }
                 PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
@@ -900,8 +900,8 @@ class PluginV2HostIngressTest {
                 ),
             ),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
                 sentTexts += text
                 OneBotSendResult.success(receiptIds = listOf("receipt-${sentTexts.size}"))
             }
@@ -936,8 +936,8 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = true),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
                 sentTexts += text
                 OneBotSendResult.success(receiptIds = listOf("receipt-${sentTexts.size}"))
             }
@@ -1005,8 +1005,8 @@ class PluginV2HostIngressTest {
                     defaultTtsProvider(),
                 ),
             ) {
-                OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-                OneBotBridgeServer.setReplySenderOverrideForTests { _, text, attachments ->
+                QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+                QqOneBotBridgeServer.setReplySenderOverrideForTests { _, text, attachments ->
                     sentTexts += text
                     sentAttachmentCounts += attachments.size
                     OneBotSendResult.success(receiptIds = listOf("receipt-${sentAttachmentCounts.size}"))
@@ -1044,8 +1044,8 @@ class PluginV2HostIngressTest {
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
                 sentTexts += text
                 OneBotSendResult.success(receiptIds = listOf("receipt-image"))
             }
@@ -1085,8 +1085,8 @@ class PluginV2HostIngressTest {
                 PluginV2LifecycleManagerProvider.setManagerOverrideForTests(
                     PluginV2LifecycleManager(logBus = logBus),
                 )
-                OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-                OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+                QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                     OneBotSendResult.success(receiptIds = listOf("receipt-after-sent"))
                 }
                 PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
@@ -1109,7 +1109,7 @@ class PluginV2HostIngressTest {
         event: IncomingMessageEvent,
         contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
     ): PluginV2MessageDispatchResult? {
-        val method = OneBotBridgeServer::class.java.getDeclaredMethod(
+        val method = QqOneBotBridgeServer::class.java.getDeclaredMethod(
             "executeQqPlugins",
             PluginTriggerSource::class.java,
             IncomingMessageEvent::class.java,
@@ -1117,7 +1117,7 @@ class PluginV2HostIngressTest {
         )
         method.isAccessible = true
         @Suppress("UNCHECKED_CAST")
-        return method.invoke(OneBotBridgeServer, trigger, event, contextFactory) as PluginV2MessageDispatchResult?
+        return method.invoke(QqOneBotBridgeServer, trigger, event, contextFactory) as PluginV2MessageDispatchResult?
     }
 
     private fun invokeHandlePluginCommand(
@@ -1127,7 +1127,7 @@ class PluginV2HostIngressTest {
         sessionId: String,
         session: ConversationSession,
     ): Boolean {
-        val method = OneBotBridgeServer::class.java.getDeclaredMethod(
+        val method = QqOneBotBridgeServer::class.java.getDeclaredMethod(
             "handlePluginCommand",
             IncomingMessageEvent::class.java,
             BotProfile::class.java,
@@ -1139,7 +1139,7 @@ class PluginV2HostIngressTest {
         method.isAccessible = true
         @Suppress("UNCHECKED_CAST")
         return method.invoke(
-            OneBotBridgeServer,
+            QqOneBotBridgeServer,
             event,
             bot,
             config,
@@ -1211,14 +1211,14 @@ class PluginV2HostIngressTest {
     }
 
     private suspend fun invokeHandlePayload(payload: String) {
-        val method = OneBotBridgeServer::class.java.getDeclaredMethod(
+        val method = QqOneBotBridgeServer::class.java.getDeclaredMethod(
             "handlePayload",
             String::class.java,
             Continuation::class.java,
         )
         method.isAccessible = true
         suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
-            val result = method.invoke(OneBotBridgeServer, payload, continuation)
+            val result = method.invoke(QqOneBotBridgeServer, payload, continuation)
             if (result === COROUTINE_SUSPENDED) {
                 COROUTINE_SUSPENDED
             } else {
@@ -1251,8 +1251,8 @@ class PluginV2HostIngressTest {
             RuntimeLogRepository.clear()
             block()
         } finally {
-            OneBotBridgeServer.setReplySenderOverrideForTests(null)
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(null)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests(null)
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(null)
             AppChatPluginRuntimeCoordinatorProvider.setCoordinatorOverrideForTests(null)
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
             PluginRuntimeRegistry.reset()
@@ -1393,8 +1393,8 @@ class PluginV2HostIngressTest {
             config = config,
             providers = listOf(provider),
         ) {
-            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 val hasAssistantBeforeSend = ConversationRepository
                     .session("qq-qq-main-group-30003")
                     .messages

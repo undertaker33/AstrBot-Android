@@ -1,13 +1,14 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.feature.qq.data.NapCatLoginService
 import com.astrbot.android.data.http.AstrBotHttpClient
 import com.astrbot.android.data.http.AstrBotHttpException
 import com.astrbot.android.data.http.HttpFailureCategory
 import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.HttpResponsePayload
-import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.runtime.RuntimeSecretRepository
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
 import java.net.SocketTimeoutException
 import org.json.JSONObject
 import org.junit.Assert.assertEquals

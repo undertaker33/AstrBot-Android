@@ -1,4 +1,6 @@
-﻿package com.astrbot.android.ui.app
+package com.astrbot.android.ui.app
+
+import androidx.compose.ui.unit.dp
 import com.astrbot.android.ui.navigation.AppDestination
 
 import androidx.compose.foundation.background
@@ -38,7 +40,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astrbot.android.R
 import com.astrbot.android.model.BotProfile

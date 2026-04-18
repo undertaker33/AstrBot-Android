@@ -1,6 +1,6 @@
-package com.astrbot.android.feature.provider.data
+﻿package com.astrbot.android.feature.provider.data
 
-import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.feature.provider.data.FeatureProviderRepository
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
@@ -9,16 +9,16 @@ import kotlinx.coroutines.flow.StateFlow
 class LegacyProviderRepositoryAdapter : ProviderRepositoryPort {
 
     override val providers: StateFlow<List<ProviderProfile>>
-        get() = ProviderRepository.providers
+        get() = FeatureProviderRepository.providers
 
     override fun snapshotProfiles(): List<ProviderProfile> =
-        ProviderRepository.snapshotProfiles()
+        FeatureProviderRepository.snapshotProfiles()
 
     override fun providersWithCapability(capability: ProviderCapability): List<ProviderProfile> =
-        ProviderRepository.providers.value.filter { capability in it.capabilities }
+        FeatureProviderRepository.providers.value.filter { capability in it.capabilities }
 
     override suspend fun save(profile: ProviderProfile) {
-        ProviderRepository.save(
+        FeatureProviderRepository.save(
             id = profile.id,
             name = profile.name,
             baseUrl = profile.baseUrl,
@@ -38,6 +38,9 @@ class LegacyProviderRepositoryAdapter : ProviderRepositoryPort {
     }
 
     override suspend fun delete(id: String) {
-        ProviderRepository.delete(id)
+        FeatureProviderRepository.delete(id)
     }
 }
+
+
+

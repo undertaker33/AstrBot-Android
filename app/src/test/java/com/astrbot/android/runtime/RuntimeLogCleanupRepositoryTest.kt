@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime
+package com.astrbot.android.core.runtime.container
 
 import org.junit.After
 import org.junit.Assert.assertEquals

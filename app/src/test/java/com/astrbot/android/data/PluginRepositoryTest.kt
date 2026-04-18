@@ -43,7 +43,7 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.model.plugin.PluginPackageValidationIssue
-import com.astrbot.android.runtime.plugin.PluginPackageValidationResult
+import com.astrbot.android.feature.plugin.runtime.PluginPackageValidationResult
 import com.astrbot.android.model.plugin.PluginStaticConfigJson
 import java.io.File
 import java.nio.file.Files

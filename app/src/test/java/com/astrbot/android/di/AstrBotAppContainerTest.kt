@@ -9,8 +9,8 @@ import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
-import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.runtime.plugin.PluginV2RuntimeSyncResult
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSyncResult
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi

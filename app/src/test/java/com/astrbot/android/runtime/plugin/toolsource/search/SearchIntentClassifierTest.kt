@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.plugin.toolsource.search
+package com.astrbot.android.feature.plugin.runtime.toolsource.search
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

@@ -1,5 +1,7 @@
 package com.astrbot.android.ui.navigation
 
+import androidx.compose.ui.unit.dp
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -18,9 +20,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.astrbot.android.R
-import com.astrbot.android.data.ConfigRepository
-import com.astrbot.android.data.ResourceCenterRepository
-import com.astrbot.android.data.backup.AppBackupModuleKind
+import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
+import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
+import com.astrbot.android.core.db.backup.AppBackupModuleKind
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.PersonaProfile
@@ -657,3 +659,4 @@ private fun MainTopLevelRail(
         )
     }
 }
+

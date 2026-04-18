@@ -1,4 +1,4 @@
-package com.astrbot.android.runtime.context
+package com.astrbot.android.core.runtime.context
 
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ProviderRepository
@@ -13,10 +13,10 @@ import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.ResourceCenterKind
 import com.astrbot.android.model.SkillResourceKind
 import com.astrbot.android.model.chat.MessageType
-import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineInput
-import com.astrbot.android.runtime.plugin.toolsource.ToolSourceAvailabilityContext
-import com.astrbot.android.runtime.plugin.toolsource.ToolSourceContext
-import com.astrbot.android.runtime.plugin.toolsource.ToolSourceRegistryIngestContext
+import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineInput
+import com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceAvailabilityContext
+import com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceContext
+import com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceRegistryIngestContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue

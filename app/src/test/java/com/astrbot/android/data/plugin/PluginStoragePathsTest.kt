@@ -1,4 +1,4 @@
-package com.astrbot.android.data.plugin
+package com.astrbot.android.feature.plugin.data
 
 import java.nio.file.Files
 import org.junit.Assert.assertEquals

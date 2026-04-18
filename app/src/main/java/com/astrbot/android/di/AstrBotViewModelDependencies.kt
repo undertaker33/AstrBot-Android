@@ -2,26 +2,29 @@ package com.astrbot.android.di
 
 import android.net.Uri
 import android.provider.OpenableColumns
-import com.astrbot.android.data.BotRepository
-import com.astrbot.android.data.ChatCompletionService
-import com.astrbot.android.data.ConfigRepository
-import com.astrbot.android.data.ConversationRepository
+import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
+import com.astrbot.android.core.runtime.llm.LlmInvocationResult
+import com.astrbot.android.core.runtime.llm.LlmToolCall
+import com.astrbot.android.core.runtime.llm.LlmToolDefinition
+import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
+import com.astrbot.android.feature.chat.data.FeatureConversationRepository as ConversationRepository
 import com.astrbot.android.feature.chat.data.LegacyConversationRepositoryAdapter
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
 import com.astrbot.android.feature.chat.runtime.AppChatRuntimeService
-import com.astrbot.android.data.NapCatBridgeRepository
-import com.astrbot.android.data.NapCatLoginRepository
-import com.astrbot.android.data.NapCatLoginService
-import com.astrbot.android.data.PersonaRepository
-import com.astrbot.android.data.PluginCatalogVersionGateResult
-import com.astrbot.android.data.PluginRepository
-import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
+import com.astrbot.android.feature.qq.data.NapCatLoginRepository
+import com.astrbot.android.feature.qq.data.NapCatLoginService
+import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
+import com.astrbot.android.feature.plugin.data.PluginCatalogVersionGateResult
+import com.astrbot.android.feature.plugin.data.FeaturePluginRepository as PluginRepository
+import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
 import com.astrbot.android.data.RuntimeAssetRepository
-import com.astrbot.android.data.SherpaOnnxBridge
-import com.astrbot.android.data.TtsVoiceAssetRepository
-import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
+import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
+import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.download.AppDownloadManager
 import com.astrbot.android.download.DownloadOwnerType
 import com.astrbot.android.download.DownloadRequest
@@ -56,27 +59,28 @@ import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
-import com.astrbot.android.runtime.ContainerBridgeController
-import com.astrbot.android.runtime.ConversationSessionLockManager
-import com.astrbot.android.runtime.RuntimeLogRepository
-import com.astrbot.android.runtime.plugin.PluginFailureGuard
-import com.astrbot.android.runtime.plugin.PluginInstaller
-import com.astrbot.android.runtime.plugin.PluginPackageValidator
-import com.astrbot.android.runtime.plugin.PluginGovernanceReadModel
-import com.astrbot.android.runtime.plugin.PluginGovernanceRepository
-import com.astrbot.android.runtime.plugin.PluginRuntimeLogBus
-import com.astrbot.android.runtime.plugin.PluginRuntimeLogBusProvider
-import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
-import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
-import com.astrbot.android.runtime.plugin.catalog.PluginInstallIntentHandler
-import com.astrbot.android.runtime.plugin.catalog.PluginRepositorySubscriptionManager
-import com.astrbot.android.runtime.plugin.catalog.UrlConnectionPluginCatalogFetcher
+import com.astrbot.android.core.runtime.container.ContainerBridgeController
+import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginInstaller
+import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
+import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
+import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginRepositorySubscriptionManager
+import com.astrbot.android.feature.plugin.runtime.catalog.UrlConnectionPluginCatalogFetcher
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 interface BridgeViewModelDependencies {
     val config: StateFlow<NapCatBridgeConfig>
@@ -187,7 +191,7 @@ interface ProviderViewModelDependencies {
 
     fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>>
 
-    fun ttsAssetState(context: android.content.Context): com.astrbot.android.data.SherpaOnnxAssetManager.TtsAssetState
+    fun ttsAssetState(context: android.content.Context): com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager.TtsAssetState
 
     fun isSherpaFrameworkReady(): Boolean
 
@@ -290,7 +294,7 @@ object DefaultProviderViewModelDependencies : ProviderViewModelDependencies {
         return TtsVoiceAssetRepository.listVoiceChoicesFor(provider)
     }
 
-    override fun ttsAssetState(context: android.content.Context): com.astrbot.android.data.SherpaOnnxAssetManager.TtsAssetState {
+    override fun ttsAssetState(context: android.content.Context): com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager.TtsAssetState {
         return RuntimeAssetRepository.ttsAssetState(context)
     }
 
@@ -520,7 +524,7 @@ interface PluginViewModelDependencies {
 
     fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
 
-    fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): com.astrbot.android.data.PluginUninstallResult
+    fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): com.astrbot.android.feature.plugin.data.PluginUninstallResult
 }
 
 object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
@@ -804,7 +808,7 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
     override fun uninstallPlugin(
         pluginId: String,
         policy: PluginUninstallPolicy,
-    ): com.astrbot.android.data.PluginUninstallResult {
+    ): com.astrbot.android.feature.plugin.data.PluginUninstallResult {
         return PluginRepository.uninstall(pluginId, policy)
     }
 }
@@ -1021,8 +1025,8 @@ interface ChatViewModelDependencies {
         systemPrompt: String?,
         config: ConfigProfile?,
         availableProviders: List<ProviderProfile>,
-        tools: List<ChatCompletionService.ChatToolDefinition>,
-    ): ChatCompletionService.ChatCompletionResult
+        tools: List<LlmToolDefinition>,
+    ): LlmInvocationResult
 
     suspend fun sendConfiguredChatStreamWithTools(
         provider: ProviderProfile,
@@ -1030,10 +1034,10 @@ interface ChatViewModelDependencies {
         systemPrompt: String?,
         config: ConfigProfile?,
         availableProviders: List<ProviderProfile>,
-        tools: List<ChatCompletionService.ChatToolDefinition>,
+        tools: List<LlmToolDefinition>,
         onDelta: suspend (String) -> Unit,
         onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
-    ): ChatCompletionService.ChatCompletionResult
+    ): LlmInvocationResult
 
     suspend fun synthesizeSpeech(
         provider: ProviderProfile,
@@ -1185,16 +1189,16 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
         systemPrompt: String?,
         config: ConfigProfile?,
         availableProviders: List<ProviderProfile>,
-        tools: List<ChatCompletionService.ChatToolDefinition>,
-    ): ChatCompletionService.ChatCompletionResult {
+        tools: List<LlmToolDefinition>,
+    ): LlmInvocationResult {
         return ChatCompletionService.sendConfiguredChatWithTools(
             provider = provider,
             messages = messages,
             systemPrompt = systemPrompt,
             config = config,
             availableProviders = availableProviders,
-            tools = tools,
-        )
+            tools = tools.toChatToolDefinitions(),
+        ).toLlmInvocationResult()
     }
 
     override suspend fun sendConfiguredChatStreamWithTools(
@@ -1203,19 +1207,43 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
         systemPrompt: String?,
         config: ConfigProfile?,
         availableProviders: List<ProviderProfile>,
-        tools: List<ChatCompletionService.ChatToolDefinition>,
+        tools: List<LlmToolDefinition>,
         onDelta: suspend (String) -> Unit,
         onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
-    ): ChatCompletionService.ChatCompletionResult {
+    ): LlmInvocationResult {
         return ChatCompletionService.sendConfiguredChatStreamWithTools(
             provider = provider,
             messages = messages,
             systemPrompt = systemPrompt,
             config = config,
             availableProviders = availableProviders,
-            tools = tools,
+            tools = tools.toChatToolDefinitions(),
             onDelta = onDelta,
             onToolCallDelta = onToolCallDelta,
+        ).toLlmInvocationResult()
+    }
+
+    private fun List<LlmToolDefinition>.toChatToolDefinitions(): List<ChatCompletionService.ChatToolDefinition> {
+        return map { definition ->
+            ChatCompletionService.ChatToolDefinition(
+                name = definition.name,
+                description = definition.description,
+                parameters = JSONObject(definition.parametersJson.ifBlank { "{}" }),
+            )
+        }
+    }
+
+    private fun ChatCompletionService.ChatCompletionResult.toLlmInvocationResult(): LlmInvocationResult {
+        return LlmInvocationResult(
+            text = text,
+            toolCalls = toolCalls.map { toolCall ->
+                LlmToolCall(
+                    id = toolCall.id,
+                    name = toolCall.name,
+                    arguments = toolCall.arguments,
+                )
+            },
+            finishReason = if (toolCalls.isNotEmpty()) "tool_calls" else "stop",
         )
     }
 
@@ -1237,13 +1265,13 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
     }
 
     override val conversationRepositoryPort: ConversationRepositoryPort by lazy {
-        LegacyConversationRepositoryAdapter(ConversationRepository)
+        LegacyConversationRepositoryAdapter()
     }
 
     override val appChatRuntimePort: AppChatRuntimePort by lazy {
         AppChatRuntimeService(
             chatDependencies = this,
-            appChatPluginRuntime = com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime,
+            appChatPluginRuntime = com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime,
         )
     }
 
@@ -1317,7 +1345,7 @@ private fun defaultPluginInstaller(): PluginInstaller {
         ),
         storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir),
         installStore = PluginRepository,
-        remotePackageDownloader = com.astrbot.android.runtime.plugin.RemotePluginPackageDownloader { packageUrl, destinationFile, onProgress ->
+        remotePackageDownloader = com.astrbot.android.feature.plugin.runtime.RemotePluginPackageDownloader { packageUrl, destinationFile, onProgress ->
             AppDownloadManager.initialize(appContext)
             val taskKey = "plugin:${packageUrl.sha256Hex()}"
             AppDownloadManager.enqueue(
@@ -1362,3 +1390,4 @@ private fun String.sha256Hex(): String {
         .digest(toByteArray())
         .joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
+

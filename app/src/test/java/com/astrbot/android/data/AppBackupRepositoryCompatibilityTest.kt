@@ -1,7 +1,7 @@
 package com.astrbot.android.data
 
-import com.astrbot.android.data.backup.AppBackupImportMode
-import com.astrbot.android.data.backup.AppBackupJson
+import com.astrbot.android.core.db.backup.AppBackupImportMode
+import com.astrbot.android.core.db.backup.AppBackupJson
 import com.astrbot.android.model.chat.MessageType
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject

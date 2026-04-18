@@ -1,8 +1,8 @@
-package com.astrbot.android.runtime
+package com.astrbot.android.core.runtime.container
 
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.MessageType
-import com.astrbot.android.runtime.qq.QqReplyDecoration
+import com.astrbot.android.feature.qq.runtime.QqReplyDecoration
 import java.nio.file.Files
 import java.util.Base64
 import org.json.JSONArray
@@ -12,7 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OneBotPayloadCodecTest {
+class QqOneBotPayloadCodecTest {
     @Test
     fun `parse incoming event extracts mentions sender prompt and attachments`() {
         val payload = JSONObject(
@@ -38,7 +38,7 @@ class OneBotPayloadCodecTest {
             """.trimIndent(),
         )
 
-        val event = OneBotPayloadCodec.parseIncomingMessageEvent(payload)
+        val event = QqOneBotPayloadCodec.parseIncomingMessageEvent(payload)
 
         requireNotNull(event)
         assertEquals(MessageType.GroupMessage, event.messageType)
@@ -75,7 +75,7 @@ class OneBotPayloadCodecTest {
             """.trimIndent(),
         )
 
-        val event = OneBotPayloadCodec.parseIncomingMessageEvent(payload)
+        val event = QqOneBotPayloadCodec.parseIncomingMessageEvent(payload)
 
         requireNotNull(event)
         assertEquals(MessageType.FriendMessage, event.messageType)
@@ -102,7 +102,7 @@ class OneBotPayloadCodecTest {
             """.trimIndent(),
         )
 
-        val event = OneBotPayloadCodec.parseIncomingMessageEvent(payload)
+        val event = QqOneBotPayloadCodec.parseIncomingMessageEvent(payload)
 
         requireNotNull(event)
         assertEquals("hello", event.text)
@@ -112,7 +112,7 @@ class OneBotPayloadCodecTest {
 
     @Test
     fun `build reply payload returns structured array when decoration and attachments exist`() {
-        val payload = OneBotPayloadCodec.buildReplyPayload(
+        val payload = QqOneBotPayloadCodec.buildReplyPayload(
             text = "正文",
             attachments = listOf(
                 ConversationAttachment(
@@ -153,7 +153,7 @@ class OneBotPayloadCodecTest {
 
     @Test
     fun `build reply payload returns plain text when no decoration or attachments`() {
-        val payload = OneBotPayloadCodec.buildReplyPayload(
+        val payload = QqOneBotPayloadCodec.buildReplyPayload(
             text = "纯文本",
             attachments = emptyList(),
             decoration = QqReplyDecoration(
@@ -172,7 +172,7 @@ class OneBotPayloadCodecTest {
             val imageBytes = byteArrayOf(1, 2, 3, 4, 5)
             imageFile.writeBytes(imageBytes)
 
-            val payload = OneBotPayloadCodec.buildReplyPayload(
+            val payload = QqOneBotPayloadCodec.buildReplyPayload(
                 text = "",
                 attachments = listOf(
                     ConversationAttachment(

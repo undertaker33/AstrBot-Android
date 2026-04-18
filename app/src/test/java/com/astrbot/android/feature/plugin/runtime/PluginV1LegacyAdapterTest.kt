@@ -3,8 +3,8 @@ package com.astrbot.android.feature.plugin.runtime
 import com.astrbot.android.model.plugin.PluginExecutionStage
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginV2LlmStage
-import com.astrbot.android.runtime.plugin.PluginLegacyDispatchAttempt
-import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import com.astrbot.android.feature.plugin.runtime.PluginLegacyDispatchAttempt
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test

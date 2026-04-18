@@ -1,4 +1,4 @@
-package com.astrbot.android.data.resource
+package com.astrbot.android.feature.resource.data
 
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.McpServerEntry
