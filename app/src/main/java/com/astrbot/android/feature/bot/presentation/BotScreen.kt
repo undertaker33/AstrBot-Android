@@ -61,7 +61,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -77,8 +77,8 @@ import java.util.UUID
 
 @Composable
 internal fun BotScreen(
-    botViewModel: BotViewModel = astrBotViewModel(),
-    providerViewModel: ProviderViewModel = astrBotViewModel(),
+    botViewModel: BotViewModel = hiltViewModel(),
+    providerViewModel: ProviderViewModel = hiltViewModel(),
     workspaceTab: BotWorkspaceTab,
     onWorkspaceTabChange: (BotWorkspaceTab) -> Unit = {},
 ) {

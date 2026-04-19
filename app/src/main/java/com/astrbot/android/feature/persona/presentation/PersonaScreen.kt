@@ -49,7 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
 import com.astrbot.android.model.PersonaProfile
@@ -64,14 +64,14 @@ import java.util.UUID
 
 @Composable
 fun PersonaScreen(
-    personaViewModel: PersonaViewModel = astrBotViewModel(),
+    personaViewModel: PersonaViewModel = hiltViewModel(),
 ) {
     PersonaCatalogContent(personaViewModel = personaViewModel)
 }
 
 @Composable
 internal fun PersonaCatalogContent(
-    personaViewModel: PersonaViewModel = astrBotViewModel(),
+    personaViewModel: PersonaViewModel = hiltViewModel(),
 ) {
     val personas by personaViewModel.personas.collectAsState()
     val context = LocalContext.current

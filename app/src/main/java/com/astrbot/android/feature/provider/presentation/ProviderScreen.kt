@@ -67,7 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.core.runtime.audio.TtsVoiceCatalog
 import com.astrbot.android.model.FeatureSupportState
@@ -97,7 +97,7 @@ import java.util.Base64
 
 @Composable
 fun ProviderScreen(
-    providerViewModel: ProviderViewModel = astrBotViewModel(),
+    providerViewModel: ProviderViewModel = hiltViewModel(),
     onBack: (() -> Unit)? = null,
     onOpenOnDeviceTtsAssets: (() -> Unit)? = null,
 ) {

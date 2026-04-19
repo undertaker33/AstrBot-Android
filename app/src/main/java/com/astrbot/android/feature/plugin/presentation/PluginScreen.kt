@@ -80,7 +80,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSourceType
@@ -112,7 +112,7 @@ import java.util.Locale
 
 @Composable
 fun PluginScreen(
-    pluginViewModel: PluginViewModel = astrBotViewModel(),
+    pluginViewModel: PluginViewModel = hiltViewModel(),
     workspaceTab: PluginWorkspaceTab = PluginWorkspaceTab.LOCAL,
     onOpenPluginDetail: (String) -> Unit = {},
     onOpenPluginManager: () -> Unit = {},
@@ -164,7 +164,7 @@ fun PluginScreen(
 fun PluginMarketDetailScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
-    pluginViewModel: PluginViewModel = astrBotViewModel(),
+    pluginViewModel: PluginViewModel = hiltViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     val uriHandler = LocalUriHandler.current
@@ -231,7 +231,7 @@ fun PluginMarketDetailScreenRoute(
 fun PluginManagerScreenRoute(
     onBack: () -> Unit,
     onOpenPluginDetail: (String) -> Unit,
-    pluginViewModel: PluginViewModel = astrBotViewModel(),
+    pluginViewModel: PluginViewModel = hiltViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     RegisterSecondaryTopBar(

@@ -69,7 +69,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.core.runtime.audio.TtsVoiceCatalog
 import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
@@ -99,7 +99,7 @@ import java.util.UUID
 fun ConfigDetailScreen(
     profileId: String,
     onBack: () -> Unit,
-    configViewModel: ConfigViewModel = astrBotViewModel(),
+    configViewModel: ConfigViewModel = hiltViewModel(),
 ) {
     val profiles by configViewModel.configProfiles.collectAsState()
     val providers by configViewModel.providers.collectAsState()

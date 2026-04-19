@@ -49,7 +49,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
@@ -64,7 +64,7 @@ fun ConfigScreen(
     selectedConfigIds: Set<String>,
     onSelectedConfigIdsChange: (Set<String>) -> Unit,
     onOpenProfile: (String) -> Unit,
-    configViewModel: ConfigViewModel = astrBotViewModel(),
+    configViewModel: ConfigViewModel = hiltViewModel(),
 ) {
     val configProfiles by configViewModel.configProfiles.collectAsState()
     val selectedConfigId by configViewModel.selectedConfigProfileId.collectAsState()

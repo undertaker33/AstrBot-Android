@@ -36,20 +36,29 @@ import androidx.lifecycle.lifecycleScope
 import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.AppSettings
 import com.astrbot.android.data.ThemeMode
-import com.astrbot.android.di.MainActivityDependencies
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.runtime.container.ContainerBridgeController
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
+import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.ui.app.AstrBotApp
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.theme.AstrBotTheme
+import dagger.hilt.android.AndroidEntryPoint
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
+@AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
-    private val appDependencies: MainActivityDependencies
-        get() = (application as AstrBotApplication).appContainer.mainActivityDependencies
+    @Inject
+    lateinit var pluginInstallIntentHandler: PluginInstallIntentHandler
+
     private var notificationPermissionRequested = false
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -199,10 +208,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun maybeAutoStartBridge() {
-        if (!shouldAutoStartBridgeForTests(appDependencies.autoStartEnabled, appDependencies.runtimeState)) return
+        if (
+            !shouldAutoStartBridgeForTests(
+                NapCatBridgeRepository.config.value.autoStart,
+                NapCatBridgeRepository.runtimeState.value,
+            )
+        ) return
 
-        appDependencies.log("Bridge auto-start triggered from app launch")
-        appDependencies.startBridge(applicationContext)
+        RuntimeLogRepository.append("Bridge auto-start triggered from app launch")
+        ContainerBridgeController.start(applicationContext)
     }
 
     private fun maybeRequestNotificationPermission() {
@@ -222,9 +236,11 @@ class MainActivity : AppCompatActivity() {
         val installIntent = parsePluginInstallIntentFromDeepLink(rawDeepLink) ?: return
         lifecycleScope.launch {
             runCatching {
-                appDependencies.handlePluginInstallIntent(installIntent)
+                withContext(Dispatchers.IO) {
+                    pluginInstallIntentHandler.handle(installIntent)
+                }
             }.onFailure { error ->
-                appDependencies.log(
+                RuntimeLogRepository.append(
                     "Plugin deep link failed: ${error.message ?: error.javaClass.simpleName}",
                 )
             }

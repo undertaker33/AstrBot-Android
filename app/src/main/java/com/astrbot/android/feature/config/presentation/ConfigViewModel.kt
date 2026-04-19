@@ -2,15 +2,17 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import com.astrbot.android.di.ConfigViewModelDependencies
-import com.astrbot.android.di.DefaultConfigViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.TtsVoiceReferenceAsset
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
 
-class ConfigViewModel(
-    private val dependencies: ConfigViewModelDependencies = DefaultConfigViewModelDependencies,
+@HiltViewModel
+class ConfigViewModel @Inject constructor(
+    private val dependencies: ConfigViewModelDependencies,
 ) : ViewModel() {
     val configProfiles: StateFlow<List<ConfigProfile>> = dependencies.configProfiles
     val selectedConfigProfileId: StateFlow<String> = dependencies.selectedConfigProfileId

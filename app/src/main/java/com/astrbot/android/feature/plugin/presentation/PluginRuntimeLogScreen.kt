@@ -38,7 +38,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogCleanupRepository
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogCleanupSettings
@@ -54,7 +54,7 @@ import java.util.Locale
 fun PluginRuntimeLogScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
-    pluginViewModel: PluginViewModel = astrBotViewModel(),
+    pluginViewModel: PluginViewModel = hiltViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     val context = LocalContext.current

@@ -42,7 +42,7 @@ import com.astrbot.android.ui.navigation.AppDestination
 import com.astrbot.android.ui.app.RegisterSecondaryTopBar
 import com.astrbot.android.ui.app.SecondaryTopBarSpec
 import com.astrbot.android.ui.app.SecondaryTopBarPlaceholder
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSourceType
@@ -62,7 +62,7 @@ fun PluginDetailScreenRoute(
     onOpenLogs: (String) -> Unit,
     onOpenConfig: (String) -> Unit,
     onReturnToInstalledPlugins: () -> Unit,
-    pluginViewModel: PluginViewModel = astrBotViewModel(),
+    pluginViewModel: PluginViewModel = hiltViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     val context = LocalContext.current

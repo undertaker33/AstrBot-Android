@@ -264,7 +264,7 @@ class Phase7RootBoundaryContractTest {
             packageNameOf(source) == "com.astrbot.android.ui.settings" &&
                 declaresFunction(source, "SettingsScreen") &&
                 imports.contains("com.astrbot.android.ui.viewmodel.BridgeViewModel") &&
-                imports.contains("com.astrbot.android.di.astrBotViewModel") &&
+                imports.contains("androidx.hilt.navigation.compose.hiltViewModel") &&
                 imports.contains("com.astrbot.android.model.NapCatBridgeConfig"),
         )
         assertTrue(

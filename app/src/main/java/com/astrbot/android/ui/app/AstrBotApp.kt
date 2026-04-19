@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.astrbot.android.R
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.core.runtime.container.ContainerBridgeController
 import com.astrbot.android.ui.navigation.AstrBotAppNavGraph
 import com.astrbot.android.ui.navigation.AstrBotAppTopBar
@@ -52,12 +52,12 @@ import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import kotlinx.coroutines.launch
 
 @Composable
-fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
+fun AstrBotApp(bridgeViewModel: BridgeViewModel = hiltViewModel()) {
     val navController = rememberNavController()
     val context = LocalContext.current
-    val chatViewModel: ChatViewModel = astrBotViewModel()
-    val configViewModel: ConfigViewModel = astrBotViewModel()
-    val qqLoginViewModel: QQLoginViewModel = astrBotViewModel()
+    val chatViewModel: ChatViewModel = hiltViewModel()
+    val configViewModel: ConfigViewModel = hiltViewModel()
+    val qqLoginViewModel: QQLoginViewModel = hiltViewModel()
     val chatDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var botWorkspaceTab by remember { mutableStateOf(BotWorkspaceTab.BOTS) }

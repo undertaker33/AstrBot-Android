@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.astrbot.android.AppStrings
 import com.astrbot.android.R
 import com.astrbot.android.di.ChatViewModelDependencies
-import com.astrbot.android.di.DefaultChatViewModelDependencies
+import com.astrbot.android.di.hilt.IoDispatcher
 import com.astrbot.android.feature.chat.presentation.AppChatRuntimeDecision
 import com.astrbot.android.feature.chat.presentation.AppChatSendEvent
 import com.astrbot.android.feature.chat.presentation.AppChatSendHandler
@@ -55,6 +55,7 @@ import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandSource
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +68,8 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.coroutines.CoroutineContext
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 
 data class ChatUiState(
     val selectedBotId: String = "qq-main",
@@ -86,10 +89,11 @@ private data class PluginCommandConsumption(
 /** Returns true if this session belongs to the app platform (not QQ). */
 private fun ConversationSession.isAppSession(): Boolean = platformId != "qq"
 
-class ChatViewModel(
-    private val dependencies: ChatViewModelDependencies = DefaultChatViewModelDependencies,
+@HiltViewModel
+class ChatViewModel @Inject constructor(
+    private val dependencies: ChatViewModelDependencies,
     private val appChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime,
-    private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val appChatSendHandler: AppChatSendHandler = dependencies.createChatSendHandler(
         appChatPluginRuntime = appChatPluginRuntime,

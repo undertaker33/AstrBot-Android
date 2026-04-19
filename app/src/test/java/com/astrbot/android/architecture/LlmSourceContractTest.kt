@@ -57,6 +57,17 @@ class LlmSourceContractTest {
     }
 
     @Test
+    fun app_bootstrapper_must_not_construct_default_runtime_orchestrator_directly() {
+        val file = mainRoot.resolve("di/AppBootstrapper.kt")
+        assertTrue("AppBootstrapper.kt must exist", file.exists())
+        val text = file.readText()
+        assertTrue(
+            "AppBootstrapper must receive RuntimeLlmOrchestratorPort dependencies from Hilt instead of new DefaultRuntimeLlmOrchestrator()",
+            !text.contains("DefaultRuntimeLlmOrchestrator()"),
+        )
+    }
+
+    @Test
     fun scheduled_task_runtime_executor_does_not_import_chat_completion_service() {
         val file = mainRoot.resolve("feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt")
         assertTrue("ScheduledTaskRuntimeExecutor.kt must exist", file.exists())

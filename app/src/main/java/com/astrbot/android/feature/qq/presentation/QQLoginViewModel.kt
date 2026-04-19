@@ -3,11 +3,12 @@ package com.astrbot.android.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.feature.qq.data.NapCatLoginService
-import com.astrbot.android.di.DefaultQQLoginViewModelDependencies
 import com.astrbot.android.di.QQLoginViewModelDependencies
+import com.astrbot.android.di.hilt.IoDispatcher
 import com.astrbot.android.model.NapCatLoginState
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -15,9 +16,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class QQLoginViewModel(
-    private val dependencies: QQLoginViewModelDependencies = DefaultQQLoginViewModelDependencies,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+@HiltViewModel
+class QQLoginViewModel @Inject constructor(
+    private val dependencies: QQLoginViewModelDependencies,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
     val loginState: StateFlow<NapCatLoginState> = dependencies.loginState
     private val pollingTracker = QQLoginPollingTracker()

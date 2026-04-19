@@ -37,7 +37,7 @@ import com.astrbot.android.ui.app.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.app.RegisterSecondaryTopBar
 import com.astrbot.android.ui.app.SecondaryTopBarSpec
 import com.astrbot.android.ui.app.SecondaryTopBarPlaceholder
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.plugin.schema.PluginSchemaRenderer
 import com.astrbot.android.ui.plugin.schema.PluginStaticConfigRenderer
@@ -57,7 +57,7 @@ private enum class PluginConfigSection {
 fun PluginConfigScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
-    pluginViewModel: PluginViewModel = astrBotViewModel(),
+    pluginViewModel: PluginViewModel = hiltViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     LaunchedEffect(pluginId) {

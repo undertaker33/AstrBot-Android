@@ -98,7 +98,7 @@ interface BridgeViewModelDependencies {
     fun saveConfig(config: NapCatBridgeConfig)
 }
 
-object DefaultBridgeViewModelDependencies : BridgeViewModelDependencies {
+object HiltBridgeViewModelDependencies : BridgeViewModelDependencies {
     override val config: StateFlow<NapCatBridgeConfig> = NapCatBridgeRepository.config
     override val runtimeState: StateFlow<NapCatRuntimeState> = NapCatBridgeRepository.runtimeState
 
@@ -129,7 +129,7 @@ interface BotViewModelDependencies {
     fun resolveConfig(profileId: String): ConfigProfile
 }
 
-object DefaultBotViewModelDependencies : BotViewModelDependencies {
+object HiltBotViewModelDependencies : BotViewModelDependencies {
     override val botProfile: StateFlow<BotProfile> = BotRepository.botProfile
     override val botProfiles: StateFlow<List<BotProfile>> = BotRepository.botProfiles
     override val selectedBotId: StateFlow<String> = BotRepository.selectedBotId
@@ -214,7 +214,7 @@ interface ProviderViewModelDependencies {
     ): ConversationAttachment
 }
 
-object DefaultProviderViewModelDependencies : ProviderViewModelDependencies {
+object HiltProviderViewModelDependencies : ProviderViewModelDependencies {
     override val providers: StateFlow<List<ProviderProfile>> = ProviderRepository.providers
     override val configProfiles: StateFlow<List<ConfigProfile>> = ConfigRepository.profiles
     override val selectedConfigProfileId: StateFlow<String> = ConfigRepository.selectedProfileId
@@ -345,7 +345,7 @@ interface ConfigViewModelDependencies {
     fun resolve(profileId: String): ConfigProfile
 }
 
-object DefaultConfigViewModelDependencies : ConfigViewModelDependencies {
+object HiltConfigViewModelDependencies : ConfigViewModelDependencies {
     override val configProfiles: StateFlow<List<ConfigProfile>> = ConfigRepository.profiles
     override val selectedConfigProfileId: StateFlow<String> = ConfigRepository.selectedProfileId
     override val providers: StateFlow<List<ProviderProfile>> = ProviderRepository.providers
@@ -390,7 +390,7 @@ interface ConversationViewModelDependencies {
     fun replaceMessages(sessionId: String, messages: List<ConversationMessage>)
 }
 
-object DefaultConversationViewModelDependencies : ConversationViewModelDependencies {
+object HiltConversationViewModelDependencies : ConversationViewModelDependencies {
     override val defaultSessionId: String = ConversationRepository.DEFAULT_SESSION_ID
     override val sessions: StateFlow<List<ConversationSession>> = ConversationRepository.sessions
 
@@ -430,7 +430,7 @@ interface PersonaViewModelDependencies {
     fun delete(id: String)
 }
 
-object DefaultPersonaViewModelDependencies : PersonaViewModelDependencies {
+object HiltPersonaViewModelDependencies : PersonaViewModelDependencies {
     override val personas: StateFlow<List<PersonaProfile>> = PersonaRepository.personas
 
     override fun add(
@@ -536,7 +536,7 @@ interface PluginViewModelDependencies {
     fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): com.astrbot.android.feature.plugin.data.PluginUninstallResult
 }
 
-object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
+object HiltPluginViewModelDependencies : PluginViewModelDependencies {
     private val governanceRepository by lazy { PluginGovernanceRepository() }
     private val pluginFailureGuard by lazy {
         PluginFailureGuard(
@@ -555,7 +555,7 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
         onDownloadProgress: (PluginDownloadProgress) -> Unit,
     ): PluginInstallIntentResult {
         return withContext(Dispatchers.IO) {
-            defaultPluginInstallIntentHandler().handle(
+            createPluginInstallIntentHandler().handle(
                 intent = intent,
                 onDownloadProgress = onDownloadProgress,
             )
@@ -871,7 +871,7 @@ interface QQLoginViewModelDependencies {
     fun log(message: String)
 }
 
-object DefaultQQLoginViewModelDependencies : QQLoginViewModelDependencies {
+object HiltQQLoginViewModelDependencies : QQLoginViewModelDependencies {
     override val loginState: StateFlow<NapCatLoginState> = NapCatLoginRepository.loginState
 
     override suspend fun refresh(manual: Boolean) {
@@ -933,7 +933,7 @@ interface RuntimeAssetViewModelDependencies {
     suspend fun clearOnDeviceTtsModel(modelId: String)
 }
 
-class DefaultRuntimeAssetViewModelDependencies(
+class HiltRuntimeAssetViewModelDependencies(
     private val appContext: android.content.Context,
 ) : RuntimeAssetViewModelDependencies {
     override val state: StateFlow<RuntimeAssetState> = RuntimeAssetRepository.state
@@ -1074,7 +1074,113 @@ interface ChatViewModelDependencies {
     ): AppChatPluginCommandService
 }
 
-object DefaultChatViewModelDependencies : ChatViewModelDependencies {
+internal interface ChatViewModelRuntimeBindings {
+    val conversationRepositoryPort: ConversationRepositoryPort
+    val appChatRuntimePort: AppChatRuntimePort
+    val chatSessionController: ChatSessionController
+    val sendAppMessageUseCase: SendAppMessageUseCase
+
+    fun createChatSendHandler(
+        appChatPluginRuntime: AppChatPluginRuntime,
+        ioDispatcher: CoroutineContext,
+    ): AppChatSendHandler
+
+    fun createAppChatPluginCommandService(
+        appChatPluginRuntime: AppChatPluginRuntime,
+    ): AppChatPluginCommandService
+}
+
+internal class HiltChatViewModelRuntimeBindings(
+    private val dependencies: ChatViewModelDependencies,
+    private val runtimeLlmOrchestrator: RuntimeLlmOrchestratorPort,
+    private val defaultAppChatPluginRuntime: AppChatPluginRuntime = com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime,
+    override val conversationRepositoryPort: ConversationRepositoryPort = LegacyConversationRepositoryAdapter(),
+) : ChatViewModelRuntimeBindings {
+
+    private fun createProviderInvocationService(
+        ioDispatcher: CoroutineContext = Dispatchers.IO,
+    ): AppChatProviderInvocationService {
+        return AppChatProviderInvocationService(
+            chatDependencies = dependencies,
+            ioDispatcher = ioDispatcher,
+        )
+    }
+
+    private fun createPreparedReplyService(
+        ioDispatcher: CoroutineContext = Dispatchers.IO,
+    ): AppChatPreparedReplyService {
+        return AppChatPreparedReplyService(
+            chatDependencies = dependencies,
+            ioDispatcher = ioDispatcher,
+        )
+    }
+
+    private fun createAppChatRuntimePort(
+        appChatPluginRuntime: AppChatPluginRuntime,
+        ioDispatcher: CoroutineContext = Dispatchers.IO,
+    ): AppChatRuntimePort {
+        return AppChatRuntimeService(
+            chatDependencies = dependencies,
+            appChatPluginRuntime = appChatPluginRuntime,
+            llmOrchestrator = runtimeLlmOrchestrator,
+            providerInvocationService = createProviderInvocationService(ioDispatcher),
+            preparedReplyService = createPreparedReplyService(ioDispatcher),
+        )
+    }
+
+    override val appChatRuntimePort: AppChatRuntimePort by lazy {
+        createAppChatRuntimePort(defaultAppChatPluginRuntime)
+    }
+
+    override val sendAppMessageUseCase: SendAppMessageUseCase by lazy {
+        SendAppMessageUseCase(
+            conversations = conversationRepositoryPort,
+            runtime = appChatRuntimePort,
+        )
+    }
+
+    override val chatSessionController: ChatSessionController by lazy {
+        ChatSessionController(dependencies)
+    }
+
+    override fun createChatSendHandler(
+        appChatPluginRuntime: AppChatPluginRuntime,
+        ioDispatcher: CoroutineContext,
+    ): AppChatSendHandler {
+        return AppChatSendHandler(
+            SendAppMessageUseCase(
+                conversations = conversationRepositoryPort,
+                runtime = createAppChatRuntimePort(
+                    appChatPluginRuntime = appChatPluginRuntime,
+                    ioDispatcher = ioDispatcher,
+                ),
+            ),
+        )
+    }
+
+    override fun createAppChatPluginCommandService(
+        appChatPluginRuntime: AppChatPluginRuntime,
+    ): AppChatPluginCommandService {
+        return AppChatPluginCommandService(
+            dependencies = dependencies,
+            appChatPluginRuntime = appChatPluginRuntime,
+        )
+    }
+}
+
+object HiltChatViewModelDependencies : ChatViewModelDependencies {
+    @Volatile
+    private var runtimeBindingsProvider: (() -> ChatViewModelRuntimeBindings)? = null
+
+    internal fun configureRuntimeBindingsProvider(provider: () -> ChatViewModelRuntimeBindings) {
+        runtimeBindingsProvider = provider
+    }
+
+    private fun runtimeBindings(): ChatViewModelRuntimeBindings {
+        return runtimeBindingsProvider?.invoke()
+            ?: error("HiltChatViewModelDependencies requires runtime bindings from the active DI graph.")
+    }
+
     override val defaultSessionId: String = ConversationRepository.DEFAULT_SESSION_ID
     override val defaultSessionTitle: String = ConversationRepository.DEFAULT_SESSION_TITLE
     override val bots: StateFlow<List<BotProfile>> = BotRepository.botProfiles
@@ -1283,110 +1389,36 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
         RuntimeLogRepository.append(message)
     }
 
-    private val runtimeLlmOrchestrator: RuntimeLlmOrchestratorPort by lazy {
-        DefaultRuntimeLlmOrchestrator()
-    }
+    override val conversationRepositoryPort: ConversationRepositoryPort
+        get() = runtimeBindings().conversationRepositoryPort
 
-    private val appChatProviderInvocationService: AppChatProviderInvocationService by lazy {
-        AppChatProviderInvocationService(this)
-    }
+    override val appChatRuntimePort: AppChatRuntimePort
+        get() = runtimeBindings().appChatRuntimePort
 
-    private val appChatPreparedReplyService: AppChatPreparedReplyService by lazy {
-        AppChatPreparedReplyService(this)
-    }
+    override val sendAppMessageUseCase: SendAppMessageUseCase
+        get() = runtimeBindings().sendAppMessageUseCase
 
-    override val conversationRepositoryPort: ConversationRepositoryPort by lazy {
-        LegacyConversationRepositoryAdapter()
-    }
-
-    override val appChatRuntimePort: AppChatRuntimePort by lazy {
-        AppChatRuntimeService(
-            chatDependencies = this,
-            appChatPluginRuntime = com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime,
-            llmOrchestrator = runtimeLlmOrchestrator,
-            providerInvocationService = appChatProviderInvocationService,
-            preparedReplyService = appChatPreparedReplyService,
-        )
-    }
-
-    override val sendAppMessageUseCase: SendAppMessageUseCase by lazy {
-        SendAppMessageUseCase(
-            conversations = conversationRepositoryPort,
-            runtime = appChatRuntimePort,
-        )
-    }
-
-    override val chatSessionController: ChatSessionController by lazy {
-        ChatSessionController(this)
-    }
+    override val chatSessionController: ChatSessionController
+        get() = runtimeBindings().chatSessionController
 
     override fun createChatSendHandler(
         appChatPluginRuntime: AppChatPluginRuntime,
         ioDispatcher: CoroutineContext,
     ): AppChatSendHandler {
-        return AppChatSendHandler(
-            SendAppMessageUseCase(
-                conversations = conversationRepositoryPort,
-                runtime = AppChatRuntimeService(
-                    chatDependencies = this,
-                    appChatPluginRuntime = appChatPluginRuntime,
-                    llmOrchestrator = runtimeLlmOrchestrator,
-                    providerInvocationService = AppChatProviderInvocationService(
-                        chatDependencies = this,
-                        ioDispatcher = ioDispatcher,
-                    ),
-                    preparedReplyService = AppChatPreparedReplyService(
-                        chatDependencies = this,
-                        ioDispatcher = ioDispatcher,
-                    ),
-                ),
-            ),
+        return runtimeBindings().createChatSendHandler(
+            appChatPluginRuntime = appChatPluginRuntime,
+            ioDispatcher = ioDispatcher,
         )
     }
 
     override fun createAppChatPluginCommandService(
         appChatPluginRuntime: AppChatPluginRuntime,
     ): AppChatPluginCommandService {
-        return AppChatPluginCommandService(
-            dependencies = this,
-            appChatPluginRuntime = appChatPluginRuntime,
-        )
+        return runtimeBindings().createAppChatPluginCommandService(appChatPluginRuntime)
     }
 }
 
-interface MainActivityDependencies {
-    val autoStartEnabled: Boolean
-    val runtimeState: NapCatRuntimeState
-
-    suspend fun handlePluginInstallIntent(intent: PluginInstallIntent)
-
-    fun log(message: String)
-
-    fun startBridge(context: android.content.Context)
-}
-
-object DefaultMainActivityDependencies : MainActivityDependencies {
-    override val autoStartEnabled: Boolean
-        get() = NapCatBridgeRepository.config.value.autoStart
-    override val runtimeState: NapCatRuntimeState
-        get() = NapCatBridgeRepository.runtimeState.value
-
-    override suspend fun handlePluginInstallIntent(intent: PluginInstallIntent) {
-        withContext(Dispatchers.IO) {
-            defaultPluginInstallIntentHandler().handle(intent)
-        }
-    }
-
-    override fun log(message: String) {
-        RuntimeLogRepository.append(message)
-    }
-
-    override fun startBridge(context: android.content.Context) {
-        ContainerBridgeController.start(context)
-    }
-}
-
-private fun defaultPluginInstallIntentHandler(): PluginInstallIntentHandler {
+internal fun createPluginInstallIntentHandler(): PluginInstallIntentHandler {
     return PluginInstallIntentHandler(
         installer = defaultPluginInstaller(),
         repositorySubscriptionManager = defaultPluginRepositorySubscriptionManager(),

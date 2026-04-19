@@ -30,7 +30,7 @@ import com.astrbot.android.ui.navigation.AppDestination
 import com.astrbot.android.ui.app.RegisterSecondaryTopBar
 import com.astrbot.android.ui.app.SecondaryTopBarSpec
 import com.astrbot.android.ui.app.SecondaryTopBarPlaceholder
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.plugin.PluginUiSpec
 import com.astrbot.android.ui.plugin.schema.PluginSchemaRenderer
@@ -55,7 +55,7 @@ private enum class PluginWorkspaceSection {
 fun PluginWorkspaceScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
-    pluginViewModel: PluginViewModel = astrBotViewModel(),
+    pluginViewModel: PluginViewModel = hiltViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->

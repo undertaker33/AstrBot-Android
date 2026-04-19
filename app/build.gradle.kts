@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
+    id("com.google.dagger.hilt.android")
 }
 
 import java.util.Properties
@@ -106,8 +107,8 @@ android {
         applicationId = "com.astrbot.android"
         minSdk = 29
         targetSdk = 34
-        versionCode = 49
-        versionName = "0.7.2"
+        versionCode = 50
+        versionName = "0.7.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -216,6 +217,7 @@ dependencies {
     val okHttpVersion = "4.12.0"
     val quickJsVersion = "3.2.3"
     val roomVersion = "2.6.1"
+    val androidxHiltVersion = "1.2.0"
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
@@ -238,7 +240,10 @@ dependencies {
     implementation(files("libs/sherpa-onnx-1.12.31-static-jni-only.aar"))
     implementation("wang.harlon.quickjs:wrapper-android:$quickJsVersion")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.hilt:hilt-work:$androidxHiltVersion")
+    implementation("androidx.hilt:hilt-navigation-compose:$androidxHiltVersion")
     implementation("org.jsoup:jsoup:1.18.1")
+    implementation("com.google.dagger:hilt-android:2.52")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -258,6 +263,8 @@ dependencies {
     testImplementation("com.squareup.okhttp3:mockwebserver:$okHttpVersion")
     testImplementation("org.json:json:20240303")
     testImplementation("wang.harlon.quickjs:wrapper-java:$quickJsVersion")
+    ksp("com.google.dagger:hilt-compiler:2.52")
+    ksp("androidx.hilt:hilt-compiler:$androidxHiltVersion")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

@@ -6,7 +6,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.R
 import com.astrbot.android.feature.plugin.data.PluginUninstallResult
-import com.astrbot.android.di.DefaultPluginViewModelDependencies
 import com.astrbot.android.di.PluginViewModelDependencies
 import com.astrbot.android.feature.plugin.domain.PluginGovernancePort
 import com.astrbot.android.feature.plugin.domain.PluginManagementUseCases
@@ -89,6 +88,8 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -366,8 +367,9 @@ data class PluginHostWorkspaceUiState(
     val isImportActionRunning: Boolean = false,
 )
 
-class PluginViewModel(
-    private val dependencies: PluginViewModelDependencies = DefaultPluginViewModelDependencies,
+@HiltViewModel
+class PluginViewModel @Inject constructor(
+    private val dependencies: PluginViewModelDependencies,
 ) : ViewModel() {
     private companion object {
         const val MARKET_REFRESH_TIMEOUT_MILLIS = 15_000L

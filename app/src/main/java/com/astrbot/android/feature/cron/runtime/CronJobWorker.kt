@@ -1,9 +1,12 @@
 package com.astrbot.android.feature.cron.runtime
 
 import android.content.Context
+import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.astrbot.android.core.common.logging.AppLogger
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 
 /**
  * WorkManager worker for scheduled cron jobs.
@@ -11,9 +14,11 @@ import com.astrbot.android.core.common.logging.AppLogger
  * The worker translates WorkManager details into execution metadata and delegates
  * persistence, retry classification, and recurring reschedule to [CronJobRunCoordinator].
  */
-class CronJobWorker(
-    appContext: Context,
-    params: WorkerParameters,
+@HiltWorker
+class CronJobWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val coordinator: CronJobRunCoordinator,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -24,10 +29,6 @@ class CronJobWorker(
         }
 
         AppLogger.append("CronJobWorker: firing for jobId=$jobId attempt=${runAttemptCount + 1}")
-        val coordinator = CronJobRunCoordinator(
-            scheduler = WorkManagerCronRescheduler(applicationContext),
-        )
-
         return when (
             coordinator.runDueJob(
                 jobId = jobId,

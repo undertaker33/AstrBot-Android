@@ -43,13 +43,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.feature.bot.data.FeatureBotRepository
 import com.astrbot.android.model.CronJob
@@ -67,11 +66,8 @@ import java.time.format.DateTimeFormatter
 @Composable
 internal fun CronJobsScreen(
     onBack: () -> Unit,
-    viewModel: CronJobsViewModel = viewModel(),
+    viewModel: CronJobsViewModel = hiltViewModel(),
 ) {
-    val context = LocalContext.current
-    CronJobsViewModel.appContextRef = context.applicationContext
-
     val jobs by viewModel.jobs.collectAsState()
     val botProfiles by FeatureBotRepository.botProfiles.collectAsState()
     val selectedBotId by FeatureBotRepository.selectedBotId.collectAsState()

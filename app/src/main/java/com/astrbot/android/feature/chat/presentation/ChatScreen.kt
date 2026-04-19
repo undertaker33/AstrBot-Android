@@ -75,7 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
-import com.astrbot.android.di.astrBotViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
@@ -104,7 +104,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    chatViewModel: ChatViewModel = astrBotViewModel(),
+    chatViewModel: ChatViewModel = hiltViewModel(),
     drawerState: DrawerState? = null,
     floatingBottomNavPadding: Dp = 0.dp,
     showDrawer: Boolean = true,
@@ -605,7 +605,7 @@ private fun Set<String>.toggle(id: String): Set<String> {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ChatDrawerContent(
-    chatViewModel: ChatViewModel = astrBotViewModel(),
+    chatViewModel: ChatViewModel = hiltViewModel(),
     drawerState: DrawerState,
 ) {
     val sessions by chatViewModel.sessions.collectAsState()

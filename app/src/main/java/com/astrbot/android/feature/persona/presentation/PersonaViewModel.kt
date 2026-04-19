@@ -1,13 +1,15 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.astrbot.android.di.DefaultPersonaViewModelDependencies
 import com.astrbot.android.di.PersonaViewModelDependencies
 import com.astrbot.android.model.PersonaProfile
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
 
-class PersonaViewModel(
-    private val dependencies: PersonaViewModelDependencies = DefaultPersonaViewModelDependencies,
+@HiltViewModel
+class PersonaViewModel @Inject constructor(
+    private val dependencies: PersonaViewModelDependencies,
 ) : ViewModel() {
     val personas: StateFlow<List<PersonaProfile>> = dependencies.personas
 

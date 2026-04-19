@@ -1,18 +1,18 @@
 package com.astrbot.android.ui.viewmodel
 
-import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.astrbot.android.di.DefaultRuntimeAssetViewModelDependencies
 import com.astrbot.android.di.RuntimeAssetViewModelDependencies
 import com.astrbot.android.model.RuntimeAssetState
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-class RuntimeAssetViewModel(
-    application: Application,
-    private val dependencies: RuntimeAssetViewModelDependencies = DefaultRuntimeAssetViewModelDependencies(application),
+@HiltViewModel
+class RuntimeAssetViewModel @Inject constructor(
+    private val dependencies: RuntimeAssetViewModelDependencies,
 ) : ViewModel() {
     val state: StateFlow<RuntimeAssetState> = dependencies.state
 

@@ -1,5 +1,6 @@
 package com.astrbot.android.ui.settings
 
+import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -23,6 +24,9 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTargetContext
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,7 +34,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 
-internal class CronJobsViewModel : ViewModel() {
+@HiltViewModel
+internal class CronJobsViewModel @Inject constructor(
+    @ApplicationContext appContext: Context,
+) : ViewModel() {
     private val repository = object : CronJobRepositoryPort {
         override val jobs: StateFlow<List<CronJob>>
             get() = FeatureCronJobRepository.jobs
@@ -62,7 +69,7 @@ internal class CronJobsViewModel : ViewModel() {
         override suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? =
             FeatureCronJobRepository.latestExecutionRecord(jobId)
     }
-    private val scheduler: CronSchedulerPort = AndroidCronSchedulerPort { appContextRef }
+    private val scheduler: CronSchedulerPort = AndroidCronSchedulerPort { appContext }
     private val controller = CronJobsPresentationController(
         useCases = CronJobUseCases(repository = repository, scheduler = scheduler),
         taskPort = CronRuntimeService(schedulerPort = scheduler),
@@ -145,12 +152,6 @@ internal class CronJobsViewModel : ViewModel() {
                     origin = "ui",
                 )
             }
-    }
-
-    companion object {
-        /** Set by the Screen composable to give scheduling access. */
-        @Volatile
-        internal var appContextRef: android.content.Context? = null
     }
 }
 

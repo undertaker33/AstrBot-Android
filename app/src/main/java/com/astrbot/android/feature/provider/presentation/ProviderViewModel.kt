@@ -1,7 +1,6 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.astrbot.android.di.DefaultProviderViewModelDependencies
 import com.astrbot.android.di.ProviderViewModelDependencies
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -9,12 +8,15 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.chat.ConversationAttachment
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
-class ProviderViewModel(
-    private val dependencies: ProviderViewModelDependencies = DefaultProviderViewModelDependencies,
+@HiltViewModel
+class ProviderViewModel @Inject constructor(
+    private val dependencies: ProviderViewModelDependencies,
 ) : ViewModel() {
     data class SttProbeResult(
         val state: FeatureSupportState,

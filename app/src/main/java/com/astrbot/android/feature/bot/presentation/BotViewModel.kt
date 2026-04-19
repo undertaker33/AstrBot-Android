@@ -2,16 +2,18 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import com.astrbot.android.di.BotViewModelDependencies
-import com.astrbot.android.di.DefaultBotViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
 
-class BotViewModel(
-    private val dependencies: BotViewModelDependencies = DefaultBotViewModelDependencies,
+@HiltViewModel
+class BotViewModel @Inject constructor(
+    private val dependencies: BotViewModelDependencies,
 ) : ViewModel() {
     val botProfile: StateFlow<BotProfile> = dependencies.botProfile
     val botProfiles: StateFlow<List<BotProfile>> = dependencies.botProfiles
