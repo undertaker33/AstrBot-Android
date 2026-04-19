@@ -113,6 +113,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlin.coroutines.CoroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelTest {
@@ -1477,6 +1478,34 @@ class ChatViewModelTest {
             get() = error("Not needed in test")
         override val sendAppMessageUseCase: SendAppMessageUseCase
             get() = error("Not needed in test")
+        override val chatSessionController: ChatSessionController by lazy {
+            ChatSessionController(this)
+        }
+
+        override fun createChatSendHandler(
+            appChatPluginRuntime: AppChatPluginRuntime,
+            ioDispatcher: CoroutineContext,
+        ): com.astrbot.android.feature.chat.presentation.AppChatSendHandler {
+            return com.astrbot.android.feature.chat.presentation.AppChatSendHandler(
+                SendAppMessageUseCase(
+                    conversations = conversationRepositoryPort,
+                    runtime = com.astrbot.android.feature.chat.runtime.AppChatRuntimeService(
+                        chatDependencies = this,
+                        appChatPluginRuntime = appChatPluginRuntime,
+                        ioDispatcher = ioDispatcher,
+                    ),
+                ),
+            )
+        }
+
+        override fun createAppChatPluginCommandService(
+            appChatPluginRuntime: AppChatPluginRuntime,
+        ): com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService {
+            return com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService(
+                dependencies = this,
+                appChatPluginRuntime = appChatPluginRuntime,
+            )
+        }
 
         fun clearRecordedSignals() {
             signalLog.clear()

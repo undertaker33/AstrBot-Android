@@ -39,9 +39,21 @@ class LlmSourceContractTest {
         val required = listOf(
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
             "runtime/llm/LegacyRuntimeOrchestratorAdapter.kt",
+            "feature/plugin/runtime/DefaultRuntimeLlmOrchestrator.kt",
         )
         val missing = required.filterNot { mainRoot.resolve(it).exists() }
         assertTrue("Missing LLM adapter files: $missing", missing.isEmpty())
+    }
+
+    @Test
+    fun legacy_runtime_orchestrator_adapter_does_not_depend_on_static_feature_orchestrator() {
+        val file = mainRoot.resolve("runtime/llm/LegacyRuntimeOrchestratorAdapter.kt")
+        assertTrue("LegacyRuntimeOrchestratorAdapter.kt must exist", file.exists())
+        val text = file.readText()
+        assertTrue(
+            "LegacyRuntimeOrchestratorAdapter must not import RuntimeOrchestrator directly after phase 3 migration",
+            !text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
+        )
     }
 
     @Test
@@ -56,12 +68,33 @@ class LlmSourceContractTest {
     }
 
     @Test
+    fun scheduled_task_runtime_helpers_exist_after_phase3_extraction() {
+        val required = listOf(
+            "feature/cron/runtime/ScheduledTaskProviderInvocationService.kt",
+            "feature/cron/runtime/ScheduledTaskLlmCallbacksFactory.kt",
+        )
+        val missing = required.filterNot { relativePath -> mainRoot.resolve(relativePath).exists() }
+        assertTrue("Missing scheduled task runtime helper services: $missing", missing.isEmpty())
+    }
+
+    @Test
+    fun scheduled_task_runtime_executor_does_not_import_static_runtime_orchestrator() {
+        val file = mainRoot.resolve("feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt")
+        assertTrue("ScheduledTaskRuntimeExecutor.kt must exist", file.exists())
+        val text = file.readText()
+        assertTrue(
+            "ScheduledTaskRuntimeExecutor must not import RuntimeOrchestrator directly after phase 3 migration",
+            !text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
+        )
+    }
+
+    @Test
     fun sendConfiguredChatWithTools_only_called_from_allowed_locations() {
         val allowedFiles = setOf(
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
             // Legacy files not yet migrated — allowlist with phase notes:
             "di/AstrBotViewModelDependencies.kt",                     // legacy bridge, future migration
-            "feature/chat/runtime/AppChatRuntimeService.kt",          // uses via dependencies interface
+            "feature/chat/runtime/AppChatProviderInvocationService.kt", // phase 3 provider adapter
             "core/runtime/llm/ChatCompletionService.kt",              // definition site
         )
 
@@ -94,7 +127,7 @@ class LlmSourceContractTest {
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
             // Legacy files not yet migrated — allowlist with phase notes:
             "di/AstrBotViewModelDependencies.kt",                     // legacy bridge, future migration
-            "feature/chat/runtime/AppChatRuntimeService.kt",          // uses via dependencies interface
+            "feature/chat/runtime/AppChatProviderInvocationService.kt", // phase 3 provider adapter
             "core/runtime/llm/ChatCompletionService.kt",              // definition site
         )
 

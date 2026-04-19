@@ -9,6 +9,8 @@ import com.astrbot.android.data.http.AstrBotHttpClient
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.HttpResponsePayload
 import com.astrbot.android.data.http.MultipartPartSpec
+import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
+import com.astrbot.android.core.runtime.context.RuntimeContextDataRegistry
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -29,20 +31,32 @@ import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
+import com.astrbot.android.feature.bot.data.LegacyBotRepositoryAdapter
+import com.astrbot.android.feature.config.data.LegacyConfigRepositoryAdapter
+import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
+import com.astrbot.android.feature.persona.data.LegacyPersonaRepositoryAdapter
+import com.astrbot.android.feature.provider.data.LegacyProviderRepositoryAdapter
+import com.astrbot.android.feature.qq.data.LegacyQqConversationAdapter
+import com.astrbot.android.feature.qq.data.LegacyQqPlatformConfigAdapter
 import com.astrbot.android.runtime.IncomingMessageEvent
 import com.astrbot.android.feature.qq.runtime.QqOneBotBridgeServer
+import com.astrbot.android.feature.qq.runtime.QqPluginDispatchService
+import com.astrbot.android.feature.qq.runtime.QqReplySender
+import com.astrbot.android.feature.qq.runtime.QqRuntimeProfileResolver
+import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
 import com.astrbot.android.feature.qq.runtime.OneBotSendResult
+import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.feature.qq.runtime.QqSessionKeyFactory
+import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
+import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
+import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
 import java.nio.file.Files
 import java.util.AbstractMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
-import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1109,15 +1123,11 @@ class PluginV2HostIngressTest {
         event: IncomingMessageEvent,
         contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
     ): PluginV2MessageDispatchResult? {
-        val method = QqOneBotBridgeServer::class.java.getDeclaredMethod(
-            "executeQqPlugins",
-            PluginTriggerSource::class.java,
-            IncomingMessageEvent::class.java,
-            Function1::class.java,
+        return pluginDispatchService().executePlugins(
+            trigger = trigger,
+            event = event,
+            contextFactory = contextFactory,
         )
-        method.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
-        return method.invoke(QqOneBotBridgeServer, trigger, event, contextFactory) as PluginV2MessageDispatchResult?
     }
 
     private fun invokeHandlePluginCommand(
@@ -1127,26 +1137,32 @@ class PluginV2HostIngressTest {
         sessionId: String,
         session: ConversationSession,
     ): Boolean {
-        val method = QqOneBotBridgeServer::class.java.getDeclaredMethod(
-            "handlePluginCommand",
-            IncomingMessageEvent::class.java,
-            BotProfile::class.java,
-            ConfigProfile::class.java,
-            String::class.java,
-            ConversationSession::class.java,
-            com.astrbot.android.model.PersonaProfile::class.java,
+        return QqOneBotBridgeServer.runtimeGraphForTests()
+            .pluginDispatchServiceForTests()
+            .handlePluginCommand(
+                event = event,
+                bot = bot,
+                config = config,
+                session = session,
+                currentPersona = null,
+            )
+    }
+
+    private fun pluginDispatchService(): QqPluginDispatchService {
+        return QqPluginDispatchService(
+            replySender = QqReplySender(
+                socketSender = {},
+                resolveReplyConfig = { null },
+            ),
+            profileResolver = QqRuntimeProfileResolver(
+                botPort = LegacyBotRepositoryAdapter(),
+                configPort = LegacyConfigRepositoryAdapter(),
+                personaPort = LegacyPersonaRepositoryAdapter(),
+                providerPort = LegacyProviderRepositoryAdapter(),
+            ),
+            resolvePluginPrivateRootPath = { "" },
+            log = {},
         )
-        method.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
-        return method.invoke(
-            QqOneBotBridgeServer,
-            event,
-            bot,
-            config,
-            sessionId,
-            session,
-            null,
-        ) as Boolean
     }
 
     private fun oneBotContext(
@@ -1211,20 +1227,8 @@ class PluginV2HostIngressTest {
     }
 
     private suspend fun invokeHandlePayload(payload: String) {
-        val method = QqOneBotBridgeServer::class.java.getDeclaredMethod(
-            "handlePayload",
-            String::class.java,
-            Continuation::class.java,
-        )
-        method.isAccessible = true
-        suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
-            val result = method.invoke(QqOneBotBridgeServer, payload, continuation)
-            if (result === COROUTINE_SUSPENDED) {
-                COROUTINE_SUSPENDED
-            } else {
-                Unit
-            }
-        }
+        QqOneBotBridgeServer.handlePayload(payload)
+        RuntimeLogRepository.flush()
     }
 
     private suspend fun withOneBotState(
@@ -1240,6 +1244,7 @@ class PluginV2HostIngressTest {
         val providerSnapshot = ProviderRepository.snapshotProfiles()
         val sessionSnapshot = ConversationRepository.snapshotSessions()
         val runtimeLogsSnapshot = RuntimeLogRepository.logs.value
+        val runtimeContextDataPortSnapshot = RuntimeContextDataRegistry.port
         try {
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
                 InMemoryPluginScopedFailureStateStore(),
@@ -1248,6 +1253,31 @@ class PluginV2HostIngressTest {
             ConfigRepository.restoreProfiles(listOf(config), config.id)
             ProviderRepository.restoreProfiles(providers)
             ConversationRepository.restoreSessions(emptyList())
+            QqOneBotBridgeServer.configureRuntimeDependenciesProvider {
+                QqOneBotRuntimeDependencies(
+                    botPort = LegacyBotRepositoryAdapter(),
+                    configPort = LegacyConfigRepositoryAdapter(),
+                    personaPort = LegacyPersonaRepositoryAdapter(),
+                    providerPort = LegacyProviderRepositoryAdapter(),
+                    conversationPort = LegacyQqConversationAdapter(),
+                    platformConfigPort = LegacyQqPlatformConfigAdapter(),
+                    orchestrator = LegacyRuntimeOrchestratorAdapter(),
+                    providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
+                )
+            }
+            RuntimeContextDataRegistry.port = object : RuntimeContextDataPort {
+                override fun resolveConfig(configProfileId: String) = ConfigRepository.resolve(configProfileId)
+
+                override fun listProviders() = ProviderRepository.providers.value
+
+                override fun findEnabledPersona(personaId: String) =
+                    PersonaRepository.personas.value.firstOrNull { it.id == personaId && it.enabled }
+
+                override fun session(sessionId: String) = ConversationRepository.session(sessionId)
+
+                override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
+                    ResourceCenterRepository.compatibilitySnapshotForConfig(config)
+            }
             RuntimeLogRepository.clear()
             block()
         } finally {
@@ -1259,6 +1289,7 @@ class PluginV2HostIngressTest {
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginV2LifecycleManagerProvider.setManagerOverrideForTests(null)
+            RuntimeContextDataRegistry.port = runtimeContextDataPortSnapshot
             BotRepository.restoreProfiles(botSnapshot, selectedBotIdSnapshot)
             ConfigRepository.restoreProfiles(configSnapshot, selectedConfigIdSnapshot)
             ProviderRepository.restoreProfiles(providerSnapshot)

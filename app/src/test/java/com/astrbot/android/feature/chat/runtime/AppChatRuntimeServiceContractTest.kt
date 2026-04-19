@@ -16,10 +16,10 @@ class AppChatRuntimeServiceContractTest {
 
     /**
      * AppChatRuntimeService must import RuntimeContextResolver
-     * and RuntimeOrchestrator (the classes it now owns).
+     * and RuntimeLlmOrchestratorPort (the classes it now owns).
      */
     @Test
-    fun `service imports runtime context resolver and orchestrator`() {
+    fun `service imports runtime context resolver and orchestrator port`() {
         val serviceFile = sourceRoot.resolve("feature/chat/runtime/AppChatRuntimeService.kt")
         assertTrue("AppChatRuntimeService.kt must exist", serviceFile.exists())
         val text = serviceFile.readText()
@@ -28,8 +28,12 @@ class AppChatRuntimeServiceContractTest {
             text.contains("import com.astrbot.android.core.runtime.context.RuntimeContextResolver"),
         )
         assertTrue(
-            "Must import RuntimeOrchestrator",
-            text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
+            "Must import RuntimeLlmOrchestratorPort",
+            text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort"),
+        )
+        assertTrue(
+            "AppChatRuntimeService must not import the static RuntimeOrchestrator compatibility shell",
+            !text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
         )
     }
 
@@ -40,7 +44,7 @@ class AppChatRuntimeServiceContractTest {
      */
     @Test
     fun `chatViewModel does not import runtime resolver or orchestrator`() {
-        val viewModelFile = sourceRoot.resolve("ui/viewmodel/ChatViewModel.kt")
+        val viewModelFile = sourceRoot.resolve("feature/chat/presentation/ChatViewModel.kt")
         assertTrue("ChatViewModel.kt must exist", viewModelFile.exists())
         val text = viewModelFile.readText()
         assertTrue(
@@ -50,6 +54,33 @@ class AppChatRuntimeServiceContractTest {
         assertTrue(
             "ChatViewModel must NOT import RuntimeOrchestrator",
             !text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
+        )
+    }
+
+    @Test
+    fun `app chat runtime helper services exist after phase 3 extraction`() {
+        val required = listOf(
+            "feature/chat/runtime/AppChatProviderInvocationService.kt",
+            "feature/chat/runtime/AppChatPreparedReplyService.kt",
+        )
+        val missing = required.filterNot { relativePath ->
+            sourceRoot.resolve(relativePath).exists()
+        }
+        assertTrue("Missing App Chat runtime helper services: $missing", missing.isEmpty())
+    }
+
+    @Test
+    fun `service does not directly invoke provider tool APIs after extraction`() {
+        val serviceFile = sourceRoot.resolve("feature/chat/runtime/AppChatRuntimeService.kt")
+        assertTrue("AppChatRuntimeService.kt must exist", serviceFile.exists())
+        val text = serviceFile.readText()
+        assertTrue(
+            "AppChatRuntimeService must not call sendConfiguredChatWithTools directly after phase 3 extraction",
+            !text.contains("sendConfiguredChatWithTools"),
+        )
+        assertTrue(
+            "AppChatRuntimeService must not call sendConfiguredChatStreamWithTools directly after phase 3 extraction",
+            !text.contains("sendConfiguredChatStreamWithTools"),
         )
     }
 }

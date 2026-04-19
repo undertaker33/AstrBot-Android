@@ -40,6 +40,38 @@ class Phase7RootBoundaryContractTest {
     }
 
     @Test
+    fun scheduled_task_runtime_executor_must_not_reference_feature_repository_singletons() {
+        val source = readSource("feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt")
+        val forbiddenTokens = listOf(
+            "FeatureBotRepository",
+            "FeatureConversationRepository",
+        )
+
+        assertTrue(
+            "ScheduledTaskRuntimeExecutor must consume bot/conversation state through ports instead of feature repositories",
+            referencesNoneOf(source, forbiddenTokens),
+        )
+    }
+
+    @Test
+    fun qq_bridge_server_must_not_reference_feature_repository_singletons() {
+        val source = readSource("feature/qq/runtime/QqOneBotBridgeServer.kt")
+        val forbiddenTokens = listOf(
+            "FeatureBotRepository",
+            "FeatureConfigRepository",
+            "FeatureConversationRepository",
+            "FeaturePersonaRepository",
+            "FeaturePluginRepository",
+            "FeatureProviderRepository",
+        )
+
+        assertTrue(
+            "QqOneBotBridgeServer must route repository access through runtime dependency ports instead of feature repositories",
+            referencesNoneOf(source, forbiddenTokens),
+        )
+    }
+
+    @Test
     fun feature_compat_files_must_not_absorb_extra_root_repository_dependencies() {
         val violations = findScopedTokenViolations(
             relativeRoot = "feature",

@@ -166,11 +166,11 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun app_container_bootstrap_uses_coordinator_for_configuration_domains() {
-        val source = mainRoot.resolve("di/AstrBotAppContainer.kt").readText()
+        val source = mainRoot.resolve("di/ElymBotAppContainer.kt").readText()
         val bootstrapBody = functionBody(source, "bootstrap")
 
         assertTrue(
-            "AstrBotAppContainer.bootstrap must delegate configuration-domain startup to InitializationCoordinator",
+            "ElymBotAppContainer.bootstrap must delegate configuration-domain startup to InitializationCoordinator",
             bootstrapBody.contains("InitializationCoordinator("),
         )
         val requiredInitializers = listOf(
@@ -204,7 +204,7 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun initialization_coordinator_wiring_does_not_include_out_of_scope_initializers() {
-        val source = mainRoot.resolve("di/AstrBotAppContainer.kt").readText()
+        val source = mainRoot.resolve("di/ElymBotAppContainer.kt").readText()
         val bootstrapBody = functionBody(source, "bootstrap")
 
         val forbiddenInitializerTokens = listOf(

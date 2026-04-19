@@ -55,16 +55,19 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManagerProvid
 import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoaderProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSyncResult
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
+import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
+import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.provider.data.LegacyProviderRepositoryAdapter
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityToolSourceProvider
 import com.astrbot.android.feature.cron.runtime.CronJobExecutionBridge
 import com.astrbot.android.feature.cron.runtime.CronJobScheduler
+import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeExecutor
+import com.astrbot.android.feature.chat.data.LegacyConversationRepositoryAdapter
 import com.astrbot.android.feature.qq.data.LegacyQqConversationAdapter
 import com.astrbot.android.feature.qq.data.LegacyQqPlatformConfigAdapter
 import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
 import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
-import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.ui.viewmodel.BotViewModel
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
@@ -88,11 +91,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class AstrBotAppContainer(
+class ElymBotAppContainer(
     private val application: Application,
 ) {
     private val bootstrapped = AtomicBoolean(false)
     private var pluginRuntimeLoaderSyncJob: Job? = null
+    private val runtimeLlmOrchestrator: RuntimeLlmOrchestratorPort by lazy {
+        DefaultRuntimeLlmOrchestrator()
+    }
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         RuntimeLogRepository.append(
             "App scope uncaught exception: ${throwable.message ?: throwable.javaClass.simpleName}",
@@ -115,12 +121,12 @@ class AstrBotAppContainer(
         DefaultRuntimeAssetViewModelDependencies(application.applicationContext)
     }
 
-    val viewModelFactory: ViewModelProvider.Factory = AstrBotViewModelFactory(this, application)
+    val viewModelFactory: ViewModelProvider.Factory = ElymBotViewModelFactory(this, application)
 
     // Keep the config coordinator seam before ResourceCenterRepository startup.
     fun bootstrap() {
         if (!bootstrapped.compareAndSet(false, true)) return
-        Log.i("AstrBotRuntime", "AstrBotAppContainer.bootstrap entered")
+        Log.i("AstrBotRuntime", "ElymBotAppContainer.bootstrap entered")
 
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             RuntimeLogRepository.append(
@@ -134,6 +140,13 @@ class AstrBotAppContainer(
         ScheduledTaskRuntimeExecutor.configureLlmClientProvider {
             LegacyChatCompletionServiceAdapter()
         }
+        ScheduledTaskRuntimeExecutor.configureRuntimeDependenciesProvider {
+            ScheduledTaskRuntimeDependencies(
+                botPort = LegacyBotRepositoryAdapter(),
+                conversationPort = LegacyConversationRepositoryAdapter(),
+                orchestrator = runtimeLlmOrchestrator,
+            )
+        }
         QqOneBotBridgeServer.configureRuntimeDependenciesProvider {
             QqOneBotRuntimeDependencies(
                 botPort = LegacyBotRepositoryAdapter(),
@@ -142,7 +155,7 @@ class AstrBotAppContainer(
                 providerPort = LegacyProviderRepositoryAdapter(),
                 conversationPort = LegacyQqConversationAdapter(),
                 platformConfigPort = LegacyQqPlatformConfigAdapter(),
-                orchestrator = LegacyRuntimeOrchestratorAdapter(),
+                orchestrator = runtimeLlmOrchestrator,
                 providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
             )
         }
@@ -348,7 +361,7 @@ class AstrBotAppContainer(
         }
         ContainerRuntimeInstaller.warmUpAsync(application, appScope)
         RuntimeLogRepository.append("App started")
-        Log.i("AstrBotRuntime", "AstrBotAppContainer.bootstrap completed")
+        Log.i("AstrBotRuntime", "ElymBotAppContainer.bootstrap completed")
     }
 }
 
@@ -385,8 +398,8 @@ internal fun CoroutineScope.observePluginRuntimeRecords(
     }
 }
 
-private class AstrBotViewModelFactory(
-    private val container: AstrBotAppContainer,
+private class ElymBotViewModelFactory(
+    private val container: ElymBotAppContainer,
     private val application: Application,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

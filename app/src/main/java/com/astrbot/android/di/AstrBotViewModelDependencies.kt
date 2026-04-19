@@ -13,7 +13,11 @@ import com.astrbot.android.feature.chat.data.LegacyConversationRepositoryAdapter
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
+import com.astrbot.android.feature.chat.runtime.AppChatPreparedReplyService
+import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService
+import com.astrbot.android.feature.chat.runtime.AppChatProviderInvocationService
 import com.astrbot.android.feature.chat.runtime.AppChatRuntimeService
+import com.astrbot.android.feature.chat.presentation.AppChatSendHandler
 import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
 import com.astrbot.android.feature.qq.data.NapCatLoginRepository
 import com.astrbot.android.feature.qq.data.NapCatLoginService
@@ -59,6 +63,8 @@ import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.ui.viewmodel.ChatSessionController
 import com.astrbot.android.core.runtime.container.ContainerBridgeController
 import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
@@ -67,9 +73,11 @@ import com.astrbot.android.feature.plugin.runtime.PluginInstaller
 import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
+import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
+import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginRepositorySubscriptionManager
@@ -81,6 +89,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import kotlin.coroutines.CoroutineContext
 
 interface BridgeViewModelDependencies {
     val config: StateFlow<NapCatBridgeConfig>
@@ -1052,7 +1061,17 @@ interface ChatViewModelDependencies {
 
     val conversationRepositoryPort: ConversationRepositoryPort
     val appChatRuntimePort: AppChatRuntimePort
+    val chatSessionController: ChatSessionController
     val sendAppMessageUseCase: SendAppMessageUseCase
+
+    fun createChatSendHandler(
+        appChatPluginRuntime: AppChatPluginRuntime,
+        ioDispatcher: CoroutineContext,
+    ): AppChatSendHandler
+
+    fun createAppChatPluginCommandService(
+        appChatPluginRuntime: AppChatPluginRuntime,
+    ): AppChatPluginCommandService
 }
 
 object DefaultChatViewModelDependencies : ChatViewModelDependencies {
@@ -1264,6 +1283,18 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
         RuntimeLogRepository.append(message)
     }
 
+    private val runtimeLlmOrchestrator: RuntimeLlmOrchestratorPort by lazy {
+        DefaultRuntimeLlmOrchestrator()
+    }
+
+    private val appChatProviderInvocationService: AppChatProviderInvocationService by lazy {
+        AppChatProviderInvocationService(this)
+    }
+
+    private val appChatPreparedReplyService: AppChatPreparedReplyService by lazy {
+        AppChatPreparedReplyService(this)
+    }
+
     override val conversationRepositoryPort: ConversationRepositoryPort by lazy {
         LegacyConversationRepositoryAdapter()
     }
@@ -1272,6 +1303,9 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
         AppChatRuntimeService(
             chatDependencies = this,
             appChatPluginRuntime = com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime,
+            llmOrchestrator = runtimeLlmOrchestrator,
+            providerInvocationService = appChatProviderInvocationService,
+            preparedReplyService = appChatPreparedReplyService,
         )
     }
 
@@ -1279,6 +1313,43 @@ object DefaultChatViewModelDependencies : ChatViewModelDependencies {
         SendAppMessageUseCase(
             conversations = conversationRepositoryPort,
             runtime = appChatRuntimePort,
+        )
+    }
+
+    override val chatSessionController: ChatSessionController by lazy {
+        ChatSessionController(this)
+    }
+
+    override fun createChatSendHandler(
+        appChatPluginRuntime: AppChatPluginRuntime,
+        ioDispatcher: CoroutineContext,
+    ): AppChatSendHandler {
+        return AppChatSendHandler(
+            SendAppMessageUseCase(
+                conversations = conversationRepositoryPort,
+                runtime = AppChatRuntimeService(
+                    chatDependencies = this,
+                    appChatPluginRuntime = appChatPluginRuntime,
+                    llmOrchestrator = runtimeLlmOrchestrator,
+                    providerInvocationService = AppChatProviderInvocationService(
+                        chatDependencies = this,
+                        ioDispatcher = ioDispatcher,
+                    ),
+                    preparedReplyService = AppChatPreparedReplyService(
+                        chatDependencies = this,
+                        ioDispatcher = ioDispatcher,
+                    ),
+                ),
+            ),
+        )
+    }
+
+    override fun createAppChatPluginCommandService(
+        appChatPluginRuntime: AppChatPluginRuntime,
+    ): AppChatPluginCommandService {
+        return AppChatPluginCommandService(
+            dependencies = this,
+            appChatPluginRuntime = appChatPluginRuntime,
         )
     }
 }

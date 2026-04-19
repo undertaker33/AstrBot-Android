@@ -129,6 +129,34 @@ class FeatureFirstBoundaryContractTest {
             !text.contains(".send(\n            AppChatRequest(") &&
                 !text.contains("localRuntimePort.send"),
         )
+        assertTrue(
+            "ChatViewModel must not instantiate AppChatRuntimeService directly after phase 3 wiring migration",
+            !Regex("""\bAppChatRuntimeService\(""").containsMatchIn(text),
+        )
+        assertTrue(
+            "ChatViewModel must not instantiate SendAppMessageUseCase directly after phase 3 wiring migration",
+            !Regex("""\bSendAppMessageUseCase\(""").containsMatchIn(text),
+        )
+        assertTrue(
+            "ChatViewModel must not instantiate AppChatSendHandler directly after phase 3 wiring migration",
+            !Regex("""\bAppChatSendHandler\(""").containsMatchIn(text),
+        )
+        assertTrue(
+            "ChatViewModel must route session operations through ChatSessionController after phase 3 wiring migration",
+            text.contains("ChatSessionController"),
+        )
+        assertTrue(
+            "ChatViewModel must not import PluginV2DispatchEngineProvider directly after phase 3 plugin extraction",
+            !text.contains("import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider"),
+        )
+        assertTrue(
+            "ChatViewModel must not import ExternalPluginMediaSourceResolver directly after phase 3 plugin extraction",
+            !text.contains("import com.astrbot.android.model.plugin.ExternalPluginMediaSourceResolver"),
+        )
+        assertTrue(
+            "ChatViewModel must not import ExternalPluginHostActionExecutor directly after phase 3 plugin extraction",
+            !text.contains("import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor"),
+        )
     }
 
     @Test

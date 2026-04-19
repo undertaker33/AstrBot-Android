@@ -2,6 +2,8 @@ package com.astrbot.android.core.runtime.container
 
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
+import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
+import com.astrbot.android.core.runtime.context.RuntimeContextDataRegistry
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
@@ -20,6 +22,10 @@ import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.feature.bot.data.LegacyBotRepositoryAdapter
+import com.astrbot.android.feature.config.data.LegacyConfigRepositoryAdapter
+import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
+import com.astrbot.android.feature.persona.data.LegacyPersonaRepositoryAdapter
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
@@ -43,6 +49,14 @@ import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginIns
 import com.astrbot.android.feature.plugin.runtime.executionContextFor
 import com.astrbot.android.feature.plugin.runtime.runtimePlugin
 import com.astrbot.android.feature.plugin.runtime.samplePluginV2InstallRecord
+import com.astrbot.android.feature.provider.data.LegacyProviderRepositoryAdapter
+import com.astrbot.android.feature.qq.data.LegacyQqConversationAdapter
+import com.astrbot.android.feature.qq.data.LegacyQqPlatformConfigAdapter
+import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
+import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
+import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
+import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
+import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
@@ -775,12 +789,38 @@ class QqOneBotBridgeServerTest {
         val selectedConfigIdSnapshot = ConfigRepository.selectedProfileId.value
         val providerSnapshot = ProviderRepository.snapshotProfiles()
         val sessionSnapshot = ConversationRepository.snapshotSessions()
+        val runtimeContextDataPortSnapshot = RuntimeContextDataRegistry.port
         try {
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
                 InMemoryPluginScopedFailureStateStore(),
             )
             QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success(listOf("test-receipt"))
+            }
+            QqOneBotBridgeServer.configureRuntimeDependenciesProvider {
+                QqOneBotRuntimeDependencies(
+                    botPort = LegacyBotRepositoryAdapter(),
+                    configPort = LegacyConfigRepositoryAdapter(),
+                    personaPort = LegacyPersonaRepositoryAdapter(),
+                    providerPort = LegacyProviderRepositoryAdapter(),
+                    conversationPort = LegacyQqConversationAdapter(),
+                    platformConfigPort = LegacyQqPlatformConfigAdapter(),
+                    orchestrator = LegacyRuntimeOrchestratorAdapter(),
+                    providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
+                )
+            }
+            RuntimeContextDataRegistry.port = object : RuntimeContextDataPort {
+                override fun resolveConfig(configProfileId: String) = ConfigRepository.resolve(configProfileId)
+
+                override fun listProviders() = ProviderRepository.providers.value
+
+                override fun findEnabledPersona(personaId: String) =
+                    PersonaRepository.personas.value.firstOrNull { it.id == personaId && it.enabled }
+
+                override fun session(sessionId: String) = ConversationRepository.session(sessionId)
+
+                override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
+                    ResourceCenterRepository.compatibilitySnapshotForConfig(config)
             }
             BotRepository.restoreProfiles(listOf(bot), bot.id)
             ConfigRepository.restoreProfiles(listOf(config), config.id)
@@ -793,6 +833,7 @@ class QqOneBotBridgeServerTest {
             PluginRuntimeRegistry.reset()
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
+            RuntimeContextDataRegistry.port = runtimeContextDataPortSnapshot
             BotRepository.restoreProfiles(botSnapshot, selectedBotIdSnapshot)
             ConfigRepository.restoreProfiles(configSnapshot, selectedConfigIdSnapshot)
             ProviderRepository.restoreProfiles(providerSnapshot)
@@ -828,20 +869,8 @@ class QqOneBotBridgeServerTest {
     }
 
     private suspend fun invokeHandlePayload(payload: String) {
-        val method = QqOneBotBridgeServer::class.java.getDeclaredMethod(
-            "handlePayload",
-            String::class.java,
-            Continuation::class.java,
-        )
-        method.isAccessible = true
-        suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
-            val result = method.invoke(QqOneBotBridgeServer, payload, continuation)
-            if (result === COROUTINE_SUSPENDED) {
-                COROUTINE_SUSPENDED
-            } else {
-                Unit
-            }
-        }
+        QqOneBotBridgeServer.handlePayload(payload)
+        RuntimeLogRepository.flush()
     }
 
     private fun defaultBot(): BotProfile {

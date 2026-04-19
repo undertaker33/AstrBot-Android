@@ -3,18 +3,13 @@ package com.astrbot.android.feature.chat.runtime
 import kotlinx.coroutines.flow.flow
 
 import com.astrbot.android.core.runtime.llm.LlmResponseSegmenter
-import com.astrbot.android.core.runtime.llm.LlmToolDefinition
 import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.feature.chat.domain.AppChatRequest
 import com.astrbot.android.feature.chat.domain.AppChatRuntimeEvent
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.model.ProviderCapability
-import com.astrbot.android.model.ProviderProfile
-import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
-import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
-import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.core.runtime.context.RuntimeContextResolver
 import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.core.runtime.context.RuntimePlatform
@@ -23,11 +18,7 @@ import com.astrbot.android.core.runtime.context.StreamingModeResolver
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.MessageConverters.toConversationMessages
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
-import com.astrbot.android.feature.plugin.runtime.PluginLlmResponse
-import com.astrbot.android.feature.plugin.runtime.PluginLlmToolCall
-import com.astrbot.android.feature.plugin.runtime.PluginLlmToolCallDelta
 import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
 import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
 import com.astrbot.android.feature.plugin.runtime.PluginV2FollowupSender
@@ -36,27 +27,45 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
-import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
-import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderStreamChunk
-import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator
+import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Wraps [RuntimeContextResolver] and [RuntimeOrchestrator] behind [AppChatRuntimePort].
+ * Wraps [RuntimeContextResolver] and a shared [RuntimeLlmOrchestratorPort]
+ * behind [AppChatRuntimePort].
  *
  * This service owns the LLM pipeline invocation for App Chat. It resolves runtime
  * context, calls the shared orchestrator, and emits [AppChatRuntimeEvent]s for the
  * domain layer to consume.
  */
-class AppChatRuntimeService(
+internal class AppChatRuntimeService(
     private val chatDependencies: ChatViewModelDependencies,
     private val appChatPluginRuntime: AppChatPluginRuntime,
-    private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val llmOrchestrator: RuntimeLlmOrchestratorPort,
+    private val providerInvocationService: AppChatProviderInvocationService,
+    private val preparedReplyService: AppChatPreparedReplyService,
 ) : AppChatRuntimePort {
+
+    constructor(
+        chatDependencies: ChatViewModelDependencies,
+        appChatPluginRuntime: AppChatPluginRuntime,
+        ioDispatcher: CoroutineContext = Dispatchers.IO,
+    ) : this(
+        chatDependencies = chatDependencies,
+        appChatPluginRuntime = appChatPluginRuntime,
+        llmOrchestrator = com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator(),
+        providerInvocationService = AppChatProviderInvocationService(
+            chatDependencies = chatDependencies,
+            ioDispatcher = ioDispatcher,
+        ),
+        preparedReplyService = AppChatPreparedReplyService(
+            chatDependencies = chatDependencies,
+            ioDispatcher = ioDispatcher,
+        ),
+    )
 
     override fun send(request: AppChatRequest): Flow<AppChatRuntimeEvent> = flow {
         try {
@@ -117,30 +126,11 @@ class AppChatRuntimeService(
                 override suspend fun prepareReply(
                     result: PluginV2LlmPipelineResult,
                 ): PluginV2HostPreparedReply {
-                    val sendableResult = result.sendableResult
-                    val ttsConfig = config
-                    val attachments = if (wantsTts && ttsProvider != null && ttsConfig != null) {
-                        buildVoiceReplyAttachments(
-                            response = sendableResult.text,
-                            provider = ttsProvider,
-                            voiceId = ttsConfig.ttsVoiceId,
-                            voiceStreamingEnabled = ttsConfig.voiceStreamingEnabled,
-                            readBracketedContent = ttsConfig.ttsReadBracketedContent,
-                        )
-                    } else {
-                        sendableResult.attachments.toConversationAttachments()
-                    }
-                    return PluginV2HostPreparedReply(
-                        text = sendableResult.text,
-                        attachments = attachments,
-                        deliveredEntries = listOf(
-                            PluginV2AfterSentView.DeliveredEntry(
-                                entryId = result.admission.messageIds.firstOrNull().orEmpty().ifBlank { "assistant" },
-                                entryType = "assistant",
-                                textPreview = sendableResult.text.take(160),
-                                attachmentCount = attachments.size,
-                            ),
-                        ),
+                    return preparedReplyService.prepareReply(
+                        result = result,
+                        wantsTts = wantsTts,
+                        ttsProvider = ttsProvider,
+                        ttsConfig = config,
                     )
                 }
 
@@ -163,18 +153,18 @@ class AppChatRuntimeService(
                 override suspend fun invokeProvider(
                     request: PluginProviderRequest,
                     mode: PluginV2StreamingMode,
-                    ctx: ResolvedRuntimeContext,
+                    ctx: com.astrbot.android.core.runtime.context.ResolvedRuntimeContext,
                 ): PluginV2ProviderInvocationResult {
-                    return invokeProviderForPipeline(
+                    return providerInvocationService.invokeProvider(
                         request = request,
                         mode = mode,
                         config = config,
-                        availableProviders = ctx.availableProviders,
+                        ctx = ctx,
                     )
                 }
             }
 
-            val deliveryResult = RuntimeOrchestrator.dispatchLlm(
+            val deliveryResult = llmOrchestrator.dispatchLlm(
                 ctx = runtimeContext,
                 llmRuntime = llmRuntime,
                 callbacks = callbacks,
@@ -230,169 +220,6 @@ class AppChatRuntimeService(
             throw e
         } catch (e: Exception) {
             emit(AppChatRuntimeEvent.Failure(e.message ?: e.javaClass.simpleName, e))
-        }
-    }
-
-    private suspend fun invokeProviderForPipeline(
-        request: PluginProviderRequest,
-        mode: PluginV2StreamingMode,
-        config: com.astrbot.android.model.ConfigProfile?,
-        availableProviders: List<ProviderProfile>,
-    ): PluginV2ProviderInvocationResult {
-        val resolvedProvider = availableProviders.firstOrNull { profile ->
-            profile.id == request.selectedProviderId &&
-                profile.enabled &&
-                ProviderCapability.CHAT in profile.capabilities
-        } ?: error("Selected provider is unavailable: ${request.selectedProviderId}")
-
-        val messages = request.messages.toConversationMessages(request.requestId)
-
-        val chatTools = request.tools.map { def ->
-            LlmToolDefinition(
-                name = def.name,
-                description = def.description,
-                parametersJson = org.json.JSONObject(def.inputSchema.filterValues { it != null } as Map<*, *>)
-                    .toString(),
-            )
-        }
-
-        return if (mode != PluginV2StreamingMode.NATIVE_STREAM || !request.streamingEnabled || config == null) {
-            val result = withContext(ioDispatcher) {
-                chatDependencies.sendConfiguredChatWithTools(
-                    provider = resolvedProvider,
-                    messages = messages,
-                    systemPrompt = request.systemPrompt,
-                    config = config,
-                    availableProviders = availableProviders,
-                    tools = chatTools,
-                )
-            }
-            PluginV2ProviderInvocationResult.NonStreaming(
-                response = PluginLlmResponse(
-                    requestId = request.requestId,
-                    providerId = resolvedProvider.id,
-                    modelId = request.selectedModelId.ifBlank { resolvedProvider.model },
-                    text = result.text,
-                    toolCalls = result.toolCalls.map { tc ->
-                        PluginLlmToolCall(
-                            toolCallId = tc.id,
-                            toolName = tc.name,
-                            arguments = parseToolCallArguments(tc.arguments),
-                        )
-                    },
-                ),
-            )
-        } else {
-            val chunks = mutableListOf<PluginV2ProviderStreamChunk>()
-            val result = withContext(ioDispatcher) {
-                chatDependencies.sendConfiguredChatStreamWithTools(
-                    provider = resolvedProvider,
-                    messages = messages,
-                    systemPrompt = request.systemPrompt,
-                    config = config,
-                    availableProviders = availableProviders,
-                    tools = chatTools,
-                    onDelta = { delta ->
-                        if (delta.isNotBlank()) {
-                            chunks += PluginV2ProviderStreamChunk(deltaText = delta)
-                        }
-                    },
-                    onToolCallDelta = { _, _, _ -> },
-                )
-            }
-            val finalizedToolDeltas = result.toolCalls.mapIndexedNotNull { index, toolCall ->
-                val normalizedName = toolCall.name.trim()
-                if (normalizedName.isBlank()) {
-                    null
-                } else {
-                    PluginLlmToolCallDelta(
-                        index = index,
-                        toolCallId = toolCall.id,
-                        toolName = normalizedName,
-                        arguments = parseToolCallArguments(toolCall.arguments),
-                    )
-                }
-            }
-            if (finalizedToolDeltas.isNotEmpty()) {
-                chunks += PluginV2ProviderStreamChunk(toolCallDeltas = finalizedToolDeltas)
-            }
-            val finishReason = if (result.toolCalls.isNotEmpty()) "tool_calls" else "stop"
-            chunks += PluginV2ProviderStreamChunk(
-                deltaText = "",
-                isCompletion = true,
-                finishReason = finishReason,
-            )
-            if (result.text.isNotBlank() && chunks.size == 1) {
-                chunks.add(0, PluginV2ProviderStreamChunk(deltaText = result.text))
-            }
-            PluginV2ProviderInvocationResult.Streaming(events = chunks.toList())
-        }
-    }
-
-    private fun List<PluginMessageEventResult.Attachment>.toConversationAttachments(): List<ConversationAttachment> {
-        return mapIndexed { index, attachment ->
-            ConversationAttachment(
-                id = "llm-result-$index-${attachment.uri.hashCode()}",
-                type = if (attachment.mimeType.startsWith("audio/")) "audio" else "image",
-                mimeType = attachment.mimeType.ifBlank { "application/octet-stream" },
-                remoteUrl = attachment.uri,
-            )
-        }
-    }
-
-    private fun parseToolCallArguments(json: String): Map<String, Any?> {
-        return try {
-            val obj = org.json.JSONObject(json)
-            obj.keys().asSequence().associateWith { key -> obj.opt(key) }
-        } catch (_: Exception) {
-            emptyMap()
-        }
-    }
-
-    private suspend fun buildVoiceReplyAttachments(
-        response: String,
-        provider: ProviderProfile,
-        voiceId: String,
-        voiceStreamingEnabled: Boolean,
-        readBracketedContent: Boolean,
-    ): List<ConversationAttachment> {
-        if (!voiceStreamingEnabled) {
-            return synthesizeSingleVoiceReply(provider, response, voiceId, readBracketedContent)
-                ?.let(::listOf) ?: emptyList()
-        }
-        val segments = LlmResponseSegmenter.splitForVoiceStreaming(response)
-        if (segments.size <= 1) {
-            return synthesizeSingleVoiceReply(provider, response, voiceId, readBracketedContent)
-                ?.let(::listOf) ?: emptyList()
-        }
-        val streamedAttachments = mutableListOf<ConversationAttachment>()
-        for (segment in segments) {
-            val attachment = synthesizeSingleVoiceReply(provider, segment, voiceId, readBracketedContent)
-                ?: return synthesizeSingleVoiceReply(provider, response, voiceId, readBracketedContent)
-                    ?.let(::listOf) ?: emptyList()
-            streamedAttachments += attachment
-        }
-        return streamedAttachments.toList()
-    }
-
-    private suspend fun synthesizeSingleVoiceReply(
-        provider: ProviderProfile,
-        text: String,
-        voiceId: String,
-        readBracketedContent: Boolean,
-    ): ConversationAttachment? {
-        return withContext(ioDispatcher) {
-            runCatching {
-                chatDependencies.synthesizeSpeech(
-                    provider = provider,
-                    text = text,
-                    voiceId = voiceId,
-                    readBracketedContent = readBracketedContent,
-                )
-            }.onFailure { error ->
-                if (error is CancellationException) throw error
-                chatDependencies.log("Chat TTS failed: ${error.message ?: error.javaClass.simpleName}")
-            }.getOrNull()
         }
     }
 }
