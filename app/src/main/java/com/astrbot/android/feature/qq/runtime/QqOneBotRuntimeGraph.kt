@@ -1,6 +1,7 @@
 package com.astrbot.android.feature.qq.runtime
 
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.qq.domain.IncomingQqMessage
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderProfile
@@ -19,6 +20,7 @@ internal class QqOneBotRuntimeGraph(
     private val currentLanguageTag: () -> String,
     private val transcribeAudio: (ProviderProfile, ConversationAttachment) -> String,
     private val resolvePluginPrivateRootPath: (String) -> String,
+    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
     private val log: (String) -> Unit,
 ) {
     private val outboundGateway: QqOneBotOutboundGateway by lazy {
@@ -67,6 +69,7 @@ internal class QqOneBotRuntimeGraph(
             replySender = replySender,
             profileResolver = profileResolver,
             resolvePluginPrivateRootPath = resolvePluginPrivateRootPath,
+            gatewayFactory = gatewayFactory,
             log = log,
         )
     }
@@ -109,6 +112,7 @@ internal class QqOneBotRuntimeGraph(
             botCommandRuntimeService = botCommandRuntimeService,
             pluginDispatchService = pluginDispatchService,
             streamingReplyService = streamingReplyService,
+            gatewayFactory = gatewayFactory,
             log = log,
         )
     }

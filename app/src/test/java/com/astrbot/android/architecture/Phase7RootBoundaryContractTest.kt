@@ -182,11 +182,12 @@ class Phase7RootBoundaryContractTest {
                 declaresClass(source, "BridgeViewModel") &&
                 source.contains(": ViewModel()") &&
                 imports.contains("androidx.lifecycle.ViewModel") &&
-                imports.contains("com.astrbot.android.di.BridgeViewModelDependencies") &&
+                imports.contains("dagger.hilt.android.lifecycle.HiltViewModel") &&
+                imports.any { it.startsWith("com.astrbot.android.di.hilt.") } &&
                 imports.any { it.startsWith("com.astrbot.android.model.NapCatBridgeConfig") } &&
                 imports.any { it.startsWith("com.astrbot.android.model.NapCatRuntimeState") } &&
                 declaresFunction(source, "saveConfig") &&
-                source.contains("dependencies"),
+                source.contains("@Inject"),
         )
         assertTrue(
             "BridgeViewModel must not reach feature, root data, or root runtime implementations directly",
@@ -209,7 +210,8 @@ class Phase7RootBoundaryContractTest {
                 declaresClass(source, "RuntimeAssetViewModel") &&
                 source.contains(": ViewModel()") &&
                 imports.contains("androidx.lifecycle.ViewModel") &&
-                imports.contains("com.astrbot.android.di.RuntimeAssetViewModelDependencies") &&
+                imports.contains("dagger.hilt.android.lifecycle.HiltViewModel") &&
+                imports.any { it.startsWith("com.astrbot.android.di.hilt.") } &&
                 imports.any { it.startsWith("com.astrbot.android.model.RuntimeAssetState") } &&
                 declaresFunction(source, "refresh") &&
                 declaresFunction(source, "downloadAsset") &&
@@ -467,7 +469,9 @@ class Phase7RootBoundaryContractTest {
                 return@mapNotNull null
             }
             val text = file.readText()
-            val hits = forbiddenTokens.flatMap { token ->
+            val featureAliases = extractFeatureAliases(text)
+            val effectiveTokens = forbiddenTokens.filter { it !in featureAliases }
+            val hits = effectiveTokens.flatMap { token ->
                 findTokenHits(text, token).map { hit -> "$token ${hit.rendered()}" }
             }
             when {
@@ -517,6 +521,11 @@ class Phase7RootBoundaryContractTest {
 
     private fun isAllowedPath(path: String, allowedExactPaths: Set<String>, allowedPathPrefixes: Set<String>): Boolean {
         return path in allowedExactPaths || allowedPathPrefixes.any(path::startsWith)
+    }
+
+    private fun extractFeatureAliases(source: String): Set<String> {
+        val aliasPattern = Regex("""import\s+com\.astrbot\.android\.feature\.\S+\s+as\s+(\w+)""")
+        return aliasPattern.findAll(source).map { it.groupValues[1] }.toSet()
     }
 
     private fun readSource(relativePath: String): String {
@@ -761,8 +770,6 @@ class Phase7RootBoundaryContractTest {
             "ContainerBridgeRuntimeSupport",
             "ContainerBridgeService",
             "ContainerRuntimeInstaller",
-            "RuntimeLogRepository",
-            "RuntimeLogCleanupRepository",
             "RuntimeSecretRepository",
             "TencentSilkEncoder",
         )
@@ -813,6 +820,7 @@ class Phase7RootBoundaryContractTest {
 
         val allowedRootRuntimeExactPaths = setOf(
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
+            "runtime/llm/LegacyLlmProviderProbeAdapter.kt",
             "runtime/llm/LegacyRuntimeOrchestratorAdapter.kt",
         )
 

@@ -5,6 +5,7 @@ package com.astrbot.android.di.hilt
 import android.content.Context
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
+import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.feature.config.data.RoomPhase3DataTransactionService
@@ -17,12 +18,8 @@ import com.astrbot.android.ui.viewmodel.DefaultPluginViewModelBindings
 import com.astrbot.android.ui.viewmodel.DefaultQQLoginViewModelBindings
 import com.astrbot.android.ui.viewmodel.PluginViewModelBindings
 import com.astrbot.android.ui.viewmodel.QQLoginViewModelBindings
-import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.qq.data.NapCatLoginRepository
 import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
@@ -61,6 +58,26 @@ internal annotation class BridgeConfig
 @Retention(AnnotationRetention.BINARY)
 internal annotation class BridgeRuntimeState
 
+/**
+ * Dependency-driven bridge config save operation, injected into BridgeViewModel
+ * so the shell never imports feature/data packages directly.
+ */
+fun interface BridgeConfigSaver {
+    fun save(config: NapCatBridgeConfig)
+}
+
+/**
+ * Dependency-driven operations for RuntimeAssetViewModel so the shell never
+ * imports root data packages directly.
+ */
+interface RuntimeAssetViewModelOps {
+    fun refresh(context: Context)
+    suspend fun downloadAsset(context: Context, assetId: String)
+    suspend fun clearAsset(context: Context, assetId: String)
+    suspend fun downloadOnDeviceTtsModel(context: Context, modelId: String)
+    suspend fun clearOnDeviceTtsModel(context: Context, modelId: String)
+}
+
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 internal annotation class RuntimeAssetStateFlow
@@ -98,6 +115,20 @@ internal object ViewModelDependencyModule {
     fun provideBridgeRuntimeState(): StateFlow<NapCatRuntimeState> = NapCatBridgeRepository.runtimeState
 
     @Provides
+    fun provideBridgeConfigSaver(): BridgeConfigSaver = BridgeConfigSaver { config ->
+        NapCatBridgeRepository.updateConfig(config)
+    }
+
+    @Provides
+    fun provideRuntimeAssetViewModelOps(): RuntimeAssetViewModelOps = object : RuntimeAssetViewModelOps {
+        override fun refresh(context: Context) = RuntimeAssetRepository.refresh(context)
+        override suspend fun downloadAsset(context: Context, assetId: String) = RuntimeAssetRepository.downloadAsset(context, assetId)
+        override suspend fun clearAsset(context: Context, assetId: String) = RuntimeAssetRepository.clearAsset(context, assetId)
+        override suspend fun downloadOnDeviceTtsModel(context: Context, modelId: String) = RuntimeAssetRepository.downloadOnDeviceTtsModel(context, modelId)
+        override suspend fun clearOnDeviceTtsModel(context: Context, modelId: String) = RuntimeAssetRepository.clearOnDeviceTtsModel(context, modelId)
+    }
+
+    @Provides
     @PluginRecords
     fun providePluginRecords(): StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>> = FeaturePluginRepository.records
 
@@ -118,15 +149,6 @@ internal object ViewModelDependencyModule {
     fun providePluginGovernanceReadModels(
         repository: PluginGovernanceRepository,
     ): Flow<@JvmSuppressWildcards Map<String, PluginGovernanceReadModel>> = repository.observeReadModels()
-
-    @Provides
-    @Singleton
-    fun providePluginFailureGuard(): PluginFailureGuard =
-        PluginFailureGuard(store = PluginRuntimeFailureStateStoreProvider.store())
-
-    @Provides
-    @Singleton
-    fun providePluginRuntimeLogBus(): PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus()
 
     @Provides
     @Singleton
@@ -164,7 +186,7 @@ internal object ViewModelDependencyModule {
 
     @Provides
     @Singleton
-    fun provideProviderRuntimePort(): ProviderRuntimePort = DefaultProviderRuntimePort()
+    fun provideProviderRuntimePort(probePort: LlmProviderProbePort): ProviderRuntimePort = DefaultProviderRuntimePort(probePort)
 
     @Provides
     @Singleton

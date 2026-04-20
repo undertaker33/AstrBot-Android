@@ -16,7 +16,7 @@ import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.context.StreamingModeResolver
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
 import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
 import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
@@ -27,6 +27,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -46,24 +47,30 @@ internal class AppChatRuntimeService(
     private val llmOrchestrator: RuntimeLlmOrchestratorPort,
     private val providerInvocationService: AppChatProviderInvocationService,
     private val preparedReplyService: AppChatPreparedReplyService,
+    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
 ) : AppChatRuntimePort {
 
+    @Deprecated(
+        "Compat constructor bypasses Hilt. Production path must use the primary constructor.",
+        level = DeprecationLevel.WARNING,
+    )
     constructor(
         chatDependencies: ChatViewModelRuntimeBindings,
         appChatPluginRuntime: AppChatPluginRuntime,
         ioDispatcher: CoroutineContext = Dispatchers.IO,
     ) : this(
-        chatDependencies = chatDependencies,
-        appChatPluginRuntime = appChatPluginRuntime,
-        llmOrchestrator = com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator(),
-        providerInvocationService = AppChatProviderInvocationService(
+        chatDependencies,
+        appChatPluginRuntime,
+        com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator(),
+        AppChatProviderInvocationService(
             chatDependencies = chatDependencies,
             ioDispatcher = ioDispatcher,
         ),
-        preparedReplyService = AppChatPreparedReplyService(
+        AppChatPreparedReplyService(
             chatDependencies = chatDependencies,
             ioDispatcher = ioDispatcher,
         ),
+        createCompatPluginHostCapabilityGatewayFactory(),
     )
 
     override fun send(request: AppChatRequest): Flow<AppChatRuntimeEvent> = flow {
@@ -119,7 +126,7 @@ internal class AppChatRuntimeService(
 
             val callbacks = object : PlatformLlmCallbacks {
                 override val platformInstanceKey = bot.id
-                override val hostCapabilityGateway = DefaultPluginHostCapabilityGateway()
+                override val hostCapabilityGateway = gatewayFactory.create()
                 override val followupSender: PluginV2FollowupSender? = null
 
                 override suspend fun prepareReply(

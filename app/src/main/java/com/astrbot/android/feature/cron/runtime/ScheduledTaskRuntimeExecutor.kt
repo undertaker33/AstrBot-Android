@@ -8,8 +8,9 @@ import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
-import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import com.astrbot.android.model.BotProfile
@@ -24,6 +25,8 @@ internal data class ScheduledTaskRuntimeDependencies(
     val orchestrator: RuntimeLlmOrchestratorPort,
     val runtimeContextResolverPort: RuntimeContextResolverPort,
     val qqScheduledMessageSender: QqScheduledMessageSender,
+    val appChatPluginRuntime: AppChatLlmPipelineRuntime,
+    val hostCapabilityGateway: PluginHostCapabilityGateway,
 )
 
 internal object ScheduledTaskRuntimeExecutor {
@@ -113,6 +116,7 @@ internal object ScheduledTaskRuntimeExecutor {
             conversationPort = conversationPort,
             providerInvocationService = ScheduledTaskProviderInvocationService(runtimeDependencies.llmClient),
             qqScheduledMessageSender = runtimeDependencies.qqScheduledMessageSender,
+            hostCapabilityGateway = runtimeDependencies.hostCapabilityGateway,
         ).create(
             context = context,
             platform = platform,
@@ -122,7 +126,7 @@ internal object ScheduledTaskRuntimeExecutor {
 
         val deliveryResult = runtimeDependencies.orchestrator.dispatchLlm(
             ctx = resolvedContext,
-            llmRuntime = DefaultAppChatPluginRuntime,
+            llmRuntime = runtimeDependencies.appChatPluginRuntime,
             callbacks = callbacks,
             userMessage = userMessage,
         )

@@ -91,9 +91,26 @@ private fun ConversationSession.isAppSession(): Boolean = platformId != "qq"
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val dependencies: ChatViewModelRuntimeBindings,
-    private val appChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val appChatPluginRuntime: AppChatPluginRuntime,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
+    constructor(
+        dependencies: ChatViewModelRuntimeBindings,
+    ) : this(
+        dependencies = dependencies,
+        appChatPluginRuntime = DefaultAppChatPluginRuntime,
+        ioDispatcher = Dispatchers.IO,
+    )
+
+    constructor(
+        dependencies: ChatViewModelRuntimeBindings,
+        ioDispatcher: CoroutineDispatcher,
+    ) : this(
+        dependencies = dependencies,
+        appChatPluginRuntime = DefaultAppChatPluginRuntime,
+        ioDispatcher = ioDispatcher,
+    )
+
     private val appChatSendHandler: AppChatSendHandler = dependencies.createChatSendHandler(
         appChatPluginRuntime = appChatPluginRuntime,
         ioDispatcher = ioDispatcher,

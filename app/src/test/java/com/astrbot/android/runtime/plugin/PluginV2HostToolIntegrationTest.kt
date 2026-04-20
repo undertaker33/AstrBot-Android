@@ -15,7 +15,7 @@ import org.junit.Test
 class PluginV2HostToolIntegrationTest {
     @Test
     fun host_builtin_tools_are_exposed_through_centralized_registry_snapshot_not_host_session() {
-        val gateway = DefaultPluginHostCapabilityGateway(
+        val gateway = createCompatPluginHostCapabilityGateway(
             hostToolHandlers = PluginExecutionHostToolHandlers(
                 sendMessageHandler = {},
                 sendNotificationHandler = { _, _ -> },
@@ -50,7 +50,7 @@ class PluginV2HostToolIntegrationTest {
             pluginId = "com.example.conflict",
             toolName = PluginExecutionHostApi.HostSendNotificationToolName,
         )
-        val gateway = DefaultPluginHostCapabilityGateway(
+        val gateway = createCompatPluginHostCapabilityGateway(
             hostToolHandlers = PluginExecutionHostToolHandlers(
                 sendNotificationHandler = { _, _ -> },
             ),
@@ -70,7 +70,7 @@ class PluginV2HostToolIntegrationTest {
     @Test
     fun host_builtin_tool_call_needs_registered_host_registry_entry_before_it_can_execute() = runBlocking {
         val notifications = CopyOnWriteArrayList<String>()
-        val gateway = DefaultPluginHostCapabilityGateway(
+        val gateway = createCompatPluginHostCapabilityGateway(
             hostToolHandlers = PluginExecutionHostToolHandlers(
                 sendNotificationHandler = { title, message ->
                     notifications += "$title:$message"
@@ -173,8 +173,8 @@ class PluginV2HostToolIntegrationTest {
     @Test
     fun tool_loop_coordinator_source_does_not_reference_external_host_action_executor() {
         val sourceFile = sequenceOf(
-            File("app/src/main/java/com/astrbot/android/runtime/plugin/PluginV2ToolLoopCoordinator.kt"),
-            File("../app/src/main/java/com/astrbot/android/runtime/plugin/PluginV2ToolLoopCoordinator.kt"),
+            File("app/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
+            File("../app/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
         ).firstOrNull(File::exists)
             ?: error("Unable to locate PluginV2ToolLoopCoordinator.kt from ${System.getProperty("user.dir")}")
         val source = sourceFile

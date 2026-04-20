@@ -6,6 +6,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -174,8 +175,9 @@ class RepositoryPortSourceContractTest {
             "AppBootstrapper.bootstrap must delegate configuration-domain startup to InitializationCoordinator",
             bootstrapBody.contains("InitializationCoordinator("),
         )
+        // Round3: ProviderRepositoryInitializer is no longer wired through InitializationCoordinator.
+        // Provider warmup is now handled by ProviderRepositoryWarmup.warmUp().
         val requiredInitializers = listOf(
-            "ProviderRepositoryInitializer()",
             "ConfigRepositoryInitializer()",
             "PersonaRepositoryInitializer()",
             "BotRepositoryInitializer()",
@@ -188,6 +190,14 @@ class RepositoryPortSourceContractTest {
         assertTrue(
             "Bootstrap must execute the configuration-domain coordinator",
             bootstrapBody.contains(".initializeAll(application)"),
+        )
+        assertTrue(
+            "Bootstrap must call providerRepositoryWarmup.warmUp() (Round3 contract)",
+            bootstrapBody.contains("providerRepositoryWarmup.warmUp()"),
+        )
+        assertFalse(
+            "Bootstrap must not wire ProviderRepositoryInitializer through InitializationCoordinator (Round3 contract)",
+            bootstrapBody.contains("ProviderRepositoryInitializer()"),
         )
 
         val forbiddenDirectCalls = listOf(

@@ -1,7 +1,7 @@
 package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
-import com.astrbot.android.core.runtime.llm.ChatCompletionService
+import com.astrbot.android.core.runtime.llm.SttProbeResult
 import com.astrbot.android.core.common.profile.ProviderInUseException
 import com.astrbot.android.core.common.profile.ProviderReferenceGuard
 import com.astrbot.android.data.ProviderRepository
@@ -69,7 +69,7 @@ class ProviderViewModelTest {
     @Test
     fun probe_stt_support_wraps_dependency_result() = runTest {
         val runtimePort = FakeProviderRuntimePort(
-            sttProbeResult = ChatCompletionService.SttProbeResult(
+            sttProbeResult = SttProbeResult(
                 state = FeatureSupportState.SUPPORTED,
                 transcript = "hello",
             ),
@@ -171,7 +171,7 @@ class ProviderViewModelTest {
     fun probe_stt_support_dispatches_off_calling_thread() = runTest {
         val callingThreadId = Thread.currentThread().id
         val runtimePort = FakeProviderRuntimePort(
-            sttProbeResult = ChatCompletionService.SttProbeResult(
+            sttProbeResult = SttProbeResult(
                 state = FeatureSupportState.SUPPORTED,
                 transcript = "hello",
             ),
@@ -271,7 +271,7 @@ class ProviderViewModelTest {
     }
 
     private class FakeProviderRuntimePort(
-        private val sttProbeResult: ChatCompletionService.SttProbeResult = ChatCompletionService.SttProbeResult(
+        private val sttProbeResult: SttProbeResult = SttProbeResult(
             state = FeatureSupportState.UNKNOWN,
             transcript = "",
         ),
@@ -302,7 +302,7 @@ class ProviderViewModelTest {
 
         override fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
 
-        override fun probeSttSupport(provider: ProviderProfile): ChatCompletionService.SttProbeResult {
+        override fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
             onProbeStt()
             probedProviders += provider.id
             return sttProbeResult

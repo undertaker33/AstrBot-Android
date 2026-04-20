@@ -24,6 +24,7 @@ import com.astrbot.android.feature.chat.runtime.AppChatRuntimeService
 import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
 import com.astrbot.android.model.BotProfile
@@ -47,6 +48,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     override val runtimeContextResolverPort: RuntimeContextResolverPort,
     private val defaultAppChatPluginRuntime: AppChatPluginRuntime,
     override val conversationRepositoryPort: ConversationRepositoryPort,
+    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
 ) : ChatViewModelRuntimeBindings {
 
     override val defaultSessionId: String = ConversationRepository.DEFAULT_SESSION_ID
@@ -287,6 +289,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
             llmOrchestrator = runtimeLlmOrchestrator,
             providerInvocationService = createProviderInvocationService(ioDispatcher),
             preparedReplyService = createPreparedReplyService(ioDispatcher),
+            gatewayFactory = gatewayFactory,
         )
     }
 
@@ -326,6 +329,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         return AppChatPluginCommandService(
             dependencies = this,
             appChatPluginRuntime = appChatPluginRuntime,
+            gatewayFactory = gatewayFactory,
         )
     }
 }

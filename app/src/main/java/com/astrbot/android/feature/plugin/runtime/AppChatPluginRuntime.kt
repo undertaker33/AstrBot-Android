@@ -50,7 +50,7 @@ internal data class PluginV2HostLlmDeliveryRequest(
     val conversationId: String,
     val platformAdapterType: String,
     val platformInstanceKey: String,
-    val hostCapabilityGateway: PluginHostCapabilityGateway = DefaultPluginHostCapabilityGateway(),
+    val hostCapabilityGateway: PluginHostCapabilityGateway,
     val followupSender: PluginV2FollowupSender? = null,
     val prepareReply: suspend (PluginV2LlmPipelineResult) -> PluginV2HostPreparedReply,
     val sendReply: suspend (PluginV2HostPreparedReply) -> PluginV2HostSendResult,
@@ -84,9 +84,7 @@ internal sealed interface PluginV2HostLlmDeliveryResult {
 internal class EngineBackedAppChatPluginRuntime(
     private val pluginProvider: () -> List<PluginRuntimePlugin>,
     private val engine: PluginExecutionEngine,
-    private val defaultHostCapabilityGatewayProvider: () -> PluginHostCapabilityGateway = {
-        DefaultPluginHostCapabilityGateway()
-    },
+    private val hostCapabilityGateway: PluginHostCapabilityGateway,
 ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
     override fun execute(
         trigger: PluginTriggerSource,
@@ -102,7 +100,6 @@ internal class EngineBackedAppChatPluginRuntime(
     override suspend fun runLlmPipeline(
         input: PluginV2LlmPipelineInput,
     ): PluginV2LlmPipelineResult {
-        val hostCapabilityGateway = defaultHostCapabilityGatewayProvider()
         val configProfileId = input.configProfileId.orEmpty()
         val futureRegistry = FutureToolSourceRegistry()
         val toolSourceContext = input.toolSourceContext
@@ -157,7 +154,7 @@ internal class EngineBackedAppChatPluginRuntime(
         afterSentView: PluginV2AfterSentView,
     ): PluginV2LlmStageDispatchResult {
         return AppChatPluginRuntimeCoordinatorProvider
-            .coordinator(defaultHostCapabilityGatewayProvider())
+            .coordinator(hostCapabilityGateway)
             .dispatchAfterMessageSent(
             event = event,
             afterSentView = afterSentView,
@@ -247,6 +244,7 @@ object PluginRuntimeRegistry {
 
     fun registerProvider(provider: () -> List<PluginRuntimePlugin>) {
         pluginProvider = provider
+        PluginRuntimeCatalog.registerProvider(provider)
     }
 
     fun registerExternalProvider(provider: () -> List<PluginRuntimePlugin>) {
@@ -256,12 +254,13 @@ object PluginRuntimeRegistry {
     fun reset() {
         pluginProvider = { emptyList() }
         externalProviders = emptyList()
+        PluginRuntimeCatalog.reset()
     }
 }
 
 internal object DefaultAppChatPluginRuntime : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
     private fun delegate(): EngineBackedAppChatPluginRuntime {
-        val plugins = PluginRuntimeRegistry.plugins()
+        val plugins = PluginRuntimeCatalog.plugins()
         val failureGuard = PluginFailureGuard(
             store = PluginRuntimeFailureStateStoreProvider.store(),
         )
@@ -271,6 +270,7 @@ internal object DefaultAppChatPluginRuntime : AppChatPluginRuntime, AppChatLlmPi
                 dispatcher = PluginRuntimeDispatcher(failureGuard),
                 failureGuard = failureGuard,
             ),
+            hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
         )
     }
 

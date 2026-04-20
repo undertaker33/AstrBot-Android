@@ -26,19 +26,16 @@ import com.astrbot.android.download.AppDownloadManager
 import com.astrbot.android.feature.bot.data.BotRepositoryInitializer
 import com.astrbot.android.feature.config.data.ConfigRepositoryInitializer
 import com.astrbot.android.feature.persona.data.PersonaRepositoryInitializer
-import com.astrbot.android.feature.provider.data.ProviderRepositoryInitializer
+import com.astrbot.android.feature.provider.data.ProviderRepositoryWarmup
 import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
 import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
 import com.astrbot.android.core.runtime.audio.TencentSilkEncoder
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogCleanupRepository
-import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
 import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
-import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManagerProvider
-import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoaderProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSyncResult
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityToolSourceProvider
 import com.astrbot.android.feature.cron.runtime.CronJobScheduler
 import com.astrbot.android.core.common.profile.PersonaReferenceGuard
@@ -59,6 +56,9 @@ import kotlinx.coroutines.launch
 internal class AppBootstrapper @Inject constructor(
     private val application: Application,
     private val qqBridgeRuntime: QqBridgeRuntime,
+    private val pluginRuntimeLoader: PluginV2RuntimeLoader,
+    private val pluginLifecycleManager: PluginV2LifecycleManager,
+    private val providerRepositoryWarmup: ProviderRepositoryWarmup,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private val bootstrapped = AtomicBoolean(false)
@@ -77,6 +77,8 @@ internal class AppBootstrapper @Inject constructor(
 
         AppStrings.initialize(application)
         RuntimeSecretRepository.initialize(application)
+        // Post-Hilt R2 residue: static LLM service context init needed by
+        // legacy adapters. This call must NOT be expanded beyond initialize().
         ChatCompletionService.initialize(application)
         qqBridgeRuntime.initialize(application)
         TencentSilkEncoder.initialize(application)
@@ -97,9 +99,9 @@ internal class AppBootstrapper @Inject constructor(
         ActiveCapabilityToolSourceProvider.initialize(application)
         CronJobRepository.initialize(application)
         ResourceCenterRepository.initialize(application)
+        providerRepositoryWarmup.warmUp()
         InitializationCoordinator(
             listOf(
-                ProviderRepositoryInitializer(),
                 PersonaRepositoryInitializer(),
             ),
         ).initializeAll(application)
@@ -112,23 +114,20 @@ internal class AppBootstrapper @Inject constructor(
             BotRepository.botProfiles.value.any { it.defaultPersonaId == personaId }
         }
         ProviderReferenceGuard.register { providerId ->
-            ConfigRepository.profiles.value.any { config ->
+                ConfigRepository.profiles.value.any { config ->
                 config.defaultChatProviderId == providerId ||
                     config.defaultVisionProviderId == providerId ||
                     config.defaultSttProviderId == providerId ||
                     config.defaultTtsProviderId == providerId
             } || BotRepository.botProfiles.value.any { it.defaultProviderId == providerId }
         }
-        PluginRuntimeRegistry.registerExternalProvider {
-            ExternalPluginRuntimeCatalog.plugins()
-        }
         pluginRuntimeLoaderSyncJob = appScope.observePluginRuntimeRecords(
             records = PluginRepository.records,
             sync = { currentRecords ->
                 syncPluginRuntimeRecordsAndSignalReady(
                     records = currentRecords,
-                    loader = PluginV2RuntimeLoaderProvider.loader(),
-                    lifecycleManager = PluginV2LifecycleManagerProvider.manager(),
+                    loader = pluginRuntimeLoader,
+                    lifecycleManager = pluginLifecycleManager,
                 )
             },
         )

@@ -7,6 +7,7 @@ import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.di.ProductionRuntimeContextDataPort
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
+import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
@@ -17,9 +18,17 @@ import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeExecutor
 import com.astrbot.android.feature.cron.runtime.WorkManagerCronRescheduler
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
+import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
+import com.astrbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
+import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
@@ -30,6 +39,7 @@ import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
 import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
 import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import com.astrbot.android.runtime.llm.ChatCompletionServiceLlmClient
+import com.astrbot.android.runtime.llm.LegacyLlmProviderProbeAdapter
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -47,11 +57,39 @@ internal object RuntimeServicesModule {
 
     @Provides
     @Singleton
+    fun provideLlmProviderProbePort(): LlmProviderProbePort = LegacyLlmProviderProbeAdapter()
+
+    @Provides
+    @Singleton
     fun provideRuntimeLlmOrchestratorPort(): RuntimeLlmOrchestratorPort = DefaultRuntimeLlmOrchestrator()
 
     @Provides
     @Singleton
-    fun provideAppChatPluginRuntime(): AppChatPluginRuntime = DefaultAppChatPluginRuntime
+    fun providePluginHostCapabilityGateway(
+        gatewayFactory: PluginHostCapabilityGatewayFactory,
+    ): PluginHostCapabilityGateway = gatewayFactory.create()
+
+    @Provides
+    @Singleton
+    fun providePluginExecutionEngine(
+        failureGuard: PluginFailureGuard,
+        logBus: PluginRuntimeLogBus,
+    ): PluginExecutionEngine = PluginExecutionEngine(
+        dispatcher = PluginRuntimeDispatcher(failureGuard),
+        failureGuard = failureGuard,
+        logBus = logBus,
+    )
+
+    @Provides
+    @Singleton
+    fun provideAppChatPluginRuntime(
+        engine: PluginExecutionEngine,
+        hostCapabilityGateway: PluginHostCapabilityGateway,
+    ): AppChatPluginRuntime = EngineBackedAppChatPluginRuntime(
+        pluginProvider = PluginRuntimeCatalog::plugins,
+        engine = engine,
+        hostCapabilityGateway = hostCapabilityGateway,
+    )
 
     @Provides
     @Singleton
@@ -78,6 +116,8 @@ internal object RuntimeServicesModule {
         orchestrator: RuntimeLlmOrchestratorPort,
         runtimeContextResolverPort: RuntimeContextResolverPort,
         qqScheduledMessageSender: QqScheduledMessageSender,
+        appChatPluginRuntime: AppChatPluginRuntime,
+        hostCapabilityGateway: PluginHostCapabilityGateway,
     ): ScheduledTaskRuntimeDependencies {
         return ScheduledTaskRuntimeDependencies(
             llmClient = llmClientPort,
@@ -86,6 +126,8 @@ internal object RuntimeServicesModule {
             orchestrator = orchestrator,
             runtimeContextResolverPort = runtimeContextResolverPort,
             qqScheduledMessageSender = qqScheduledMessageSender,
+            appChatPluginRuntime = appChatPluginRuntime as AppChatLlmPipelineRuntime,
+            hostCapabilityGateway = hostCapabilityGateway,
         )
     }
 
@@ -124,7 +166,9 @@ internal object RuntimeServicesModule {
         platformConfigPort: QqPlatformConfigPort,
         orchestrator: RuntimeLlmOrchestratorPort,
         runtimeContextResolverPort: RuntimeContextResolverPort,
+        appChatPluginRuntime: AppChatPluginRuntime,
         providerInvoker: DefaultQqProviderInvoker,
+        gatewayFactory: PluginHostCapabilityGatewayFactory,
     ): QqOneBotRuntimeDependencies {
         return QqOneBotRuntimeDependencies(
             botPort = botPort,
@@ -135,7 +179,9 @@ internal object RuntimeServicesModule {
             platformConfigPort = platformConfigPort,
             orchestrator = orchestrator,
             runtimeContextResolverPort = runtimeContextResolverPort,
+            appChatPluginRuntime = appChatPluginRuntime as AppChatLlmPipelineRuntime,
             providerInvoker = providerInvoker,
+            gatewayFactory = gatewayFactory,
         )
     }
 

@@ -11,7 +11,12 @@ import com.astrbot.android.model.plugin.PluginV2StreamingMode
  * New feature code should depend on [RuntimeLlmOrchestratorPort] instead of
  * calling this static object directly.
  */
+@Deprecated(
+    "Phase-2 residue — not a production path. Use Hilt-provided RuntimeLlmOrchestratorPort.",
+    level = DeprecationLevel.WARNING,
+)
 internal object RuntimeOrchestrator {
+    @Suppress("DEPRECATION")
     private val compatDelegate: RuntimeLlmOrchestratorPort = DefaultRuntimeLlmOrchestrator()
 
     /**

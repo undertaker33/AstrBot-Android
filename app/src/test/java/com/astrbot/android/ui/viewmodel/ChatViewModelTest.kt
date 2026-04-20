@@ -48,9 +48,11 @@ import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
 import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
+import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.BaseHandlerRegistrationInput
@@ -138,6 +140,7 @@ class ChatViewModelTest {
 
     @org.junit.After
     fun tearDown() {
+        PluginRuntimeCatalog.reset()
         PluginRuntimeRegistry.reset()
         PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
         ProviderRepository.restoreProfiles(savedProviders)
@@ -781,7 +784,7 @@ class ChatViewModelTest {
                 pluginId = "external-command-plugin",
                 supportedTriggers = listOf("on_command"),
             )
-            PluginRuntimeRegistry.registerExternalProvider {
+            PluginRuntimeCatalog.registerProvider {
                 ExternalPluginRuntimeCatalog.plugins(
                     records = listOf(record),
                     bridgeRuntime = ExternalPluginBridgeRuntime(
@@ -818,6 +821,7 @@ class ChatViewModelTest {
             assertEquals(0, deps.sentChatRequests)
             assertEquals("external quickjs command reply", deps.latestAssistantMessage()?.content)
         } finally {
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             tempDir.deleteRecursively()
         }
@@ -1579,6 +1583,7 @@ class ChatViewModelTest {
                 dispatcher = PluginRuntimeDispatcher(failureGuard),
                 failureGuard = failureGuard,
             ),
+            hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
         )
 
         val batches = mutableListOf<PluginExecutionBatchResult>()

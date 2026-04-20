@@ -223,6 +223,7 @@ class DefaultAppChatPluginRuntimeTest {
                 conversationId = "internal-host-session",
                 platformAdapterType = "app_chat",
                 platformInstanceKey = "android",
+                hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
                 prepareReply = { pipelineResult ->
                     PluginV2HostPreparedReply(
                         text = pipelineResult.sendableResult.text,
@@ -340,7 +341,7 @@ class DefaultAppChatPluginRuntimeTest {
                 conversationId = "conv-host-tool",
                 platformAdapterType = "app_chat",
                 platformInstanceKey = "android",
-                hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
+                hostCapabilityGateway = createCompatPluginHostCapabilityGateway(
                     hostToolHandlers = PluginExecutionHostToolHandlers(
                         sendNotificationHandler = { title, message ->
                             notificationCalls.incrementAndGet()
@@ -447,7 +448,7 @@ class DefaultAppChatPluginRuntimeTest {
                 conversationId = "conv-host-tool-persona",
                 platformAdapterType = "app_chat",
                 platformInstanceKey = "android",
-                hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
+                hostCapabilityGateway = createCompatPluginHostCapabilityGateway(
                     hostToolHandlers = PluginExecutionHostToolHandlers(
                         sendNotificationHandler = { _, _ ->
                             notificationCalls.incrementAndGet()

@@ -24,20 +24,20 @@ import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
-import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionOutcome
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponse
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponseAttachment
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2MessageDispatchResult
+import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -46,8 +46,25 @@ internal class QqPluginDispatchService(
     private val replySender: QqReplySender,
     private val profileResolver: QqRuntimeProfileResolver,
     private val resolvePluginPrivateRootPath: (String) -> String,
+    private val pluginCatalog: () -> List<PluginRuntimePlugin> = { PluginRuntimeCatalog.plugins() },
+    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
     private val log: (String) -> Unit = {},
 ) {
+    constructor(
+        replySender: QqReplySender,
+        profileResolver: QqRuntimeProfileResolver,
+        resolvePluginPrivateRootPath: (String) -> String,
+        pluginCatalog: () -> List<PluginRuntimePlugin> = { PluginRuntimeCatalog.plugins() },
+        log: (String) -> Unit = {},
+    ) : this(
+        replySender = replySender,
+        profileResolver = profileResolver,
+        resolvePluginPrivateRootPath = resolvePluginPrivateRootPath,
+        pluginCatalog = pluginCatalog,
+        gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
+        log = log,
+    )
+
     fun executePlugins(
         trigger: PluginTriggerSource,
         message: IncomingQqMessage,
@@ -134,7 +151,7 @@ internal class QqPluginDispatchService(
                 failureGuard = pluginFailureGuard,
             ).executeBatch(
                 trigger = PluginTriggerSource.OnCommand,
-                plugins = PluginRuntimeRegistry.plugins(),
+                plugins = pluginCatalog(),
                 contextFactory = { plugin ->
                     buildPluginContext(
                         plugin = plugin,
@@ -178,7 +195,7 @@ internal class QqPluginDispatchService(
         message: IncomingQqMessage,
         contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
     ) {
-        val plugins = PluginRuntimeRegistry.plugins()
+        val plugins = pluginCatalog()
         if (plugins.isEmpty()) return
         val pluginFailureGuard = PluginFailureGuard(
             store = PluginRuntimeFailureStateStoreProvider.store(),
@@ -317,7 +334,7 @@ internal class QqPluginDispatchService(
                 ),
             ),
         )
-        return DefaultPluginHostCapabilityGateway().injectContext(base)
+        return gatewayFactory.create().injectContext(base)
     }
 
     internal fun executePlugins(
@@ -444,22 +461,20 @@ internal class QqPluginDispatchService(
 
             is HostActionRequest -> {
                 val emittedMessages = mutableListOf<String>()
-                val execution = DefaultPluginHostCapabilityGateway(
-                    hostActionExecutor = ExternalPluginHostActionExecutor(
-                        sendMessageHandler = { text ->
-                            emittedMessages += text
-                            replySender.send(
-                                QqReplyPayload(message.conversationId, message.messageType, text),
-                                message,
-                            )
-                        },
-                        sendNotificationHandler = { title, msg ->
-                            log("QQ plugin notification requested: title=$title message=$msg")
-                        },
-                        openHostPageHandler = { route ->
-                            log("QQ plugin requested host page: route=$route")
-                        },
-                    ),
+                val execution = gatewayFactory.create(
+                    sendMessageHandler = { text ->
+                        emittedMessages += text
+                        replySender.send(
+                            QqReplyPayload(message.conversationId, message.messageType, text),
+                            message,
+                        )
+                    },
+                    sendNotificationHandler = { title, msg ->
+                        log("QQ plugin notification requested: title=$title message=$msg")
+                    },
+                    openHostPageHandler = { route ->
+                        log("QQ plugin requested host page: route=$route")
+                    },
                 ).executeHostAction(
                     pluginId = outcome.pluginId,
                     request = result,

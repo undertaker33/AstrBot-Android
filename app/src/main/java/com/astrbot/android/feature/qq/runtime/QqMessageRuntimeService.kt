@@ -10,10 +10,9 @@ import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
-import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostToolHandlers
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
 import com.astrbot.android.feature.plugin.runtime.PluginV2FollowupSender
@@ -57,6 +56,7 @@ internal class QqMessageRuntimeService(
     private val botCommandRuntimeService: QqBotCommandRuntimeService,
     private val pluginDispatchService: QqPluginDispatchService,
     private val streamingReplyService: QqStreamingReplyService,
+    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
     private val log: (String) -> Unit = {},
 ) : QqRuntimePort {
 
@@ -426,25 +426,23 @@ internal class QqMessageRuntimeService(
         return object : PlatformLlmCallbacks {
             override val platformInstanceKey: String = message.selfId.ifBlank { "onebot" }
             override val hostCapabilityGateway: PluginHostCapabilityGateway =
-                DefaultPluginHostCapabilityGateway(
-                    hostToolHandlers = PluginExecutionHostToolHandlers(
-                        sendMessageHandler = { text ->
-                            replySender.send(
-                                QqReplyPayload(
-                                    conversationId = message.conversationId,
-                                    messageType = message.messageType,
-                                    text = text,
-                                ),
-                                message,
-                            )
-                        },
-                        sendNotificationHandler = { title, msg ->
-                            log("QQ v2 host notification requested: title=$title message=$msg")
-                        },
-                        openHostPageHandler = { route ->
-                            log("QQ v2 host page requested: route=$route")
-                        },
-                    ),
+                gatewayFactory.create(
+                    sendMessageHandler = { text ->
+                        replySender.send(
+                            QqReplyPayload(
+                                conversationId = message.conversationId,
+                                messageType = message.messageType,
+                                text = text,
+                            ),
+                            message,
+                        )
+                    },
+                    sendNotificationHandler = { title, msg ->
+                        log("QQ v2 host notification requested: title=$title message=$msg")
+                    },
+                    openHostPageHandler = { route ->
+                        log("QQ v2 host page requested: route=$route")
+                    },
                 )
 
             override val followupSender: PluginV2FollowupSender = PluginV2FollowupSender { text, attachments ->

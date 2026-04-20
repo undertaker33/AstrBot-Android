@@ -3,10 +3,10 @@ package com.astrbot.android.feature.cron.runtime
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
-import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
 import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
 import com.astrbot.android.feature.plugin.runtime.PluginV2FollowupSender
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
@@ -22,6 +22,7 @@ internal class ScheduledTaskLlmCallbacksFactory(
     private val conversationPort: ConversationRepositoryPort,
     private val providerInvocationService: ScheduledTaskProviderInvocationService,
     private val qqScheduledMessageSender: QqScheduledMessageSender,
+    private val hostCapabilityGateway: PluginHostCapabilityGateway,
 ) {
     fun create(
         context: CronJobExecutionContext,
@@ -31,7 +32,7 @@ internal class ScheduledTaskLlmCallbacksFactory(
     ): PlatformLlmCallbacks {
         return object : PlatformLlmCallbacks {
             override val platformInstanceKey: String = "cron:${context.jobId}"
-            override val hostCapabilityGateway = DefaultPluginHostCapabilityGateway()
+            override val hostCapabilityGateway = this@ScheduledTaskLlmCallbacksFactory.hostCapabilityGateway
             override val followupSender: PluginV2FollowupSender? = null
 
             override suspend fun prepareReply(

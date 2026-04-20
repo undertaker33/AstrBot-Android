@@ -5,9 +5,9 @@ import com.astrbot.android.R
 import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.HOST_SKIP_COMMAND_STAGE_EXTRA_KEY
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginDispatchSkipReason
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
@@ -39,6 +39,7 @@ import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
+import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -47,8 +48,18 @@ import kotlinx.coroutines.runBlocking
 class AppChatPluginCommandService(
     private val dependencies: ChatViewModelRuntimeBindings,
     private val appChatPluginRuntime: AppChatPluginRuntime,
-    private val hostCapabilityGateway: DefaultPluginHostCapabilityGateway = DefaultPluginHostCapabilityGateway(),
+    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
 ) {
+    constructor(
+        dependencies: ChatViewModelRuntimeBindings,
+        appChatPluginRuntime: AppChatPluginRuntime,
+    ) : this(
+        dependencies = dependencies,
+        appChatPluginRuntime = appChatPluginRuntime,
+        gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
+    )
+
+    private val hostCapabilityGateway: PluginHostCapabilityGateway = gatewayFactory.create()
     fun isUnsupportedPluginCommand(content: String): Boolean {
         val parsedCommand = com.astrbot.android.feature.chat.runtime.botcommand.BotCommandParser.parse(content) ?: return false
         return !com.astrbot.android.feature.chat.runtime.botcommand.BotCommandRouter.supports(parsedCommand.name)
@@ -522,16 +533,14 @@ class AppChatPluginCommandService(
 
             is HostActionRequest -> {
                 val emittedMessages = mutableListOf<String>()
-                val execution = DefaultPluginHostCapabilityGateway(
-                    hostActionExecutor = ExternalPluginHostActionExecutor(
-                        sendMessageHandler = { text -> emittedMessages += text },
-                        sendNotificationHandler = { title, message ->
-                            dependencies.log("Plugin notification requested: title=$title message=$message")
-                        },
-                        openHostPageHandler = { route ->
-                            dependencies.log("Plugin requested host page: route=$route")
-                        },
-                    ),
+                val execution = gatewayFactory.create(
+                    sendMessageHandler = { text -> emittedMessages += text },
+                    sendNotificationHandler = { title, message ->
+                        dependencies.log("Plugin notification requested: title=$title message=$message")
+                    },
+                    openHostPageHandler = { route ->
+                        dependencies.log("Plugin requested host page: route=$route")
+                    },
                 ).executeHostAction(
                     pluginId = pluginId,
                     request = result,

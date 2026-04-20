@@ -11,7 +11,17 @@ interface PluginHostCapabilityGateway {
         context: PluginExecutionContext,
     ): ExternalPluginHostActionExecutionResult
 
+    /** Resolve and inject host snapshot for [context.pluginId]. */
     fun injectContext(context: PluginExecutionContext): PluginExecutionContext
+
+    /**
+     * Inject a caller-supplied [hostSnapshot] instead of resolving it internally.
+     * Useful when the caller has already built a custom snapshot (e.g. PluginViewModel).
+     */
+    fun injectContext(
+        context: PluginExecutionContext,
+        hostSnapshot: PluginExecutionHostSnapshot,
+    ): PluginExecutionContext
 
     fun registerHostBuiltinTools(
         snapshot: PluginV2ActiveRuntimeSnapshot,
@@ -28,9 +38,11 @@ interface PluginHostCapabilityGateway {
 }
 
 class DefaultPluginHostCapabilityGateway(
-    private val hostActionExecutor: ExternalPluginHostActionExecutor = ExternalPluginHostActionExecutor(),
+    private val resolver: PluginExecutionHostResolver,
+    private val hostActionExecutor: ExternalPluginHostActionExecutor,
     private val hostToolHandlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
 ) : PluginHostCapabilityGateway {
+
     override fun executeHostAction(
         pluginId: String,
         request: HostActionRequest,
@@ -44,10 +56,17 @@ class DefaultPluginHostCapabilityGateway(
     }
 
     override fun injectContext(context: PluginExecutionContext): PluginExecutionContext {
-        return PluginExecutionHostApi.inject(
+        return resolver.inject(
             context = context,
-            hostSnapshot = PluginExecutionHostApi.resolve(context.pluginId),
+            hostSnapshot = resolver.resolve(context.pluginId),
         )
+    }
+
+    override fun injectContext(
+        context: PluginExecutionContext,
+        hostSnapshot: PluginExecutionHostSnapshot,
+    ): PluginExecutionContext {
+        return resolver.inject(context = context, hostSnapshot = hostSnapshot)
     }
 
     override fun registerHostBuiltinTools(
@@ -56,7 +75,7 @@ class DefaultPluginHostCapabilityGateway(
         futureSourceDescriptors: Collection<PluginToolDescriptor>,
         activeFutureSourceKinds: Set<PluginToolSourceKind>,
     ): PluginV2ActiveRuntimeSnapshot {
-        return PluginExecutionHostApi.registerHostBuiltinTools(
+        return resolver.registerHostBuiltinTools(
             snapshot = snapshot,
             handlers = hostToolHandlers,
             personaSnapshot = personaSnapshot,
@@ -69,16 +88,13 @@ class DefaultPluginHostCapabilityGateway(
     override fun executeHostBuiltinTool(
         args: PluginToolArgs,
     ): PluginToolResult? {
-        return PluginExecutionHostApi.executeHostBuiltinTool(
-            args = args,
-            handlers = hostToolHandlers,
-        )
+        return resolver.executeHostBuiltinTool(args = args, handlers = hostToolHandlers)
     }
 
     override fun isToolAllowed(entry: PluginV2ToolRegistryEntry): Boolean {
         return when (entry.sourceKind) {
             PluginToolSourceKind.PLUGIN_V2 -> true
-            PluginToolSourceKind.HOST_BUILTIN -> entry.name in PluginExecutionHostApi
+            PluginToolSourceKind.HOST_BUILTIN -> entry.name in resolver
                 .registeredHostToolDescriptors(hostToolHandlers)
                 .map(PluginToolDescriptor::name)
                 .toSet()

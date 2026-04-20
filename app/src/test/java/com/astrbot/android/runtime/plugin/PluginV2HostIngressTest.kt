@@ -52,6 +52,7 @@ import com.astrbot.android.feature.qq.runtime.QqSessionKeyFactory
 import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
 import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
 import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
+import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
 import java.nio.file.Files
 import java.util.AbstractMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -537,6 +538,39 @@ class PluginV2HostIngressTest {
             )
         } finally {
             extractedDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun default_app_chat_runtime_ignores_registry_external_plugins() {
+        val externalRuns = AtomicInteger(0)
+        PluginRuntimeRegistry.registerExternalProvider {
+            listOf(
+                runtimePlugin(
+                    pluginId = "external-only-app-chat",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    externalRuns.incrementAndGet()
+                    NoOp("external")
+                },
+            )
+        }
+
+        try {
+            val batch = DefaultAppChatPluginRuntime.execute(
+                trigger = PluginTriggerSource.BeforeSendMessage,
+                contextFactory = { plugin ->
+                    executionContextFor(
+                        plugin = plugin,
+                        trigger = PluginTriggerSource.BeforeSendMessage,
+                    )
+                },
+            )
+
+            assertTrue(batch.outcomes.isEmpty())
+            assertEquals(0, externalRuns.get())
+        } finally {
+            PluginRuntimeRegistry.reset()
         }
     }
 
@@ -1288,9 +1322,11 @@ class PluginV2HostIngressTest {
                     providerPort = LegacyProviderRepositoryAdapter(),
                     conversationPort = LegacyQqConversationAdapter(),
                     platformConfigPort = LegacyQqPlatformConfigAdapter(),
-                    orchestrator = LegacyRuntimeOrchestratorAdapter(),
+                    orchestrator = LegacyRuntimeOrchestratorAdapter(DefaultRuntimeLlmOrchestrator()),
                     runtimeContextResolverPort = runtimeContextResolverPort,
+                    appChatPluginRuntime = DefaultAppChatPluginRuntime,
                     providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
+                    gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
                 ),
             )
             RuntimeLogRepository.clear()

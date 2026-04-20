@@ -35,8 +35,10 @@ import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStor
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStoreProvider
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScopedFailureStateStoreProvider
+import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
 import com.astrbot.android.feature.plugin.runtime.PluginV2QuickJsTestGate
 import com.astrbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
@@ -58,6 +60,7 @@ import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
 import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
 import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
 import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
+import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
@@ -221,6 +224,55 @@ class QqOneBotBridgeServerTest {
             }
         } finally {
             extractedDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `qq runtime ingress ignores registry external plugins when the catalog is empty`() = runTest {
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            val externalRuns = AtomicInteger(0)
+            PluginRuntimeRegistry.registerExternalProvider {
+                listOf(
+                    runtimePlugin(
+                        pluginId = "qq-external-ingress-only",
+                        supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                    ) {
+                        externalRuns.incrementAndGet()
+                        NoOp("external")
+                    },
+                )
+            }
+            ChatCompletionService.setHttpClientOverrideForTests(
+                FakeHttpClient(
+                    onExecute = { request ->
+                        HttpResponsePayload(
+                            code = 200,
+                            body = """{"choices":[{"message":{"content":"qq reply"}}]}""",
+                            headers = emptyMap(),
+                            url = request.url,
+                        )
+                    },
+                ),
+            )
+
+            invokeHandlePayload(
+                """
+                {
+                  "post_type": "message",
+                  "message_type": "private",
+                  "self_id": "10001",
+                  "user_id": "20002",
+                  "message_id": "message-external-ingress-only",
+                  "raw_message": "hello qq ingress"
+                }
+                """.trimIndent(),
+            )
+
+            assertEquals(0, externalRuns.get())
         }
     }
 
@@ -532,7 +584,7 @@ class QqOneBotBridgeServerTest {
                         ).toString(),
                     ),
                 )
-                PluginRuntimeRegistry.registerExternalProvider {
+                PluginRuntimeCatalog.registerProvider {
                     ExternalPluginRuntimeCatalog.plugins(
                         records = listOf(record),
                         bridgeRuntime = ExternalPluginBridgeRuntime(
@@ -732,7 +784,7 @@ class QqOneBotBridgeServerTest {
                         ).toString(),
                     ),
                 )
-                PluginRuntimeRegistry.registerExternalProvider {
+                PluginRuntimeCatalog.registerProvider {
                     ExternalPluginRuntimeCatalog.plugins(
                         records = listOf(record),
                         bridgeRuntime = ExternalPluginBridgeRuntime(
@@ -832,9 +884,11 @@ class QqOneBotBridgeServerTest {
                     providerPort = LegacyProviderRepositoryAdapter(),
                     conversationPort = LegacyQqConversationAdapter(),
                     platformConfigPort = LegacyQqPlatformConfigAdapter(),
-                    orchestrator = LegacyRuntimeOrchestratorAdapter(),
+                    orchestrator = LegacyRuntimeOrchestratorAdapter(DefaultRuntimeLlmOrchestrator()),
                     runtimeContextResolverPort = runtimeContextResolverPort,
+                    appChatPluginRuntime = DefaultAppChatPluginRuntime,
                     providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
+                    gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
                 ),
             )
             BotRepository.restoreProfiles(listOf(bot), bot.id)
@@ -845,6 +899,7 @@ class QqOneBotBridgeServerTest {
         } finally {
             ChatCompletionService.setHttpClientOverrideForTests(null)
             QqOneBotBridgeServer.setReplySenderOverrideForTests(null)
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)

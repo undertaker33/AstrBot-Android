@@ -79,9 +79,8 @@ import com.astrbot.android.model.plugin.SettingsUiRequest
 import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
-import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
-import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostApi
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostSnapshot
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
@@ -94,12 +93,13 @@ import com.astrbot.android.feature.plugin.runtime.PluginObservabilitySummary
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.compareVersions
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginRepositorySubscriptionManager
+import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryCompleted
 import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryFailed
 import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryRequested
@@ -754,7 +754,15 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
 @HiltViewModel
 class PluginViewModel @Inject constructor(
     private val bindings: PluginViewModelBindings,
+    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
 ) : ViewModel() {
+    constructor(
+        bindings: PluginViewModelBindings,
+    ) : this(
+        bindings = bindings,
+        gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
+    )
+
     private val records = bindings.records
     private val repositorySources = bindings.repositorySources
     private val catalogEntries = bindings.catalogEntries
@@ -820,9 +828,7 @@ class PluginViewModel @Inject constructor(
         return bindings.recoverPluginFailureState(pluginId)
     }
 
-    private val hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
-        hostActionExecutor = ExternalPluginHostActionExecutor(),
-    )
+    private val hostCapabilityGateway: PluginHostCapabilityGateway = gatewayFactory.create()
     private val pluginPresentationController = PluginPresentationController(
         PluginManagementUseCases(
             repository = object : PluginRepositoryPort {
@@ -1733,7 +1739,7 @@ class PluginViewModel @Inject constructor(
                 "Plugin v2 entry click is blocked until the structured v2 runtime entry is restored: $entryPoint",
             )
         }
-        val runtime = PluginRuntimeRegistry.plugins()
+        val runtime = PluginRuntimeCatalog.plugins()
             .firstOrNull { plugin ->
                 plugin.pluginId == record.pluginId &&
                     ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnPluginEntryClick) &&
@@ -1814,7 +1820,7 @@ class PluginViewModel @Inject constructor(
                 entryPoint = entryPoint,
             ),
         )
-        return PluginExecutionHostApi.inject(
+        return hostCapabilityGateway.injectContext(
             context = base,
             hostSnapshot = PluginExecutionHostSnapshot(
                 workspaceSnapshot = resolvePluginWorkspaceSnapshot(record.pluginId),

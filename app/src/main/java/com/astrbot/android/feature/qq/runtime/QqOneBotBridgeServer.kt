@@ -11,6 +11,7 @@ import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
@@ -60,7 +61,9 @@ internal data class QqOneBotRuntimeDependencies(
     val platformConfigPort: QqPlatformConfigPort,
     val orchestrator: RuntimeLlmOrchestratorPort,
     val runtimeContextResolverPort: RuntimeContextResolverPort,
+    val appChatPluginRuntime: AppChatLlmPipelineRuntime,
     val providerInvoker: QqProviderInvoker,
+    val gatewayFactory: PluginHostCapabilityGatewayFactory,
 )
 
 internal interface QqScheduledMessageSender {
@@ -103,7 +106,9 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
 
     protected abstract fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies
 
-    protected open fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime = DefaultAppChatPluginRuntime
+    protected open fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime {
+        return requireRuntimeDependencies().appChatPluginRuntime
+    }
 
     protected open fun currentReplySenderOverride():
         ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? = null
@@ -186,6 +191,7 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
             currentLanguageTag = ::currentLanguageTag,
             transcribeAudio = LlmMediaService::transcribeAudio,
             resolvePluginPrivateRootPath = ::resolvePluginPrivateRootPath,
+            gatewayFactory = dependencies.gatewayFactory,
             log = AppLogger::append,
         )
     }
