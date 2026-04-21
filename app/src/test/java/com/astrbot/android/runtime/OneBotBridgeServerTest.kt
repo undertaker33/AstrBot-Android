@@ -38,6 +38,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStoreProv
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScopedFailureStateStoreProvider
+import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
 import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
 import com.astrbot.android.feature.plugin.runtime.PluginV2QuickJsTestGate
@@ -59,6 +60,7 @@ import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
 import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
 import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
 import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
+import com.astrbot.android.runtime.llm.LegacyLlmProviderProbeAdapter
 import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
 import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
 import java.io.File
@@ -887,8 +889,13 @@ class QqOneBotBridgeServerTest {
                     orchestrator = LegacyRuntimeOrchestratorAdapter(DefaultRuntimeLlmOrchestrator()),
                     runtimeContextResolverPort = runtimeContextResolverPort,
                     appChatPluginRuntime = DefaultAppChatPluginRuntime,
+                    pluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
+                    failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
+                    scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
                     providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
                     gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
+                    llmProviderProbePort = LegacyLlmProviderProbeAdapter(),
+                    logBus = InMemoryPluginRuntimeLogBus(),
                 ),
             )
             BotRepository.restoreProfiles(listOf(bot), bot.id)

@@ -1,6 +1,5 @@
 package com.astrbot.android.feature.qq.runtime
 
-import com.astrbot.android.core.runtime.llm.LlmMediaService
 import com.astrbot.android.core.runtime.llm.LlmResponseSegmenter
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
@@ -16,6 +15,7 @@ import kotlinx.coroutines.delay
 
 internal class QqStreamingReplyService(
     private val replySender: QqReplySender,
+    private val synthesizeSpeech: (ProviderProfile, String, String, Boolean) -> ConversationAttachment,
     private val log: (String) -> Unit = {},
 ) {
     fun prepareReply(
@@ -218,11 +218,11 @@ internal class QqStreamingReplyService(
         readBracketedContent: Boolean,
     ): ConversationAttachment? {
         return runCatching {
-            LlmMediaService.synthesizeSpeech(
-                provider = provider,
-                text = response,
-                voiceId = voiceId,
-                readBracketedContent = readBracketedContent,
+            synthesizeSpeech(
+                provider,
+                response,
+                voiceId,
+                readBracketedContent,
             )
         }.onFailure { error ->
             log("QQ TTS failed: ${error.message ?: error.javaClass.simpleName}")

@@ -7,18 +7,30 @@ import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.core.common.logging.AppLogger
 import java.net.URI
 import java.security.MessageDigest
+import javax.inject.Inject
 
 data class PluginRepositorySubscriptionResult(
     val source: PluginRepositorySource,
     val syncState: PluginCatalogSyncState,
 )
 
-class PluginRepositorySubscriptionManager(
+class PluginRepositorySubscriptionManager @Inject constructor(
     private val store: PluginCatalogSyncStore,
     private val synchronizer: PluginCatalogSynchronizer,
-    private val sourceIdFactory: (String) -> String = ::defaultPluginRepositorySourceId,
-    private val now: () -> Long = System::currentTimeMillis,
 ) {
+    private var sourceIdFactory: (String) -> String = ::defaultPluginRepositorySourceId
+    private var now: () -> Long = System::currentTimeMillis
+
+    constructor(
+        store: PluginCatalogSyncStore,
+        synchronizer: PluginCatalogSynchronizer,
+        sourceIdFactory: (String) -> String = ::defaultPluginRepositorySourceId,
+        now: () -> Long = System::currentTimeMillis,
+    ) : this(store = store, synchronizer = synchronizer) {
+        this.sourceIdFactory = sourceIdFactory
+        this.now = now
+    }
+
     suspend fun subscribeAndSync(rawCatalogUrl: String): PluginRepositorySubscriptionResult {
         AppLogger.append("Plugin market subscribe start: rawUrl=$rawCatalogUrl")
         val intent = PluginInstallIntent.repositoryUrl(rawCatalogUrl)

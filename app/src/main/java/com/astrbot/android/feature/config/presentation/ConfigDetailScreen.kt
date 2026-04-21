@@ -73,7 +73,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.core.runtime.audio.TtsVoiceCatalog
 import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
-import com.astrbot.android.core.runtime.llm.LlmMediaService
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.McpServerEntry
@@ -191,6 +190,14 @@ fun ConfigDetailScreen(
                     configViewModel.select(updated.id)
                     Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 },
+                onPreviewVoice = { provider, text, voiceId, readBracketedContent ->
+                    configViewModel.synthesizeSpeech(
+                        provider = provider,
+                        text = text,
+                        voiceId = voiceId,
+                        readBracketedContent = readBracketedContent,
+                    )
+                },
             )
         }
     }
@@ -208,6 +215,7 @@ private fun ConfigDetailContent(
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     onSave: (ConfigProfile) -> Unit,
+    onPreviewVoice: (ProviderProfile, String, String, Boolean) -> com.astrbot.android.model.chat.ConversationAttachment,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -253,7 +261,7 @@ private fun ConfigDetailContent(
     var keywordDetectionEnabled by remember(profile.id) { mutableStateOf(profile.keywordDetectionEnabled) }
     var keywordPatterns by remember(profile.id) { mutableStateOf(profile.keywordPatterns) }
 
-    // ── Context Strategy ──
+    // Context Strategy
     var contextLimitStrategy by remember(profile.id) { mutableStateOf(profile.contextLimitStrategy) }
     var maxContextTurns by remember(profile.id) { mutableStateOf(profile.maxContextTurns.toString()) }
     var dequeueContextTurns by remember(profile.id) { mutableStateOf(profile.dequeueContextTurns.toString()) }
@@ -261,7 +269,7 @@ private fun ConfigDetailContent(
     var llmCompressKeepRecent by remember(profile.id) { mutableStateOf(profile.llmCompressKeepRecent.toString()) }
     var llmCompressProviderId by remember(profile.id) { mutableStateOf(profile.llmCompressProviderId) }
 
-    // ── MCP / Skill ──
+    // MCP / Skill
     var mcpServers by remember(profile.id) { mutableStateOf(profile.mcpServers) }
     var skills by remember(profile.id) { mutableStateOf(profile.skills) }
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
@@ -452,11 +460,11 @@ private fun ConfigDetailContent(
                                         isPreviewingVoice = true
                                         val result = runCatching {
                                             withContext(Dispatchers.IO) {
-                                                LlmMediaService.synthesizeSpeech(
-                                                    provider = previewProvider,
-                                                    text = "你好，世界",
-                                                    voiceId = ttsVoiceId,
-                                                    readBracketedContent = true,
+                                                onPreviewVoice(
+                                                    previewProvider,
+                                                    "你好，世界",
+                                                    ttsVoiceId,
+                                                    true,
                                                 )
                                             }
                                         }

@@ -275,6 +275,7 @@ internal suspend fun executeWebSearchQuery(
                 "WebSearch: intent=${policy.intent.name} engine=${engine.name.lowercase()} module=$module modules=[${results.moduleSummary()}] " +
                     "relevance_reason=${assessment.reason} fallback_reason=accepted payload=${payload.toSingleLineLog()}",
             )
+            AppLogger.flush()
             return payload
         }
 
@@ -301,10 +302,12 @@ internal suspend fun executeWebSearchQuery(
                     "modules=[${fallback.results.moduleSummary()}] relevance_reason=${fallback.assessment.reason} " +
                     "fallback_reason=low_relevance_last_resort payload=${payload.toSingleLineLog()}",
             )
+            AppLogger.flush()
             return payload
         }
     }
 
+    AppLogger.flush()
     throw IllegalStateException(
         "No search results found for query='$query' after ${attempts.joinToString()} intent=${policy.intent.name}.",
     )

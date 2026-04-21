@@ -2,6 +2,7 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.di.hilt.TtsVoiceAssets
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
@@ -11,6 +12,7 @@ import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.model.chat.ConversationAttachment
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineStart
@@ -24,6 +26,7 @@ class ConfigViewModel @Inject constructor(
     private val botRepository: BotRepositoryPort,
     @TtsVoiceAssets private val ttsVoiceAssetsFlow: StateFlow<@JvmSuppressWildcards List<TtsVoiceReferenceAsset>>,
     private val phase3DataTransactionService: Phase3DataTransactionService,
+    private val llmProviderProbePort: LlmProviderProbePort,
 ) : ViewModel() {
     val configProfiles: StateFlow<List<ConfigProfile>> = configRepository.profiles
     val selectedConfigProfileId: StateFlow<String> = configRepository.selectedProfileId
@@ -59,5 +62,19 @@ class ConfigViewModel @Inject constructor(
 
     fun resolve(profileId: String): ConfigProfile {
         return configRepository.resolve(profileId)
+    }
+
+    fun synthesizeSpeech(
+        provider: ProviderProfile,
+        text: String,
+        voiceId: String,
+        readBracketedContent: Boolean,
+    ): ConversationAttachment {
+        return llmProviderProbePort.synthesizeSpeech(
+            provider = provider,
+            text = text,
+            voiceId = voiceId,
+            readBracketedContent = readBracketedContent,
+        )
     }
 }

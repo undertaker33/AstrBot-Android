@@ -1,17 +1,14 @@
 package com.astrbot.android.feature.plugin.runtime
 
-import javax.inject.Inject
-import javax.inject.Singleton
-
 /**
  * Factory that creates [PluginHostCapabilityGateway] instances with an injected
  * [PluginExecutionHostResolver]. Callers receive a contextual gateway by providing
  * platform-specific [ExternalPluginHostActionExecutor] and [PluginExecutionHostToolHandlers].
  *
- * Hilt provides this as a [Singleton]; the factory itself is stateless.
+ * Production code should receive this from Hilt. The compat helpers below are
+ * legacy-only and remain as non-default seams for tests and older entry points.
  */
-@Singleton
-class PluginHostCapabilityGatewayFactory @Inject constructor(
+class PluginHostCapabilityGatewayFactory(
     private val resolver: PluginExecutionHostResolver,
 ) {
     fun create(
@@ -30,12 +27,20 @@ class PluginHostCapabilityGatewayFactory @Inject constructor(
     )
 }
 
+@Deprecated(
+    "Compat-only. Production code should use the Hilt-owned PluginHostCapabilityGatewayFactory.",
+    level = DeprecationLevel.WARNING,
+)
 internal fun createCompatPluginHostCapabilityGatewayFactory(): PluginHostCapabilityGatewayFactory {
     return PluginHostCapabilityGatewayFactory(
-        resolver = DefaultPluginExecutionHostResolver(),
+        resolver = DefaultPluginExecutionHostResolver(DefaultPluginExecutionHostOperations()),
     )
 }
 
+@Deprecated(
+    "Compat-only. Production code should use the Hilt-owned PluginHostCapabilityGatewayFactory.",
+    level = DeprecationLevel.WARNING,
+)
 internal fun createCompatPluginHostCapabilityGateway(
     sendMessageHandler: (String) -> Unit = {},
     sendNotificationHandler: (String, String) -> Unit = { _, _ -> },

@@ -13,6 +13,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponse
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponseAttachment
+import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2MessageDispatchResult
 import com.astrbot.android.model.BotProfile
@@ -49,7 +50,12 @@ class AppChatPluginCommandService(
     private val dependencies: ChatViewModelRuntimeBindings,
     private val appChatPluginRuntime: AppChatPluginRuntime,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val dispatchEngine: PluginV2DispatchEngine,
 ) {
+    @Deprecated(
+        "Compat-only. Production code should supply a Hilt-owned PluginHostCapabilityGatewayFactory.",
+        level = DeprecationLevel.WARNING,
+    )
     constructor(
         dependencies: ChatViewModelRuntimeBindings,
         appChatPluginRuntime: AppChatPluginRuntime,
@@ -57,6 +63,7 @@ class AppChatPluginCommandService(
         dependencies = dependencies,
         appChatPluginRuntime = appChatPluginRuntime,
         gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
+        dispatchEngine = PluginV2DispatchEngineProvider.engine(),
     )
 
     private val hostCapabilityGateway: PluginHostCapabilityGateway = gatewayFactory.create()
@@ -286,7 +293,7 @@ class AppChatPluginCommandService(
     ): PluginV2MessageDispatchResult {
         return runCatching {
             runBlocking {
-                PluginV2DispatchEngineProvider.engine().dispatchMessage(
+                dispatchEngine.dispatchMessage(
                     event = buildAppChatPluginMessageEvent(
                         trigger = trigger,
                         session = session,

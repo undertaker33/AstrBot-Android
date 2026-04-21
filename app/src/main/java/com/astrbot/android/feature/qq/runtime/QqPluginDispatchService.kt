@@ -27,17 +27,18 @@ import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionOutcome
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
+import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponse
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponseAttachment
-import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
+import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.PluginV2MessageDispatchResult
-import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -49,22 +50,11 @@ internal class QqPluginDispatchService(
     private val pluginCatalog: () -> List<PluginRuntimePlugin> = { PluginRuntimeCatalog.plugins() },
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
     private val log: (String) -> Unit = {},
+    private val dispatchEngine: PluginV2DispatchEngine,
+    private val failureStateStore: PluginFailureStateStore,
+    private val scopedFailureStateStore: PluginScopedFailureStateStore,
+    private val logBus: PluginRuntimeLogBus,
 ) {
-    constructor(
-        replySender: QqReplySender,
-        profileResolver: QqRuntimeProfileResolver,
-        resolvePluginPrivateRootPath: (String) -> String,
-        pluginCatalog: () -> List<PluginRuntimePlugin> = { PluginRuntimeCatalog.plugins() },
-        log: (String) -> Unit = {},
-    ) : this(
-        replySender = replySender,
-        profileResolver = profileResolver,
-        resolvePluginPrivateRootPath = resolvePluginPrivateRootPath,
-        pluginCatalog = pluginCatalog,
-        gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
-        log = log,
-    )
-
     fun executePlugins(
         trigger: PluginTriggerSource,
         message: IncomingQqMessage,
@@ -144,11 +134,17 @@ internal class QqPluginDispatchService(
         )
         val batch = runCatching {
             val pluginFailureGuard = PluginFailureGuard(
-                store = PluginRuntimeFailureStateStoreProvider.store(),
+                store = failureStateStore,
+                scopedStore = scopedFailureStateStore,
+                logBus = logBus,
             )
             PluginExecutionEngine(
-                dispatcher = PluginRuntimeDispatcher(pluginFailureGuard),
+                dispatcher = PluginRuntimeDispatcher(
+                    failureGuard = pluginFailureGuard,
+                    logBus = logBus,
+                ),
                 failureGuard = pluginFailureGuard,
+                logBus = logBus,
             ).executeBatch(
                 trigger = PluginTriggerSource.OnCommand,
                 plugins = pluginCatalog(),
@@ -198,11 +194,17 @@ internal class QqPluginDispatchService(
         val plugins = pluginCatalog()
         if (plugins.isEmpty()) return
         val pluginFailureGuard = PluginFailureGuard(
-            store = PluginRuntimeFailureStateStoreProvider.store(),
+            store = failureStateStore,
+            scopedStore = scopedFailureStateStore,
+            logBus = logBus,
         )
         val pluginEngine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(pluginFailureGuard),
+            dispatcher = PluginRuntimeDispatcher(
+                failureGuard = pluginFailureGuard,
+                logBus = logBus,
+            ),
             failureGuard = pluginFailureGuard,
+            logBus = logBus,
         )
         val batch = runCatching {
             pluginEngine.executeBatch(
@@ -249,7 +251,7 @@ internal class QqPluginDispatchService(
     ): PluginV2MessageDispatchResult {
         return runCatching {
             runBlocking {
-                PluginV2DispatchEngineProvider.engine().dispatchMessage(
+                dispatchEngine.dispatchMessage(
                     event = materializedEvent ?: message.toPluginMessageEvent(
                         trigger = trigger,
                         conversationId = conversationId,

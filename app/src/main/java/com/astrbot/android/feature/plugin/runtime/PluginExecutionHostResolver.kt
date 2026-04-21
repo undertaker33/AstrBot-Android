@@ -39,25 +39,31 @@ interface PluginExecutionHostResolver {
 }
 
 /**
- * Production implementation: delegates directly to the static [PluginExecutionHostApi].
+ * Production implementation: talks to the injected host operations directly.
  * Registered as a [Singleton] in [com.astrbot.android.di.hilt.PluginHostCapabilityModule].
  */
 @Singleton
-class DefaultPluginExecutionHostResolver @Inject constructor() : PluginExecutionHostResolver {
+internal class DefaultPluginExecutionHostResolver @Inject constructor(
+    private val operations: DefaultPluginExecutionHostOperations,
+) : PluginExecutionHostResolver {
+
+    init {
+        PluginExecutionHostApi.installCompatOperations(operations)
+    }
 
     override fun resolve(pluginId: String): PluginExecutionHostSnapshot =
-        PluginExecutionHostApi.resolve(pluginId)
+        operations.resolve(pluginId)
 
     override fun inject(
         context: PluginExecutionContext,
         hostSnapshot: PluginExecutionHostSnapshot,
     ): PluginExecutionContext =
-        PluginExecutionHostApi.inject(context, hostSnapshot)
+        operations.inject(context, hostSnapshot)
 
     override fun registeredHostToolDescriptors(
         handlers: PluginExecutionHostToolHandlers,
     ): List<PluginToolDescriptor> =
-        PluginExecutionHostApi.registeredHostToolDescriptors(handlers)
+        operations.registeredHostToolDescriptors(handlers)
 
     override fun registerHostBuiltinTools(
         snapshot: PluginV2ActiveRuntimeSnapshot,
@@ -67,7 +73,7 @@ class DefaultPluginExecutionHostResolver @Inject constructor() : PluginExecution
         futureSourceDescriptors: Collection<PluginToolDescriptor>,
         activeFutureSourceKinds: Set<PluginToolSourceKind>,
     ): PluginV2ActiveRuntimeSnapshot =
-        PluginExecutionHostApi.registerHostBuiltinTools(
+        operations.registerHostBuiltinTools(
             snapshot = snapshot,
             handlers = handlers,
             personaSnapshot = personaSnapshot,
@@ -80,5 +86,5 @@ class DefaultPluginExecutionHostResolver @Inject constructor() : PluginExecution
         args: PluginToolArgs,
         handlers: PluginExecutionHostToolHandlers,
     ): PluginToolResult? =
-        PluginExecutionHostApi.executeHostBuiltinTool(args, handlers)
+        operations.executeHostBuiltinTool(args, handlers)
 }

@@ -2,6 +2,7 @@
 
 package com.astrbot.android.runtime.llm
 
+import android.content.Context
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.core.runtime.llm.SttProbeResult
@@ -18,7 +19,13 @@ import com.astrbot.android.model.chat.ConversationAttachment
  * [ChatCompletionService] is permitted. Feature-layer code should
  * depend on [LlmProviderProbePort] (provided by Hilt) instead.
  */
-internal class LegacyLlmProviderProbeAdapter : LlmProviderProbePort {
+internal class LegacyLlmProviderProbeAdapter(
+    context: Context? = null,
+) : LlmProviderProbePort {
+
+    init {
+        context?.let(ChatCompletionService::initialize)
+    }
 
     override fun fetchModels(baseUrl: String, apiKey: String, providerType: ProviderType): List<String> {
         return ChatCompletionService.fetchModels(baseUrl, apiKey, providerType)
@@ -47,6 +54,13 @@ internal class LegacyLlmProviderProbeAdapter : LlmProviderProbePort {
 
     override fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState {
         return ChatCompletionService.probeTtsSupport(provider)
+    }
+
+    override fun transcribeAudio(
+        provider: ProviderProfile,
+        attachment: ConversationAttachment,
+    ): String {
+        return ChatCompletionService.transcribeAudio(provider, attachment)
     }
 
     override fun synthesizeSpeech(

@@ -2,15 +2,16 @@
 
 package com.astrbot.android.core.runtime.container
 
-import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
-import com.astrbot.android.di.ProductionContainerBridgeStatePort
-
 import android.content.Context
 import android.system.Os
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
 import com.astrbot.android.model.NapCatBridgeConfig
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.nio.charset.StandardCharsets
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,7 +19,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-object ContainerRuntimeInstaller {
+@Singleton
+class ContainerRuntimeInstaller @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    private val bridgeStatePort: ContainerBridgeStatePort,
+) {
     private val scriptNames = listOf(
         "container_env.sh",
         "bootstrap_container.sh",
@@ -35,6 +40,12 @@ object ContainerRuntimeInstaller {
 
     private val bundledAssetNames = listOf(
         "ubuntu-rootfs.tar.xz",
+        "napcat-installer.sh",
+        "NapCat.Shell.zip",
+        "QQ.deb",
+        "launcher.cpp",
+        "offline-debs.tar",
+        "offline-rootfs-overlay.tar.xz",
     )
 
     private val installMutex = Mutex()
@@ -43,28 +54,27 @@ object ContainerRuntimeInstaller {
     @Volatile
     private var warmupJob: Job? = null
 
-    fun warmUpAsync(context: Context, scope: CoroutineScope) {
+    fun warmUpAsync(scope: CoroutineScope) {
         if (installCompleted || warmupJob?.isActive == true) return
-        val appContext = context.applicationContext
         warmupJob = scope.launch(Dispatchers.IO) {
-            ensureInstalled(appContext)
+            ensureInstalled()
         }
     }
 
-    suspend fun ensureInstalled(context: Context) {
+    suspend fun ensureInstalled() {
         if (installCompleted) return
 
         installMutex.withLock {
             if (installCompleted) return
-            installInternal(context.applicationContext)
+            installInternal()
             installCompleted = true
             warmupJob = null
         }
     }
 
-    private fun installInternal(context: Context) {
-        RuntimeSecretRepository.initialize(context)
-        val runtimeDir = File(context.filesDir, "runtime")
+    private fun installInternal() {
+        RuntimeSecretRepository.initialize(appContext)
+        val runtimeDir = File(appContext.filesDir, "runtime")
         val binDir = File(runtimeDir, "bin")
         val scriptDir = File(runtimeDir, "scripts")
         val assetsDir = File(runtimeDir, "assets")
@@ -74,7 +84,7 @@ object ContainerRuntimeInstaller {
 
         scriptNames.forEach { name ->
             val target = File(scriptDir, name)
-            context.assets.open("runtime/scripts/$name").use { input ->
+            appContext.assets.open("runtime/scripts/$name").use { input ->
                 val normalizedScript = input.readBytes()
                     .toString(StandardCharsets.UTF_8)
                     .replace("\r\n", "\n")
@@ -84,13 +94,13 @@ object ContainerRuntimeInstaller {
             target.setExecutable(true, true)
         }
 
-        val nativeLibraryDir = context.applicationInfo.nativeLibraryDir
+        val nativeLibraryDir = appContext.applicationInfo.nativeLibraryDir
         RuntimeLogRepository.append("nativeLibraryDir=$nativeLibraryDir")
         installRuntimeLinks(binDir, nativeLibraryDir)
         RuntimeLogRepository.append("Using native binaries from runtime symlinks")
 
         bundledAssetNames.forEach { name ->
-            copyBundledAsset(context, "runtime/assets/$name", File(assetsDir, name))
+            copyBundledAsset(appContext, "runtime/assets/$name", File(assetsDir, name))
         }
 
         val ubuntuArchive = File(assetsDir, "ubuntu-rootfs.tar.xz")
@@ -104,8 +114,8 @@ object ContainerRuntimeInstaller {
             RuntimeLogRepository.append("Rootfs extraction failed: ${error.message ?: error.javaClass.simpleName}")
         }
 
-        val appHome = context.filesDir.absolutePath
-        ProductionContainerBridgeStatePort.applyRuntimeDefaults(
+        val appHome = appContext.filesDir.absolutePath
+        bridgeStatePort.applyRuntimeDefaults(
             NapCatBridgeConfig(
                 endpoint = "ws://127.0.0.1:6199/ws",
                 healthUrl = "http://127.0.0.1:6099",
@@ -165,4 +175,14 @@ object ContainerRuntimeInstaller {
     private fun File.isSymbolicLink(): Boolean = runCatching {
         java.nio.file.Files.isSymbolicLink(toPath())
     }.getOrDefault(false)
+
+    companion object {
+        fun warmUpAsync(context: Context, scope: CoroutineScope) {
+            context.containerRuntimeEntryPoint().containerRuntimeInstaller().warmUpAsync(scope)
+        }
+
+        suspend fun ensureInstalled(context: Context) {
+            context.containerRuntimeEntryPoint().containerRuntimeInstaller().ensureInstalled()
+        }
+    }
 }

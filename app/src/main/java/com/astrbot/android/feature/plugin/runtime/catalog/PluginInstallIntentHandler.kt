@@ -5,8 +5,9 @@ import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.feature.plugin.runtime.PluginInstaller
+import javax.inject.Inject
 
-class PluginInstallIntentHandler(
+class PluginInstallIntentHandler @Inject constructor(
     private val installer: PluginInstaller,
     private val repositorySubscriptionManager: PluginRepositorySubscriptionManager,
 ) {

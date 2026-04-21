@@ -168,12 +168,11 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun app_container_bootstrap_uses_coordinator_for_configuration_domains() {
-        val source = appBootstrapperSource()
-        val bootstrapBody = functionBody(source, "bootstrap")
+        val startupBody = functionBody(repositoryInitializationStartupChainSource(), "run")
 
         assertTrue(
-            "AppBootstrapper.bootstrap must delegate configuration-domain startup to InitializationCoordinator",
-            bootstrapBody.contains("InitializationCoordinator("),
+            "RepositoryInitializationStartupChain.run must delegate configuration-domain startup to InitializationCoordinator",
+            startupBody.contains("InitializationCoordinator("),
         )
         // Round3: ProviderRepositoryInitializer is no longer wired through InitializationCoordinator.
         // Provider warmup is now handled by ProviderRepositoryWarmup.warmUp().
@@ -182,22 +181,22 @@ class RepositoryPortSourceContractTest {
             "PersonaRepositoryInitializer()",
             "BotRepositoryInitializer()",
         )
-        val missingInitializers = requiredInitializers.filterNot(bootstrapBody::contains)
+        val missingInitializers = requiredInitializers.filterNot(startupBody::contains)
         assertTrue(
-            "Bootstrap coordinator wiring is missing initializers: $missingInitializers",
+            "RepositoryInitializationStartupChain wiring is missing initializers: $missingInitializers",
             missingInitializers.isEmpty(),
         )
         assertTrue(
-            "Bootstrap must execute the configuration-domain coordinator",
-            bootstrapBody.contains(".initializeAll(application)"),
+            "RepositoryInitializationStartupChain must execute the configuration-domain coordinator",
+            startupBody.contains(".initializeAll(application)"),
         )
         assertTrue(
-            "Bootstrap must call providerRepositoryWarmup.warmUp() (Round3 contract)",
-            bootstrapBody.contains("providerRepositoryWarmup.warmUp()"),
+            "RepositoryInitializationStartupChain must call providerRepositoryWarmup.warmUp() (Round3 contract)",
+            startupBody.contains("providerRepositoryWarmup.warmUp()"),
         )
         assertFalse(
-            "Bootstrap must not wire ProviderRepositoryInitializer through InitializationCoordinator (Round3 contract)",
-            bootstrapBody.contains("ProviderRepositoryInitializer()"),
+            "RepositoryInitializationStartupChain must not wire ProviderRepositoryInitializer through InitializationCoordinator (Round3 contract)",
+            startupBody.contains("ProviderRepositoryInitializer()"),
         )
 
         val forbiddenDirectCalls = listOf(
@@ -206,9 +205,9 @@ class RepositoryPortSourceContractTest {
             "PersonaRepository.initialize(application)",
             "BotRepository.initialize(application)",
         )
-        val remainingDirectCalls = forbiddenDirectCalls.filter(bootstrapBody::contains)
+        val remainingDirectCalls = forbiddenDirectCalls.filter(startupBody::contains)
         assertTrue(
-            "Bootstrap must not directly initialize repositories now owned by InitializationCoordinator: $remainingDirectCalls",
+            "RepositoryInitializationStartupChain must not directly initialize repositories now owned by InitializationCoordinator: $remainingDirectCalls",
             remainingDirectCalls.isEmpty(),
         )
     }
@@ -216,36 +215,53 @@ class RepositoryPortSourceContractTest {
     @Test
     fun app_bootstrapper_avoids_sync_tts_and_duplicate_config_initialization() {
         val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val prerequisitesBody = functionBody(bootstrapPrerequisitesStartupChainSource(), "run")
+        val repositoryBody = functionBody(repositoryInitializationStartupChainSource(), "run")
 
         assertTrue(
             "AppBootstrapper.bootstrap must not synchronously initialize TTS voice assets on the main startup path",
             !bootstrapBody.contains("TtsVoiceAssetRepository.initialize(application)"),
         )
+        assertTrue(
+            "BootstrapPrerequisitesStartupChain must own TTS warmup after bootstrap is thinned",
+            prerequisitesBody.contains("warmUpTtsVoiceAssets()"),
+        )
         assertEquals(
-            "AppBootstrapper.bootstrap must wire ConfigRepositoryInitializer exactly once during phase-2 startup",
+            "RepositoryInitializationStartupChain must wire ConfigRepositoryInitializer exactly once during phase-2 startup",
             1,
-            "ConfigRepositoryInitializer()".toRegex(RegexOption.LITERAL).findAll(bootstrapBody).count(),
+            "ConfigRepositoryInitializer()".toRegex(RegexOption.LITERAL).findAll(repositoryBody).count(),
         )
     }
 
     @Test
     fun bot_repository_initializer_runs_before_qq_bridge_server_start() {
-        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
-        val botInitializerIndex = bootstrapBody.indexOf("BotRepositoryInitializer()")
-        val qqBridgeStartIndex = bootstrapBody.indexOf("qqBridgeRuntime.start()")
+        val repositoryBody = functionBody(repositoryInitializationStartupChainSource(), "run")
+        val runtimeLaunchBody = functionBody(runtimeLaunchStartupChainSource(), "run")
+        val startupRunnerBody = functionBody(appStartupRunnerSource(), "run")
+        val botInitializerIndex = repositoryBody.indexOf("BotRepositoryInitializer()")
+        val qqBridgeStartIndex = runtimeLaunchBody.indexOf("qqBridgeRuntime.start()")
 
         assertTrue(
-            "AppBootstrapper.bootstrap must wire BotRepositoryInitializer before starting the QQ bridge server",
-            botInitializerIndex >= 0 && qqBridgeStartIndex >= 0 && botInitializerIndex < qqBridgeStartIndex,
+            "RepositoryInitializationStartupChain must still wire BotRepositoryInitializer",
+            botInitializerIndex >= 0,
+        )
+        assertTrue(
+            "RuntimeLaunchStartupChain must still start the QQ bridge runtime",
+            qqBridgeStartIndex >= 0,
+        )
+        assertTrue(
+            "AppStartupRunner must invoke repository initialization before runtime launch",
+            startupRunnerBody.indexOf("repositoryInitializationStartupChain.run()") <
+                startupRunnerBody.indexOf("runtimeLaunchStartupChain.run()"),
         )
     }
 
     @Test
     fun bot_repository_initializer_shares_a_coordinator_with_config_initializer() {
-        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val startupBody = functionBody(repositoryInitializationStartupChainSource(), "run")
         val coordinatorBlocks = """InitializationCoordinator\(\s*listOf\((.*?)\)\s*,?\s*\)\.initializeAll\(application\)"""
             .toRegex(setOf(RegexOption.DOT_MATCHES_ALL))
-            .findAll(bootstrapBody)
+            .findAll(startupBody)
             .map { it.groupValues[1] }
             .toList()
 
@@ -261,13 +277,13 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun app_backup_wiring_uses_shared_production_port_with_durable_conversation_restore() {
-        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val startupMainline = startupMainlineSource()
         val dataPortSource = mainRoot.resolve("di/BackupDataPorts.kt").readText()
         val productionPortBody = objectBody(dataPortSource, "ProductionAppBackupDataPort")
 
         assertTrue(
-            "AppBootstrapper must not install AppBackupDataPort through bootstrap once the production path is closed",
-            !bootstrapBody.contains("createProductionAppBackupDataPort()"),
+            "Startup mainline must not install AppBackupDataPort manually once the production path is closed",
+            !startupMainline.contains("createProductionAppBackupDataPort()"),
         )
         assertTrue(
             "Production AppBackupDataPort must route conversation restore through restoreSessionsDurable()",
@@ -356,8 +372,7 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun initialization_coordinator_wiring_does_not_include_out_of_scope_initializers() {
-        val source = appBootstrapperSource()
-        val bootstrapBody = functionBody(source, "bootstrap")
+        val startupBody = functionBody(repositoryInitializationStartupChainSource(), "run")
 
         val forbiddenInitializerTokens = listOf(
             "ConversationRepositoryInitializer",
@@ -369,9 +384,9 @@ class RepositoryPortSourceContractTest {
             "PluginRepositoryInitializer",
             "ToolSourceInitializer",
         )
-        val violations = forbiddenInitializerTokens.filter(bootstrapBody::contains)
+        val violations = forbiddenInitializerTokens.filter(startupBody::contains)
         assertTrue(
-            "Fourth-phase coordinator must only wire Provider/Config/Persona/Bot initializers: $violations",
+            "RepositoryInitializationStartupChain must only wire Provider/Config/Persona/Bot initializers: $violations",
             violations.isEmpty(),
         )
     }
@@ -572,6 +587,49 @@ class RepositoryPortSourceContractTest {
             !moduleSource.contains("configureRuntimeBindingsProvider") &&
                 !moduleSource.contains("HiltChatViewModelRuntimeBindings"),
         )
+        assertTrue(
+            "DefaultChatViewModelRuntimeBindings must delegate runtime/service construction to injected factories",
+            !bindingSource.contains("AppChatRuntimeService(") &&
+                !bindingSource.contains("AppChatProviderInvocationService(") &&
+                !bindingSource.contains("AppChatPreparedReplyService(") &&
+                !bindingSource.contains("\n        SendAppMessageUseCase(") &&
+                !bindingSource.contains("AppChatSendHandler("),
+        )
+        assertTrue(
+            "DefaultChatViewModelRuntimeBindings should depend on explicit runtime factories instead of hand-rolled service creation",
+            bindingSource.contains("AppChatRuntimeServiceFactory") &&
+                bindingSource.contains("SendAppMessageUseCaseFactory") &&
+                bindingSource.contains("AppChatSendHandlerFactory"),
+        )
+        assertTrue(
+            "ViewModelDependencyModule must bind ChatViewModelRuntimeBindings through Hilt instead of a direct provider shell",
+            !moduleSource.contains("fun provideChatViewModelRuntimeBindings(") &&
+                moduleSource.contains("abstract fun bindChatViewModelRuntimeBindings("),
+        )
+    }
+
+    @Test
+    fun plugin_provisioning_module_prefers_hilt_owned_business_services_over_direct_new() {
+        val moduleSource = mainRoot.resolve("di/hilt/PluginProvisioningModule.kt").readText()
+        val synchronizerSource = mainRoot.resolve("feature/plugin/runtime/catalog/PluginCatalogSynchronizer.kt").readText()
+        val subscriptionSource = mainRoot.resolve("feature/plugin/runtime/catalog/PluginRepositorySubscriptionManager.kt").readText()
+        val installerSource = mainRoot.resolve("feature/plugin/runtime/PluginInstaller.kt").readText()
+        val handlerSource = mainRoot.resolve("feature/plugin/runtime/catalog/PluginInstallIntentHandler.kt").readText()
+
+        assertTrue(
+            "PluginProvisioningModule must stop directly constructing synchronizer/installer/handler business services",
+            !moduleSource.contains("PluginCatalogSynchronizer(") &&
+                !moduleSource.contains("PluginRepositorySubscriptionManager(") &&
+                !moduleSource.contains("PluginInstaller(") &&
+                !moduleSource.contains("PluginInstallIntentHandler("),
+        )
+        assertTrue(
+            "Plugin provisioning business services should expose @Inject constructors for Hilt ownership",
+            synchronizerSource.contains("@Inject constructor") &&
+                subscriptionSource.contains("@Inject constructor") &&
+                installerSource.contains("@Inject constructor") &&
+                handlerSource.contains("@Inject constructor"),
+        )
     }
 
     @Test
@@ -613,7 +671,7 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun production_runtime_mainline_does_not_use_static_dependency_provider_callbacks() {
-        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val startupMainline = startupMainlineSource()
         val scheduledTaskExecutorSource = mainRoot.resolve("feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt").readText()
         val qqBridgeSource = mainRoot.resolve("feature/qq/runtime/QqOneBotBridgeServer.kt").readText()
         val forbiddenBootstrapCalls = listOf(
@@ -626,7 +684,7 @@ class RepositoryPortSourceContractTest {
             "llmClientProvider",
         )
 
-        val bootstrapViolations = forbiddenBootstrapCalls.filter(bootstrapBody::contains)
+        val bootstrapViolations = forbiddenBootstrapCalls.filter(startupMainline::contains)
         val runtimeViolations = forbiddenRuntimeTokens.flatMap { token ->
             listOf(
                 "feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt" to scheduledTaskExecutorSource,
@@ -671,8 +729,15 @@ class RepositoryPortSourceContractTest {
                 !configDeleteBody.contains("ConfigRepository.delete(profileId)"),
         )
         assertTrue(
-            "ViewModelDependencyModule must provide the production phase-3 transaction service through Hilt",
-            moduleSource.contains("RoomPhase3DataTransactionService(database)"),
+            "ViewModelDependencyModule must bind the production phase-3 transaction service through Hilt",
+            moduleSource.contains("abstract fun bindPhase3DataTransactionService(") &&
+                !moduleSource.contains("RoomPhase3DataTransactionService(database)"),
+        )
+        assertTrue(
+            "RoomPhase3DataTransactionService should expose an @Inject constructor so Hilt owns the implementation",
+            mainRoot.resolve("feature/config/data/RoomPhase3DataTransactionService.kt")
+                .readText()
+                .contains("@Inject constructor"),
         )
     }
 
@@ -698,19 +763,19 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun phase3_bootstrap_does_not_manually_install_transaction_or_qq_runtime_dependencies() {
-        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val startupMainline = startupMainlineSource()
 
         assertTrue(
-            "AppBootstrapper must not install Phase3 transaction services manually once Hilt owns the production path",
-            !bootstrapBody.contains("installProductionPhase3DataTransactionService("),
+            "Startup mainline must not install Phase3 transaction services manually once Hilt owns the production path",
+            !startupMainline.contains("installProductionPhase3DataTransactionService("),
         )
         assertTrue(
-            "AppBootstrapper must not manually install QQ runtime dependencies once Hilt owns the production path",
-            !bootstrapBody.contains("QqOneBotBridgeServer.installRuntimeDependencies("),
+            "Startup mainline must not manually install QQ runtime dependencies once Hilt owns the production path",
+            !startupMainline.contains("QqOneBotBridgeServer.installRuntimeDependencies("),
         )
         assertTrue(
-            "AppBootstrapper must not call QQ bridge test override hooks on the production path",
-            !bootstrapBody.contains("QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests("),
+            "Startup mainline must not call QQ bridge test override hooks on the production path",
+            !startupMainline.contains("QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests("),
         )
     }
 
@@ -734,7 +799,7 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun phase3_bootstrap_must_not_install_registry_ports_for_runtime_backup_or_container_state() {
-        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val startupMainline = startupMainlineSource()
         val forbiddenAssignments = listOf(
             "RuntimeContextDataRegistry.port =",
             "ContainerBridgeStateRegistry.port =",
@@ -742,10 +807,10 @@ class RepositoryPortSourceContractTest {
             "AppBackupDataRegistry.port =",
         )
 
-        val violations = forbiddenAssignments.filter(bootstrapBody::contains)
+        val violations = forbiddenAssignments.filter(startupMainline::contains)
 
         assertTrue(
-            "AppBootstrapper must not install production registry ports once Hilt owns DI closure: $violations",
+            "Startup mainline must not install production registry ports once Hilt owns DI closure: $violations",
             violations.isEmpty(),
         )
     }
@@ -875,6 +940,47 @@ class RepositoryPortSourceContractTest {
     private fun appBootstrapperSource(): String {
         val file = mainRoot.resolve("di/AppBootstrapper.kt")
         assertTrue("AppBootstrapper.kt must exist", file.exists())
+        return file.readText()
+    }
+
+    private fun appStartupRunnerSource(): String {
+        return startupSource("AppStartupRunner.kt")
+    }
+
+    private fun bootstrapPrerequisitesStartupChainSource(): String {
+        return startupSource("BootstrapPrerequisitesStartupChain.kt")
+    }
+
+    private fun repositoryInitializationStartupChainSource(): String {
+        return startupSource("RepositoryInitializationStartupChain.kt")
+    }
+
+    private fun runtimeLaunchStartupChainSource(): String {
+        return startupSource("RuntimeLaunchStartupChain.kt")
+    }
+
+    private fun startupMainlineSource(): String {
+        val startupFiles = listOf(
+            "AppStartupChain.kt",
+            "AppStartupRunner.kt",
+            "BootstrapPrerequisitesStartupChain.kt",
+            "RepositoryInitializationStartupChain.kt",
+            "ReferenceGuardStartupChain.kt",
+            "PluginRuntimeObservationStartupChain.kt",
+            "RuntimeLaunchStartupChain.kt",
+        )
+        return buildString {
+            append(appBootstrapperSource())
+            startupFiles.forEach { fileName ->
+                append('\n')
+                append(startupSource(fileName))
+            }
+        }
+    }
+
+    private fun startupSource(fileName: String): String {
+        val file = mainRoot.resolve("di/startup/$fileName")
+        assertTrue("$fileName must exist under di/startup", file.exists())
         return file.readText()
     }
 

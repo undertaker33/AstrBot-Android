@@ -27,11 +27,8 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
-import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlin.coroutines.CoroutineContext
 
 /**
  * Wraps a shared runtime-context resolver seam and [RuntimeLlmOrchestratorPort]
@@ -49,29 +46,6 @@ internal class AppChatRuntimeService(
     private val preparedReplyService: AppChatPreparedReplyService,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
 ) : AppChatRuntimePort {
-
-    @Deprecated(
-        "Compat constructor bypasses Hilt. Production path must use the primary constructor.",
-        level = DeprecationLevel.WARNING,
-    )
-    constructor(
-        chatDependencies: ChatViewModelRuntimeBindings,
-        appChatPluginRuntime: AppChatPluginRuntime,
-        ioDispatcher: CoroutineContext = Dispatchers.IO,
-    ) : this(
-        chatDependencies,
-        appChatPluginRuntime,
-        com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator(),
-        AppChatProviderInvocationService(
-            chatDependencies = chatDependencies,
-            ioDispatcher = ioDispatcher,
-        ),
-        AppChatPreparedReplyService(
-            chatDependencies = chatDependencies,
-            ioDispatcher = ioDispatcher,
-        ),
-        createCompatPluginHostCapabilityGatewayFactory(),
-    )
 
     override fun send(request: AppChatRequest): Flow<AppChatRuntimeEvent> = flow {
         try {

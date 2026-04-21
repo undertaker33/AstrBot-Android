@@ -4,4 +4,8 @@ object AppLogger {
     fun append(message: String) {
         RuntimeLogRepository.append(message)
     }
+
+    fun flush() {
+        RuntimeLogRepository.flush()
+    }
 }

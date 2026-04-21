@@ -57,13 +57,66 @@ class PostHiltRound2PluginRuntimeContractTest {
         )
         assertTrue(
             "RuntimeServicesModule must provide a Hilt-owned PluginExecutionEngine",
-            runtimeServices.contains("providePluginExecutionEngine("),
+            runtimeServices.contains("providePluginExecutionEngine(") &&
+                runtimeServices.contains("PluginRuntimeDispatcher(") &&
+                runtimeServices.contains("logBus = logBus"),
         )
         assertTrue(
             "RuntimeServicesModule must stop exposing the static DefaultAppChatPluginRuntime mainline",
             runtimeServices.contains("provideAppChatPluginRuntime(") &&
                 runtimeServices.contains("EngineBackedAppChatPluginRuntime") &&
                 !runtimeServices.contains("DefaultAppChatPluginRuntime"),
+        )
+    }
+
+    @Test
+    fun qq_runtime_graph_must_pass_hilt_owned_plugin_runtime_dependencies_to_dispatch_service() {
+        val graph = mainRoot.resolve("feature/qq/runtime/QqOneBotRuntimeGraph.kt").readText()
+        val dependencies = mainRoot.resolve("feature/qq/runtime/QqOneBotBridgeServer.kt").readText()
+
+        assertTrue(
+            "QqOneBotRuntimeDependencies must carry the Hilt-owned plugin runtime log bus",
+            dependencies.contains("val logBus: PluginRuntimeLogBus"),
+        )
+        assertTrue(
+            "QqOneBotRuntimeGraph must pass Hilt-owned plugin runtime dependencies into QqPluginDispatchService",
+            graph.contains("dispatchEngine = dependencies.pluginV2DispatchEngine") &&
+                graph.contains("failureStateStore = dependencies.failureStateStore") &&
+                graph.contains("scopedFailureStateStore = dependencies.scopedFailureStateStore") &&
+                graph.contains("logBus = dependencies.logBus"),
+        )
+    }
+
+    @Test
+    fun production_plugin_runtime_mainline_must_not_call_static_provider_accessors() {
+        val runtimeServices = mainRoot.resolve("di/hilt/RuntimeServicesModule.kt").readText()
+        val qqGraph = mainRoot.resolve("feature/qq/runtime/QqOneBotRuntimeGraph.kt").readText()
+        val qqDispatch = mainRoot.resolve("feature/qq/runtime/QqPluginDispatchService.kt").readText()
+        val appChatCommand = mainRoot.resolve("feature/chat/runtime/AppChatPluginCommandService.kt").readText()
+        val violations = buildList {
+            if (!runtimeServices.contains("logBus = logBus")) {
+                add("RuntimeServicesModule does not wire logBus explicitly into Hilt PluginExecutionEngine")
+            }
+            if (!qqGraph.contains("logBus = dependencies.logBus")) {
+                add("QqOneBotRuntimeGraph does not pass Hilt-owned logBus to QqPluginDispatchService")
+            }
+            val legacyDispatchBody = qqDispatch.substringAfter("fun executeLegacyPlugins(").substringBefore("fun dispatchMessageIngress(")
+            if (
+                legacyDispatchBody.contains("PluginRuntimeFailureStateStoreProvider.store()") ||
+                legacyDispatchBody.contains("PluginRuntimeLogBusProvider.bus()") ||
+                legacyDispatchBody.contains("PluginRuntimeScopedFailureStateStoreProvider.store()")
+            ) {
+                add("QqPluginDispatchService.executeLegacyPlugins still sources plugin runtime state from static providers")
+            }
+            val primaryConstructor = appChatCommand.substringBefore("@Deprecated(")
+            if (primaryConstructor.contains("PluginV2DispatchEngineProvider.engine()")) {
+                add("AppChatPluginCommandService primary production constructor still defaults dispatchEngine from static provider")
+            }
+        }
+
+        assertTrue(
+            "Production plugin runtime mainlines must receive Hilt-owned instances instead of calling static provider accessors: $violations",
+            violations.isEmpty(),
         )
     }
 
@@ -173,4 +226,5 @@ class PostHiltRound2PluginRuntimeContractTest {
             else -> error("Unable to resolve project root from $cwd")
         }
     }
+
 }

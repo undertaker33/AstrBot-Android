@@ -1,6 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.di.syncPluginRuntimeRecordsAndSignalReady
+import com.astrbot.android.di.startup.syncPluginRuntimeRecordsAndSignalReady
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import java.io.File

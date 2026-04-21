@@ -52,16 +52,98 @@ class QQLoginViewModelTest {
         assertEquals(refreshCountAfterStart, deps.refreshCalls.size)
     }
 
-    private class FakeQQLoginDependencies : QQLoginViewModelBindings {
-        override val loginState: StateFlow<NapCatLoginState> = MutableStateFlow(NapCatLoginState())
+    @Test
+    fun blank_qr_state_triggers_single_automatic_qr_refresh_when_screen_becomes_visible() = runTest(dispatcher) {
+        val deps = FakeQQLoginDependencies(
+            initialState = NapCatLoginState(
+                bridgeReady = true,
+                isLogin = false,
+                qrCodeUrl = "",
+                statusText = "Waiting for login QR code",
+            ),
+        )
+        val viewModel = QQLoginViewModel(deps, dispatcher)
+
+        try {
+            viewModel.onScreenVisible("qq-login", "marker-v1")
+            runCurrent()
+
+            assertEquals(listOf(false), deps.refreshCalls)
+            assertEquals(1, deps.refreshQrCodeCalls)
+        } finally {
+            viewModel.onScreenHidden("qq-login")
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun logged_out_polling_does_not_repeat_automatic_qr_refresh_every_interval() = runTest(dispatcher) {
+        val deps = FakeQQLoginDependencies(
+            initialState = NapCatLoginState(
+                bridgeReady = true,
+                isLogin = false,
+                qrCodeUrl = "",
+                statusText = "Waiting for login QR code",
+            ),
+        )
+        val viewModel = QQLoginViewModel(deps, dispatcher)
+
+        try {
+            viewModel.onScreenVisible("qq-login", "marker-v1")
+            runCurrent()
+            dispatcher.scheduler.advanceTimeBy(9_000)
+            runCurrent()
+
+            assertTrue(deps.refreshCalls.size >= 3)
+            assertEquals(1, deps.refreshQrCodeCalls)
+        } finally {
+            viewModel.onScreenHidden("qq-login")
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun qq_account_visibility_keeps_polling_without_automatic_qr_refresh() = runTest(dispatcher) {
+        val deps = FakeQQLoginDependencies(
+            initialState = NapCatLoginState(
+                bridgeReady = true,
+                isLogin = false,
+                qrCodeUrl = "",
+                statusText = "Waiting for login QR code",
+            ),
+        )
+        val viewModel = QQLoginViewModel(deps, dispatcher)
+
+        try {
+            viewModel.onScreenVisible("qq-account", "marker-v1")
+            runCurrent()
+            dispatcher.scheduler.advanceTimeBy(6_000)
+            runCurrent()
+
+            assertTrue(deps.refreshCalls.size >= 2)
+            assertEquals(0, deps.refreshQrCodeCalls)
+        } finally {
+            viewModel.onScreenHidden("qq-account")
+            runCurrent()
+        }
+    }
+
+    private class FakeQQLoginDependencies(
+        initialState: NapCatLoginState = NapCatLoginState(),
+    ) : QQLoginViewModelBindings {
+        private val state = MutableStateFlow(initialState)
+        override val loginState: StateFlow<NapCatLoginState> = state
         val refreshCalls = mutableListOf<Boolean>()
+        var refreshQrCodeCalls = 0
         val loggedMessages = mutableListOf<String>()
 
         override suspend fun refresh(manual: Boolean) {
             refreshCalls += manual
         }
 
-        override suspend fun refreshQrCode() = Unit
+        override suspend fun refreshQrCode() {
+            refreshQrCodeCalls += 1
+        }
 
         override suspend fun quickLoginSavedAccount(uin: String?) = Unit
 

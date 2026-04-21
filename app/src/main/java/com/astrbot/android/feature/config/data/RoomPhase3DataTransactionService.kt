@@ -10,6 +10,7 @@ import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
 import com.astrbot.android.model.chat.ConversationSession
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -18,7 +19,7 @@ private const val SELECTED_BOT_PREF_KEY = "selected_bot_id"
 private const val DEFAULT_APP_CHAT_SESSION_ID = "chat-main"
 private const val DEFAULT_APP_CHAT_SESSION_TITLE = "新对话"
 
-internal class RoomPhase3DataTransactionService(
+internal class RoomPhase3DataTransactionService @Inject constructor(
     private val database: AstrBotDatabase,
 ) : Phase3DataTransactionService {
     override suspend fun deleteConfigProfile(profileId: String) {

@@ -37,6 +37,7 @@ class LlmSourceContractTest {
     @Test
     fun runtime_llm_adapters_exist() {
         val required = listOf(
+            "core/runtime/llm/ChatCompletionServiceLlmClient.kt",
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
             "feature/chat/presentation/ChatViewModelRuntimeBindings.kt", // chat runtime contract declarations
             "runtime/llm/LegacyRuntimeOrchestratorAdapter.kt",
@@ -103,10 +104,7 @@ class LlmSourceContractTest {
     @Test
     fun sendConfiguredChatWithTools_only_called_from_allowed_locations() {
         val allowedFiles = setOf(
-            "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
-            "feature/chat/presentation/ChatViewModelRuntimeBindings.kt", // chat runtime contract declarations
-            "di/hilt/DefaultChatViewModelRuntimeBindings.kt",         // phase 3 Hilt bridge
-            "feature/chat/runtime/AppChatProviderInvocationService.kt", // phase 3 provider adapter
+            "core/runtime/llm/ChatCompletionServiceLlmClient.kt",
             "core/runtime/llm/ChatCompletionService.kt",              // definition site
         )
 
@@ -118,7 +116,7 @@ class LlmSourceContractTest {
             .flatMap { file ->
                 val text = file.readText()
                 val relative = mainRoot.relativize(file).toString().replace('\\', '/')
-                if (text.contains("sendConfiguredChatWithTools") &&
+                if (text.contains("ChatCompletionService.sendConfiguredChatWithTools") &&
                     !relative.startsWith("core/runtime/llm/")
                 ) {
                     listOf("$relative calls sendConfiguredChatWithTools directly")
@@ -128,7 +126,7 @@ class LlmSourceContractTest {
             }
 
         assertTrue(
-            "sendConfiguredChatWithTools should only be called from LegacyChatCompletionServiceAdapter or allowed legacy files: $violations",
+            "sendConfiguredChatWithTools should only be called from the runtime LLM adapter layer: $violations",
             violations.isEmpty(),
         )
     }
@@ -136,10 +134,7 @@ class LlmSourceContractTest {
     @Test
     fun sendConfiguredChatStreamWithTools_only_called_from_allowed_locations() {
         val allowedFiles = setOf(
-            "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
-            "feature/chat/presentation/ChatViewModelRuntimeBindings.kt", // chat runtime contract declarations
-            "di/hilt/DefaultChatViewModelRuntimeBindings.kt",         // phase 3 Hilt bridge
-            "feature/chat/runtime/AppChatProviderInvocationService.kt", // phase 3 provider adapter
+            "core/runtime/llm/ChatCompletionServiceLlmClient.kt",
             "core/runtime/llm/ChatCompletionService.kt",              // definition site
         )
 
@@ -151,7 +146,7 @@ class LlmSourceContractTest {
             .flatMap { file ->
                 val text = file.readText()
                 val relative = mainRoot.relativize(file).toString().replace('\\', '/')
-                if (text.contains("sendConfiguredChatStreamWithTools") &&
+                if (text.contains("ChatCompletionService.sendConfiguredChatStreamWithTools") &&
                     !relative.startsWith("core/runtime/llm/")
                 ) {
                     listOf("$relative calls sendConfiguredChatStreamWithTools directly")
@@ -161,7 +156,7 @@ class LlmSourceContractTest {
             }
 
         assertTrue(
-            "sendConfiguredChatStreamWithTools should only be called from LegacyChatCompletionServiceAdapter or allowed legacy files: $violations",
+            "sendConfiguredChatStreamWithTools should only be called from the runtime LLM adapter layer: $violations",
             violations.isEmpty(),
         )
     }
@@ -218,8 +213,6 @@ class LlmSourceContractTest {
         val allowedFiles = setOf(
             "di/hilt/RuntimeServicesModule.kt",                         // Hilt provider
             "feature/plugin/runtime/DefaultRuntimeLlmOrchestrator.kt",  // definition site
-            "feature/plugin/runtime/RuntimeOrchestrator.kt",            // deprecated compat shell
-            "feature/chat/runtime/AppChatRuntimeService.kt",            // deprecated compat constructor (test seam)
         )
         val violations = kotlinFilesUnder(".")
             .filter { file ->
@@ -262,17 +255,40 @@ class LlmSourceContractTest {
     }
 
     @Test
-    fun app_bootstrapper_must_not_expand_ChatCompletionService_usage_beyond_initialize() {
+    fun app_bootstrapper_must_not_reference_ChatCompletionService() {
         val file = mainRoot.resolve("di/AppBootstrapper.kt")
         assertTrue("AppBootstrapper.kt must exist", file.exists())
         val text = file.readText()
-        val occurrences = "ChatCompletionService".toRegex()
-            .findAll(text)
-            .count()
-        // Allowed: 1 import + 1 initialize call = 2 occurrences
         assertTrue(
-            "AppBootstrapper must only reference ChatCompletionService for import + initialize (found $occurrences occurrences)",
-            occurrences <= 2,
+            "AppBootstrapper must not initialize or reference ChatCompletionService; Hilt-provided runtime adapters own LLM setup.",
+            !text.contains("ChatCompletionService"),
+        )
+    }
+
+    @Test
+    fun production_feature_code_must_not_reference_LlmMediaService_directly() {
+        val allowedFiles = setOf(
+            "core/runtime/llm/LlmMediaService.kt",
+            "runtime/llm/LegacyLlmProviderProbeAdapter.kt",
+        )
+        val violations = kotlinFilesUnder(".")
+            .filter { file ->
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                relative !in allowedFiles && !relative.startsWith("../")
+            }
+            .flatMap { file ->
+                val source = file.readText()
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                if (source.contains("LlmMediaService")) {
+                    listOf("$relative references LlmMediaService directly")
+                } else {
+                    emptyList()
+                }
+            }
+
+        assertTrue(
+            "Production feature code must use Hilt-provided LLM media/provider ports instead of LlmMediaService: $violations",
+            violations.isEmpty(),
         )
     }
 

@@ -11,14 +11,27 @@ import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.plugin.runtime.publishMarketV2ValidationCompleted
+import javax.inject.Inject
 
-class PluginCatalogSynchronizer(
+class PluginCatalogSynchronizer @Inject constructor(
     private val store: PluginCatalogSyncStore,
     private val fetcher: PluginCatalogFetcher,
-    private val now: () -> Long = System::currentTimeMillis,
-    private val decode: (String) -> PluginRepositorySource = PluginCatalogJson::decodeRepositorySource,
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus,
 ) {
+    private var now: () -> Long = System::currentTimeMillis
+    private var decode: (String) -> PluginRepositorySource = PluginCatalogJson::decodeRepositorySource
+
+    constructor(
+        store: PluginCatalogSyncStore,
+        fetcher: PluginCatalogFetcher,
+        now: () -> Long = System::currentTimeMillis,
+        decode: (String) -> PluginRepositorySource = PluginCatalogJson::decodeRepositorySource,
+        logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    ) : this(store = store, fetcher = fetcher, logBus = logBus) {
+        this.now = now
+        this.decode = decode
+    }
+
     suspend fun sync(sourceId: String): PluginCatalogSyncState {
         val subscribedSource = store.getRepositorySource(sourceId)
             ?: error("Plugin repository source not found for sourceId=$sourceId")
@@ -68,6 +81,7 @@ class PluginCatalogSynchronizer(
                 AppLogger.append(
                     "Plugin market sync empty: sourceId=${emptySource.sourceId} cachedPlugins=${syncSource.plugins.size}",
                 )
+                AppLogger.flush()
                 emptySource.toSyncState()
             } else {
                 val successSource = normalized.copy(lastSyncStatus = PluginCatalogSyncStatus.SUCCESS)
@@ -83,6 +97,7 @@ class PluginCatalogSynchronizer(
                         "plugins=${successSource.plugins.size} " +
                         "versions=${successSource.plugins.sumOf { it.versions.size }}",
                 )
+                AppLogger.flush()
                 successSource.toSyncState()
             }
         }.getOrElse { failure ->
@@ -104,6 +119,7 @@ class PluginCatalogSynchronizer(
             AppLogger.append(
                 "Plugin market sync failed: sourceId=${failedSource.sourceId} error=${failure.toRuntimeLogSummary()}",
             )
+            AppLogger.flush()
             failedSource.toSyncState()
         }
     }

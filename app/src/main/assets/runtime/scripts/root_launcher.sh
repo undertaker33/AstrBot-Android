@@ -13,6 +13,7 @@ export NAPCAT_WEBUI_PREFERRED_PORT=6099
 NAPCAT_HOME="/root/napcat"
 NAPCAT_CONFIG_DIR="$NAPCAT_HOME/config"
 NAPCAT_ENTRY="/root/launcher.sh"
+NAPCAT_LAUNCHER_SO="/root/libnapcat_launcher.so"
 NAPCAT_INSTALLER_CACHE="/root/napcat-install.sh"
 NAPCAT_INSTALLER_URL="https://raw.githubusercontent.com/NapNeko/napcat-linux-installer/refs/heads/main/install.sh"
 NAPCAT_CONFIG_BACKUP="/root/napcat_config_backup"
@@ -20,8 +21,16 @@ ASTRBOT_DPKG_DIR="/var/lib"
 ASTRBOT_APT_STATE_DIR="/var/lib/apt"
 ASTRBOT_APT_CACHE_DIR="/var/cache/apt"
 DPKG_ADMINDIR="/var/lib/dpkg"
-TARGET_PROXY=""
 RUNTIME_SECRET_FILE="${ASTRBOT_APP_HOME:-}/runtime/config/runtime-secrets.env"
+RUNTIME_ASSET_DIR="${ASTRBOT_APP_HOME:-}/runtime/assets"
+BUNDLED_NAPCAT_INSTALLER_SOURCE="$RUNTIME_ASSET_DIR/napcat-installer.sh"
+BUNDLED_NAPCAT_ZIP_SOURCE="$RUNTIME_ASSET_DIR/NapCat.Shell.zip"
+BUNDLED_QQ_DEB_SOURCE="$RUNTIME_ASSET_DIR/QQ.deb"
+BUNDLED_QQ_RPM_SOURCE="$RUNTIME_ASSET_DIR/QQ.rpm"
+BUNDLED_LAUNCHER_CPP_SOURCE="$RUNTIME_ASSET_DIR/launcher.cpp"
+BUNDLED_OFFLINE_DEBS_ARCHIVE="$RUNTIME_ASSET_DIR/offline-debs.tar"
+OFFLINE_DEB_DIR="/root/offline-debs"
+TARGET_PROXY=""
 
 cd /root 2>/dev/null || cd / 2>/dev/null || true
 
@@ -134,6 +143,71 @@ download_napcat_installer() {
   chmod +x "$target_file"
   mark_installer_cached 1
   write_progress 55 "installer-downloaded" 0
+}
+
+stage_bundled_runtime_asset() {
+  local source_file="$1"
+  local target_file="$2"
+  local required="${3:-1}"
+
+  if [ ! -f "$source_file" ]; then
+    if [ "$required" = "1" ]; then
+      echo "missing bundled runtime asset: $source_file" >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  cp "$source_file" "$target_file"
+}
+
+has_bundled_napcat_installer_assets() {
+  [ -f "$BUNDLED_NAPCAT_INSTALLER_SOURCE" ] \
+    && [ -f "$BUNDLED_NAPCAT_ZIP_SOURCE" ] \
+    && [ -f "$BUNDLED_QQ_DEB_SOURCE" ] \
+    && [ -f "$BUNDLED_LAUNCHER_CPP_SOURCE" ]
+}
+
+prepare_bundled_napcat_installer() {
+  if [ -z "${ASTRBOT_APP_HOME:-}" ] || [ ! -d "$RUNTIME_ASSET_DIR" ]; then
+    echo "bundled runtime asset dir missing: $RUNTIME_ASSET_DIR" >&2
+    return 1
+  fi
+  if ! has_bundled_napcat_installer_assets; then
+    echo "bundled napcat installer assets unavailable under $RUNTIME_ASSET_DIR"
+    return 1
+  fi
+
+  write_progress 45 "stage-bundled-installer" 1
+  stage_bundled_runtime_asset "$BUNDLED_NAPCAT_INSTALLER_SOURCE" "$NAPCAT_INSTALLER_CACHE"
+  chmod +x "$NAPCAT_INSTALLER_CACHE"
+  stage_bundled_runtime_asset "$BUNDLED_NAPCAT_ZIP_SOURCE" "/root/NapCat.Shell.zip"
+  stage_bundled_runtime_asset "$BUNDLED_QQ_DEB_SOURCE" "/root/QQ.deb"
+  stage_bundled_runtime_asset "$BUNDLED_LAUNCHER_CPP_SOURCE" "/root/launcher.cpp"
+  stage_bundled_runtime_asset "$BUNDLED_QQ_RPM_SOURCE" "/root/QQ.rpm" 0
+
+  rm -rf "$OFFLINE_DEB_DIR"
+  mkdir -p "$OFFLINE_DEB_DIR"
+  if [ -f "$BUNDLED_OFFLINE_DEBS_ARCHIVE" ]; then
+    tar -xf "$BUNDLED_OFFLINE_DEBS_ARCHIVE" -C "$OFFLINE_DEB_DIR"
+  fi
+
+  mark_installer_cached 1
+  write_progress 55 "installer-bundled" 0
+}
+
+prepare_bundled_launcher_shim() {
+  if [ -z "${ASTRBOT_APP_HOME:-}" ] || [ ! -d "$RUNTIME_ASSET_DIR" ]; then
+    echo "bundled runtime asset dir missing: $RUNTIME_ASSET_DIR" >&2
+    return 1
+  fi
+  if [ ! -f "$BUNDLED_LAUNCHER_CPP_SOURCE" ]; then
+    echo "bundled launcher shim asset unavailable: $BUNDLED_LAUNCHER_CPP_SOURCE"
+    return 1
+  fi
+
+  stage_bundled_runtime_asset "$BUNDLED_LAUNCHER_CPP_SOURCE" "/root/launcher.cpp"
+  g++ -shared -fPIC /root/launcher.cpp -o "$NAPCAT_LAUNCHER_SO" -ldl
 }
 
 dpkg_cmd() {
@@ -312,6 +386,18 @@ ensure_qq_launcher_compat() {
     ln -sf "$qq_bin" /usr/local/bin/qq || true
   fi
 
+  if [ -f "$NAPCAT_LAUNCHER_SO" ]; then
+    cat > "$NAPCAT_ENTRY" <<EOF
+#!/bin/bash
+export DISPLAY="\${DISPLAY:-:1}"
+trap "" SIGPIPE
+LD_PRELOAD="$NAPCAT_LAUNCHER_SO" "$qq_bin" --no-sandbox
+EOF
+    chmod +x "$NAPCAT_ENTRY"
+    echo "rewrote napcat launcher to bundled runtime shim using ${qq_bin}"
+    return 0
+  fi
+
   if [ -f "$NAPCAT_ENTRY" ] && grep -q 'LD_PRELOAD=./libnapcat_launcher.so qq --no-sandbox' "$NAPCAT_ENTRY"; then
     sed -i "s|LD_PRELOAD=./libnapcat_launcher.so qq --no-sandbox|LD_PRELOAD=./libnapcat_launcher.so ${qq_bin} --no-sandbox|g" "$NAPCAT_ENTRY"
     echo "patched legacy napcat launcher to use ${qq_bin}"
@@ -320,10 +406,21 @@ ensure_qq_launcher_compat() {
   return 0
 }
 
+repair_existing_napcat_install() {
+  write_progress 65 "repair-existing-install" 0
+  if prepare_bundled_launcher_shim; then
+    echo "repaired existing napcat install with bundled launcher shim"
+  else
+    echo "bundled launcher shim unavailable, keeping existing napcat launcher"
+  fi
+  ensure_qq_launcher_compat
+  mark_installer_cached 1
+}
+
 ensure_napcat_installed() {
   if [ -f "$NAPCAT_ENTRY" ] && [ -d "$NAPCAT_HOME" ]; then
     echo "existing napcat installation detected"
-    mark_installer_cached 1
+    repair_existing_napcat_install
     return 0
   fi
 
@@ -332,11 +429,22 @@ ensure_napcat_installed() {
   rm -rf "$NAPCAT_HOME"
   rm -f "$NAPCAT_ENTRY"
 
-  echo "downloading napcat installer"
-  download_napcat_installer "$NAPCAT_INSTALLER_CACHE"
+  local installer_mode="bundled"
+  echo "staging bundled napcat installer"
+  if prepare_bundled_napcat_installer; then
+    echo "using bundled napcat installer assets"
+  else
+    echo "bundled napcat installer assets unavailable, falling back to upstream installer"
+    download_napcat_installer "$NAPCAT_INSTALLER_CACHE"
+    installer_mode="upstream"
+  fi
 
   write_progress 65 "run-installer" 1
-  echo "running upstream napcat installer"
+  if [ "$installer_mode" = "bundled" ]; then
+    echo "running bundled napcat installer"
+  else
+    echo "running upstream napcat installer"
+  fi
   /bin/bash "$NAPCAT_INSTALLER_CACHE"
 
   restore_napcat_config

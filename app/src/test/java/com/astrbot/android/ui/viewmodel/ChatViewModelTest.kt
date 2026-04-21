@@ -1540,7 +1540,16 @@ class ChatViewModelTest {
                     runtime = com.astrbot.android.feature.chat.runtime.AppChatRuntimeService(
                         chatDependencies = this,
                         appChatPluginRuntime = appChatPluginRuntime,
-                        ioDispatcher = ioDispatcher,
+                        llmOrchestrator = com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator(),
+                        providerInvocationService = com.astrbot.android.feature.chat.runtime.AppChatProviderInvocationService(
+                            chatDependencies = this,
+                            ioDispatcher = ioDispatcher,
+                        ),
+                        preparedReplyService = com.astrbot.android.feature.chat.runtime.AppChatPreparedReplyService(
+                            chatDependencies = this,
+                            ioDispatcher = ioDispatcher,
+                        ),
+                        gatewayFactory = com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory(),
                     ),
                 ),
             )

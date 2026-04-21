@@ -37,6 +37,11 @@ interface LlmProviderProbePort {
 
     fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState
 
+    fun transcribeAudio(
+        provider: ProviderProfile,
+        attachment: ConversationAttachment,
+    ): String
+
     fun synthesizeSpeech(
         provider: ProviderProfile,
         text: String,

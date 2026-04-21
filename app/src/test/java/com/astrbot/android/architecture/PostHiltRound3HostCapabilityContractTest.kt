@@ -62,6 +62,25 @@ class PostHiltRound3HostCapabilityContractTest {
         assertTrue("Factory must expose a create() method", text.contains("fun create("))
     }
 
+    @Test
+    fun hilt_module_must_own_gateway_factory_and_gateway_bindings() {
+        val module = mainRoot.resolve("di/hilt/PluginHostCapabilityModule.kt").readText()
+        assertTrue(
+            "PluginHostCapabilityModule must provide PluginHostCapabilityGatewayFactory",
+            module.contains("providePluginHostCapabilityGatewayFactory"),
+        )
+        assertTrue(
+            "PluginHostCapabilityModule must bind PluginExecutionHostResolver",
+            module.contains("bindPluginExecutionHostResolver"),
+        )
+
+        val runtimeServices = mainRoot.resolve("di/hilt/RuntimeServicesModule.kt").readText()
+        assertTrue(
+            "RuntimeServicesModule must provide PluginHostCapabilityGateway",
+            runtimeServices.contains("providePluginHostCapabilityGateway"),
+        )
+    }
+
     // -----------------------------------------------------------------------
     // 2. A 范围热点不再 direct new DefaultPluginHostCapabilityGateway
     // -----------------------------------------------------------------------
@@ -101,6 +120,25 @@ class PostHiltRound3HostCapabilityContractTest {
         assertTrue(
             "PluginViewModel must not direct-new DefaultPluginHostCapabilityGateway",
             !vm.contains("DefaultPluginHostCapabilityGateway("),
+        )
+    }
+
+    @Test
+    fun plugin_view_model_entry_click_path_must_thread_hilt_log_bus_into_runtime_engine() {
+        val vm = mainRoot.resolve("feature/plugin/presentation/PluginViewModel.kt")
+            .readText()
+            .replace("\r\n", "\n")
+        assertTrue(
+            "PluginViewModel entry click path must pass bindings.logBus into PluginRuntimeDispatcher",
+            Regex(
+                """dispatcher\s*=\s*PluginRuntimeDispatcher\(\s*failureGuard,\s*logBus\s*=\s*bindings\.logBus,\s*\)""",
+            ).containsMatchIn(vm),
+        )
+        assertTrue(
+            "PluginViewModel entry click path must pass bindings.logBus into PluginExecutionEngine",
+            Regex(
+                """failureGuard\s*=\s*failureGuard,\s*logBus\s*=\s*bindings\.logBus,""",
+            ).containsMatchIn(vm),
         )
     }
 

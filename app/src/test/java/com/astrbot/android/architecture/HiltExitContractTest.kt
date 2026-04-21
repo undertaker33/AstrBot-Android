@@ -90,6 +90,24 @@ class HiltExitContractTest {
             "AstrBotApplication must not manually create ElymBotAppContainer after phase 5",
             !text.contains("ElymBotAppContainer("),
         )
+        val forbiddenStartupInjections = listOf(
+            "QqBridgeRuntime",
+            "ContainerRuntimeInstaller",
+            "AppStartupRunner",
+            "BootstrapPrerequisitesStartupChain",
+            "RepositoryInitializationStartupChain",
+            "ReferenceGuardStartupChain",
+            "PluginRuntimeObservationStartupChain",
+            "RuntimeLaunchStartupChain",
+        )
+        val violations = forbiddenStartupInjections.filter { token ->
+            text.contains("lateinit var ${token.replaceFirstChar(Char::lowercase)}") ||
+                text.contains(": $token")
+        }
+        assertTrue(
+            "AstrBotApplication must keep startup ownership behind AppBootstrapper instead of injecting startup chains directly: $violations",
+            violations.isEmpty(),
+        )
     }
 
     private fun productionViewModelFiles(): List<Path> {

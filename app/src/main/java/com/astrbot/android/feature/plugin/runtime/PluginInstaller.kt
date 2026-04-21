@@ -2,6 +2,11 @@
 
 package com.astrbot.android.feature.plugin.runtime
 
+import android.content.Context
+import com.astrbot.android.download.AppDownloadManager
+import com.astrbot.android.download.DownloadOwnerType
+import com.astrbot.android.download.DownloadRequest
+import com.astrbot.android.download.DownloadTaskRecord
 import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
 import com.astrbot.android.feature.plugin.data.PluginInstallStore
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
@@ -17,6 +22,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
+import javax.inject.Inject
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 fun interface RemotePluginPackageDownloader {
     suspend fun download(
@@ -78,14 +85,58 @@ class UrlConnectionRemotePluginPackageDownloader : RemotePluginPackageDownloader
     }
 }
 
-class PluginInstaller(
+class DownloadManagerRemotePluginPackageDownloader @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+) : RemotePluginPackageDownloader {
+    override suspend fun download(
+        packageUrl: String,
+        destinationFile: File,
+        onProgress: (PluginDownloadProgress) -> Unit,
+    ) {
+        AppDownloadManager.initialize(appContext)
+        val taskKey = "plugin:${packageUrl.sha256Hex()}"
+        AppDownloadManager.enqueue(
+            DownloadRequest(
+                taskKey = taskKey,
+                url = packageUrl,
+                targetFilePath = destinationFile.absolutePath,
+                displayName = destinationFile.name,
+                ownerType = DownloadOwnerType.PLUGIN_PACKAGE,
+                ownerId = destinationFile.nameWithoutExtension,
+            ),
+        )
+        AppDownloadManager.awaitCompletion(taskKey) { task ->
+            task.toPluginDownloadProgress()?.let(onProgress)
+        }
+    }
+}
+
+class PluginInstaller @Inject constructor(
     private val validator: PluginPackageValidator,
     private val storagePaths: PluginStoragePaths,
     private val installStore: PluginInstallStore,
-    private val remotePackageDownloader: RemotePluginPackageDownloader = UrlConnectionRemotePluginPackageDownloader(),
-    private val clock: () -> Long = System::currentTimeMillis,
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val remotePackageDownloader: RemotePluginPackageDownloader,
+    private val logBus: PluginRuntimeLogBus,
 ) {
+    private var clock: () -> Long = System::currentTimeMillis
+
+    constructor(
+        validator: PluginPackageValidator,
+        storagePaths: PluginStoragePaths,
+        installStore: PluginInstallStore,
+        remotePackageDownloader: RemotePluginPackageDownloader = UrlConnectionRemotePluginPackageDownloader(),
+        clock: () -> Long = System::currentTimeMillis,
+        logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    ) : this(
+        validator = validator,
+        storagePaths = storagePaths,
+        installStore = installStore,
+        remotePackageDownloader = remotePackageDownloader,
+        logBus = logBus,
+    ) {
+        this.clock = clock
+    }
+
     fun installFromLocalPackage(packageFile: File): PluginInstallRecord {
         return installPackage(
             packageFile = packageFile,
@@ -332,5 +383,26 @@ class PluginInstaller(
     private fun existingPackageMatches(candidate: File, existingPath: String?): Boolean {
         return existingPath?.let { File(it).absolutePath == candidate.absolutePath } == true
     }
+}
+
+private fun DownloadTaskRecord.toPluginDownloadProgress(): PluginDownloadProgress? {
+    return when (status) {
+        com.astrbot.android.download.DownloadTaskStatus.QUEUED,
+        com.astrbot.android.download.DownloadTaskStatus.RUNNING,
+        com.astrbot.android.download.DownloadTaskStatus.PAUSED,
+        -> PluginDownloadProgress.downloading(
+            bytesDownloaded = downloadedBytes,
+            totalBytes = totalBytes ?: -1L,
+            bytesPerSecond = bytesPerSecond,
+        )
+
+        else -> null
+    }
+}
+
+private fun String.sha256Hex(): String {
+    return MessageDigest.getInstance("SHA-256")
+        .digest(toByteArray())
+        .joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
 

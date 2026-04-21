@@ -15,9 +15,14 @@ import kotlinx.coroutines.delay
 
 object NapCatLoginRepository {
     private const val RUNTIME_DIAGNOSTIC_THROTTLE_MS = 20_000L
+    private const val QR_REFRESH_COOLDOWN_MS = 10_000L
 
     private var appContext: Context? = null
     private var lastRuntimeDiagnosticAt: Long = 0L
+    private val qrRefreshLock = Any()
+    private var qrRefreshInFlight = false
+    private var lastQrRefreshRequestedAt = 0L
+    private var nowProvider: () -> Long = { System.currentTimeMillis() }
     private val _loginState = MutableStateFlow(NapCatLoginState())
     val loginState: StateFlow<NapCatLoginState> = _loginState.asStateFlow()
 
@@ -26,6 +31,14 @@ object NapCatLoginRepository {
         trigger: String,
         detail: String,
     ): List<String> = NapCatLoginDiagnostics.buildRuntimeDiagnosticsLines(filesDir, trigger, detail)
+
+    internal fun resetQrRefreshGuardsForTests(nowProviderOverride: (() -> Long)? = null) {
+        synchronized(qrRefreshLock) {
+            qrRefreshInFlight = false
+            lastQrRefreshRequestedAt = 0L
+            nowProvider = nowProviderOverride ?: { System.currentTimeMillis() }
+        }
+    }
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -43,15 +56,13 @@ object NapCatLoginRepository {
     }
 
     fun markBridgeUnavailable(details: String) {
+        val current = _loginState.value
         NapCatLoginService.clearCredential()
-        _loginState.value = _loginState.value.copy(
+        _loginState.value = current.copy(
             bridgeReady = false,
-            authenticated = false,
-            isLogin = false,
-            isOffline = false,
             qrCodeUrl = "",
-            quickLoginUin = _loginState.value.quickLoginUin.ifBlank { loadSavedQuickLoginUin() },
-            savedAccounts = _loginState.value.savedAccounts.ifEmpty { loadSavedAccounts() },
+            quickLoginUin = current.quickLoginUin.ifBlank { loadSavedQuickLoginUin() },
+            savedAccounts = current.savedAccounts.ifEmpty { loadSavedAccounts() },
             statusText = details,
             loginError = "",
             lastUpdated = System.currentTimeMillis(),
@@ -114,6 +125,19 @@ object NapCatLoginRepository {
 
     fun refreshQrCode() {
         val healthUrl = requireBridgeHealthUrl() ?: return
+        val requestStartedAt = nowProvider()
+        synchronized(qrRefreshLock) {
+            if (qrRefreshInFlight) {
+                AppLogger.append("QQ login QR refresh skipped: request already in flight")
+                return
+            }
+            if (requestStartedAt - lastQrRefreshRequestedAt < QR_REFRESH_COOLDOWN_MS) {
+                AppLogger.append("QQ login QR refresh skipped: cooldown active")
+                return
+            }
+            qrRefreshInFlight = true
+            lastQrRefreshRequestedAt = requestStartedAt
+        }
         try {
             NapCatLoginService.refreshQrCode(healthUrl)
             _loginState.value = clearedChallengeState(
@@ -128,6 +152,10 @@ object NapCatLoginRepository {
         } catch (error: Exception) {
             applyActionError("QQ login QR refresh error", error)
             return
+        } finally {
+            synchronized(qrRefreshLock) {
+                qrRefreshInFlight = false
+            }
         }
         refresh(manual = true)
     }

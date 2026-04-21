@@ -70,6 +70,10 @@ internal class QqOneBotRuntimeGraph(
             profileResolver = profileResolver,
             resolvePluginPrivateRootPath = resolvePluginPrivateRootPath,
             gatewayFactory = gatewayFactory,
+            dispatchEngine = dependencies.pluginV2DispatchEngine,
+            failureStateStore = dependencies.failureStateStore,
+            scopedFailureStateStore = dependencies.scopedFailureStateStore,
+            logBus = dependencies.logBus,
             log = log,
         )
     }
@@ -77,6 +81,7 @@ internal class QqOneBotRuntimeGraph(
     private val streamingReplyService: QqStreamingReplyService by lazy {
         QqStreamingReplyService(
             replySender = replySender,
+            synthesizeSpeech = dependencies.llmProviderProbePort::synthesizeSpeech,
             log = log,
         )
     }

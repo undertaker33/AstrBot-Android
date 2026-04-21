@@ -10,7 +10,7 @@ import java.util.Locale
 
 object RuntimeLogRepository {
     private const val LOG_TAG = "AstrBotRuntime"
-    private const val MAX_ENTRIES = 500
+    private const val MAX_ENTRIES = 2_000
     private const val THROTTLE_INTERVAL_MS = 200L
 
     private val formatter = SimpleDateFormat("HH:mm:ss", Locale.US)

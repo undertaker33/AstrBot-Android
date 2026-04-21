@@ -3,12 +3,13 @@ package com.astrbot.android.feature.plugin.runtime.catalog
 import com.astrbot.android.core.common.logging.AppLogger
 import java.net.HttpURLConnection
 import java.net.URL
+import javax.inject.Inject
 
 fun interface PluginCatalogFetcher {
     suspend fun fetch(catalogUrl: String): String
 }
 
-class UrlConnectionPluginCatalogFetcher : PluginCatalogFetcher {
+class UrlConnectionPluginCatalogFetcher @Inject constructor() : PluginCatalogFetcher {
     override suspend fun fetch(catalogUrl: String): String {
         AppLogger.append("Plugin market fetch start: url=$catalogUrl")
         val connection = (URL(catalogUrl).openConnection() as HttpURLConnection).apply {

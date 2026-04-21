@@ -7,6 +7,7 @@ import com.astrbot.android.data.http.HttpMethod
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
 import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.secret.AppSecretStore
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.SavedQqAccount
@@ -351,7 +352,7 @@ object NapCatLoginService {
         }
 
         clearCredential()
-        AppLogger.append("QQ login auth recovery: path=$path phase=auth-relogin detail=credential cache cleared")
+        appendLoginLog("QQ login auth recovery: path=$path phase=auth-relogin detail=credential cache cleared")
         val retryAuthorization = ensureCredential(baseUrl, phase = "auth-relogin", clearedCredential = true)
         val retryEnvelope = executeApiRequest(
             endpoint = endpoint,
@@ -370,7 +371,7 @@ object NapCatLoginService {
                 clearedCredential = true,
             )
         } else {
-            AppLogger.append("QQ login api recovered: path=$path phase=retry clearedCredential=true")
+            appendLoginLog("QQ login api recovered: path=$path phase=retry clearedCredential=true")
         }
         return retryEnvelope
     }
@@ -384,7 +385,7 @@ object NapCatLoginService {
 
         val path = "/auth/login"
         val webUiToken = AppSecretStore.getOrCreateWebUiToken()
-        AppLogger.append(
+        appendLoginLog(
             "QQ login auth request: path=$path phase=$phase strategy=sha256(token.napcat) baseUrl=${normalizeBaseUrl(baseUrl)} configuredToken=${maskSecret(webUiToken)}",
         )
         val loginResponse = try {
@@ -447,7 +448,7 @@ object NapCatLoginService {
                 message = detail,
             )
         }
-        AppLogger.append("QQ login auth success: path=$path phase=$phase clearedCredential=$clearedCredential")
+        appendLoginLog("QQ login auth success: path=$path phase=$phase clearedCredential=$clearedCredential")
         return credential
     }
 
@@ -502,9 +503,14 @@ object NapCatLoginService {
         detail: String,
         clearedCredential: Boolean,
     ) {
-        AppLogger.append(
+        appendLoginLog(
             "QQ login api error: path=$path phase=$phase category=$category clearedCredential=$clearedCredential detail=${sanitizeNapCatDetailForLogs(detail)}",
         )
+    }
+
+    private fun appendLoginLog(message: String) {
+        AppLogger.append(message)
+        RuntimeLogRepository.flush()
     }
 
     private fun postJson(

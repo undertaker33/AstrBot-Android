@@ -107,7 +107,7 @@ internal class EngineBackedAppChatPluginRuntime(
         val futureDescriptors = futureRegistry.collectToolDescriptors(toolSourceContext)
         val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
         val snapshot = hostCapabilityGateway.registerHostBuiltinTools(
-            PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+            PluginRuntimeDependencyBridge.activeRuntimeStore().snapshot(),
             personaSnapshot = input.personaToolEnablementSnapshot,
             futureSourceDescriptors = futureDescriptors,
             activeFutureSourceKinds = activeFutureKinds,
@@ -133,7 +133,7 @@ internal class EngineBackedAppChatPluginRuntime(
         val futureDescriptors = futureRegistry.collectToolDescriptors(toolSourceContext)
         val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
         val snapshot = request.hostCapabilityGateway.registerHostBuiltinTools(
-            PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+            PluginRuntimeDependencyBridge.activeRuntimeStore().snapshot(),
             personaSnapshot = request.pipelineInput.personaToolEnablementSnapshot,
             futureSourceDescriptors = futureDescriptors,
             activeFutureSourceKinds = activeFutureKinds,
@@ -173,6 +173,9 @@ internal object AppChatPluginRuntimeCoordinatorProvider {
         toolRegistrySnapshot: PluginV2ToolRegistrySnapshot? = null,
     ): PluginV2LlmPipelineCoordinator {
         return coordinatorOverrideForTests ?: PluginV2LlmPipelineCoordinator(
+            dispatchEngine = PluginRuntimeDependencyBridge.dispatchEngine(),
+            logBus = PluginRuntimeDependencyBridge.logBus(),
+            lifecycleManager = PluginRuntimeDependencyBridge.lifecycleManager(),
             toolExecutor = PluginV2ToolExecutor { args ->
                 // 1. Try host builtin tools first
                 val hostResult = hostCapabilityGateway.executeHostBuiltinTool(args)
@@ -258,6 +261,10 @@ object PluginRuntimeRegistry {
     }
 }
 
+@Deprecated(
+    "Compat-only. Production code should use a Hilt-owned AppChatPluginRuntime.",
+    level = DeprecationLevel.WARNING,
+)
 internal object DefaultAppChatPluginRuntime : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
     private fun delegate(): EngineBackedAppChatPluginRuntime {
         val plugins = PluginRuntimeCatalog.plugins()

@@ -84,6 +84,8 @@ import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFac
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostSnapshot
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceFailureProjection
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
@@ -92,7 +94,6 @@ import com.astrbot.android.feature.plugin.runtime.PluginInstaller
 import com.astrbot.android.feature.plugin.runtime.PluginObservabilitySummary
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.compareVersions
@@ -471,6 +472,10 @@ interface PluginViewModelBindings {
     fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): PluginUninstallResult
 }
 
+internal interface PluginFailureGuardProvider {
+    val pluginFailureGuard: PluginFailureGuard
+}
+
 internal class DefaultPluginViewModelBindings @Inject constructor(
     @ApplicationContext private val appContext: Context,
     @PluginRecords override val records: StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>>,
@@ -482,9 +487,12 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
     private val pluginInstallIntentHandler: PluginInstallIntentHandler,
     private val pluginRepositorySubscriptionManager: PluginRepositorySubscriptionManager,
     private val pluginGovernanceRepository: PluginGovernanceRepository,
-    private val pluginFailureGuard: PluginFailureGuard,
+    private val injectedPluginFailureGuard: PluginFailureGuard,
     override val logBus: PluginRuntimeLogBus,
-) : PluginViewModelBindings {
+) : PluginViewModelBindings, PluginFailureGuardProvider {
+    override val pluginFailureGuard: PluginFailureGuard
+        get() = injectedPluginFailureGuard
+
     override suspend fun handleInstallIntent(
         intent: PluginInstallIntent,
         onDownloadProgress: (PluginDownloadProgress) -> Unit,
@@ -756,6 +764,10 @@ class PluginViewModel @Inject constructor(
     private val bindings: PluginViewModelBindings,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
 ) : ViewModel() {
+    @Deprecated(
+        "Compat-only. Production code should use the Hilt-injected PluginViewModel.",
+        level = DeprecationLevel.WARNING,
+    )
     constructor(
         bindings: PluginViewModelBindings,
     ) : this(
@@ -1752,12 +1764,19 @@ class PluginViewModel @Inject constructor(
             entryPoint = entryPoint,
         )
         val execution = runCatching {
-            val failureGuard = PluginFailureGuard(
-                store = PluginRuntimeFailureStateStoreProvider.store(),
-            )
+            val failureGuard = (bindings as? PluginFailureGuardProvider)?.pluginFailureGuard
+                ?: PluginFailureGuard(
+                    store = InMemoryPluginFailureStateStore(),
+                    scopedStore = InMemoryPluginScopedFailureStateStore(),
+                    logBus = bindings.logBus,
+                )
             PluginExecutionEngine(
-                dispatcher = PluginRuntimeDispatcher(failureGuard),
+                dispatcher = PluginRuntimeDispatcher(
+                    failureGuard,
+                    logBus = bindings.logBus,
+                ),
                 failureGuard = failureGuard,
+                logBus = bindings.logBus,
             ).execute(
                 plugin = runtime,
                 context = context,

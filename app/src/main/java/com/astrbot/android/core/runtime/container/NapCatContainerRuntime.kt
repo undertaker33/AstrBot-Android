@@ -7,11 +7,11 @@ import kotlinx.coroutines.CoroutineScope
 
 object NapCatContainerRuntime {
     fun warmUpAsync(context: Context, scope: CoroutineScope) {
-        ContainerRuntimeInstaller.warmUpAsync(context, scope)
+        context.containerRuntimeEntryPoint().containerRuntimeInstaller().warmUpAsync(scope)
     }
 
     suspend fun ensureInstalled(context: Context) {
-        ContainerRuntimeInstaller.ensureInstalled(context)
+        context.containerRuntimeEntryPoint().containerRuntimeInstaller().ensureInstalled()
     }
 
     fun startBridge(context: Context) {

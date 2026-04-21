@@ -13,6 +13,8 @@ import com.astrbot.android.model.plugin.PluginConfigStorageJson
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
 import com.astrbot.android.model.plugin.toStorageBoundary
+import javax.inject.Inject
+import javax.inject.Singleton
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -30,19 +32,36 @@ data class PluginExecutionHostToolHandlers(
     val openHostPageHandler: ((String) -> Unit)? = null,
 )
 
-object PluginExecutionHostApi {
-    const val WorkspaceApiKey = "host.workspace_api"
-    const val ConfigBoundaryKey = "host.config_boundary"
-    const val ConfigSnapshotKey = "host.config_snapshot"
-    const val RuntimeKindKey = "host.runtime_kind"
-    const val BridgeModeKey = "host.bridge_mode"
-    const val ResultMergeModeKey = "host.result_merge_mode"
-    const val HostBuiltinPluginId = "__host_builtin__"
-    const val HostSendMessageToolName = "send_message"
-    const val HostSendNotificationToolName = "send_notification"
-    const val HostOpenHostPageToolName = "open_host_page"
+internal interface PluginExecutionHostOperations {
+    fun resolve(pluginId: String): PluginExecutionHostSnapshot
 
-    fun resolve(pluginId: String): PluginExecutionHostSnapshot {
+    fun inject(
+        context: PluginExecutionContext,
+        hostSnapshot: PluginExecutionHostSnapshot,
+    ): PluginExecutionContext
+
+    fun registeredHostToolDescriptors(
+        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
+    ): List<PluginToolDescriptor>
+
+    fun registerHostBuiltinTools(
+        snapshot: PluginV2ActiveRuntimeSnapshot,
+        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
+        personaSnapshot: PersonaToolEnablementSnapshot? = null,
+        capabilityGateway: PluginV2ToolCapabilityGateway = PluginV2ToolCapabilityGateway { true },
+        futureSourceDescriptors: Collection<PluginToolDescriptor> = emptyList(),
+        activeFutureSourceKinds: Set<PluginToolSourceKind> = emptySet(),
+    ): PluginV2ActiveRuntimeSnapshot
+
+    fun executeHostBuiltinTool(
+        args: PluginToolArgs,
+        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
+    ): PluginToolResult?
+}
+
+@Singleton
+internal class DefaultPluginExecutionHostOperations @Inject constructor() : PluginExecutionHostOperations {
+    override fun resolve(pluginId: String): PluginExecutionHostSnapshot {
         val workspaceSnapshot = runCatching {
             val appContext = FeaturePluginRepository.requireAppContext()
             ExternalPluginWorkspacePolicy.snapshot(
@@ -68,28 +87,31 @@ object PluginExecutionHostApi {
         )
     }
 
-    fun inject(
+    override fun inject(
         context: PluginExecutionContext,
         hostSnapshot: PluginExecutionHostSnapshot,
     ): PluginExecutionContext {
         val configExtras = linkedMapOf<String, String>().apply {
             putAll(context.config.extras)
-            put(WorkspaceApiKey, encodeWorkspace(hostSnapshot.workspaceSnapshot))
+            put(PluginExecutionHostApi.WorkspaceApiKey, encodeWorkspace(hostSnapshot.workspaceSnapshot))
             hostSnapshot.configBoundary?.let { boundary ->
-                put(ConfigBoundaryKey, encodeBoundary(boundary))
+                put(PluginExecutionHostApi.ConfigBoundaryKey, encodeBoundary(boundary))
             }
             if (
                 hostSnapshot.configSnapshot.coreValues.isNotEmpty() ||
                 hostSnapshot.configSnapshot.extensionValues.isNotEmpty()
             ) {
-                put(ConfigSnapshotKey, encodeConfigSnapshot(hostSnapshot.configSnapshot))
+                put(
+                    PluginExecutionHostApi.ConfigSnapshotKey,
+                    encodeConfigSnapshot(hostSnapshot.configSnapshot),
+                )
             }
         }
         val triggerExtras = linkedMapOf<String, String>().apply {
             putAll(context.triggerMetadata.extras)
-            put(RuntimeKindKey, hostSnapshot.runtimeKind.wireValue)
-            put(BridgeModeKey, hostSnapshot.bridgeMode)
-            put(ResultMergeModeKey, "ordered_chain_v1")
+            put(PluginExecutionHostApi.RuntimeKindKey, hostSnapshot.runtimeKind.wireValue)
+            put(PluginExecutionHostApi.BridgeModeKey, hostSnapshot.bridgeMode)
+            put(PluginExecutionHostApi.ResultMergeModeKey, "ordered_chain_v1")
         }
         return context.copy(
             config = context.config.copy(extras = configExtras),
@@ -97,26 +119,26 @@ object PluginExecutionHostApi {
         )
     }
 
-    fun registeredHostToolDescriptors(
-        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
+    override fun registeredHostToolDescriptors(
+        handlers: PluginExecutionHostToolHandlers,
     ): List<PluginToolDescriptor> {
         return hostBuiltinToolDescriptors().filter { descriptor ->
             when (descriptor.name) {
-                HostSendMessageToolName -> handlers.sendMessageHandler != null
-                HostSendNotificationToolName -> handlers.sendNotificationHandler != null
-                HostOpenHostPageToolName -> handlers.openHostPageHandler != null
+                PluginExecutionHostApi.HostSendMessageToolName -> handlers.sendMessageHandler != null
+                PluginExecutionHostApi.HostSendNotificationToolName -> handlers.sendNotificationHandler != null
+                PluginExecutionHostApi.HostOpenHostPageToolName -> handlers.openHostPageHandler != null
                 else -> false
             }
         }
     }
 
-    fun registerHostBuiltinTools(
+    override fun registerHostBuiltinTools(
         snapshot: PluginV2ActiveRuntimeSnapshot,
-        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
-        personaSnapshot: PersonaToolEnablementSnapshot? = null,
-        capabilityGateway: PluginV2ToolCapabilityGateway = PluginV2ToolCapabilityGateway { true },
-        futureSourceDescriptors: Collection<PluginToolDescriptor> = emptyList(),
-        activeFutureSourceKinds: Set<PluginToolSourceKind> = emptySet(),
+        handlers: PluginExecutionHostToolHandlers,
+        personaSnapshot: PersonaToolEnablementSnapshot?,
+        capabilityGateway: PluginV2ToolCapabilityGateway,
+        futureSourceDescriptors: Collection<PluginToolDescriptor>,
+        activeFutureSourceKinds: Set<PluginToolSourceKind>,
     ): PluginV2ActiveRuntimeSnapshot {
         val descriptors = registeredHostToolDescriptors(handlers) + futureSourceDescriptors
         val toolState = compileCentralizedToolState(
@@ -133,9 +155,9 @@ object PluginExecutionHostApi {
         )
     }
 
-    fun executeHostBuiltinTool(
+    override fun executeHostBuiltinTool(
         args: PluginToolArgs,
-        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
+        handlers: PluginExecutionHostToolHandlers,
     ): PluginToolResult? {
         val descriptor = hostBuiltinToolDescriptors().firstOrNull { candidate ->
             candidate.toolId == args.toolId
@@ -143,18 +165,18 @@ object PluginExecutionHostApi {
 
         return runCatching {
             when (descriptor.name) {
-                HostSendMessageToolName -> {
+                PluginExecutionHostApi.HostSendMessageToolName -> {
                     val handler = requireNotNull(handlers.sendMessageHandler) {
-                        "Host builtin tool $HostSendMessageToolName is unavailable."
+                        "Host builtin tool ${PluginExecutionHostApi.HostSendMessageToolName} is unavailable."
                     }
                     val text = requirePayloadValue(args.payload, "text")
                     handler(text)
                     successToolResult(args, text)
                 }
 
-                HostSendNotificationToolName -> {
+                PluginExecutionHostApi.HostSendNotificationToolName -> {
                     val handler = requireNotNull(handlers.sendNotificationHandler) {
-                        "Host builtin tool $HostSendNotificationToolName is unavailable."
+                        "Host builtin tool ${PluginExecutionHostApi.HostSendNotificationToolName} is unavailable."
                     }
                     val title = (args.payload["title"] as? String).orEmpty().trim().ifBlank { "ElymBot" }
                     val message = requirePayloadValue(
@@ -166,9 +188,9 @@ object PluginExecutionHostApi {
                     successToolResult(args, "$title: $message")
                 }
 
-                HostOpenHostPageToolName -> {
+                PluginExecutionHostApi.HostOpenHostPageToolName -> {
                     val handler = requireNotNull(handlers.openHostPageHandler) {
-                        "Host builtin tool $HostOpenHostPageToolName is unavailable."
+                        "Host builtin tool ${PluginExecutionHostApi.HostOpenHostPageToolName} is unavailable."
                     }
                     val route = requirePayloadValue(args.payload, "route")
                     handler(route)
@@ -246,8 +268,8 @@ object PluginExecutionHostApi {
     private fun hostBuiltinToolDescriptors(): List<PluginToolDescriptor> {
         return listOf(
             PluginToolDescriptor(
-                pluginId = HostBuiltinPluginId,
-                name = HostSendMessageToolName,
+                pluginId = PluginExecutionHostApi.HostBuiltinPluginId,
+                name = PluginExecutionHostApi.HostSendMessageToolName,
                 description = "Send a host message through the current adapter.",
                 visibility = PluginToolVisibility.LLM_VISIBLE,
                 sourceKind = PluginToolSourceKind.HOST_BUILTIN,
@@ -259,8 +281,8 @@ object PluginExecutionHostApi {
                 ),
             ),
             PluginToolDescriptor(
-                pluginId = HostBuiltinPluginId,
-                name = HostSendNotificationToolName,
+                pluginId = PluginExecutionHostApi.HostBuiltinPluginId,
+                name = PluginExecutionHostApi.HostSendNotificationToolName,
                 description = "Post a host notification.",
                 visibility = PluginToolVisibility.LLM_VISIBLE,
                 sourceKind = PluginToolSourceKind.HOST_BUILTIN,
@@ -274,8 +296,8 @@ object PluginExecutionHostApi {
                 ),
             ),
             PluginToolDescriptor(
-                pluginId = HostBuiltinPluginId,
-                name = HostOpenHostPageToolName,
+                pluginId = PluginExecutionHostApi.HostBuiltinPluginId,
+                name = PluginExecutionHostApi.HostOpenHostPageToolName,
                 description = "Open a host page route.",
                 visibility = PluginToolVisibility.LLM_VISIBLE,
                 sourceKind = PluginToolSourceKind.HOST_BUILTIN,
@@ -333,6 +355,60 @@ object PluginExecutionHostApi {
             errorCode = errorCode,
             text = message,
         )
+    }
+}
+
+object PluginExecutionHostApi {
+    const val WorkspaceApiKey = "host.workspace_api"
+    const val ConfigBoundaryKey = "host.config_boundary"
+    const val ConfigSnapshotKey = "host.config_snapshot"
+    const val RuntimeKindKey = "host.runtime_kind"
+    const val BridgeModeKey = "host.bridge_mode"
+    const val ResultMergeModeKey = "host.result_merge_mode"
+    const val HostBuiltinPluginId = "__host_builtin__"
+    const val HostSendMessageToolName = "send_message"
+    const val HostSendNotificationToolName = "send_notification"
+    const val HostOpenHostPageToolName = "open_host_page"
+
+    @Volatile
+    private var compatOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations()
+
+    fun resolve(pluginId: String): PluginExecutionHostSnapshot = compatOperations.resolve(pluginId)
+
+    fun inject(
+        context: PluginExecutionContext,
+        hostSnapshot: PluginExecutionHostSnapshot,
+    ): PluginExecutionContext = compatOperations.inject(context, hostSnapshot)
+
+    fun registeredHostToolDescriptors(
+        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
+    ): List<PluginToolDescriptor> = compatOperations.registeredHostToolDescriptors(handlers)
+
+    fun registerHostBuiltinTools(
+        snapshot: PluginV2ActiveRuntimeSnapshot,
+        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
+        personaSnapshot: PersonaToolEnablementSnapshot? = null,
+        capabilityGateway: PluginV2ToolCapabilityGateway = PluginV2ToolCapabilityGateway { true },
+        futureSourceDescriptors: Collection<PluginToolDescriptor> = emptyList(),
+        activeFutureSourceKinds: Set<PluginToolSourceKind> = emptySet(),
+    ): PluginV2ActiveRuntimeSnapshot = compatOperations.registerHostBuiltinTools(
+        snapshot = snapshot,
+        handlers = handlers,
+        personaSnapshot = personaSnapshot,
+        capabilityGateway = capabilityGateway,
+        futureSourceDescriptors = futureSourceDescriptors,
+        activeFutureSourceKinds = activeFutureSourceKinds,
+    )
+
+    fun executeHostBuiltinTool(
+        args: PluginToolArgs,
+        handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
+    ): PluginToolResult? = compatOperations.executeHostBuiltinTool(args, handlers)
+
+    internal fun installCompatOperations(
+        operations: PluginExecutionHostOperations?,
+    ) {
+        compatOperations = operations ?: DefaultPluginExecutionHostOperations()
     }
 }
 

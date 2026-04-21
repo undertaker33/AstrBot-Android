@@ -108,6 +108,7 @@ class QQLoginViewModel @Inject constructor(
     private val pollingTracker = QQLoginPollingTracker()
     private var pollingJob: Job? = null
     private var buildMarkerLogged = false
+    private var autoQrRefreshIssuedForBlankState = false
 
     fun onScreenVisible(screenTag: String, versionMarker: String) {
         when (pollingTracker.onScreenVisible(screenTag)) {
@@ -131,6 +132,7 @@ class QQLoginViewModel @Inject constructor(
             QQLoginPollingTransition.STOP -> {
                 pollingJob?.cancel()
                 pollingJob = null
+                autoQrRefreshIssuedForBlankState = false
                 log("QQ login polling stopped: no visible QQ login screens remain")
             }
 
@@ -154,6 +156,7 @@ class QQLoginViewModel @Inject constructor(
                 runCatching {
                     withContext(ioDispatcher) {
                         bindings.refresh()
+                        maybeRequestQrCodeAutomatically()
                     }
                 }
                 delay(if (loginState.value.isLogin) 5000 else 3000)
@@ -223,6 +226,24 @@ class QQLoginViewModel @Inject constructor(
         log(versionMarker)
     }
 
+    private suspend fun maybeRequestQrCodeAutomatically() {
+        if (!pollingTracker.isScreenVisible("qq-login")) {
+            autoQrRefreshIssuedForBlankState = false
+            return
+        }
+        val state = loginState.value
+        val needsQrBootstrap = state.bridgeReady && !state.isLogin && state.qrCodeUrl.isBlank()
+        if (!needsQrBootstrap) {
+            autoQrRefreshIssuedForBlankState = false
+            return
+        }
+        if (autoQrRefreshIssuedForBlankState) {
+            return
+        }
+        autoQrRefreshIssuedForBlankState = true
+        bindings.refreshQrCode()
+    }
+
     private fun log(message: String) {
         bindings.log(message)
     }
@@ -261,6 +282,8 @@ internal class QQLoginPollingTracker {
     }
 
     fun activeScreenCount(): Int = activeScreens.size
+
+    fun isScreenVisible(screenTag: String): Boolean = activeScreens.contains(screenTag.trim())
 
     fun activeScreenSummary(): String = activeScreens.joinToString(separator = ",")
 }

@@ -22,8 +22,10 @@ object PluginCatalogJson {
                     "versions=${source.plugins.sumOf { it.versions.size }} " +
                     "preview=${source.plugins.take(3).joinToString(separator = ",") { it.pluginId }.ifBlank { "-" }}",
             )
+            AppLogger.flush()
         }.onFailure { error ->
             AppLogger.append("Plugin market parse failed: error=${error.toRuntimeLogSummary()}")
+            AppLogger.flush()
         }.getOrThrow()
     }
 

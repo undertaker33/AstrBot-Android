@@ -7,7 +7,7 @@ import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
-import com.astrbot.android.core.runtime.llm.LlmMediaService
+import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.core.runtime.llm.LlmStreamEvent
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
 import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
@@ -16,16 +16,15 @@ import com.astrbot.android.feature.chat.data.FeatureConversationRepository as Co
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
+import com.astrbot.android.feature.chat.domain.SendAppMessageUseCaseFactory
+import com.astrbot.android.feature.chat.presentation.AppChatSendHandlerFactory
 import com.astrbot.android.feature.chat.presentation.AppChatSendHandler
 import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService
-import com.astrbot.android.feature.chat.runtime.AppChatPreparedReplyService
-import com.astrbot.android.feature.chat.runtime.AppChatProviderInvocationService
-import com.astrbot.android.feature.chat.runtime.AppChatRuntimeService
+import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandServiceFactory
+import com.astrbot.android.feature.chat.runtime.AppChatRuntimeServiceFactory
 import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
-import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -43,12 +42,15 @@ import kotlinx.coroutines.flow.collect
 import kotlin.coroutines.CoroutineContext
 
 internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
-    private val runtimeLlmOrchestrator: RuntimeLlmOrchestratorPort,
     private val llmClientPort: LlmClientPort,
+    private val llmProviderProbePort: LlmProviderProbePort,
     override val runtimeContextResolverPort: RuntimeContextResolverPort,
     private val defaultAppChatPluginRuntime: AppChatPluginRuntime,
     override val conversationRepositoryPort: ConversationRepositoryPort,
-    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val appChatRuntimeServiceFactory: AppChatRuntimeServiceFactory,
+    private val sendAppMessageUseCaseFactory: SendAppMessageUseCaseFactory,
+    private val appChatSendHandlerFactory: AppChatSendHandlerFactory,
+    private val appChatPluginCommandServiceFactory: AppChatPluginCommandServiceFactory,
 ) : ChatViewModelRuntimeBindings {
 
     override val defaultSessionId: String = ConversationRepository.DEFAULT_SESSION_ID
@@ -139,7 +141,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     }
 
     override suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String {
-        return LlmMediaService.transcribeAudio(provider, attachment)
+        return llmProviderProbePort.transcribeAudio(provider, attachment)
     }
 
     override suspend fun sendConfiguredChat(
@@ -250,7 +252,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         voiceId: String,
         readBracketedContent: Boolean,
     ): ConversationAttachment {
-        return LlmMediaService.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
+        return llmProviderProbePort.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
     }
 
     override suspend fun <T> withSessionLock(sessionId: String, block: suspend () -> T): T {
@@ -261,35 +263,14 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         RuntimeLogRepository.append(message)
     }
 
-    private fun createProviderInvocationService(
-        ioDispatcher: CoroutineContext = Dispatchers.IO,
-    ): AppChatProviderInvocationService {
-        return AppChatProviderInvocationService(
-            chatDependencies = this,
-            ioDispatcher = ioDispatcher,
-        )
-    }
-
-    private fun createPreparedReplyService(
-        ioDispatcher: CoroutineContext = Dispatchers.IO,
-    ): AppChatPreparedReplyService {
-        return AppChatPreparedReplyService(
-            chatDependencies = this,
-            ioDispatcher = ioDispatcher,
-        )
-    }
-
     private fun createAppChatRuntimePort(
         appChatPluginRuntime: AppChatPluginRuntime,
         ioDispatcher: CoroutineContext = Dispatchers.IO,
     ): AppChatRuntimePort {
-        return AppChatRuntimeService(
+        return appChatRuntimeServiceFactory.create(
             chatDependencies = this,
             appChatPluginRuntime = appChatPluginRuntime,
-            llmOrchestrator = runtimeLlmOrchestrator,
-            providerInvocationService = createProviderInvocationService(ioDispatcher),
-            preparedReplyService = createPreparedReplyService(ioDispatcher),
-            gatewayFactory = gatewayFactory,
+            ioDispatcher = ioDispatcher,
         )
     }
 
@@ -298,10 +279,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     }
 
     override val sendAppMessageUseCase: SendAppMessageUseCase by lazy {
-        SendAppMessageUseCase(
-            conversations = conversationRepositoryPort,
-            runtime = appChatRuntimePort,
-        )
+        sendAppMessageUseCaseFactory.create(runtime = appChatRuntimePort)
     }
 
     override val chatSessionController: ChatSessionController by lazy {
@@ -312,9 +290,8 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         appChatPluginRuntime: AppChatPluginRuntime,
         ioDispatcher: CoroutineContext,
     ): AppChatSendHandler {
-        return AppChatSendHandler(
-            SendAppMessageUseCase(
-                conversations = conversationRepositoryPort,
+        return appChatSendHandlerFactory.create(
+            sendAppMessageUseCaseFactory.create(
                 runtime = createAppChatRuntimePort(
                     appChatPluginRuntime = appChatPluginRuntime,
                     ioDispatcher = ioDispatcher,
@@ -326,10 +303,9 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     override fun createAppChatPluginCommandService(
         appChatPluginRuntime: AppChatPluginRuntime,
     ): AppChatPluginCommandService {
-        return AppChatPluginCommandService(
+        return appChatPluginCommandServiceFactory.create(
             dependencies = this,
             appChatPluginRuntime = appChatPluginRuntime,
-            gatewayFactory = gatewayFactory,
         )
     }
 }

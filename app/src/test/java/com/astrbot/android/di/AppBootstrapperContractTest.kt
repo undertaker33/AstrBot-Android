@@ -1,5 +1,8 @@
 package com.astrbot.android.di
 
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.di.startup.observePluginRuntimeRecords
+import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSyncResult
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginManifest
@@ -9,8 +12,6 @@ import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
-import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSyncResult
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -25,23 +26,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class AppBootstrapperTest {
+class AppBootstrapperContractTest {
+
     @Test
-    fun bootstrap_runs_config_initializer_before_resource_center_repository() {
-        val sourceFile = listOf(
-            File("src/main/java/com/astrbot/android/di/AppBootstrapper.kt"),
-            File("app/src/main/java/com/astrbot/android/di/AppBootstrapper.kt"),
-        ).first { it.exists() }
-        val source = sourceFile.readText()
+    fun bootstrap_delegates_to_runner_without_hand_assembled_startup_calls() {
+        val source = appBootstrapperSource()
+        val bootstrapBody = functionBody(source, "bootstrap")
 
-        val configIndex = source.indexOf("ConfigRepositoryInitializer()")
-        val resourceCenterIndex = source.indexOf("ResourceCenterRepository.initialize(application)")
-
-        assertTrue("Config repository initializer bootstrap call must exist", configIndex >= 0)
-        assertTrue("ResourceCenterRepository bootstrap call must exist", resourceCenterIndex >= 0)
         assertTrue(
-            "ResourceCenterRepository seeds from config tables, so ConfigRepository must initialize first",
-            configIndex < resourceCenterIndex,
+            "AppBootstrapper must delegate startup execution to AppStartupRunner",
+            source.contains("private val appStartupRunner: com.astrbot.android.di.startup.AppStartupRunner") ||
+                source.contains("private val appStartupRunner: AppStartupRunner"),
+        )
+        assertTrue(
+            "AppBootstrapper.bootstrap must call AppStartupRunner.run()",
+            bootstrapBody.contains("appStartupRunner.run()"),
+        )
+
+        val forbiddenTokens = listOf(
+            "InitializationCoordinator(",
+            "providerRepositoryWarmup.warmUp()",
+            "AppDownloadManager.initialize(application)",
+            "NapCatBridgeRepository.initialize(application)",
+            "NapCatLoginRepository.initialize(application)",
+            "RuntimeAssetRepository.initialize(application)",
+            "ActiveCapabilityToolSourceProvider.initialize(application)",
+            "ResourceCenterRepository.initialize(application)",
+            "CronJobScheduler.initialize(application)",
+            "PersonaReferenceGuard.register",
+            "ProviderReferenceGuard.register",
+            "observePluginRuntimeRecords(",
+            "qqBridgeRuntime.start()",
+            "containerRuntimeInstaller.warmUpAsync(appScope)",
+        )
+        val violations = forbiddenTokens.filter(bootstrapBody::contains)
+        assertTrue(
+            "AppBootstrapper must stay a thin shell and must not hand-assemble startup dependencies: $violations",
+            violations.isEmpty(),
         )
     }
 
@@ -126,6 +147,37 @@ class AppBootstrapperTest {
             job.cancel()
             RuntimeLogRepository.clear()
         }
+    }
+
+    private fun appBootstrapperSource(): String {
+        val sourceFile = listOf(
+            File("src/main/java/com/astrbot/android/di/AppBootstrapper.kt"),
+            File("app/src/main/java/com/astrbot/android/di/AppBootstrapper.kt"),
+        ).first { it.exists() }
+        return sourceFile.readText()
+    }
+
+    private fun functionBody(source: String, functionName: String): String {
+        val signatureIndex = source.indexOf("fun $functionName(")
+        require(signatureIndex >= 0) { "Missing function: $functionName" }
+        val bodyStart = source.indexOf('{', signatureIndex)
+        require(bodyStart >= 0) { "Missing body for function: $functionName" }
+        val bodyEnd = matchingBraceIndex(source, bodyStart)
+        return source.substring(bodyStart + 1, bodyEnd)
+    }
+
+    private fun matchingBraceIndex(source: String, openIndex: Int): Int {
+        var depth = 0
+        for (index in openIndex until source.length) {
+            when (source[index]) {
+                '{' -> depth += 1
+                '}' -> {
+                    depth -= 1
+                    if (depth == 0) return index
+                }
+            }
+        }
+        error("No matching closing brace found")
     }
 
     private fun pluginV2Record(pluginId: String): PluginInstallRecord {

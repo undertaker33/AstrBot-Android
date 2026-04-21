@@ -1,5 +1,7 @@
 package com.astrbot.android.feature.plugin.runtime
 
+import com.astrbot.android.di.hilt.PluginHostVersion
+import com.astrbot.android.di.hilt.SupportedPluginProtocolVersion
 import com.astrbot.android.feature.plugin.data.normalizePackageValidationIssueMessage
 import com.astrbot.android.feature.plugin.data.unsupportedProtocolCompatibilityNote
 import com.astrbot.android.model.plugin.PluginCompatibilityState
@@ -12,6 +14,7 @@ import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginSourceType
 import java.io.File
 import java.util.zip.ZipInputStream
+import javax.inject.Inject
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -23,8 +26,10 @@ data class PluginPackageValidationResult(
     val validationIssues: List<PluginPackageValidationIssue> = emptyList(),
 )
 
-class PluginPackageValidator(
+class PluginPackageValidator @Inject constructor(
+    @PluginHostVersion
     private val hostVersion: String,
+    @SupportedPluginProtocolVersion
     private val supportedProtocolVersion: Int,
 ) {
     fun validate(packageFile: File): PluginPackageValidationResult {

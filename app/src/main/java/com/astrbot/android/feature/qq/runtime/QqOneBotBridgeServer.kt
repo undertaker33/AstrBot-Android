@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.appcompat.app.AppCompatDelegate
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
-import com.astrbot.android.core.runtime.llm.LlmMediaService
+import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
@@ -12,6 +12,10 @@ import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
+import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
@@ -62,8 +66,13 @@ internal data class QqOneBotRuntimeDependencies(
     val orchestrator: RuntimeLlmOrchestratorPort,
     val runtimeContextResolverPort: RuntimeContextResolverPort,
     val appChatPluginRuntime: AppChatLlmPipelineRuntime,
+    val pluginV2DispatchEngine: PluginV2DispatchEngine,
+    val failureStateStore: PluginFailureStateStore,
+    val scopedFailureStateStore: PluginScopedFailureStateStore,
     val providerInvoker: QqProviderInvoker,
     val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    val llmProviderProbePort: LlmProviderProbePort,
+    val logBus: PluginRuntimeLogBus,
 )
 
 internal interface QqScheduledMessageSender {
@@ -189,7 +198,7 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
             markMessageId = ::markMessageId,
             scheduleStashReplay = ::scheduleStashReplay,
             currentLanguageTag = ::currentLanguageTag,
-            transcribeAudio = LlmMediaService::transcribeAudio,
+            transcribeAudio = dependencies.llmProviderProbePort::transcribeAudio,
             resolvePluginPrivateRootPath = ::resolvePluginPrivateRootPath,
             gatewayFactory = dependencies.gatewayFactory,
             log = AppLogger::append,
@@ -303,6 +312,14 @@ internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
 
     internal fun installRuntimeDependencies(dependencies: QqOneBotRuntimeDependencies) {
         runtimeDependencies = dependencies
+    }
+
+    internal fun updateRuntimeDependenciesForTests(
+        transform: (QqOneBotRuntimeDependencies) -> QqOneBotRuntimeDependencies,
+    ) {
+        val current = runtimeDependencies
+            ?: error("QqOneBotBridgeServer requires installed runtime dependencies before test updates.")
+        runtimeDependencies = transform(current)
     }
 
     override fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies {

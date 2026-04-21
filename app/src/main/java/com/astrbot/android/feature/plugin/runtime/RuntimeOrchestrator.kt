@@ -16,8 +16,12 @@ import com.astrbot.android.model.plugin.PluginV2StreamingMode
     level = DeprecationLevel.WARNING,
 )
 internal object RuntimeOrchestrator {
-    @Suppress("DEPRECATION")
-    private val compatDelegate: RuntimeLlmOrchestratorPort = DefaultRuntimeLlmOrchestrator()
+    @Volatile
+    private var compatDelegate: RuntimeLlmOrchestratorPort? = null
+
+    internal fun installCompatDelegateForTests(delegate: RuntimeLlmOrchestratorPort?) {
+        compatDelegate = delegate
+    }
 
     /**
      * Compatibility entry point that forwards to the class-based orchestrator.
@@ -29,7 +33,9 @@ internal object RuntimeOrchestrator {
         userMessage: ConversationMessage,
         preBuiltPluginEvent: PluginMessageEvent? = null,
     ): PluginV2HostLlmDeliveryResult {
-        return compatDelegate.dispatchLlm(
+        val delegate = compatDelegate
+            ?: error("RuntimeOrchestrator compatibility shell requires an installed RuntimeLlmOrchestratorPort.")
+        return delegate.dispatchLlm(
             ctx = ctx,
             llmRuntime = llmRuntime,
             callbacks = callbacks,

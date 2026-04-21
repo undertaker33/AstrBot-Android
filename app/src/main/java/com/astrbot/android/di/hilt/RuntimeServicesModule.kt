@@ -1,9 +1,12 @@
 package com.astrbot.android.di.hilt
 
 import android.content.Context
+import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
 import com.astrbot.android.core.runtime.context.DefaultRuntimeContextResolverPort
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
+import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
+import com.astrbot.android.di.ProductionContainerBridgeStatePort
 import com.astrbot.android.di.ProductionRuntimeContextDataPort
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
@@ -24,11 +27,14 @@ import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
 import com.astrbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
@@ -38,7 +44,6 @@ import com.astrbot.android.feature.qq.runtime.HiltQqOneBotBridgeRuntime
 import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
 import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
 import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
-import com.astrbot.android.runtime.llm.ChatCompletionServiceLlmClient
 import com.astrbot.android.runtime.llm.LegacyLlmProviderProbeAdapter
 import dagger.Module
 import dagger.Provides
@@ -53,11 +58,15 @@ internal object RuntimeServicesModule {
 
     @Provides
     @Singleton
-    fun provideLlmClientPort(): LlmClientPort = ChatCompletionServiceLlmClient()
+    fun provideLlmClientPort(
+        @ApplicationContext appContext: Context,
+    ): LlmClientPort = ChatCompletionServiceLlmClient(appContext)
 
     @Provides
     @Singleton
-    fun provideLlmProviderProbePort(): LlmProviderProbePort = LegacyLlmProviderProbeAdapter()
+    fun provideLlmProviderProbePort(
+        @ApplicationContext appContext: Context,
+    ): LlmProviderProbePort = LegacyLlmProviderProbeAdapter(appContext)
 
     @Provides
     @Singleton
@@ -75,7 +84,10 @@ internal object RuntimeServicesModule {
         failureGuard: PluginFailureGuard,
         logBus: PluginRuntimeLogBus,
     ): PluginExecutionEngine = PluginExecutionEngine(
-        dispatcher = PluginRuntimeDispatcher(failureGuard),
+        dispatcher = PluginRuntimeDispatcher(
+            failureGuard = failureGuard,
+            logBus = logBus,
+        ),
         failureGuard = failureGuard,
         logBus = logBus,
     )
@@ -94,6 +106,10 @@ internal object RuntimeServicesModule {
     @Provides
     @Singleton
     fun provideRuntimeContextDataPort(): RuntimeContextDataPort = ProductionRuntimeContextDataPort
+
+    @Provides
+    @Singleton
+    fun provideContainerBridgeStatePort(): ContainerBridgeStatePort = ProductionContainerBridgeStatePort
 
     @Provides
     @Singleton
@@ -167,8 +183,13 @@ internal object RuntimeServicesModule {
         orchestrator: RuntimeLlmOrchestratorPort,
         runtimeContextResolverPort: RuntimeContextResolverPort,
         appChatPluginRuntime: AppChatPluginRuntime,
+        pluginV2DispatchEngine: PluginV2DispatchEngine,
+        failureStateStore: PluginFailureStateStore,
+        scopedFailureStateStore: PluginScopedFailureStateStore,
         providerInvoker: DefaultQqProviderInvoker,
         gatewayFactory: PluginHostCapabilityGatewayFactory,
+        llmProviderProbePort: LlmProviderProbePort,
+        logBus: PluginRuntimeLogBus,
     ): QqOneBotRuntimeDependencies {
         return QqOneBotRuntimeDependencies(
             botPort = botPort,
@@ -180,8 +201,13 @@ internal object RuntimeServicesModule {
             orchestrator = orchestrator,
             runtimeContextResolverPort = runtimeContextResolverPort,
             appChatPluginRuntime = appChatPluginRuntime as AppChatLlmPipelineRuntime,
+            pluginV2DispatchEngine = pluginV2DispatchEngine,
+            failureStateStore = failureStateStore,
+            scopedFailureStateStore = scopedFailureStateStore,
             providerInvoker = providerInvoker,
             gatewayFactory = gatewayFactory,
+            llmProviderProbePort = llmProviderProbePort,
+            logBus = logBus,
         )
     }
 

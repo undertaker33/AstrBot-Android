@@ -4,10 +4,8 @@ package com.astrbot.android.di.hilt
 
 import android.content.Context
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
-import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.data.RuntimeAssetRepository
-import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.feature.config.data.RoomPhase3DataTransactionService
 import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
 import com.astrbot.android.feature.provider.runtime.DefaultProviderRuntimePort
@@ -33,6 +31,7 @@ import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -104,7 +103,39 @@ internal annotation class TtsVoiceAssets
 
 @Module
 @InstallIn(SingletonComponent::class)
-internal object ViewModelDependencyModule {
+internal abstract class ViewModelDependencyModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindPluginViewModelBindings(
+        bindings: DefaultPluginViewModelBindings,
+    ): PluginViewModelBindings
+
+    @Binds
+    @Singleton
+    abstract fun bindQqLoginViewModelBindings(
+        bindings: DefaultQQLoginViewModelBindings,
+    ): QQLoginViewModelBindings
+
+    @Binds
+    @Singleton
+    abstract fun bindPhase3DataTransactionService(
+        service: RoomPhase3DataTransactionService,
+    ): Phase3DataTransactionService
+
+    @Binds
+    @Singleton
+    abstract fun bindProviderRuntimePort(
+        runtimePort: DefaultProviderRuntimePort,
+    ): ProviderRuntimePort
+
+    @Binds
+    @Singleton
+    abstract fun bindChatViewModelRuntimeBindings(
+        bindings: DefaultChatViewModelRuntimeBindings,
+    ): ChatViewModelRuntimeBindings
+
+    companion object {
 
     @Provides
     @BridgeConfig
@@ -151,18 +182,6 @@ internal object ViewModelDependencyModule {
     ): Flow<@JvmSuppressWildcards Map<String, PluginGovernanceReadModel>> = repository.observeReadModels()
 
     @Provides
-    @Singleton
-    fun providePluginViewModelBindings(
-        bindings: DefaultPluginViewModelBindings,
-    ): PluginViewModelBindings = bindings
-
-    @Provides
-    @Singleton
-    fun provideQqLoginViewModelBindings(
-        bindings: DefaultQQLoginViewModelBindings,
-    ): QQLoginViewModelBindings = bindings
-
-    @Provides
     @RuntimeAssetStateFlow
     fun provideRuntimeAssetState(): StateFlow<RuntimeAssetState> = RuntimeAssetRepository.state
 
@@ -177,20 +196,5 @@ internal object ViewModelDependencyModule {
     @Provides
     @TtsVoiceAssets
     fun provideTtsVoiceAssets(): StateFlow<@JvmSuppressWildcards List<TtsVoiceReferenceAsset>> = TtsVoiceAssetRepository.assets
-
-    @Provides
-    @Singleton
-    fun providePhase3DataTransactionService(
-        database: AstrBotDatabase,
-    ): Phase3DataTransactionService = RoomPhase3DataTransactionService(database)
-
-    @Provides
-    @Singleton
-    fun provideProviderRuntimePort(probePort: LlmProviderProbePort): ProviderRuntimePort = DefaultProviderRuntimePort(probePort)
-
-    @Provides
-    @Singleton
-    fun provideChatViewModelRuntimeBindings(
-        bindings: DefaultChatViewModelRuntimeBindings,
-    ): ChatViewModelRuntimeBindings = bindings
+    }
 }

@@ -6,6 +6,7 @@ import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureSta
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDependencyBridge
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
@@ -39,6 +40,7 @@ internal object PluginRuntimeModule {
     @Singleton
     fun providePluginRuntimeLogBus(): PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus().also {
         PluginRuntimeLogBusProvider.setBusOverrideForTests(it)
+        PluginRuntimeDependencyBridge.installLogBus(it)
     }
 
     @Provides
@@ -65,6 +67,7 @@ internal object PluginRuntimeModule {
         logBus: PluginRuntimeLogBus,
     ): PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(logBus = logBus).also {
         PluginV2ActiveRuntimeStoreProvider.setStoreOverrideForTests(it)
+        PluginRuntimeDependencyBridge.installActiveRuntimeStore(it)
     }
 
     @Provides
@@ -97,6 +100,7 @@ internal object PluginRuntimeModule {
         logBus = logBus,
     ).also {
         PluginV2LifecycleManagerProvider.setManagerOverrideForTests(it)
+        PluginRuntimeDependencyBridge.installLifecycleManager(it)
     }
 
     @Provides
@@ -114,6 +118,7 @@ internal object PluginRuntimeModule {
         ),
     ).also {
         PluginV2DispatchEngineProvider.setEngineOverrideForTests(it)
+        PluginRuntimeDependencyBridge.installDispatchEngine(it)
     }
 
     @Provides

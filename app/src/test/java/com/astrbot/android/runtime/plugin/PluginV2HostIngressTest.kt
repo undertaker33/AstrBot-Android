@@ -51,6 +51,7 @@ import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.feature.qq.runtime.QqSessionKeyFactory
 import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
 import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
+import com.astrbot.android.runtime.llm.LegacyLlmProviderProbeAdapter
 import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
 import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
 import java.nio.file.Files
@@ -1172,6 +1173,7 @@ class PluginV2HostIngressTest {
         sessionId: String,
         session: ConversationSession,
     ): Boolean {
+        refreshQqRuntimeDependenciesForCurrentOverrides()
         return QqOneBotBridgeServer.runtimeGraphForTests()
             .pluginDispatchServiceForTests()
             .handlePluginCommand(
@@ -1196,7 +1198,12 @@ class PluginV2HostIngressTest {
                 providerPort = LegacyProviderRepositoryAdapter(),
             ),
             resolvePluginPrivateRootPath = { "" },
+            gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
             log = {},
+            dispatchEngine = PluginV2DispatchEngineProvider.engine(),
+            failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
+            scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
+            logBus = PluginRuntimeLogBusProvider.bus(),
         )
     }
 
@@ -1262,8 +1269,20 @@ class PluginV2HostIngressTest {
     }
 
     private suspend fun invokeHandlePayload(payload: String) {
+        refreshQqRuntimeDependenciesForCurrentOverrides()
         QqOneBotBridgeServer.handlePayload(payload)
         RuntimeLogRepository.flush()
+    }
+
+    private fun refreshQqRuntimeDependenciesForCurrentOverrides() {
+        QqOneBotBridgeServer.updateRuntimeDependenciesForTests { current ->
+            current.copy(
+                pluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
+                failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
+                scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
+                logBus = PluginRuntimeLogBusProvider.bus(),
+            )
+        }
     }
 
     private suspend fun withOneBotState(
@@ -1325,8 +1344,13 @@ class PluginV2HostIngressTest {
                     orchestrator = LegacyRuntimeOrchestratorAdapter(DefaultRuntimeLlmOrchestrator()),
                     runtimeContextResolverPort = runtimeContextResolverPort,
                     appChatPluginRuntime = DefaultAppChatPluginRuntime,
+                    pluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
+                    failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
+                    scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
                     providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
                     gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
+                    llmProviderProbePort = LegacyLlmProviderProbeAdapter(),
+                    logBus = InMemoryPluginRuntimeLogBus(),
                 ),
             )
             RuntimeLogRepository.clear()
