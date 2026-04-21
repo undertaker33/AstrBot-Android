@@ -31,18 +31,6 @@ class RepositoryPortSourceContractTest {
     }
 
     @Test
-    fun legacy_adapters_exist() {
-        val required = listOf(
-            "feature/provider/data/LegacyProviderRepositoryAdapter.kt",
-            "feature/config/data/LegacyConfigRepositoryAdapter.kt",
-            "feature/bot/data/LegacyBotRepositoryAdapter.kt",
-            "feature/persona/data/LegacyPersonaRepositoryAdapter.kt",
-        )
-        val missing = required.filterNot { mainRoot.resolve(it).exists() }
-        assertTrue("Missing legacy adapter files: $missing", missing.isEmpty())
-    }
-
-    @Test
     fun domain_ports_do_not_import_legacy_repositories() {
         val domainDirs = listOf(
             "feature/provider/domain",

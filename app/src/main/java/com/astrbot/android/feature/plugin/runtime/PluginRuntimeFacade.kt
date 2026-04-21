@@ -7,7 +7,6 @@ import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 
 class PluginRuntimeFacade(
     dispatcher: PluginRuntimeDispatcher,
-    private val pluginV1LegacyAdapter: PluginV1LegacyAdapter = PluginV1LegacyAdapter(dispatcher),
 ) : PluginRuntimePort {
 
     override suspend fun refreshRuntimeRegistry() {
@@ -21,6 +20,4 @@ class PluginRuntimeFacade(
     override fun isPluginLoaded(pluginId: String): Boolean {
         return false // resolved via PluginViewModel existing flow
     }
-
-    fun legacyV1Boundary(): PluginV1LegacyAdapter = pluginV1LegacyAdapter
 }

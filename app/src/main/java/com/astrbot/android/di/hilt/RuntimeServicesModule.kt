@@ -44,7 +44,7 @@ import com.astrbot.android.feature.qq.runtime.HiltQqOneBotBridgeRuntime
 import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
 import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
 import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
-import com.astrbot.android.runtime.llm.LegacyLlmProviderProbeAdapter
+import com.astrbot.android.runtime.llm.HiltLlmProviderProbePort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -66,7 +66,7 @@ internal object RuntimeServicesModule {
     @Singleton
     fun provideLlmProviderProbePort(
         @ApplicationContext appContext: Context,
-    ): LlmProviderProbePort = LegacyLlmProviderProbeAdapter(appContext)
+    ): LlmProviderProbePort = HiltLlmProviderProbePort(appContext)
 
     @Provides
     @Singleton

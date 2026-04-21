@@ -35,22 +35,20 @@ class LlmSourceContractTest {
     }
 
     @Test
-    fun runtime_llm_adapters_exist() {
+    fun runtime_llm_support_files_exist() {
         val required = listOf(
             "core/runtime/llm/ChatCompletionServiceLlmClient.kt",
-            "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
             "feature/chat/presentation/ChatViewModelRuntimeBindings.kt", // chat runtime contract declarations
-            "runtime/llm/LegacyRuntimeOrchestratorAdapter.kt",
             "feature/plugin/runtime/DefaultRuntimeLlmOrchestrator.kt",
         )
         val missing = required.filterNot { mainRoot.resolve(it).exists() }
-        assertTrue("Missing LLM adapter files: $missing", missing.isEmpty())
+        assertTrue("Missing LLM support files: $missing", missing.isEmpty())
     }
 
     @Test
     fun legacy_runtime_orchestrator_adapter_does_not_depend_on_static_feature_orchestrator() {
         val file = mainRoot.resolve("runtime/llm/LegacyRuntimeOrchestratorAdapter.kt")
-        assertTrue("LegacyRuntimeOrchestratorAdapter.kt must exist", file.exists())
+        if (!file.exists()) return
         val text = file.readText()
         assertTrue(
             "LegacyRuntimeOrchestratorAdapter must not import RuntimeOrchestrator directly after phase 3 migration",

@@ -57,7 +57,13 @@ open class FeaturePersonaRepositoryPortAdapter : PersonaRepositoryPort {
     }
 }
 
-@Deprecated("Phase-2 residue. Production Hilt binding uses FeaturePersonaRepositoryPortAdapter.")
+/**
+ * Compat-only adapter for targeted tests and transitional callers.
+ * Production mainline uses [FeaturePersonaRepositoryPortAdapter].
+ */
+@Deprecated(
+    "Compat-only seam. Production mainline uses FeaturePersonaRepositoryPortAdapter.",
+    level = DeprecationLevel.WARNING,
+)
 class LegacyPersonaRepositoryAdapter : FeaturePersonaRepositoryPortAdapter()
-
 

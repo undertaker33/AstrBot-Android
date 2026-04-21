@@ -6,6 +6,14 @@ import com.astrbot.android.model.CronJobExecutionRecord
 import kotlinx.coroutines.flow.StateFlow
 
 @Suppress("DEPRECATION")
+/**
+ * Compat-only adapter for targeted tests and transitional callers.
+ * Production mainline should use a Hilt-owned cron job repository port.
+ */
+@Deprecated(
+    "Compat-only seam. Production mainline should use a Hilt-owned CronJobRepositoryPort.",
+    level = DeprecationLevel.WARNING,
+)
 class LegacyCronJobRepositoryAdapter : CronJobRepositoryPort {
 
     override val jobs: StateFlow<List<CronJob>>

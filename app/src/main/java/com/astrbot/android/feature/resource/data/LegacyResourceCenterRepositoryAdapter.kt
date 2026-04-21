@@ -9,6 +9,14 @@ import com.astrbot.android.model.ResourceCenterKind
 import kotlinx.coroutines.flow.StateFlow
 
 @Suppress("DEPRECATION")
+/**
+ * Compat-only adapter for targeted tests and transitional callers.
+ * Production mainline should use a Hilt-owned resource center port.
+ */
+@Deprecated(
+    "Compat-only seam. Production mainline should use a Hilt-owned ResourceCenterPort.",
+    level = DeprecationLevel.WARNING,
+)
 class LegacyResourceCenterRepositoryAdapter : ResourceCenterPort {
 
     override val resources: StateFlow<List<ResourceCenterItem>>

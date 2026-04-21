@@ -434,23 +434,25 @@ class FeatureFirstBoundaryContractTest {
     }
 
     @Test
-    fun plugin_v1_runtime_boundary_is_frozen_behind_explicit_legacy_adapter() {
+    fun plugin_v1_runtime_boundary_keeps_compat_adapter_optional_when_present() {
         val adapterFile = mainRoot.resolve("feature/plugin/runtime/PluginV1LegacyAdapter.kt")
         val facadeFile = mainRoot.resolve("feature/plugin/runtime/PluginRuntimeFacade.kt")
-        assertTrue("PluginV1LegacyAdapter.kt must exist for the phase 6 V1 freeze boundary", adapterFile.exists())
         assertTrue("PluginRuntimeFacade.kt must exist", facadeFile.exists())
 
-        val adapterText = adapterFile.readText()
         val facadeText = facadeFile.readText()
 
         assertTrue(
-            "PluginV1LegacyAdapter must document the V1 legacy/frozen boundary explicitly",
-            adapterText.contains("legacy") && adapterText.contains("freeze"),
+            "PluginRuntimeFacade must stay a PluginRuntimePort implementation even when the optional V1 compat adapter is present",
+            facadeText.contains(": PluginRuntimePort"),
         )
-        assertTrue(
-            "PluginRuntimeFacade must depend on PluginV1LegacyAdapter instead of keeping V1 logic implicit",
-            facadeText.contains("PluginV1LegacyAdapter"),
-        )
+
+        if (adapterFile.exists()) {
+            val adapterText = adapterFile.readText()
+            assertTrue(
+                "Optional PluginV1LegacyAdapter should still document the V1 legacy/frozen boundary when present",
+                adapterText.contains("legacy") && adapterText.contains("freeze"),
+            )
+        }
     }
 
     @Test

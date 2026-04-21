@@ -55,7 +55,13 @@ open class FeatureConversationRepositoryPortAdapter : ConversationRepositoryPort
     }
 }
 
-@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureConversationRepositoryPortAdapter.")
+/**
+ * Compat-only adapter for targeted tests and transitional callers.
+ * Production mainline uses [FeatureConversationRepositoryPortAdapter].
+ */
+@Deprecated(
+    "Compat-only seam. Production mainline uses FeatureConversationRepositoryPortAdapter.",
+    level = DeprecationLevel.WARNING,
+)
 class LegacyConversationRepositoryAdapter : FeatureConversationRepositoryPortAdapter()
-
 

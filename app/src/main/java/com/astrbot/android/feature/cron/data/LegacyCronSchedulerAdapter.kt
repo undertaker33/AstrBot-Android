@@ -6,6 +6,14 @@ import com.astrbot.android.model.CronJob
 import com.astrbot.android.feature.cron.runtime.CronJobScheduler
 
 @Suppress("DEPRECATION")
+/**
+ * Compat-only adapter for targeted tests and transitional callers.
+ * Production mainline should use a Hilt-owned cron scheduler port.
+ */
+@Deprecated(
+    "Compat-only seam. Production mainline should use a Hilt-owned CronSchedulerPort.",
+    level = DeprecationLevel.WARNING,
+)
 class LegacyCronSchedulerAdapter(
     private val contextProvider: () -> Context?,
 ) : CronSchedulerPort {

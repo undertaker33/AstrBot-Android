@@ -39,7 +39,13 @@ open class FeatureBotRepositoryPortAdapter : BotRepositoryPort {
     }
 }
 
-@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureBotRepositoryPortAdapter.")
+/**
+ * Compat-only adapter for targeted tests and transitional callers.
+ * Production mainline uses [FeatureBotRepositoryPortAdapter].
+ */
+@Deprecated(
+    "Compat-only seam. Production mainline uses FeatureBotRepositoryPortAdapter.",
+    level = DeprecationLevel.WARNING,
+)
 class LegacyBotRepositoryAdapter : FeatureBotRepositoryPortAdapter()
-
 

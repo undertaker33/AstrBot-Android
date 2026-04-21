@@ -1,6 +1,5 @@
 package com.astrbot.android.runtime.llm
 
-import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
@@ -10,7 +9,7 @@ import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 
 @Suppress("DEPRECATION")
 @Deprecated(
-    "Phase-2 residue — test seam only. Production uses Hilt-provided RuntimeLlmOrchestratorPort.",
+    "Compat-only seam. Production uses Hilt-provided RuntimeLlmOrchestratorPort.",
     level = DeprecationLevel.WARNING,
 )
 internal class LegacyRuntimeOrchestratorAdapter(
@@ -20,7 +19,7 @@ internal class LegacyRuntimeOrchestratorAdapter(
         ctx: ResolvedRuntimeContext,
         llmRuntime: AppChatLlmPipelineRuntime,
         callbacks: PlatformLlmCallbacks,
-        userMessage: ConversationMessage,
+        userMessage: com.astrbot.android.model.chat.ConversationMessage,
         preBuiltPluginEvent: PluginMessageEvent?,
     ): PluginV2HostLlmDeliveryResult {
         return delegate.dispatchLlm(

@@ -85,6 +85,12 @@ open class FeatureQqConversationPortAdapter : QqConversationPort {
     }
 }
 
-@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureQqConversationPortAdapter.")
+/**
+ * Compat-only adapter for targeted tests and transitional callers.
+ * Production mainline uses [FeatureQqConversationPortAdapter].
+ */
+@Deprecated(
+    "Compat-only seam. Production mainline uses FeatureQqConversationPortAdapter.",
+    level = DeprecationLevel.WARNING,
+)
 class LegacyQqConversationAdapter : FeatureQqConversationPortAdapter()
-

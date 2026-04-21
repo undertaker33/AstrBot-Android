@@ -63,7 +63,13 @@ open class FeatureProviderRepositoryPortAdapter : ProviderRepositoryPort {
     }
 }
 
-@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureProviderRepositoryPortAdapter.")
+/**
+ * Compat-only adapter for targeted tests and transitional callers.
+ * Production mainline uses [FeatureProviderRepositoryPortAdapter].
+ */
+@Deprecated(
+    "Compat-only seam. Production mainline uses FeatureProviderRepositoryPortAdapter.",
+    level = DeprecationLevel.WARNING,
+)
 class LegacyProviderRepositoryAdapter : FeatureProviderRepositoryPortAdapter()
-
 

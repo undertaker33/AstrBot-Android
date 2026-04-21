@@ -8,7 +8,7 @@ import com.astrbot.android.core.runtime.llm.LlmToolCall
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
 import org.json.JSONObject
 
-@Deprecated("Phase-2 residue. Production Hilt binding uses ChatCompletionServiceLlmClient.")
+@Deprecated("Compat-only seam. Production Hilt binding uses ChatCompletionServiceLlmClient.")
 internal class LegacyChatCompletionServiceAdapter : ChatCompletionServiceLlmClient() {
     companion object {
         internal fun LlmToolDefinition.toLegacyToolDefinition(): com.astrbot.android.core.runtime.llm.ChatCompletionService.ChatToolDefinition {

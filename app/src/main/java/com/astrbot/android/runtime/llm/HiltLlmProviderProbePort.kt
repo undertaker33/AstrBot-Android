@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.runtime.llm
 
 import android.content.Context
@@ -12,23 +10,16 @@ import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.chat.ConversationAttachment
 
 /**
- * Compat-only adapter that bridges [LlmProviderProbePort] to the static
- * [ChatCompletionService] singleton.
+ * Hilt-owned production probe implementation for LLM/media capability checks.
  *
- * Production Hilt wiring has moved to a Hilt-owned probe port implementation.
- * Keep this seam available for targeted tests and transitional callers, but
- * do not treat it as the production mainline.
+ * This lives in the runtime/llm ownership boundary so RuntimeServicesModule only
+ * wires dependencies and does not directly reference media services.
  */
-@Deprecated(
-    "Compat-only seam. Production Hilt wiring uses a Hilt-owned LlmProviderProbePort.",
-    level = DeprecationLevel.WARNING,
-)
-internal class LegacyLlmProviderProbeAdapter(
-    context: Context? = null,
+internal class HiltLlmProviderProbePort(
+    appContext: Context,
 ) : LlmProviderProbePort {
-
     init {
-        context?.let(ChatCompletionService::initialize)
+        ChatCompletionService.initialize(appContext)
     }
 
     override fun fetchModels(baseUrl: String, apiKey: String, providerType: ProviderType): List<String> {
@@ -73,6 +64,11 @@ internal class LegacyLlmProviderProbeAdapter(
         voiceId: String,
         readBracketedContent: Boolean,
     ): ConversationAttachment {
-        return ChatCompletionService.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
+        return ChatCompletionService.synthesizeSpeech(
+            provider = provider,
+            text = text,
+            voiceId = voiceId,
+            readBracketedContent = readBracketedContent,
+        )
     }
 }
