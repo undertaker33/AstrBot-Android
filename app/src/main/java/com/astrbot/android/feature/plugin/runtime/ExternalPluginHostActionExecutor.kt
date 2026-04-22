@@ -8,6 +8,12 @@ import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 
+data class ExternalPluginHostActionHandlers(
+    val sendMessage: (String) -> Unit = {},
+    val sendNotification: (String, String) -> Unit = { _, _ -> },
+    val openHostPage: (String) -> Unit = {},
+)
+
 data class ExternalPluginHostActionExecutionResult(
     val action: PluginHostAction,
     val succeeded: Boolean,
@@ -17,14 +23,9 @@ data class ExternalPluginHostActionExecutionResult(
 )
 
 class ExternalPluginHostActionExecutor(
-    private val failureGuard: PluginFailureGuard = PluginFailureGuard(
-        store = PluginRuntimeFailureStateStoreProvider.store(),
-    ),
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val failureGuard: PluginFailureGuard = PluginFailureGuard(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
-    private val sendMessageHandler: (String) -> Unit = {},
-    private val sendNotificationHandler: (String, String) -> Unit = { _, _ -> },
-    private val openHostPageHandler: (String) -> Unit = {},
 ) {
     internal fun asV2ToolExecutor(): PluginV2ToolExecutor {
         return PluginV2ToolExecutor { args ->
@@ -43,6 +44,7 @@ class ExternalPluginHostActionExecutor(
         pluginId: String,
         request: HostActionRequest,
         context: PluginExecutionContext,
+        handlers: ExternalPluginHostActionHandlers = ExternalPluginHostActionHandlers(),
     ): ExternalPluginHostActionExecutionResult {
         val suspendedSnapshot = failureGuard.snapshot(
             pluginId = pluginId,
@@ -73,7 +75,7 @@ class ExternalPluginHostActionExecutor(
         }
         return runCatching {
             validate(request = request, context = context)
-            val message = perform(request)
+            val message = perform(request, handlers)
             logBus.publish(
                 PluginRuntimeLogRecord(
                     occurredAtEpochMillis = clock(),
@@ -149,12 +151,15 @@ class ExternalPluginHostActionExecutor(
         }
     }
 
-    private fun perform(request: HostActionRequest): String {
+    private fun perform(
+        request: HostActionRequest,
+        handlers: ExternalPluginHostActionHandlers,
+    ): String {
         return when (request.action) {
             PluginHostAction.SendMessage -> {
                 val text = request.payload["text"].orEmpty().trim()
                 require(text.isNotBlank()) { "Host action SendMessage requires payload.text" }
-                sendMessageHandler(text)
+                handlers.sendMessage(text)
                 text
             }
 
@@ -165,14 +170,14 @@ class ExternalPluginHostActionExecutor(
                     ?.takeIf { it.isNotBlank() }
                     ?: throw IllegalArgumentException("Host action SendNotification requires payload.message")
                 val title = request.payload["title"].orEmpty().ifBlank { "ElymBot" }
-                sendNotificationHandler(title, message)
+                handlers.sendNotification(title, message)
                 "$title: $message"
             }
 
             PluginHostAction.OpenHostPage -> {
                 val route = request.payload["route"].orEmpty().trim()
                 require(route.isNotBlank()) { "Host action OpenHostPage requires payload.route" }
-                openHostPageHandler(route)
+                handlers.openHostPage(route)
                 route
             }
 

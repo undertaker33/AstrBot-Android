@@ -2,6 +2,8 @@ package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
@@ -62,7 +64,8 @@ internal class AppChatRuntimeServiceFactory @Inject constructor(
 }
 
 internal class AppChatPluginCommandServiceFactory @Inject constructor(
-    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val hostCapabilityGateway: PluginHostCapabilityGateway,
+    private val hostActionExecutor: ExternalPluginHostActionExecutor,
     private val dispatchEngine: PluginV2DispatchEngine,
 ) {
     fun create(
@@ -72,7 +75,8 @@ internal class AppChatPluginCommandServiceFactory @Inject constructor(
         return AppChatPluginCommandService(
             dependencies = dependencies,
             appChatPluginRuntime = appChatPluginRuntime,
-            gatewayFactory = gatewayFactory,
+            hostCapabilityGateway = hostCapabilityGateway,
+            hostActionExecutor = hostActionExecutor,
             dispatchEngine = dispatchEngine,
         )
     }

@@ -40,6 +40,7 @@ interface PluginHostCapabilityGateway {
 class DefaultPluginHostCapabilityGateway(
     private val resolver: PluginExecutionHostResolver,
     private val hostActionExecutor: ExternalPluginHostActionExecutor,
+    private val hostActionHandlers: ExternalPluginHostActionHandlers = ExternalPluginHostActionHandlers(),
     private val hostToolHandlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
 ) : PluginHostCapabilityGateway {
 
@@ -52,6 +53,7 @@ class DefaultPluginHostCapabilityGateway(
             pluginId = pluginId,
             request = request,
             context = context,
+            handlers = hostActionHandlers,
         )
     }
 

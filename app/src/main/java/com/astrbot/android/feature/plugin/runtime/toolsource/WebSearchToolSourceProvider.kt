@@ -8,7 +8,7 @@ import com.astrbot.android.core.runtime.network.RuntimeNetworkCapability
 import com.astrbot.android.core.runtime.network.RuntimeNetworkRequest
 import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
 import com.astrbot.android.core.runtime.network.RuntimeTimeoutProfile
-import com.astrbot.android.core.runtime.network.SharedRuntimeNetworkTransport
+import com.astrbot.android.di.hilt.RuntimeNetworkTransportRegistry
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
@@ -31,7 +31,7 @@ import org.jsoup.nodes.Document
 import java.net.URLEncoder
 
 class WebSearchToolSourceProvider(
-    private val transport: RuntimeNetworkTransport = SharedRuntimeNetworkTransport.get(),
+    private val transport: RuntimeNetworkTransport = RuntimeNetworkTransportRegistry.transport(),
 ) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.WEB_SEARCH
 

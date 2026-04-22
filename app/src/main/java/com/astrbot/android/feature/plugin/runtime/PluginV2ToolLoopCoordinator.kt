@@ -18,8 +18,6 @@ internal data class PluginV2ToolLoopRunResult(
 )
 
 internal class PluginV2ToolLoopCoordinator(
-    private val dispatchEngine: PluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
-    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManagerProvider.manager(),
     private val toolExecutor: PluginV2ToolExecutor = PluginV2ToolExecutor { args ->
         PluginToolResult(
             toolCallId = args.toolCallId,
@@ -33,8 +31,23 @@ internal class PluginV2ToolLoopCoordinator(
     private val toolCallIdFactory: () -> String = {
         "tool-call-${System.currentTimeMillis()}-${System.nanoTime()}"
     },
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val activeRuntimeStore: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(
+        logBus = logBus,
+        clock = clock,
+    ),
+    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManager(
+        clock = clock,
+        logBus = logBus,
+        store = activeRuntimeStore,
+    ),
+    private val dispatchEngine: PluginV2DispatchEngine = PluginV2DispatchEngine(
+        clock = clock,
+        logBus = logBus,
+        store = activeRuntimeStore,
+        lifecycleManager = lifecycleManager,
+    ),
 ) {
     suspend fun runToolLoop(
         event: PluginMessageEvent,

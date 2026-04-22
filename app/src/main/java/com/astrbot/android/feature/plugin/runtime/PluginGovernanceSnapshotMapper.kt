@@ -24,11 +24,11 @@ import com.astrbot.android.model.plugin.PluginWorkspaceStateSummary
 object PluginGovernanceSnapshotMapper {
     fun map(
         installRecord: PluginInstallRecord,
-        runtimeSnapshot: PluginV2ActiveRuntimeSnapshot = PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
-        failureSnapshot: PluginFailureSnapshot? = PluginRuntimeFailureStateStoreProvider.store().get(installRecord.pluginId),
+        runtimeSnapshot: PluginV2ActiveRuntimeSnapshot = PluginV2ActiveRuntimeSnapshot(),
+        failureSnapshot: PluginFailureSnapshot? = null,
         lifecycleDiagnostics: List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore.snapshot(),
         clock: () -> Long = System::currentTimeMillis,
-        logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
         publishProjectionLogs: Boolean = true,
     ): PluginGovernanceSnapshot {
         val pluginId = installRecord.pluginId

@@ -126,7 +126,7 @@ class PluginInstaller @Inject constructor(
         installStore: PluginInstallStore,
         remotePackageDownloader: RemotePluginPackageDownloader = UrlConnectionRemotePluginPackageDownloader(),
         clock: () -> Long = System::currentTimeMillis,
-        logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     ) : this(
         validator = validator,
         storagePaths = storagePaths,

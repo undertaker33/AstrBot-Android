@@ -69,7 +69,7 @@ class PluginRuntimeDispatcher(
     private val clock: () -> Long = System::currentTimeMillis,
     internal val scheduler: PluginRuntimeScheduler = PluginRuntimeScheduler(clock = clock),
     internal val policyResolver: (PluginRuntimePlugin, PluginTriggerSource) -> PluginSchedulePolicy = DefaultPluginSchedulePolicyResolver,
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    internal val logBus: PluginRuntimeLogBus = failureGuard.logBus,
 ) {
     fun dispatch(
         trigger: PluginTriggerSource,

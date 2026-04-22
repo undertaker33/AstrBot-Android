@@ -24,7 +24,6 @@ class ExternalPluginHostActionExecutorTest {
         var sentMessage = ""
         val executor = ExternalPluginHostActionExecutor(
             failureGuard = PluginFailureGuard(InMemoryPluginFailureStateStore()),
-            sendMessageHandler = { text -> sentMessage = text },
         )
 
         val result = executor.execute(
@@ -41,6 +40,9 @@ class ExternalPluginHostActionExecutorTest {
                         granted = true,
                     ),
                 ),
+            ),
+            handlers = ExternalPluginHostActionHandlers(
+                sendMessage = { text -> sentMessage = text },
             ),
         )
 

@@ -15,9 +15,61 @@ import com.astrbot.android.core.runtime.container.BridgeCommandRunner
 import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+
+@Singleton
+class RuntimeAssetStateOwner @Inject constructor(
+    @ApplicationContext appContext: Context,
+) {
+    private val runtimeAssetRepository = RuntimeAssetRepository
+    private val ownerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _state = MutableStateFlow(runtimeAssetRepository.state.value)
+
+    init {
+        runtimeAssetRepository.initialize(appContext)
+        ownerScope.launch {
+            runtimeAssetRepository.state.collect { state ->
+                _state.value = state
+            }
+        }
+    }
+
+    val state: StateFlow<RuntimeAssetState> = _state.asStateFlow()
+
+    fun refresh(context: Context) = runtimeAssetRepository.refresh(context)
+
+    suspend fun downloadAsset(context: Context, assetId: String) {
+        runtimeAssetRepository.downloadAsset(context, assetId)
+    }
+
+    suspend fun clearAsset(context: Context, assetId: String) {
+        runtimeAssetRepository.clearAsset(context, assetId)
+    }
+
+    suspend fun downloadOnDeviceTtsModel(context: Context, modelId: String) {
+        runtimeAssetRepository.downloadOnDeviceTtsModel(context, modelId)
+    }
+
+    suspend fun clearOnDeviceTtsModel(context: Context, modelId: String) {
+        runtimeAssetRepository.clearOnDeviceTtsModel(context, modelId)
+    }
+
+    fun ttsAssetState(context: Context): SherpaOnnxAssetManager.TtsAssetState {
+        return runtimeAssetRepository.ttsAssetState(context)
+    }
+
+    fun initialize(context: Context) = runtimeAssetRepository.initialize(context)
+}
 
 object RuntimeAssetRepository {
     private const val STT_DOWNLOAD_TASK_KEY = "asset:stt:paraformer-zh-small-2024-03-09"

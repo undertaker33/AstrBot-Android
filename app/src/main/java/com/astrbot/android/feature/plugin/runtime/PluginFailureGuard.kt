@@ -92,14 +92,24 @@ object PluginRuntimeFailureStateStoreProvider {
     @Volatile
     private var storeOverrideForTests: PluginFailureStateStore? = null
 
+    @Volatile
+    private var installedStore: PluginFailureStateStore? = null
+
     private val persistentStore: PluginFailureStateStore by lazy {
         PersistentPluginFailureStateStore()
     }
 
-    fun store(): PluginFailureStateStore = storeOverrideForTests ?: persistentStore
+    fun store(): PluginFailureStateStore = storeOverrideForTests ?: installedStore ?: persistentStore
+
+    internal fun installFromHilt(store: PluginFailureStateStore) {
+        installedStore = store
+    }
 
     internal fun setStoreOverrideForTests(store: PluginFailureStateStore?) {
         storeOverrideForTests = store
+        if (store == null) {
+            installedStore = null
+        }
     }
 }
 
@@ -153,23 +163,36 @@ object PluginRuntimeScopedFailureStateStoreProvider {
     @Volatile
     private var storeOverrideForTests: PluginScopedFailureStateStore? = null
 
+    @Volatile
+    private var installedStore: PluginScopedFailureStateStore? = null
+
     private val sharedStore: PluginScopedFailureStateStore by lazy {
         InMemoryPluginScopedFailureStateStore()
     }
 
-    fun store(): PluginScopedFailureStateStore = storeOverrideForTests ?: sharedStore
+    fun store(): PluginScopedFailureStateStore = storeOverrideForTests ?: installedStore ?: sharedStore
+
+    internal fun installFromHilt(store: PluginScopedFailureStateStore) {
+        installedStore = store
+    }
 
     internal fun setStoreOverrideForTests(store: PluginScopedFailureStateStore?) {
         storeOverrideForTests = store
+        if (store == null) {
+            installedStore = null
+        }
     }
 }
 
+internal fun compatPluginRuntimeScopedFailureStateStore(): PluginScopedFailureStateStore =
+    PluginRuntimeScopedFailureStateStoreProvider.store()
+
 class PluginFailureGuard(
     private val store: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
-    private val scopedStore: PluginScopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
+    private val scopedStore: PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore(),
     private val policy: PluginFailurePolicy = PluginFailurePolicy(),
     private val clock: () -> Long = System::currentTimeMillis,
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    internal val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
 ) {
     fun snapshot(
         pluginId: String,

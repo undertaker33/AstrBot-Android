@@ -8,9 +8,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 
 class PluginV2LifecycleManager(
-    private val store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStoreProvider.store(),
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    private val store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(
+        logBus = logBus,
+        clock = clock,
+    ),
 ) {
     private val astrbotReady = AtomicBoolean(false)
     private val readyPlatformInstanceKeys = ConcurrentHashMap.newKeySet<String>()
@@ -372,13 +375,29 @@ object PluginV2LifecycleManagerProvider {
     @Volatile
     private var managerOverrideForTests: PluginV2LifecycleManager? = null
 
+    @Volatile
+    private var installedManager: PluginV2LifecycleManager? = null
+
     private val sharedManager: PluginV2LifecycleManager by lazy {
-        PluginV2LifecycleManager()
+        PluginV2LifecycleManager(
+            logBus = PluginRuntimeLogBusProvider.bus(),
+            store = PluginV2ActiveRuntimeStoreProvider.store(),
+        )
     }
 
-    fun manager(): PluginV2LifecycleManager = managerOverrideForTests ?: sharedManager
+    fun manager(): PluginV2LifecycleManager = managerOverrideForTests ?: installedManager ?: sharedManager
+
+    internal fun installFromHilt(manager: PluginV2LifecycleManager) {
+        installedManager = manager
+    }
 
     internal fun setManagerOverrideForTests(manager: PluginV2LifecycleManager?) {
         managerOverrideForTests = manager
+        if (manager == null) {
+            installedManager = null
+        }
     }
 }
+
+internal fun compatPluginV2LifecycleManager(): PluginV2LifecycleManager =
+    PluginV2LifecycleManagerProvider.manager()

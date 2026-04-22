@@ -14,6 +14,7 @@ import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
+import com.astrbot.android.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -288,6 +289,7 @@ class ProviderViewModelTest {
         private val onSynthesizeSpeech: () -> Unit = {},
     ) : ProviderRuntimePort {
         val probedProviders = mutableListOf<String>()
+        override val voiceAssets: StateFlow<List<TtsVoiceReferenceAsset>> = MutableStateFlow(emptyList())
 
         override fun fetchModels(provider: ProviderProfile): List<String> {
             onFetchModels()
@@ -311,6 +313,32 @@ class ProviderViewModelTest {
         override fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
 
         override fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>> = emptyList()
+
+        override fun importReferenceAudio(
+            context: android.content.Context,
+            sourceUri: android.net.Uri,
+            name: String,
+            assetId: String?,
+        ): com.astrbot.android.feature.provider.runtime.VoiceAssetImportResult {
+            error("Not needed in test")
+        }
+
+        override fun saveVoiceBinding(
+            assetId: String,
+            providerId: String,
+            providerType: ProviderType,
+            model: String,
+            voiceId: String,
+            displayName: String,
+        ) = Unit
+
+        override fun renameVoiceBinding(assetId: String, bindingId: String, displayName: String) = Unit
+
+        override fun clearReferenceAudio(assetId: String) = Unit
+
+        override fun deleteReferenceClip(assetId: String, clipId: String) = Unit
+
+        override fun deleteVoiceBinding(assetId: String, bindingId: String) = Unit
 
         override fun ttsAssetState(context: android.content.Context): com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager.TtsAssetState {
             error("Not needed in test")

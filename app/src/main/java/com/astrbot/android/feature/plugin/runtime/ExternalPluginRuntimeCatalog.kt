@@ -2,56 +2,83 @@
 
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
+import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
 import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallState
 import com.astrbot.android.model.plugin.PluginInstallStatus
 
-object ExternalPluginRuntimeCatalog {
-    fun plugins(
-        records: List<PluginInstallRecord> = FeaturePluginRepository.records.value,
-        binder: ExternalPluginRuntimeBinder = ExternalPluginRuntimeBinder(),
-        bridgeRuntime: ExternalPluginBridgeRuntime = ExternalPluginBridgeRuntime(),
-    ): List<PluginRuntimePlugin> {
-        return records.mapNotNull { record ->
-            createRuntimePlugin(
-                record = record,
-                binder = binder,
-                bridgeRuntime = bridgeRuntime,
-            )
-        }
+class ExternalPluginRuntimeCatalog(
+    private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
+    private val binderFactory: () -> ExternalPluginRuntimeBinder = { ExternalPluginRuntimeBinder() },
+    private val bridgeRuntimeFactory: () -> ExternalPluginBridgeRuntime = { ExternalPluginBridgeRuntime() },
+) {
+    fun plugins(): List<PluginRuntimePlugin> {
+        return Companion.plugins(
+            records = repositoryStatePort.records.value,
+            binder = binderFactory(),
+            bridgeRuntime = bridgeRuntimeFactory(),
+        )
     }
 
-    fun createRuntimePlugin(
-        record: PluginInstallRecord,
-        binder: ExternalPluginRuntimeBinder = ExternalPluginRuntimeBinder(),
-        bridgeRuntime: ExternalPluginBridgeRuntime = ExternalPluginBridgeRuntime(),
-    ): PluginRuntimePlugin? {
-        if (record.packageContractSnapshot?.protocolVersion == 2) {
-            return null
-        }
-        val binding = binder.bind(record)
-        if (!binding.isReady) {
-            return null
-        }
-        val supportedTriggers = binding.contract
-            ?.supportedTriggers
-            ?.filter(ExternalPluginTriggerPolicy::isOpen)
-            ?.toSet()
-            .orEmpty()
-        if (supportedTriggers.isEmpty()) {
-            return null
-        }
-        return PluginRuntimePlugin(
-            pluginId = record.pluginId,
-            pluginVersion = record.installedVersion,
-            installState = record.toRuntimeInstallState(),
-            supportedTriggers = supportedTriggers,
-            handler = PluginRuntimeHandler { context ->
-                bridgeRuntime.execute(binding = binding, context = context)
-            },
+    fun createRuntimePlugin(record: PluginInstallRecord): PluginRuntimePlugin? {
+        return Companion.createRuntimePlugin(
+            record = record,
+            binder = binderFactory(),
+            bridgeRuntime = bridgeRuntimeFactory(),
         )
+    }
+
+    companion object {
+        fun plugins(): List<PluginRuntimePlugin> {
+            return ExternalPluginRuntimeCatalog().plugins()
+        }
+
+        fun plugins(
+            records: List<PluginInstallRecord>,
+            binder: ExternalPluginRuntimeBinder = ExternalPluginRuntimeBinder(),
+            bridgeRuntime: ExternalPluginBridgeRuntime = ExternalPluginBridgeRuntime(),
+        ): List<PluginRuntimePlugin> {
+            return records.mapNotNull { record ->
+                createRuntimePlugin(
+                    record = record,
+                    binder = binder,
+                    bridgeRuntime = bridgeRuntime,
+                )
+            }
+        }
+
+        fun createRuntimePlugin(
+            record: PluginInstallRecord,
+            binder: ExternalPluginRuntimeBinder = ExternalPluginRuntimeBinder(),
+            bridgeRuntime: ExternalPluginBridgeRuntime = ExternalPluginBridgeRuntime(),
+        ): PluginRuntimePlugin? {
+            if (record.packageContractSnapshot?.protocolVersion == 2) {
+                return null
+            }
+            val binding = binder.bind(record)
+            if (!binding.isReady) {
+                return null
+            }
+            val supportedTriggers = binding.contract
+                ?.supportedTriggers
+                ?.filter(ExternalPluginTriggerPolicy::isOpen)
+                ?.toSet()
+                .orEmpty()
+            if (supportedTriggers.isEmpty()) {
+                return null
+            }
+            return PluginRuntimePlugin(
+                pluginId = record.pluginId,
+                pluginVersion = record.installedVersion,
+                installState = record.toRuntimeInstallState(),
+                supportedTriggers = supportedTriggers,
+                handler = PluginRuntimeHandler { context ->
+                    bridgeRuntime.execute(binding = binding, context = context)
+                },
+            )
+        }
     }
 }
 

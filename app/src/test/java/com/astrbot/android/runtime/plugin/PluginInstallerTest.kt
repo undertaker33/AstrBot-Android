@@ -105,6 +105,7 @@ class PluginInstallerTest {
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 clock = { 321L },
+                logBus = bus,
             )
             val candidate = createPluginPackage(
                 directory = tempDir,
@@ -144,6 +145,7 @@ class PluginInstallerTest {
                 storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
                 installStore = PluginRepository,
                 clock = { 322L },
+                logBus = bus,
             )
             val candidate = createPluginPackage(
                 directory = tempDir,

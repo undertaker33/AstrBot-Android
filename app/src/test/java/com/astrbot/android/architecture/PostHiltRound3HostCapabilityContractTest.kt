@@ -124,21 +124,153 @@ class PostHiltRound3HostCapabilityContractTest {
     }
 
     @Test
-    fun plugin_view_model_entry_click_path_must_thread_hilt_log_bus_into_runtime_engine() {
-        val vm = mainRoot.resolve("feature/plugin/presentation/PluginViewModel.kt")
-            .readText()
-            .replace("\r\n", "\n")
+    fun plugin_view_model_entry_click_path_must_use_entry_execution_service() {
+        val vm = mainRoot.resolve("feature/plugin/presentation/PluginViewModel.kt").readText()
         assertTrue(
-            "PluginViewModel entry click path must pass bindings.logBus into PluginRuntimeDispatcher",
-            Regex(
-                """dispatcher\s*=\s*PluginRuntimeDispatcher\(\s*failureGuard,\s*logBus\s*=\s*bindings\.logBus,\s*\)""",
-            ).containsMatchIn(vm),
+            "PluginViewModel must depend on PluginEntryExecutionService for entry clicks",
+            vm.contains("PluginEntryExecutionService"),
         )
         assertTrue(
-            "PluginViewModel entry click path must pass bindings.logBus into PluginExecutionEngine",
-            Regex(
-                """failureGuard\s*=\s*failureGuard,\s*logBus\s*=\s*bindings\.logBus,""",
-            ).containsMatchIn(vm),
+            "PluginViewModel must not keep PluginHostCapabilityGatewayFactory on the production entry-click path",
+            !vm.contains("PluginHostCapabilityGatewayFactory"),
+        )
+        assertTrue(
+            "PluginViewModel must invoke entryExecutionService.execute(...)",
+            vm.contains("entryExecutionService.execute("),
+        )
+        assertTrue(
+            "PluginViewModel must not direct-new PluginFailureGuard in the entry click path",
+            !vm.contains("PluginFailureGuard("),
+        )
+        assertTrue(
+            "PluginViewModel must not direct-new PluginRuntimeDispatcher in the entry click path",
+            !vm.contains("PluginRuntimeDispatcher("),
+        )
+        assertTrue(
+            "PluginViewModel must not direct-new PluginExecutionEngine in the entry click path",
+            !vm.contains("PluginExecutionEngine("),
+        )
+    }
+
+    @Test
+    fun qq_plugin_dispatch_service_must_use_execution_service_instead_of_direct_new_runtime_graph() {
+        val qqDispatchService = mainRoot.resolve("feature/qq/runtime/QqPluginDispatchService.kt").readText()
+        assertTrue(
+            "QqPluginDispatchService must depend on QqPluginExecutionService",
+            qqDispatchService.contains("QqPluginExecutionService"),
+        )
+        assertTrue(
+            "QqPluginDispatchService must not default-new QqPluginExecutionService inside its constructor",
+            !qqDispatchService.contains(
+                "private val executionService: QqPluginExecutionService = QqPluginExecutionService(",
+            ),
+        )
+        assertTrue(
+            "QqPluginDispatchService must not direct-new PluginFailureGuard",
+            !qqDispatchService.contains("PluginFailureGuard("),
+        )
+        assertTrue(
+            "QqPluginDispatchService must not direct-new PluginRuntimeDispatcher",
+            !qqDispatchService.contains("PluginRuntimeDispatcher("),
+        )
+        assertTrue(
+            "QqPluginDispatchService must not direct-new PluginExecutionEngine",
+            !qqDispatchService.contains("PluginExecutionEngine("),
+        )
+        assertTrue(
+            "QqPluginDispatchService must not create host capability gateways at call sites",
+            !qqDispatchService.contains("gatewayFactory.create("),
+        )
+    }
+
+    @Test
+    fun app_chat_plugin_command_service_must_not_use_compat_or_call_site_gateway_factory_entries() {
+        val appChatCommandService = mainRoot.resolve("feature/chat/runtime/AppChatPluginCommandService.kt").readText()
+        assertTrue(
+            "AppChatPluginCommandService must not use createCompatPluginHostCapabilityGatewayFactory()",
+            !appChatCommandService.contains("createCompatPluginHostCapabilityGatewayFactory("),
+        )
+        assertTrue(
+            "AppChatPluginCommandService must not create host capability gateways at call sites",
+            !appChatCommandService.contains("gatewayFactory.create("),
+        )
+    }
+
+    @Test
+    fun round3_completed_host_capability_mainlines_must_stay_free_of_transition_helpers() {
+        val closedMainlines = listOf(
+            "feature/chat/presentation/ChatViewModel.kt",
+            "feature/chat/runtime/AppChatPluginCommandService.kt",
+            "feature/plugin/presentation/PluginViewModel.kt",
+            "feature/qq/runtime/QqOneBotBridgeServer.kt",
+            "feature/qq/runtime/QqOneBotRuntimeGraph.kt",
+            "feature/qq/runtime/QqPluginDispatchService.kt",
+        )
+        val transitionTokens = listOf(
+            "PluginRuntimeDependencyBridge.",
+            "PluginRuntimeLogBusProvider.",
+            "createCompatPluginHostCapabilityGatewayFactory(",
+            "createCompatPluginHostCapabilityGateway(",
+        )
+
+        val violations = buildList {
+            closedMainlines.forEach { relativePath ->
+                val text = mainRoot.resolve(relativePath).readText()
+                transitionTokens.forEach { token ->
+                    if (text.contains(token)) {
+                        add("$relativePath -> $token")
+                    }
+                }
+            }
+        }
+
+        assertTrue(
+            "Round-3 completed host-capability mainlines must stay free of transition helper tokens: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun chat_view_model_secondary_constructors_must_not_route_through_compat_runtime() {
+        val chatViewModel = mainRoot.resolve("feature/chat/presentation/ChatViewModel.kt").readText()
+        assertTrue(
+            "ChatViewModel must not call compatAppChatPluginRuntime() from production secondary constructors",
+            !chatViewModel.contains("compatAppChatPluginRuntime()"),
+        )
+        assertTrue(
+            "ChatViewModel secondary constructors must source runtime from bindings",
+            chatViewModel.contains("dependencies.defaultAppChatPluginRuntime"),
+        )
+    }
+
+    @Test
+    fun app_chat_plugin_runtime_and_runtime_services_must_not_expose_compat_runtime_mainline() {
+        val runtime = mainRoot.resolve("feature/plugin/runtime/AppChatPluginRuntime.kt").readText()
+        assertTrue(
+            "Production AppChatPluginRuntime.kt must not declare DefaultAppChatPluginRuntime",
+            !runtime.contains("DefaultAppChatPluginRuntime"),
+        )
+        assertTrue(
+            "Production AppChatPluginRuntime.kt must not declare compatAppChatPluginRuntime()",
+            !runtime.contains("compatAppChatPluginRuntime("),
+        )
+        assertTrue(
+            "Production AppChatPluginRuntime.kt must not declare compatAppChatLlmPipelineRuntime()",
+            !runtime.contains("compatAppChatLlmPipelineRuntime("),
+        )
+        assertTrue(
+            "Production AppChatPluginRuntime.kt must not keep AppChatPluginRuntimeCompatLocator",
+            !runtime.contains("AppChatPluginRuntimeCompatLocator"),
+        )
+        assertTrue(
+            "Production AppChatPluginRuntime.kt must not keep fallback runtime creation",
+            !runtime.contains("createFallbackRuntime("),
+        )
+
+        val runtimeServices = mainRoot.resolve("di/hilt/RuntimeServicesModule.kt").readText()
+        assertTrue(
+            "RuntimeServicesModule must not install Hilt runtime into a compat locator",
+            !runtimeServices.contains("AppChatPluginRuntimeCompatLocator.installFromHilt("),
         )
     }
 

@@ -69,11 +69,10 @@ internal class QqOneBotRuntimeGraph(
             replySender = replySender,
             profileResolver = profileResolver,
             resolvePluginPrivateRootPath = resolvePluginPrivateRootPath,
-            gatewayFactory = gatewayFactory,
+            hostCapabilityGateway = dependencies.hostCapabilityGateway,
+            hostActionExecutor = dependencies.hostActionExecutor,
             dispatchEngine = dependencies.pluginV2DispatchEngine,
-            failureStateStore = dependencies.failureStateStore,
-            scopedFailureStateStore = dependencies.scopedFailureStateStore,
-            logBus = dependencies.logBus,
+            executionService = dependencies.pluginExecutionService,
             log = log,
         )
     }
@@ -118,6 +117,7 @@ internal class QqOneBotRuntimeGraph(
             pluginDispatchService = pluginDispatchService,
             streamingReplyService = streamingReplyService,
             gatewayFactory = gatewayFactory,
+            executeLegacyPluginsDuringLlmDispatch = dependencies.executeLegacyPluginsDuringLlmDispatch,
             log = log,
         )
     }

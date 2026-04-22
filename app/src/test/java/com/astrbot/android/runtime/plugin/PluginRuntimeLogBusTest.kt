@@ -190,7 +190,6 @@ class PluginRuntimeLogBusTest {
                 logBus = bus,
             ),
             logBus = bus,
-            sendMessageHandler = {},
         )
         val successContext = executionContextFor(runtimePlugin("plugin.message")).copy(
             permissionSnapshot = listOf(
@@ -210,6 +209,9 @@ class PluginRuntimeLogBusTest {
                 payload = mapOf("text" to "hello"),
             ),
             context = successContext,
+            handlers = ExternalPluginHostActionHandlers(
+                sendMessage = {},
+            ),
         )
         executor.execute(
             pluginId = "plugin.message",
@@ -335,7 +337,7 @@ class PluginRuntimeLogBusTest {
                         )
                     }
                 },
-                snapshot = phase5SnapshotOf(fixture),
+                snapshot = phase5SnapshotOf(fixture, logBus = bus),
             )
 
             assertEquals("final assistant after tool", result.sendableResult.text)
@@ -506,9 +508,16 @@ class PluginRuntimeLogBusTest {
         )
     }
 
-    private fun phase5SnapshotOf(fixture: Phase5RuntimeFixture): PluginV2ActiveRuntimeSnapshot {
+    private fun phase5SnapshotOf(
+        fixture: Phase5RuntimeFixture,
+        logBus: PluginRuntimeLogBus,
+    ): PluginV2ActiveRuntimeSnapshot {
         val sessionsByPluginId = mapOf(fixture.session.pluginId to fixture.session)
-        val toolState = compileCentralizedToolState(sessionsByPluginId)
+        val toolState = compileCentralizedToolState(
+            sessionsByPluginId = sessionsByPluginId,
+            logBus = logBus,
+            clock = { 5_000L },
+        )
         return PluginV2ActiveRuntimeSnapshot(
             activeRuntimeEntriesByPluginId = mapOf(fixture.session.pluginId to fixture.entry),
             activeSessionsByPluginId = sessionsByPluginId,

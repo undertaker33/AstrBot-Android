@@ -20,7 +20,7 @@ data class PluginV2BootstrapPluginMetadata(
 
 class PluginV2BootstrapHostApi(
     private val session: PluginV2RuntimeSession,
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun registerMessageHandler(

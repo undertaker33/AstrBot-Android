@@ -12,7 +12,7 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
 
-private const val V2_RUNTIME_PACKAGE = "com.astrbot.android.runtime.plugin"
+private const val V2_RUNTIME_PACKAGE = "com.astrbot.android.feature.plugin.runtime"
 
 internal fun pluginV2Class(simpleName: String): Class<*> {
     return Class.forName("$V2_RUNTIME_PACKAGE.$simpleName")

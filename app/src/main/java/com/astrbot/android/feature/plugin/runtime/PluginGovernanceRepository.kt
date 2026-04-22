@@ -2,16 +2,22 @@
 
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
+import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
 import com.astrbot.android.model.plugin.PluginDiagnosticsSummary
+import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnostic
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnosticsStore
+import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 import com.astrbot.android.model.plugin.PluginSuspensionState
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 
 enum class PluginGovernanceRecoveryStatus {
     IDLE,
@@ -41,19 +47,40 @@ data class PluginGovernanceReadModel(
 )
 
 class PluginGovernanceRepository(
-    private val installRecordsFlow: Flow<List<PluginInstallRecord>> = FeaturePluginRepository.records,
-    private val findInstallRecord: (String) -> PluginInstallRecord? = FeaturePluginRepository::findByPluginId,
-    private val runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot = { PluginV2ActiveRuntimeStoreProvider.store().snapshot() },
-    private val failureStateStore: PluginFailureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
+    private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
+    private val runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot = { PluginV2ActiveRuntimeSnapshot() },
+    private val failureStateStore: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
     private val diagnosticsSnapshotProvider: () -> List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore::snapshot,
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    private val installRecordsFlow: Flow<List<PluginInstallRecord>> = repositoryStatePort.records
+
+    constructor(
+        installRecordsFlow: Flow<List<PluginInstallRecord>> = flowOf(emptyList()),
+        findInstallRecord: (String) -> PluginInstallRecord?,
+        runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot = { PluginV2ActiveRuntimeSnapshot() },
+        failureStateStore: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
+        diagnosticsSnapshotProvider: () -> List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore::snapshot,
+        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+        clock: () -> Long = System::currentTimeMillis,
+    ) : this(
+        repositoryStatePort = ClosurePluginRepositoryStatePort(
+            installRecordsFlow = installRecordsFlow,
+            findInstallRecord = findInstallRecord,
+        ),
+        runtimeSnapshotProvider = runtimeSnapshotProvider,
+        failureStateStore = failureStateStore,
+        diagnosticsSnapshotProvider = diagnosticsSnapshotProvider,
+        logBus = logBus,
+        clock = clock,
+    )
+
     fun get(
         pluginId: String,
         logLimit: Int = 20,
     ): PluginGovernanceReadModel? {
-        val installRecord = findInstallRecord(pluginId) ?: return null
+        val installRecord = repositoryStatePort.findByPluginId(pluginId) ?: return null
         return buildReadModel(
             installRecord = installRecord,
             logLimit = logLimit,
@@ -65,7 +92,7 @@ class PluginGovernanceRepository(
         pluginId: String,
         logLimit: Int = 20,
     ): PluginGovernanceReadModel? {
-        val installRecord = findInstallRecord(pluginId) ?: return null
+        val installRecord = repositoryStatePort.findByPluginId(pluginId) ?: return null
         return buildReadModel(
             installRecord = installRecord,
             logLimit = logLimit,
@@ -128,6 +155,18 @@ class PluginGovernanceRepository(
             ),
         )
     }
+}
+
+private class ClosurePluginRepositoryStatePort(
+    installRecordsFlow: Flow<List<PluginInstallRecord>>,
+    private val findInstallRecord: (String) -> PluginInstallRecord?,
+) : PluginRepositoryStatePort {
+    override val records: StateFlow<List<PluginInstallRecord>> =
+        installRecordsFlow as? StateFlow<List<PluginInstallRecord>> ?: MutableStateFlow(emptyList())
+    override val repositorySources: StateFlow<List<PluginRepositorySource>> = MutableStateFlow(emptyList())
+    override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = MutableStateFlow(emptyList())
+
+    override fun findByPluginId(pluginId: String): PluginInstallRecord? = findInstallRecord(pluginId)
 }
 
 @Suppress("UNUSED_PARAMETER")

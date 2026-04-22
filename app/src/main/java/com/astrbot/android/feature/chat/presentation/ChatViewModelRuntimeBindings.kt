@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 interface ChatViewModelRuntimeBindings {
     val defaultSessionId: String
     val defaultSessionTitle: String
+    val defaultAppChatPluginRuntime: AppChatPluginRuntime
     val bots: StateFlow<List<BotProfile>>
     val selectedBotId: StateFlow<String>
     val providers: StateFlow<List<ProviderProfile>>

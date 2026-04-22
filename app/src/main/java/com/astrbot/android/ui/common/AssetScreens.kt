@@ -91,15 +91,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.AppLanguage
 import com.astrbot.android.data.AppPreferencesRepository
-import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
 import com.astrbot.android.data.RuntimeCacheRepository
-import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.ThemeMode
-import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
 import com.astrbot.android.core.runtime.audio.VoiceCloneService
+import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
 import com.astrbot.android.model.displayLabel
 import com.astrbot.android.model.ClonedVoiceBinding
 import com.astrbot.android.model.ProviderProfile
@@ -115,14 +114,76 @@ import com.astrbot.android.ui.viewmodel.RuntimeAssetViewModel
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
 
+@HiltViewModel
+class AssetScreenBindingsViewModel @Inject constructor(
+    private val providerRuntimePort: ProviderRuntimePort,
+) : ViewModel() {
+    val providerOptions: StateFlow<List<ProviderProfile>> = providerRuntimePort.providers
+    val voiceAssets: StateFlow<List<TtsVoiceReferenceAsset>> = providerRuntimePort.voiceAssets
+
+    fun ttsAssetState(context: android.content.Context) = providerRuntimePort.ttsAssetState(context)
+
+    fun importReferenceAudio(
+        context: android.content.Context,
+        sourceUri: Uri,
+        name: String = "",
+        assetId: String? = null,
+    ) = providerRuntimePort.importReferenceAudio(
+        context = context,
+        sourceUri = sourceUri,
+        name = name,
+        assetId = assetId,
+    )
+
+    fun saveVoiceBinding(
+        assetId: String,
+        providerId: String,
+        providerType: ProviderType,
+        model: String,
+        voiceId: String,
+        displayName: String,
+    ) {
+        providerRuntimePort.saveVoiceBinding(
+            assetId = assetId,
+            providerId = providerId,
+            providerType = providerType,
+            model = model,
+            voiceId = voiceId,
+            displayName = displayName,
+        )
+    }
+
+    fun renameVoiceBinding(assetId: String, bindingId: String, displayName: String) {
+        providerRuntimePort.renameVoiceBinding(
+            assetId = assetId,
+            bindingId = bindingId,
+            displayName = displayName,
+        )
+    }
+
+    fun clearReferenceAudio(assetId: String) {
+        providerRuntimePort.clearReferenceAudio(assetId)
+    }
+
+    fun deleteReferenceClip(assetId: String, clipId: String) {
+        providerRuntimePort.deleteReferenceClip(assetId, clipId)
+    }
+
+    fun deleteVoiceBinding(assetId: String, bindingId: String) {
+        providerRuntimePort.deleteVoiceBinding(assetId, bindingId)
+    }
+}
 
 @Composable
 fun AssetManagementScreen(
@@ -188,18 +249,19 @@ fun AssetDetailScreen(
     assetId: String,
     onBack: () -> Unit,
     assetViewModel: RuntimeAssetViewModel = hiltViewModel(),
+    assetBindingsViewModel: AssetScreenBindingsViewModel = hiltViewModel(),
 ) {
     val assetState by assetViewModel.state.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val providerOptions by ProviderRepository.providers.collectAsState()
-    val voiceAssets by TtsVoiceAssetRepository.assets.collectAsState()
+    val providerOptions by assetBindingsViewModel.providerOptions.collectAsState()
+    val voiceAssets by assetBindingsViewModel.voiceAssets.collectAsState()
     val resolvedAsset = assetState.assets.firstOrNull { it.catalog.id.value == assetId }
         ?: assetState.assets.firstOrNull()
         ?: return
     val ttsAssetState = remember(assetState.assets, assetId) {
         if (resolvedAsset.catalog.id == RuntimeAssetId.ON_DEVICE_TTS) {
-            RuntimeAssetRepository.ttsAssetState(context)
+            assetBindingsViewModel.ttsAssetState(context)
         } else {
             null
         }
@@ -238,7 +300,7 @@ fun AssetDetailScreen(
                 isImportingReferenceAudio = true
                 val result = runCatching {
                     withContext(Dispatchers.IO) {
-                        TtsVoiceAssetRepository.importReferenceAudio(
+                        assetBindingsViewModel.importReferenceAudio(
                             context = context,
                             sourceUri = resolvedUri,
                             assetId = targetAssetId,
@@ -321,7 +383,7 @@ fun AssetDetailScreen(
                             isImportingReferenceAudio = true
                             val result = runCatching {
                                 withContext(Dispatchers.IO) {
-                                    TtsVoiceAssetRepository.importReferenceAudio(
+                                    assetBindingsViewModel.importReferenceAudio(
                                         context = context,
                                         sourceUri = importUri,
                                         name = referenceName,
@@ -365,7 +427,7 @@ fun AssetDetailScreen(
                                         )
                                     }
                                 }.onSuccess { voiceId ->
-                                    TtsVoiceAssetRepository.saveProviderBinding(
+                                    assetBindingsViewModel.saveVoiceBinding(
                                         assetId = asset.id,
                                         providerId = provider.id,
                                         providerType = provider.providerType,
@@ -393,8 +455,8 @@ fun AssetDetailScreen(
                         pendingImportAssetId = assetId
                         referenceAudioPicker.launch(arrayOf("audio/*"))
                     },
-                    onClearReferenceAudio = { assetId -> TtsVoiceAssetRepository.clearReferenceAudio(assetId) },
-                    onDeleteReferenceClip = { assetId, clipId -> TtsVoiceAssetRepository.deleteReferenceClip(assetId, clipId) },
+                    onClearReferenceAudio = { assetId -> assetBindingsViewModel.clearReferenceAudio(assetId) },
+                    onDeleteReferenceClip = { assetId, clipId -> assetBindingsViewModel.deleteReferenceClip(assetId, clipId) },
                     onStartRenameBinding = { bindingId, displayName ->
                         renamingBindingId = bindingId
                         renamingBindingName = displayName
@@ -404,7 +466,7 @@ fun AssetDetailScreen(
                         renamingBindingName = ""
                     },
                     onSaveRenameBinding = { assetId, bindingId ->
-                        TtsVoiceAssetRepository.renameBinding(
+                        assetBindingsViewModel.renameVoiceBinding(
                             assetId = assetId,
                             bindingId = bindingId,
                             displayName = renamingBindingName,
@@ -412,7 +474,7 @@ fun AssetDetailScreen(
                         renamingBindingId = ""
                         renamingBindingName = ""
                     },
-                    onDeleteBinding = { assetId, bindingId -> TtsVoiceAssetRepository.deleteBinding(assetId, bindingId) },
+                    onDeleteBinding = { assetId, bindingId -> assetBindingsViewModel.deleteVoiceBinding(assetId, bindingId) },
                 )
             }
             if (false && resolvedAsset.catalog.id == RuntimeAssetId.TTS_VOICE_ASSETS) {
@@ -464,7 +526,7 @@ fun AssetDetailScreen(
                                         isImportingReferenceAudio = true
                                         val result = runCatching {
                                             withContext(Dispatchers.IO) {
-                                                TtsVoiceAssetRepository.importReferenceAudio(
+                                                assetBindingsViewModel.importReferenceAudio(
                                                     context = context,
                                                     sourceUri = importUri,
                                                     name = referenceName,
@@ -569,7 +631,7 @@ fun AssetDetailScreen(
                                                     )
                                                 }
                                             }.onSuccess { voiceId ->
-                                                TtsVoiceAssetRepository.saveProviderBinding(
+                                                assetBindingsViewModel.saveVoiceBinding(
                                                     assetId = asset.id,
                                                     providerId = provider.id,
                                                     providerType = provider.providerType,
@@ -689,7 +751,7 @@ fun AssetDetailScreen(
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
                                         )
                                     }
-                                    TextButton(onClick = { TtsVoiceAssetRepository.deleteReferenceClip(asset.id, clip.id) }) {
+                                    TextButton(onClick = { assetBindingsViewModel.deleteReferenceClip(asset.id, clip.id) }) {
                                         Text(stringResource(R.string.voice_asset_remove_clip_action))
                                     }
                                 }
@@ -719,7 +781,7 @@ fun AssetDetailScreen(
                                             ) {
                                                 Button(
                                                     onClick = {
-                                                        TtsVoiceAssetRepository.renameBinding(
+                                                        assetBindingsViewModel.renameVoiceBinding(
                                                             assetId = asset.id,
                                                             bindingId = binding.id,
                                                             displayName = renamingBindingName,
@@ -762,7 +824,7 @@ fun AssetDetailScreen(
                                                     ) {
                                                         Text(stringResource(R.string.voice_asset_rename_action))
                                                     }
-                                                    TextButton(onClick = { TtsVoiceAssetRepository.deleteBinding(asset.id, binding.id) }) {
+                                                    TextButton(onClick = { assetBindingsViewModel.deleteVoiceBinding(asset.id, binding.id) }) {
                                                         Text(stringResource(R.string.common_delete))
                                                     }
                                                 }
@@ -780,7 +842,7 @@ fun AssetDetailScreen(
                             ) {
                                 Text(stringResource(R.string.voice_asset_add_clip_action))
                             }
-                            OutlinedButton(onClick = { TtsVoiceAssetRepository.clearReferenceAudio(asset.id) }) {
+                            OutlinedButton(onClick = { assetBindingsViewModel.clearReferenceAudio(asset.id) }) {
                                 Text(stringResource(R.string.voice_asset_clear_reference_action))
                             }
                         }

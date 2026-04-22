@@ -53,25 +53,44 @@ object PluginV2DispatchEngineProvider {
     @Volatile
     private var engineOverrideForTests: PluginV2DispatchEngine? = null
 
+    @Volatile
+    private var installedEngine: PluginV2DispatchEngine? = null
+
     private val sharedEngine: PluginV2DispatchEngine by lazy {
-        PluginV2DispatchEngine()
+        PluginV2DispatchEngine(
+            logBus = PluginRuntimeLogBusProvider.bus(),
+            store = PluginV2ActiveRuntimeStoreProvider.store(),
+            lifecycleManager = compatPluginV2LifecycleManager(),
+        )
     }
 
-    fun engine(): PluginV2DispatchEngine = engineOverrideForTests ?: sharedEngine
+    fun engine(): PluginV2DispatchEngine = engineOverrideForTests ?: installedEngine ?: sharedEngine
+
+    internal fun installFromHilt(engine: PluginV2DispatchEngine) {
+        installedEngine = engine
+    }
 
     internal fun setEngineOverrideForTests(engine: PluginV2DispatchEngine?) {
         engineOverrideForTests = engine
+        if (engine == null) {
+            installedEngine = null
+        }
     }
 }
 
+internal fun compatPluginV2DispatchEngine(): PluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine()
+
 class PluginV2DispatchEngine(
-    private val store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStoreProvider.store(),
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
     private val clock: () -> Long = System::currentTimeMillis,
-    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManager(
-        store = store,
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    private val store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(
         logBus = logBus,
         clock = clock,
+    ),
+    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManager(
+        clock = clock,
+        logBus = logBus,
+        store = store,
     ),
     private val filterEvaluator: PluginV2FilterEvaluator = PluginV2FilterEvaluator(
         logBus = logBus,

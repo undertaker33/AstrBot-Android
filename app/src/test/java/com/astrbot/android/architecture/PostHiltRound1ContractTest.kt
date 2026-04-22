@@ -13,6 +13,12 @@ class PostHiltRound1ContractTest {
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val contractDoc: Path = projectRoot.resolve("docs/architecture/post-hilt-a-round1-contract.md")
+    private val deferredCompletionStatePaths = setOf(
+        "feature/plugin/presentation/PluginRuntimeLogScreen.kt",
+        "feature/plugin/runtime/PluginGovernanceRepository.kt",
+        "feature/plugin/runtime/PluginGovernanceSnapshotMapper.kt",
+        "feature/plugin/runtime/PluginInstaller.kt",
+    )
 
     @Test
     fun round1_contract_doc_must_exist_and_record_scope_rules_and_debts() {
@@ -91,14 +97,9 @@ class PostHiltRound1ContractTest {
             ),
             "PluginRuntimeFailureStateStoreProvider" to setOf(
                 "di/hilt/PluginRuntimeModule.kt",
-                "di/hilt/ViewModelDependencyModule.kt",
-                "feature/plugin/presentation/PluginViewModel.kt",
-                "feature/plugin/runtime/AppChatPluginRuntime.kt",
-                "feature/plugin/runtime/ExternalPluginHostActionExecutor.kt",
                 "feature/plugin/runtime/PluginFailureGuard.kt",
                 "feature/plugin/runtime/PluginGovernanceRepository.kt",
                 "feature/plugin/runtime/PluginGovernanceSnapshotMapper.kt",
-                "feature/qq/runtime/QqPluginDispatchService.kt",
             ),
             "PluginRuntimeScopedFailureStateStoreProvider" to setOf(
                 "di/hilt/PluginRuntimeModule.kt",
@@ -106,56 +107,46 @@ class PostHiltRound1ContractTest {
             ),
             "PluginRuntimeLogBusProvider" to setOf(
                 "di/hilt/PluginRuntimeModule.kt",
-                "di/hilt/ViewModelDependencyModule.kt",
                 "feature/plugin/presentation/PluginRuntimeLogScreen.kt",
-                "feature/plugin/runtime/PluginFailureGuard.kt",
-                "feature/plugin/runtime/PluginRuntimeLogBus.kt",
-                "feature/plugin/runtime/PluginV2ActiveRuntimeStore.kt",
-                "feature/plugin/runtime/PluginV2DispatchEngine.kt",
-                "feature/plugin/runtime/PluginV2LifecycleManager.kt",
-                "feature/plugin/runtime/PluginV2LlmPipelineCoordinator.kt",
-                "feature/plugin/runtime/PluginV2RuntimeLoader.kt",
-                "feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt",
-                "feature/plugin/runtime/PluginV2ToolRegistry.kt",
-                "feature/plugin/runtime/PluginV2RegistryCompiler.kt",
-                "feature/plugin/runtime/PluginV2BootstrapHostApi.kt",
-                "feature/plugin/runtime/PluginV2FilterEvaluator.kt",
-                "feature/plugin/runtime/PluginExecutionEngine.kt",
-                "feature/plugin/runtime/PluginExecutionResultMerger.kt",
+                "feature/plugin/runtime/catalog/PluginCatalogSynchronizer.kt",
                 "feature/plugin/runtime/PluginGovernanceRepository.kt",
                 "feature/plugin/runtime/PluginGovernanceSnapshotMapper.kt",
                 "feature/plugin/runtime/PluginInstaller.kt",
-                "feature/plugin/runtime/PluginRuntimeDispatcher.kt",
-                "feature/plugin/runtime/ExternalPluginHostActionExecutor.kt",
-                "feature/plugin/runtime/catalog/PluginCatalogSynchronizer.kt",
-            ),
+                "feature/plugin/runtime/PluginRuntimeLogBus.kt",
+                "feature/plugin/runtime/PluginV2ActiveRuntimeStore.kt",
+                "feature/plugin/runtime/PluginV2BootstrapHostApi.kt",
+                "feature/plugin/runtime/PluginV2DispatchEngine.kt",
+                "feature/plugin/runtime/PluginV2FilterEvaluator.kt",
+                "feature/plugin/runtime/PluginV2LifecycleManager.kt",
+                "feature/plugin/runtime/PluginV2RuntimeLoader.kt",
+                "feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt",
+            ) + deferredCompletionStatePaths,
             "PluginRuntimeScheduleStateStoreProvider" to setOf(
                 "di/hilt/PluginRuntimeModule.kt",
                 "feature/plugin/runtime/PluginRuntimeScheduler.kt",
             ),
             "PluginV2ActiveRuntimeStoreProvider" to setOf(
                 "di/hilt/PluginRuntimeModule.kt",
-                "feature/plugin/runtime/AppChatPluginRuntime.kt",
                 "feature/plugin/runtime/PluginGovernanceRepository.kt",
                 "feature/plugin/runtime/PluginGovernanceSnapshotMapper.kt",
                 "feature/plugin/runtime/PluginV2ActiveRuntimeStore.kt",
                 "feature/plugin/runtime/PluginV2DispatchEngine.kt",
                 "feature/plugin/runtime/PluginV2LifecycleManager.kt",
-                "feature/plugin/runtime/PluginV2LlmPipelineCoordinator.kt",
                 "feature/plugin/runtime/PluginV2RuntimeLoader.kt",
+            ) + deferredCompletionStatePaths.intersect(
+                setOf(
+                    "feature/plugin/runtime/PluginGovernanceRepository.kt",
+                    "feature/plugin/runtime/PluginGovernanceSnapshotMapper.kt",
+                ),
             ),
             "PluginV2DispatchEngineProvider" to setOf(
                 "di/hilt/PluginRuntimeModule.kt",
-                "feature/chat/runtime/AppChatPluginCommandService.kt",
                 "feature/plugin/runtime/PluginV2DispatchEngine.kt",
-                "feature/plugin/runtime/PluginV2LlmPipelineCoordinator.kt",
                 "feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt",
-                "feature/qq/runtime/QqPluginDispatchService.kt",
             ),
             "PluginV2LifecycleManagerProvider" to setOf(
                 "di/hilt/PluginRuntimeModule.kt",
                 "feature/plugin/runtime/PluginV2LifecycleManager.kt",
-                "feature/plugin/runtime/PluginV2LlmPipelineCoordinator.kt",
                 "feature/plugin/runtime/PluginV2RuntimeLoader.kt",
                 "feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt",
             ),
@@ -184,6 +175,7 @@ class PostHiltRound1ContractTest {
                 "feature/plugin/runtime/PluginHostCapabilityGatewayFactory.kt",
             ),
             "ExternalPluginHostActionExecutor(" to setOf(
+                "di/hilt/PluginHostCapabilityModule.kt",
                 "feature/plugin/runtime/ExternalPluginHostActionExecutor.kt",
                 "feature/plugin/runtime/PluginHostCapabilityGatewayFactory.kt",
             ),
@@ -199,19 +191,16 @@ class PostHiltRound1ContractTest {
         val allowlist = mapOf(
             "PluginFailureGuard(" to setOf(
                 "di/hilt/PluginRuntimeModule.kt",
-                "di/hilt/ViewModelDependencyModule.kt",
-                "feature/plugin/presentation/PluginViewModel.kt",
                 "feature/plugin/runtime/AppChatPluginRuntime.kt",
                 "feature/plugin/runtime/ExternalPluginHostActionExecutor.kt",
                 "feature/plugin/runtime/PluginFailureGuard.kt",
-                "feature/qq/runtime/QqPluginDispatchService.kt",
+                "feature/qq/runtime/QqPluginExecutionService.kt",
             ),
             "PluginExecutionEngine(" to setOf(
                 "di/hilt/RuntimeServicesModule.kt",
-                "feature/plugin/presentation/PluginViewModel.kt",
                 "feature/plugin/runtime/AppChatPluginRuntime.kt",
                 "feature/plugin/runtime/PluginExecutionEngine.kt",
-                "feature/qq/runtime/QqPluginDispatchService.kt",
+                "feature/qq/runtime/QqPluginExecutionService.kt",
             ),
             "PluginV2LlmPipelineCoordinator(" to setOf(
                 "feature/plugin/runtime/AppChatPluginRuntime.kt",

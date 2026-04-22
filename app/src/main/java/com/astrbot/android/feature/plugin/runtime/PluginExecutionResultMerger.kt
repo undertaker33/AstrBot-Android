@@ -30,7 +30,7 @@ data class PluginExecutionMergeSnapshot(
 )
 
 class PluginExecutionResultMerger(
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun merge(

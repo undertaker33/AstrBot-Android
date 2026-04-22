@@ -6,9 +6,6 @@ import com.astrbot.android.core.runtime.context.RuntimeContextResolver
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
-import com.astrbot.android.data.ConfigRepository
-import com.astrbot.android.data.ConversationRepository
-import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
@@ -45,14 +42,16 @@ import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOperations
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostResolver
 import com.astrbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
-import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.BaseHandlerRegistrationInput
@@ -82,7 +81,6 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2CompiledRegistrySnapsh
 import com.astrbot.android.feature.plugin.runtime.PluginV2CustomFilterAwareCallbackHandle
 import com.astrbot.android.feature.plugin.runtime.PluginV2CustomFilterRequest
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
-import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2EventAwareCallbackHandle
 import com.astrbot.android.feature.plugin.runtime.PluginV2EventResultCoordinator
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryRequest
@@ -124,29 +122,6 @@ class ChatViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(dispatcher)
-
-    private var savedProviders: List<ProviderProfile> = emptyList()
-    private var savedConfig: List<ConfigProfile> = emptyList()
-    private var savedConfigSelectedId: String? = null
-    private var savedSessions: List<ConversationSession> = emptyList()
-
-    @org.junit.Before
-    fun setUp() {
-        savedProviders = ProviderRepository.snapshotProfiles()
-        savedConfig = ConfigRepository.snapshotProfiles()
-        savedConfigSelectedId = ConfigRepository.selectedProfileId.value
-        savedSessions = ConversationRepository.snapshotSessions()
-    }
-
-    @org.junit.After
-    fun tearDown() {
-        PluginRuntimeCatalog.reset()
-        PluginRuntimeRegistry.reset()
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
-        ProviderRepository.restoreProfiles(savedProviders)
-        ConfigRepository.restoreProfiles(savedConfig, savedConfigSelectedId)
-        ConversationRepository.restoreSessions(savedSessions)
-    }
 
     @Test
     fun init_prefers_non_default_restored_session() = runTest(dispatcher) {
@@ -255,13 +230,11 @@ class ChatViewModelTest {
     @Test
     fun send_message_v2_before_send_stop_uses_real_message_event_without_legacy_context_factory() = runTest(dispatcher) {
         val v2Events = CopyOnWriteArrayList<PluginMessageEvent>()
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
-            appChatV2Engine(
-                onMessage = { event ->
-                    v2Events += event
-                    event.stopPropagation()
-                },
-            ),
+        val dispatchEngine = appChatV2Engine(
+            onMessage = { event ->
+                v2Events += event
+                event.stopPropagation()
+            },
         )
         val legacyExecuteCalls = AtomicInteger(0)
         val runtime = object : AppChatPluginRuntime {
@@ -277,6 +250,7 @@ class ChatViewModelTest {
             sessions = listOf(defaultSession()),
             bots = listOf(defaultBot(defaultProviderId = "provider-1")),
             providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
         )
         val viewModel = ChatViewModel(
             dependencies = deps,
@@ -303,12 +277,10 @@ class ChatViewModelTest {
     @Test
     fun send_message_v2_before_send_allows_legacy_fallback_when_not_terminated() = runTest(dispatcher) {
         val v2Events = CopyOnWriteArrayList<PluginMessageEvent>()
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
-            appChatV2Engine(
-                onMessage = { event ->
-                    v2Events += event
-                },
-            ),
+        val dispatchEngine = appChatV2Engine(
+            onMessage = { event ->
+                v2Events += event
+            },
         )
         val legacyContextFactories = AtomicInteger(0)
         val legacyTriggers = CopyOnWriteArrayList<PluginTriggerSource>()
@@ -389,6 +361,7 @@ class ChatViewModelTest {
             sessions = listOf(defaultSession()),
             bots = listOf(defaultBot(defaultProviderId = "provider-1")),
             providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
         )
         val viewModel = ChatViewModel(
             dependencies = deps,
@@ -410,10 +383,8 @@ class ChatViewModelTest {
 
     @Test
     fun send_message_v2_before_send_custom_filter_failure_appends_user_visible_message_and_skips_model() = runTest(dispatcher) {
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
-            appChatV2Engine(
-                customFilterFailure = true,
-            ),
+        val dispatchEngine = appChatV2Engine(
+            customFilterFailure = true,
         )
         val legacyExecuteCalls = AtomicInteger(0)
         val runtime = object : AppChatPluginRuntime {
@@ -429,6 +400,7 @@ class ChatViewModelTest {
             sessions = listOf(defaultSession()),
             bots = listOf(defaultBot(defaultProviderId = "provider-1")),
             providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
         )
         val viewModel = ChatViewModel(
             dependencies = deps,
@@ -630,13 +602,11 @@ class ChatViewModelTest {
     @Test
     fun send_message_unsupported_slash_command_invokes_v2_command_handler_once_and_skips_before_send_reentry() = runTest(dispatcher) {
         val v2CommandEvents = CopyOnWriteArrayList<PluginCommandEvent>()
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
-            appChatV2Engine(
-                onCommand = { event ->
-                    v2CommandEvents += event
-                    event.replyText("v2 command reply")
-                },
-            ),
+        val dispatchEngine = appChatV2Engine(
+            onCommand = { event ->
+                v2CommandEvents += event
+                event.replyText("v2 command reply")
+            },
         )
         val runtime = RecordingAppChatPluginRuntime(
             plugins = listOf(
@@ -652,6 +622,7 @@ class ChatViewModelTest {
             sessions = listOf(defaultSession()),
             bots = listOf(defaultBot(defaultProviderId = "provider-1")),
             providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
         )
         val viewModel = ChatViewModel(
             dependencies = deps,
@@ -674,12 +645,10 @@ class ChatViewModelTest {
     @Test
     fun send_message_unsupported_slash_command_with_only_noop_legacy_result_falls_back_to_model() = runTest(dispatcher) {
         val v2CommandEvents = CopyOnWriteArrayList<PluginCommandEvent>()
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
-            appChatV2Engine(
-                onCommand = { event ->
-                    v2CommandEvents += event
-                },
-            ),
+        val dispatchEngine = appChatV2Engine(
+            onCommand = { event ->
+                v2CommandEvents += event
+            },
         )
         val runtime = RecordingAppChatPluginRuntime(
             plugins = listOf(
@@ -695,6 +664,7 @@ class ChatViewModelTest {
             sessions = listOf(defaultSession()),
             bots = listOf(defaultBot(defaultProviderId = "provider-1")),
             providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
         )
         val viewModel = ChatViewModel(
             dependencies = deps,
@@ -715,14 +685,13 @@ class ChatViewModelTest {
 
     @Test
     fun send_message_unsupported_slash_command_falls_back_to_model_when_no_plugin_handles_it() = runTest(dispatcher) {
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
-            appChatV2Engine(),
-        )
+        val dispatchEngine = appChatV2Engine()
         val runtime = RecordingAppChatPluginRuntime(plugins = emptyList())
         val deps = FakeChatDependencies(
             sessions = listOf(defaultSession()),
             bots = listOf(defaultBot(defaultProviderId = "provider-1")),
             providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
         )
         val viewModel = ChatViewModel(
             dependencies = deps,
@@ -784,8 +753,8 @@ class ChatViewModelTest {
                 pluginId = "external-command-plugin",
                 supportedTriggers = listOf("on_command"),
             )
-            PluginRuntimeCatalog.registerProvider {
-                ExternalPluginRuntimeCatalog.plugins(
+            val runtime = RecordingAppChatPluginRuntime(
+                plugins = ExternalPluginRuntimeCatalog.plugins(
                     records = listOf(record),
                     bridgeRuntime = ExternalPluginBridgeRuntime(
                         scriptExecutor = RecordingExternalPluginScriptExecutor(
@@ -799,8 +768,8 @@ class ChatViewModelTest {
                             ),
                         ),
                     ),
-                )
-            }
+                ),
+            )
 
             val deps = FakeChatDependencies(
                 sessions = listOf(defaultSession()),
@@ -809,7 +778,7 @@ class ChatViewModelTest {
             )
             val viewModel = ChatViewModel(
                 dependencies = deps,
-                appChatPluginRuntime = DefaultAppChatPluginRuntime,
+                appChatPluginRuntime = runtime,
                 ioDispatcher = dispatcher,
             )
             advanceUntilIdle()
@@ -821,8 +790,6 @@ class ChatViewModelTest {
             assertEquals(0, deps.sentChatRequests)
             assertEquals("external quickjs command reply", deps.latestAssistantMessage()?.content)
         } finally {
-            PluginRuntimeCatalog.reset()
-            PluginRuntimeRegistry.reset()
             tempDir.deleteRecursively()
         }
     }
@@ -895,20 +862,19 @@ class ChatViewModelTest {
             }
         }
         val v2LogBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
-            PluginV2DispatchEngine(
-                store = PluginV2ActiveRuntimeStore(
-                    logBus = v2LogBus,
-                    clock = { 1L },
-                ),
+        val dispatchEngine = PluginV2DispatchEngine(
+            store = PluginV2ActiveRuntimeStore(
                 logBus = v2LogBus,
                 clock = { 1L },
             ),
+            logBus = v2LogBus,
+            clock = { 1L },
         )
         val deps = FakeChatDependencies(
             sessions = listOf(defaultSession()),
             bots = listOf(defaultBot(defaultProviderId = "provider-1")),
             providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
         )
         val viewModel = ChatViewModel(
             dependencies = deps,
@@ -1193,6 +1159,7 @@ class ChatViewModelTest {
         sessions: List<ConversationSession>,
         bots: List<BotProfile>,
         providers: List<ProviderProfile>,
+        private val dispatchEngine: PluginV2DispatchEngine = emptyAppChatV2Engine(),
         private val config: ConfigProfile = ConfigProfile(
             id = "config-default",
             defaultChatProviderId = providers.firstOrNull { ProviderCapability.CHAT in it.capabilities }?.id.orEmpty(),
@@ -1200,6 +1167,7 @@ class ChatViewModelTest {
     ) : ChatViewModelRuntimeBindings {
         override val defaultSessionId: String = "chat-main"
         override val defaultSessionTitle: String = "Default session"
+        override val defaultAppChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime
         override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(bots)
         override val selectedBotId: StateFlow<String> = MutableStateFlow(bots.firstOrNull()?.id ?: "qq-main")
         override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(providers)
@@ -1227,13 +1195,6 @@ class ChatViewModelTest {
 
             override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
                 ResourceCenterCompatibility.projectionsFromConfigProfile(config)
-        }
-
-        init {
-            // Some plugin/runtime helpers still read global repositories in JVM tests.
-            ProviderRepository.restoreProfiles(providers)
-            ConfigRepository.restoreProfiles(listOf(config), config.id)
-            ConversationRepository.restoreSessions(sessions)
         }
 
         data class BindingUpdate(
@@ -1549,7 +1510,7 @@ class ChatViewModelTest {
                             chatDependencies = this,
                             ioDispatcher = ioDispatcher,
                         ),
-                        gatewayFactory = com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory(),
+                        gatewayFactory = testPluginHostCapabilityGatewayFactory(),
                     ),
                 ),
             )
@@ -1561,6 +1522,9 @@ class ChatViewModelTest {
             return com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService(
                 dependencies = this,
                 appChatPluginRuntime = appChatPluginRuntime,
+                hostCapabilityGateway = testPluginHostCapabilityGateway(),
+                hostActionExecutor = ExternalPluginHostActionExecutor(),
+                dispatchEngine = dispatchEngine,
             )
         }
 
@@ -1592,7 +1556,7 @@ class ChatViewModelTest {
                 dispatcher = PluginRuntimeDispatcher(failureGuard),
                 failureGuard = failureGuard,
             ),
-            hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
+            hostCapabilityGateway = testPluginHostCapabilityGatewayFactory().create(),
         )
 
         val batches = mutableListOf<PluginExecutionBatchResult>()
@@ -2006,4 +1970,29 @@ class ChatViewModelTest {
             ttsProbeSupport = FeatureSupportState.SUPPORTED,
         )
     }
+}
+
+private fun testPluginHostCapabilityGateway(): PluginHostCapabilityGateway {
+    return testPluginHostCapabilityGatewayFactory().create()
+}
+
+private fun testPluginHostCapabilityGatewayFactory(): PluginHostCapabilityGatewayFactory {
+    return PluginHostCapabilityGatewayFactory(
+        resolver = DefaultPluginExecutionHostResolver(
+            DefaultPluginExecutionHostOperations(),
+        ),
+        hostActionExecutor = ExternalPluginHostActionExecutor(),
+    )
+}
+
+private fun emptyAppChatV2Engine(): PluginV2DispatchEngine {
+    val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+    return PluginV2DispatchEngine(
+        store = PluginV2ActiveRuntimeStore(
+            logBus = logBus,
+            clock = { 1L },
+        ),
+        logBus = logBus,
+        clock = { 1L },
+    )
 }

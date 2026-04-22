@@ -64,7 +64,7 @@ interface PluginV2CustomFilterAwareCallbackHandle : PluginV2CallbackHandle {
 }
 
 class PluginV2FilterEvaluator(
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun evaluate(

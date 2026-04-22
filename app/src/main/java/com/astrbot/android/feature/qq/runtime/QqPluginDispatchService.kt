@@ -24,17 +24,12 @@ import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
-import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionHandlers
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionOutcome
-import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
-import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
-import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponse
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponseAttachment
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
@@ -47,13 +42,11 @@ internal class QqPluginDispatchService(
     private val replySender: QqReplySender,
     private val profileResolver: QqRuntimeProfileResolver,
     private val resolvePluginPrivateRootPath: (String) -> String,
-    private val pluginCatalog: () -> List<PluginRuntimePlugin> = { PluginRuntimeCatalog.plugins() },
-    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val hostCapabilityGateway: PluginHostCapabilityGateway,
+    private val hostActionExecutor: ExternalPluginHostActionExecutor,
     private val log: (String) -> Unit = {},
     private val dispatchEngine: PluginV2DispatchEngine,
-    private val failureStateStore: PluginFailureStateStore,
-    private val scopedFailureStateStore: PluginScopedFailureStateStore,
-    private val logBus: PluginRuntimeLogBus,
+    private val executionService: QqPluginExecutionService,
 ) {
     fun executePlugins(
         trigger: PluginTriggerSource,
@@ -133,21 +126,8 @@ internal class QqPluginDispatchService(
             timestamp = System.currentTimeMillis(),
         )
         val batch = runCatching {
-            val pluginFailureGuard = PluginFailureGuard(
-                store = failureStateStore,
-                scopedStore = scopedFailureStateStore,
-                logBus = logBus,
-            )
-            PluginExecutionEngine(
-                dispatcher = PluginRuntimeDispatcher(
-                    failureGuard = pluginFailureGuard,
-                    logBus = logBus,
-                ),
-                failureGuard = pluginFailureGuard,
-                logBus = logBus,
-            ).executeBatch(
+            executionService.executeBatch(
                 trigger = PluginTriggerSource.OnCommand,
-                plugins = pluginCatalog(),
                 contextFactory = { plugin ->
                     buildPluginContext(
                         plugin = plugin,
@@ -191,25 +171,9 @@ internal class QqPluginDispatchService(
         message: IncomingQqMessage,
         contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
     ) {
-        val plugins = pluginCatalog()
-        if (plugins.isEmpty()) return
-        val pluginFailureGuard = PluginFailureGuard(
-            store = failureStateStore,
-            scopedStore = scopedFailureStateStore,
-            logBus = logBus,
-        )
-        val pluginEngine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(
-                failureGuard = pluginFailureGuard,
-                logBus = logBus,
-            ),
-            failureGuard = pluginFailureGuard,
-            logBus = logBus,
-        )
         val batch = runCatching {
-            pluginEngine.executeBatch(
+            executionService.executeBatch(
                 trigger = trigger,
-                plugins = plugins,
                 contextFactory = contextFactory,
             )
         }.onFailure { error ->
@@ -336,7 +300,7 @@ internal class QqPluginDispatchService(
                 ),
             ),
         )
-        return gatewayFactory.create().injectContext(base)
+        return hostCapabilityGateway.injectContext(base)
     }
 
     internal fun executePlugins(
@@ -463,24 +427,25 @@ internal class QqPluginDispatchService(
 
             is HostActionRequest -> {
                 val emittedMessages = mutableListOf<String>()
-                val execution = gatewayFactory.create(
-                    sendMessageHandler = { text ->
+                val execution = hostActionExecutor.execute(
+                    pluginId = outcome.pluginId,
+                    request = result,
+                    context = outcome.context,
+                    handlers = ExternalPluginHostActionHandlers(
+                        sendMessage = { text ->
                         emittedMessages += text
                         replySender.send(
                             QqReplyPayload(message.conversationId, message.messageType, text),
                             message,
                         )
                     },
-                    sendNotificationHandler = { title, msg ->
+                        sendNotification = { title, msg ->
                         log("QQ plugin notification requested: title=$title message=$msg")
-                    },
-                    openHostPageHandler = { route ->
+                        },
+                        openHostPage = { route ->
                         log("QQ plugin requested host page: route=$route")
-                    },
-                ).executeHostAction(
-                    pluginId = outcome.pluginId,
-                    request = result,
-                    context = outcome.context,
+                        },
+                    ),
                 )
                 if (!execution.succeeded) {
                     replySender.send(

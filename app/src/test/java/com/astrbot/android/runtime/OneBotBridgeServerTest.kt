@@ -27,19 +27,29 @@ import com.astrbot.android.feature.bot.data.LegacyBotRepositoryAdapter
 import com.astrbot.android.feature.config.data.LegacyConfigRepositoryAdapter
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
 import com.astrbot.android.feature.persona.data.LegacyPersonaRepositoryAdapter
+import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOperations
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostResolver
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
+import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScopedFailureStateStoreProvider
-import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
-import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
+import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
 import com.astrbot.android.feature.plugin.runtime.PluginV2QuickJsTestGate
 import com.astrbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
@@ -58,6 +68,7 @@ import com.astrbot.android.feature.qq.data.LegacyQqConversationAdapter
 import com.astrbot.android.feature.qq.data.LegacyQqPlatformConfigAdapter
 import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
 import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
+import com.astrbot.android.feature.qq.runtime.QqPluginExecutionService
 import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
 import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
 import com.astrbot.android.runtime.llm.LegacyLlmProviderProbeAdapter
@@ -446,13 +457,30 @@ class QqOneBotBridgeServerTest {
 
     @Test
     fun `plugin suspended by app chat shared store is skipped by qq runtime`() = runTest {
+        val sharedStore = InMemoryPluginFailureStateStore()
+        val sharedScopedStore = InMemoryPluginScopedFailureStateStore()
+        val sharedLogBus = InMemoryPluginRuntimeLogBus()
+        val failureGuard = PluginFailureGuard(
+            store = sharedStore,
+            scopedStore = sharedScopedStore,
+            logBus = sharedLogBus,
+        )
+        val sharedEngine = PluginExecutionEngine(
+            dispatcher = PluginRuntimeDispatcher(
+                failureGuard = failureGuard,
+                logBus = sharedLogBus,
+            ),
+            failureGuard = failureGuard,
+            logBus = sharedLogBus,
+        )
         withOneBotState(
             bot = defaultBot(),
             config = defaultConfig(),
             providers = listOf(defaultChatProvider()),
+            failureStateStore = sharedStore,
+            scopedFailureStateStore = sharedScopedStore,
+            logBus = sharedLogBus,
         ) {
-            val sharedStore = InMemoryPluginFailureStateStore()
-            PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(sharedStore)
             val attempts = AtomicInteger(0)
             val httpCalls = AtomicInteger(0)
             PluginRuntimeRegistry.registerProvider {
@@ -481,8 +509,9 @@ class QqOneBotBridgeServerTest {
             )
 
             repeat(3) {
-                DefaultAppChatPluginRuntime.execute(
+                sharedEngine.executeBatch(
                     trigger = PluginTriggerSource.BeforeSendMessage,
+                    plugins = PluginRuntimeCatalog.plugins(),
                     contextFactory = ::executionContextFor,
                 )
             }
@@ -836,6 +865,14 @@ class QqOneBotBridgeServerTest {
         bot: BotProfile,
         config: ConfigProfile,
         providers: List<ProviderProfile>,
+        executeLegacyPluginsDuringLlmDispatch: Boolean = true,
+        appChatPluginRuntime: AppChatLlmPipelineRuntime = DefaultAppChatPluginRuntime,
+        pluginV2DispatchEngine: PluginV2DispatchEngine = emptyPluginV2DispatchEngine(),
+        failureStateStore: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
+        scopedFailureStateStore: PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore(),
+        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+        gatewayFactory: PluginHostCapabilityGatewayFactory = testPluginHostCapabilityGatewayFactory(),
+        hostCapabilityGateway: PluginHostCapabilityGateway = testPluginHostCapabilityGateway(),
         block: suspend () -> Unit,
     ) {
         val botSnapshot = BotRepository.snapshotProfiles()
@@ -872,31 +909,39 @@ class QqOneBotBridgeServerTest {
             )
         }
         try {
-            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
-                InMemoryPluginScopedFailureStateStore(),
-            )
             QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success(listOf("test-receipt"))
             }
-            QqOneBotBridgeServer.installRuntimeDependencies(
-                QqOneBotRuntimeDependencies(
-                    botPort = LegacyBotRepositoryAdapter(),
-                    configPort = LegacyConfigRepositoryAdapter(),
-                    personaPort = LegacyPersonaRepositoryAdapter(),
-                    providerPort = LegacyProviderRepositoryAdapter(),
-                    conversationPort = LegacyQqConversationAdapter(),
-                    platformConfigPort = LegacyQqPlatformConfigAdapter(),
-                    orchestrator = LegacyRuntimeOrchestratorAdapter(DefaultRuntimeLlmOrchestrator()),
-                    runtimeContextResolverPort = runtimeContextResolverPort,
-                    appChatPluginRuntime = DefaultAppChatPluginRuntime,
-                    pluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
-                    failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
-                    scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
-                    providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
-                    gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
-                    llmProviderProbePort = LegacyLlmProviderProbeAdapter(),
-                    logBus = InMemoryPluginRuntimeLogBus(),
+            val runtimeDependencies = QqOneBotRuntimeDependencies(
+                botPort = LegacyBotRepositoryAdapter(),
+                configPort = LegacyConfigRepositoryAdapter(),
+                personaPort = LegacyPersonaRepositoryAdapter(),
+                providerPort = LegacyProviderRepositoryAdapter(),
+                conversationPort = LegacyQqConversationAdapter(),
+                platformConfigPort = LegacyQqPlatformConfigAdapter(),
+                orchestrator = LegacyRuntimeOrchestratorAdapter(DefaultRuntimeLlmOrchestrator()),
+                runtimeContextResolverPort = runtimeContextResolverPort,
+                appChatPluginRuntime = appChatPluginRuntime,
+                pluginCatalog = PluginRuntimeCatalog::plugins,
+                pluginV2DispatchEngine = pluginV2DispatchEngine,
+                failureStateStore = failureStateStore,
+                scopedFailureStateStore = scopedFailureStateStore,
+                providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
+                gatewayFactory = gatewayFactory,
+                hostCapabilityGateway = hostCapabilityGateway,
+                hostActionExecutor = ExternalPluginHostActionExecutor(),
+                pluginExecutionService = QqPluginExecutionService(
+                    pluginCatalog = PluginRuntimeCatalog::plugins,
+                    failureStateStore = failureStateStore,
+                    scopedFailureStateStore = scopedFailureStateStore,
+                    logBus = logBus,
                 ),
+                llmProviderProbePort = LegacyLlmProviderProbeAdapter(),
+                logBus = logBus,
+                executeLegacyPluginsDuringLlmDispatch = executeLegacyPluginsDuringLlmDispatch,
+            )
+            QqOneBotBridgeServer.installRuntimeDependencies(
+                runtimeDependencies,
             )
             BotRepository.restoreProfiles(listOf(bot), bot.id)
             ConfigRepository.restoreProfiles(listOf(config), config.id)
@@ -908,8 +953,6 @@ class QqOneBotBridgeServerTest {
             QqOneBotBridgeServer.setReplySenderOverrideForTests(null)
             PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
-            PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
-            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
             BotRepository.restoreProfiles(botSnapshot, selectedBotIdSnapshot)
             ConfigRepository.restoreProfiles(configSnapshot, selectedConfigIdSnapshot)
             ProviderRepository.restoreProfiles(providerSnapshot)
@@ -983,6 +1026,36 @@ class QqOneBotBridgeServerTest {
             apiKey = "test-key",
             capabilities = setOf(ProviderCapability.CHAT),
             enabled = true,
+        )
+    }
+
+    private fun emptyPluginV2DispatchEngine(): PluginV2DispatchEngine {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        return PluginV2DispatchEngine(
+            store = PluginV2ActiveRuntimeStore(
+                logBus = logBus,
+                clock = { 1L },
+            ),
+            logBus = logBus,
+            clock = { 1L },
+        )
+    }
+
+    private fun testPluginHostCapabilityGatewayFactory(): PluginHostCapabilityGatewayFactory {
+        return PluginHostCapabilityGatewayFactory(
+            resolver = DefaultPluginExecutionHostResolver(
+                DefaultPluginExecutionHostOperations(),
+            ),
+            hostActionExecutor = ExternalPluginHostActionExecutor(),
+        )
+    }
+
+    private fun testPluginHostCapabilityGateway(): PluginHostCapabilityGateway {
+        return DefaultPluginHostCapabilityGateway(
+            resolver = DefaultPluginExecutionHostResolver(
+                DefaultPluginExecutionHostOperations(),
+            ),
+            hostActionExecutor = ExternalPluginHostActionExecutor(),
         )
     }
 

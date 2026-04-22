@@ -6,6 +6,7 @@ import com.astrbot.android.core.runtime.context.DefaultRuntimeContextResolverPor
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
+import com.astrbot.android.core.runtime.llm.HiltLlmProviderProbePort
 import com.astrbot.android.di.ProductionContainerBridgeStatePort
 import com.astrbot.android.di.ProductionRuntimeContextDataPort
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
@@ -21,20 +22,24 @@ import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeExecutor
 import com.astrbot.android.feature.cron.runtime.WorkManagerCronRescheduler
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
+import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
 import com.astrbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
+import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
@@ -43,8 +48,8 @@ import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
 import com.astrbot.android.feature.qq.runtime.HiltQqOneBotBridgeRuntime
 import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
 import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
+import com.astrbot.android.feature.qq.runtime.QqPluginExecutionService
 import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
-import com.astrbot.android.runtime.llm.HiltLlmProviderProbePort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -94,13 +99,30 @@ internal object RuntimeServicesModule {
 
     @Provides
     @Singleton
+    fun provideExternalPluginRuntimeCatalog(
+        pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
+    ): ExternalPluginRuntimeCatalog = ExternalPluginRuntimeCatalog(
+        repositoryStatePort = pluginRepositoryStateOwner,
+    )
+
+    @Provides
+    @Singleton
     fun provideAppChatPluginRuntime(
+        pluginCatalog: ExternalPluginRuntimeCatalog,
         engine: PluginExecutionEngine,
         hostCapabilityGateway: PluginHostCapabilityGateway,
+        activeRuntimeStore: PluginV2ActiveRuntimeStore,
+        pluginV2DispatchEngine: PluginV2DispatchEngine,
+        pluginV2LifecycleManager: PluginV2LifecycleManager,
+        logBus: PluginRuntimeLogBus,
     ): AppChatPluginRuntime = EngineBackedAppChatPluginRuntime(
-        pluginProvider = PluginRuntimeCatalog::plugins,
+        pluginCatalog = pluginCatalog,
         engine = engine,
         hostCapabilityGateway = hostCapabilityGateway,
+        activeRuntimeStore = activeRuntimeStore,
+        dispatchEngine = pluginV2DispatchEngine,
+        lifecycleManager = pluginV2LifecycleManager,
+        logBus = logBus,
     )
 
     @Provides
@@ -109,7 +131,9 @@ internal object RuntimeServicesModule {
 
     @Provides
     @Singleton
-    fun provideContainerBridgeStatePort(): ContainerBridgeStatePort = ProductionContainerBridgeStatePort
+    fun provideContainerBridgeStatePort(
+        bridgeStatePort: ProductionContainerBridgeStatePort,
+    ): ContainerBridgeStatePort = bridgeStatePort
 
     @Provides
     @Singleton
@@ -183,11 +207,15 @@ internal object RuntimeServicesModule {
         orchestrator: RuntimeLlmOrchestratorPort,
         runtimeContextResolverPort: RuntimeContextResolverPort,
         appChatPluginRuntime: AppChatPluginRuntime,
+        pluginCatalog: ExternalPluginRuntimeCatalog,
         pluginV2DispatchEngine: PluginV2DispatchEngine,
         failureStateStore: PluginFailureStateStore,
         scopedFailureStateStore: PluginScopedFailureStateStore,
         providerInvoker: DefaultQqProviderInvoker,
         gatewayFactory: PluginHostCapabilityGatewayFactory,
+        hostCapabilityGateway: PluginHostCapabilityGateway,
+        hostActionExecutor: ExternalPluginHostActionExecutor,
+        pluginExecutionService: QqPluginExecutionService,
         llmProviderProbePort: LlmProviderProbePort,
         logBus: PluginRuntimeLogBus,
     ): QqOneBotRuntimeDependencies {
@@ -201,11 +229,15 @@ internal object RuntimeServicesModule {
             orchestrator = orchestrator,
             runtimeContextResolverPort = runtimeContextResolverPort,
             appChatPluginRuntime = appChatPluginRuntime as AppChatLlmPipelineRuntime,
+            pluginCatalog = pluginCatalog::plugins,
             pluginV2DispatchEngine = pluginV2DispatchEngine,
             failureStateStore = failureStateStore,
             scopedFailureStateStore = scopedFailureStateStore,
             providerInvoker = providerInvoker,
             gatewayFactory = gatewayFactory,
+            hostCapabilityGateway = hostCapabilityGateway,
+            hostActionExecutor = hostActionExecutor,
+            pluginExecutionService = pluginExecutionService,
             llmProviderProbePort = llmProviderProbePort,
             logBus = logBus,
         )

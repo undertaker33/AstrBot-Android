@@ -1,9 +1,6 @@
-package com.astrbot.android.runtime.llm
+package com.astrbot.android.core.runtime.llm
 
 import android.content.Context
-import com.astrbot.android.core.runtime.llm.ChatCompletionService
-import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
-import com.astrbot.android.core.runtime.llm.SttProbeResult
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
@@ -11,9 +8,6 @@ import com.astrbot.android.model.chat.ConversationAttachment
 
 /**
  * Hilt-owned production probe implementation for LLM/media capability checks.
- *
- * This lives in the runtime/llm ownership boundary so RuntimeServicesModule only
- * wires dependencies and does not directly reference media services.
  */
 internal class HiltLlmProviderProbePort(
     appContext: Context,

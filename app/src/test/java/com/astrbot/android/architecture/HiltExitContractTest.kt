@@ -74,6 +74,22 @@ class HiltExitContractTest {
     }
 
     @Test
+    fun runtime_seams_must_stay_confined_to_explicit_entry_files() {
+        assertTokenConfinedToAllowedProductionFiles(
+            "EntryPointAccessors.fromApplication(",
+            setOf(
+                "core/runtime/container/ContainerRuntimeEntryPoint.kt",
+            ),
+        )
+        assertTokenConfinedToAllowedProductionFiles(
+            "installRuntimeDependencies(",
+            setOf(
+                "feature/qq/runtime/QqOneBotBridgeServer.kt",
+            ),
+        )
+    }
+
+    @Test
     fun application_must_not_create_legacy_container() {
         val file = mainRoot.resolve("AstrBotApplication.kt")
         assertTrue("AstrBotApplication.kt must exist", file.exists())
@@ -138,6 +154,22 @@ class HiltExitContractTest {
     private companion object {
         val allowedMentionFiles = setOf(
             "di/hilt/ViewModelDependencyModule.kt",
+        )
+    }
+
+    private fun assertTokenConfinedToAllowedProductionFiles(
+        token: String,
+        allowedPaths: Set<String>,
+    ) {
+        val actualPaths = kotlinFilesUnder(mainRoot)
+            .filter { file -> file.readText().contains(token) }
+            .map { file -> mainRoot.relativize(file).toString().replace('\\', '/') }
+            .toSet()
+        val unexpectedPaths = actualPaths - allowedPaths
+
+        assertTrue(
+            "Token '$token' must stay inside the allowlist. Unexpected files: $unexpectedPaths",
+            unexpectedPaths.isEmpty(),
         )
     }
 }

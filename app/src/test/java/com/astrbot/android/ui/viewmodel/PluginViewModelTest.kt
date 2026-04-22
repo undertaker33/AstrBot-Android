@@ -14,8 +14,6 @@ import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallIntent
-import com.astrbot.android.model.plugin.PluginInstallState
-import com.astrbot.android.model.plugin.PluginInstallStatus
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginReviewState
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
@@ -63,16 +61,24 @@ import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOperations
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostResolver
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceFailureProjection
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRecoveryStatus
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.NoOpPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginObservabilitySummary
+import com.astrbot.android.feature.plugin.runtime.PluginEntryExecutionService
+import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
+import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
 import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.feature.plugin.runtime.samplePluginV2InstallRecord
@@ -106,9 +112,20 @@ class PluginViewModelTest {
 
     @org.junit.After
     fun tearDown() {
-        PluginRuntimeRegistry.reset()
-        PluginRuntimeLogBusProvider.setBusOverrideForTests(null)
         RuntimeLogRepository.clear()
+    }
+
+    @Test
+    fun plugin_view_model_does_not_expose_single_binding_constructor() {
+        val constructorShapes = PluginViewModel::class.java.declaredConstructors.map { constructor ->
+            constructor.parameterTypes.toList()
+        }
+
+        assertFalse(
+            constructorShapes.any { parameterTypes ->
+                parameterTypes == listOf(PluginViewModelBindings::class.java)
+            },
+        )
     }
 
     @Test
@@ -1903,16 +1920,15 @@ class PluginViewModelTest {
         val record = pluginRecord(pluginId = "plugin-1")
         val deps = FakePluginDependencies(listOf(record))
         var invocationCount = 0
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { executedRecord, _ ->
+                if (executedRecord.pluginId == "plugin-1") {
                     invocationCount += 1
-                    NoOp()
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+                }
+                NoOp()
+            },
+        )
         advanceUntilIdle()
 
         executePluginEntryForTest(viewModel, record)
@@ -1923,26 +1939,23 @@ class PluginViewModelTest {
     fun execute_plugin_entry_maps_card_result_to_schema_ui_state() = runTest(dispatcher) {
         val record = pluginRecord(pluginId = "plugin-1")
         val deps = FakePluginDependencies(listOf(record))
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
-                    CardResult(
-                        card = PluginCardSchema(
-                            title = "Runtime Card",
-                            body = "Rendered from entry runtime",
-                            actions = listOf(
-                                PluginCardAction(
-                                    actionId = "refresh",
-                                    label = "Refresh",
-                                ),
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                CardResult(
+                    card = PluginCardSchema(
+                        title = "Runtime Card",
+                        body = "Rendered from entry runtime",
+                        actions = listOf(
+                            PluginCardAction(
+                                actionId = "refresh",
+                                label = "Refresh",
                             ),
                         ),
-                    )
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+                    ),
+                )
+            },
+        )
         advanceUntilIdle()
 
         val schemaState = executePluginEntryForTest(viewModel, record)
@@ -1958,46 +1971,43 @@ class PluginViewModelTest {
     fun execute_plugin_entry_maps_settings_ui_request_to_schema_ui_state() = runTest(dispatcher) {
         val record = pluginRecord(pluginId = "plugin-1")
         val deps = FakePluginDependencies(listOf(record))
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
-                    SettingsUiRequest(
-                        schema = PluginSettingsSchema(
-                            title = "Runtime Settings",
-                            sections = listOf(
-                                PluginSettingsSection(
-                                    sectionId = "general",
-                                    title = "General",
-                                    fields = listOf(
-                                        ToggleSettingField(
-                                            fieldId = "enabled",
-                                            label = "Enabled",
-                                            defaultValue = true,
-                                        ),
-                                        TextInputSettingField(
-                                            fieldId = "name",
-                                            label = "Name",
-                                            defaultValue = "AstrBot",
-                                        ),
-                                        SelectSettingField(
-                                            fieldId = "mode",
-                                            label = "Mode",
-                                            defaultValue = "safe",
-                                            options = listOf(
-                                                PluginSelectOption("safe", "Safe"),
-                                                PluginSelectOption("full", "Full"),
-                                            ),
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                SettingsUiRequest(
+                    schema = PluginSettingsSchema(
+                        title = "Runtime Settings",
+                        sections = listOf(
+                            PluginSettingsSection(
+                                sectionId = "general",
+                                title = "General",
+                                fields = listOf(
+                                    ToggleSettingField(
+                                        fieldId = "enabled",
+                                        label = "Enabled",
+                                        defaultValue = true,
+                                    ),
+                                    TextInputSettingField(
+                                        fieldId = "name",
+                                        label = "Name",
+                                        defaultValue = "AstrBot",
+                                    ),
+                                    SelectSettingField(
+                                        fieldId = "mode",
+                                        label = "Mode",
+                                        defaultValue = "safe",
+                                        options = listOf(
+                                            PluginSelectOption("safe", "Safe"),
+                                            PluginSelectOption("full", "Full"),
                                         ),
                                     ),
                                 ),
                             ),
                         ),
-                    )
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+                    ),
+                )
+            },
+        )
         advanceUntilIdle()
 
         val schemaState = executePluginEntryForTest(viewModel, record)
@@ -2023,19 +2033,16 @@ class PluginViewModelTest {
     fun execute_plugin_entry_maps_text_result_to_schema_ui_state() = runTest(dispatcher) {
         val record = pluginRecord(pluginId = "plugin-1")
         val deps = FakePluginDependencies(listOf(record))
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
-                    TextResult(
-                        text = "Runtime text reply",
-                        markdown = true,
-                        displayTitle = "Runtime Output",
-                    )
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                TextResult(
+                    text = "Runtime text reply",
+                    markdown = true,
+                    displayTitle = "Runtime Output",
+                )
+            },
+        )
         advanceUntilIdle()
 
         val schemaState = executePluginEntryForTest(viewModel, record)
@@ -2058,28 +2065,25 @@ class PluginViewModelTest {
                 extractedDir = extractedDir.absolutePath,
             )
             val deps = FakePluginDependencies(listOf(record))
-            PluginRuntimeRegistry.registerProvider {
-                listOf(
-                    runtimePlugin(pluginId = "plugin-1") {
-                        MediaResult(
-                            items = listOf(
-                                PluginMediaItem(
-                                    source = "plugin://package/assets/banner.png",
-                                    mimeType = "image/png",
-                                    altText = "Banner",
-                                ),
-                                PluginMediaItem(
-                                    source = "https://example.com/banner.png",
-                                    mimeType = "image/png",
-                                    altText = "Remote Banner",
-                                ),
+            val viewModel = createPluginViewModel(
+                bindings = deps,
+                entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                    MediaResult(
+                        items = listOf(
+                            PluginMediaItem(
+                                source = "plugin://package/assets/banner.png",
+                                mimeType = "image/png",
+                                altText = "Banner",
                             ),
-                        )
-                    },
-                )
-            }
-
-            val viewModel = PluginViewModel(deps)
+                            PluginMediaItem(
+                                source = "https://example.com/banner.png",
+                                mimeType = "image/png",
+                                altText = "Remote Banner",
+                            ),
+                        ),
+                    )
+                },
+            )
             advanceUntilIdle()
 
             val schemaState = executePluginEntryForTest(viewModel, record)
@@ -2104,23 +2108,20 @@ class PluginViewModelTest {
     fun execute_plugin_entry_maps_invalid_media_result_to_error_schema_state() = runTest(dispatcher) {
         val record = pluginRecord(pluginId = "plugin-1")
         val deps = FakePluginDependencies(listOf(record))
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
-                    MediaResult(
-                        items = listOf(
-                            PluginMediaItem(
-                                source = "assets/banner.png",
-                                mimeType = "image/png",
-                                altText = "Banner",
-                            ),
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                MediaResult(
+                    items = listOf(
+                        PluginMediaItem(
+                            source = "assets/banner.png",
+                            mimeType = "image/png",
+                            altText = "Banner",
                         ),
-                    )
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+                    ),
+                )
+            },
+        )
         advanceUntilIdle()
 
         val schemaState = executePluginEntryForTest(viewModel, record)
@@ -2133,25 +2134,22 @@ class PluginViewModelTest {
     fun card_action_callback_updates_schema_state_feedback() = runTest(dispatcher) {
         val record = pluginRecord(pluginId = "plugin-1")
         val deps = FakePluginDependencies(listOf(record))
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
-                    CardResult(
-                        card = PluginCardSchema(
-                            title = "Runtime Card",
-                            actions = listOf(
-                                PluginCardAction(
-                                    actionId = "retry",
-                                    label = "Retry",
-                                ),
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                CardResult(
+                    card = PluginCardSchema(
+                        title = "Runtime Card",
+                        actions = listOf(
+                            PluginCardAction(
+                                actionId = "retry",
+                                label = "Retry",
                             ),
                         ),
-                    )
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+                    ),
+                )
+            },
+        )
         advanceUntilIdle()
         replaceSchemaStateForTest(viewModel, executePluginEntryForTest(viewModel, record))
 
@@ -2174,25 +2172,22 @@ class PluginViewModelTest {
     fun unsupported_card_action_callback_updates_schema_state_feedback() = runTest(dispatcher) {
         val record = pluginRecord(pluginId = "plugin-1")
         val deps = FakePluginDependencies(listOf(record))
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
-                    CardResult(
-                        card = PluginCardSchema(
-                            title = "Runtime Card",
-                            actions = listOf(
-                                PluginCardAction(
-                                    actionId = "retry",
-                                    label = "Retry",
-                                ),
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                CardResult(
+                    card = PluginCardSchema(
+                        title = "Runtime Card",
+                        actions = listOf(
+                            PluginCardAction(
+                                actionId = "retry",
+                                label = "Retry",
                             ),
                         ),
-                    )
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+                    ),
+                )
+            },
+        )
         advanceUntilIdle()
         replaceSchemaStateForTest(viewModel, executePluginEntryForTest(viewModel, record))
 
@@ -2212,37 +2207,34 @@ class PluginViewModelTest {
     fun settings_draft_update_callback_updates_schema_state() = runTest(dispatcher) {
         val record = pluginRecord(pluginId = "plugin-1")
         val deps = FakePluginDependencies(listOf(record))
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
-                    SettingsUiRequest(
-                        schema = PluginSettingsSchema(
-                            title = "Runtime Settings",
-                            sections = listOf(
-                                PluginSettingsSection(
-                                    sectionId = "general",
-                                    title = "General",
-                                    fields = listOf(
-                                        ToggleSettingField(
-                                            fieldId = "enabled",
-                                            label = "Enabled",
-                                            defaultValue = false,
-                                        ),
-                                        TextInputSettingField(
-                                            fieldId = "nickname",
-                                            label = "Nickname",
-                                            defaultValue = "",
-                                        ),
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                SettingsUiRequest(
+                    schema = PluginSettingsSchema(
+                        title = "Runtime Settings",
+                        sections = listOf(
+                            PluginSettingsSection(
+                                sectionId = "general",
+                                title = "General",
+                                fields = listOf(
+                                    ToggleSettingField(
+                                        fieldId = "enabled",
+                                        label = "Enabled",
+                                        defaultValue = false,
+                                    ),
+                                    TextInputSettingField(
+                                        fieldId = "nickname",
+                                        label = "Nickname",
+                                        defaultValue = "",
                                     ),
                                 ),
                             ),
                         ),
-                    )
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+                    ),
+                )
+            },
+        )
         advanceUntilIdle()
         replaceSchemaStateForTest(viewModel, executePluginEntryForTest(viewModel, record))
 
@@ -2262,32 +2254,29 @@ class PluginViewModelTest {
         val deps = FakePluginDependencies(
             records = listOf(pluginRecord(pluginId = "plugin-1")),
         )
-        PluginRuntimeRegistry.registerProvider {
-            listOf(
-                runtimePlugin(pluginId = "plugin-1") {
-                    SettingsUiRequest(
-                        schema = PluginSettingsSchema(
-                            title = "Runtime Settings",
-                            sections = listOf(
-                                PluginSettingsSection(
-                                    sectionId = "general",
-                                    title = "General",
-                                    fields = listOf(
-                                        ToggleSettingField(
-                                            fieldId = "enabled",
-                                            label = "Enabled",
-                                            defaultValue = false,
-                                        ),
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                SettingsUiRequest(
+                    schema = PluginSettingsSchema(
+                        title = "Runtime Settings",
+                        sections = listOf(
+                            PluginSettingsSection(
+                                sectionId = "general",
+                                title = "General",
+                                fields = listOf(
+                                    ToggleSettingField(
+                                        fieldId = "enabled",
+                                        label = "Enabled",
+                                        defaultValue = false,
                                     ),
                                 ),
                             ),
                         ),
-                    )
-                },
-            )
-        }
-
-        val viewModel = PluginViewModel(deps)
+                    ),
+                )
+            },
+        )
         advanceUntilIdle()
 
         viewModel.selectPluginForDetail("plugin-1")
@@ -2758,15 +2747,12 @@ class PluginViewModelTest {
                 ),
                 settingsSchemaPaths = mapOf("plugin-1" to settingsSchemaPath.toString()),
             )
-            PluginRuntimeRegistry.registerProvider {
-                listOf(
-                    runtimePlugin(pluginId = "plugin-1") {
-                        error("legacy workspace entry should not execute")
-                    },
-                )
-            }
-
-            val viewModel = PluginViewModel(deps)
+            val viewModel = createPluginViewModel(
+                bindings = deps,
+                entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                    error("legacy workspace entry should not execute")
+                },
+            )
             advanceUntilIdle()
             viewModel.selectPluginForWorkspace("plugin-1")
             advanceUntilIdle()
@@ -2798,15 +2784,12 @@ class PluginViewModelTest {
                 records = listOf(pluginRecord(pluginId = "plugin-1")),
                 settingsSchemaPaths = mapOf("plugin-1" to settingsSchemaPath.toString()),
             )
-            PluginRuntimeRegistry.registerProvider {
-                listOf(
-                    runtimePlugin(pluginId = "plugin-1") {
-                        error("legacy config entry should not execute")
-                    },
-                )
-            }
-
-            val viewModel = PluginViewModel(deps)
+            val viewModel = createPluginViewModel(
+                bindings = deps,
+                entryExecutionService = fakePluginEntryExecutionService(deps.logBus) { _, _ ->
+                    error("legacy config entry should not execute")
+                },
+            )
             advanceUntilIdle()
 
             viewModel.selectPluginForConfig("plugin-1")
@@ -2842,6 +2825,37 @@ class PluginViewModelTest {
         assertTrue(schemaState is PluginSchemaUiState.Error)
         schemaState as PluginSchemaUiState.Error
         assertTrue(schemaState.message.contains("Plugin v2 entry click is blocked"))
+    }
+
+    @Test
+    fun execute_plugin_entry_uses_injected_entry_execution_service() = runTest(dispatcher) {
+        val record = pluginRecord(pluginId = "plugin-1")
+        val deps = FakePluginDependencies(records = listOf(record))
+        val capturedContexts = mutableListOf<com.astrbot.android.model.plugin.PluginExecutionContext>()
+        val entryExecutionService = object : PluginEntryExecutionService(
+            engine = testPluginExecutionEngine(deps.logBus),
+            pluginCatalog = ExternalPluginRuntimeCatalog(),
+        ) {
+            override fun execute(
+                record: PluginInstallRecord,
+                context: com.astrbot.android.model.plugin.PluginExecutionContext,
+            ): com.astrbot.android.model.plugin.PluginExecutionResult? {
+                capturedContexts += context
+                return TextResult("Injected entry runtime")
+            }
+        }
+        val viewModel = createPluginViewModel(
+            bindings = deps,
+            entryExecutionService = entryExecutionService,
+        )
+        advanceUntilIdle()
+
+        val schemaState = executePluginEntryForTest(viewModel, record)
+
+        assertTrue(schemaState is PluginSchemaUiState.Text)
+        schemaState as PluginSchemaUiState.Text
+        assertEquals("Injected entry runtime", schemaState.text)
+        assertEquals(listOf("plugin-1"), capturedContexts.map { context -> context.pluginId })
     }
 
     private class FakePluginDependencies(
@@ -3430,33 +3444,6 @@ class PluginViewModelTest {
         )
     }
 
-    private fun runtimePlugin(
-        pluginId: String,
-        trigger: PluginTriggerSource = PluginTriggerSource.OnPluginEntryClick,
-        handler: (com.astrbot.android.model.plugin.PluginExecutionContext) -> com.astrbot.android.model.plugin.PluginExecutionResult,
-    ): PluginRuntimePlugin {
-        val record = pluginRecord(pluginId = pluginId, enabled = true)
-        return PluginRuntimePlugin(
-            pluginId = pluginId,
-            pluginVersion = record.installedVersion,
-            installState = PluginInstallState(
-                status = PluginInstallStatus.INSTALLED,
-                installedVersion = record.installedVersion,
-                source = record.source,
-                manifestSnapshot = record.manifestSnapshot,
-                permissionSnapshot = record.permissionSnapshot,
-                compatibilityState = record.compatibilityState,
-                enabled = record.enabled,
-                lastInstalledAt = record.installedAt,
-                lastUpdatedAt = record.lastUpdatedAt,
-                localPackagePath = record.localPackagePath,
-                extractedDir = record.extractedDir,
-            ),
-            supportedTriggers = setOf(trigger),
-            handler = handler,
-        )
-    }
-
     private fun pluginViewModelMethod(name: String, vararg parameterTypes: Class<*>): Method {
         return PluginViewModel::class.java.getDeclaredMethod(name, *parameterTypes).apply {
             isAccessible = true
@@ -3487,6 +3474,71 @@ class PluginViewModelTest {
         flow.value = state
     }
 
+}
+
+private fun PluginViewModel(
+    bindings: PluginViewModelBindings,
+): com.astrbot.android.ui.viewmodel.PluginViewModel {
+    return createPluginViewModel(bindings = bindings)
+}
+
+private fun createPluginViewModel(
+    bindings: PluginViewModelBindings,
+    hostCapabilityGateway: PluginHostCapabilityGateway = testPluginHostCapabilityGateway(),
+    entryExecutionService: PluginEntryExecutionService = fakePluginEntryExecutionService(bindings.logBus),
+): com.astrbot.android.ui.viewmodel.PluginViewModel {
+    return com.astrbot.android.ui.viewmodel.PluginViewModel(
+        bindings = bindings,
+        hostCapabilityGateway = hostCapabilityGateway,
+        entryExecutionService = entryExecutionService,
+    )
+}
+
+private fun testPluginHostCapabilityGateway(): PluginHostCapabilityGateway {
+    return DefaultPluginHostCapabilityGateway(
+        resolver = DefaultPluginExecutionHostResolver(
+            DefaultPluginExecutionHostOperations(),
+        ),
+        hostActionExecutor = ExternalPluginHostActionExecutor(),
+    )
+}
+
+private fun fakePluginEntryExecutionService(
+    logBus: PluginRuntimeLogBus = NoOpPluginRuntimeLogBus,
+    onExecute: (
+        PluginInstallRecord,
+        com.astrbot.android.model.plugin.PluginExecutionContext,
+    ) -> com.astrbot.android.model.plugin.PluginExecutionResult? = { _, _ -> null },
+): PluginEntryExecutionService {
+    return object : PluginEntryExecutionService(
+        engine = testPluginExecutionEngine(logBus),
+        pluginCatalog = ExternalPluginRuntimeCatalog(),
+    ) {
+        override fun execute(
+            record: PluginInstallRecord,
+            context: com.astrbot.android.model.plugin.PluginExecutionContext,
+        ): com.astrbot.android.model.plugin.PluginExecutionResult? {
+            return onExecute(record, context)
+        }
+    }
+}
+
+private fun testPluginExecutionEngine(
+    logBus: PluginRuntimeLogBus = NoOpPluginRuntimeLogBus,
+): PluginExecutionEngine {
+    val failureGuard = PluginFailureGuard(
+        store = InMemoryPluginFailureStateStore(),
+        scopedStore = InMemoryPluginScopedFailureStateStore(),
+        logBus = logBus,
+    )
+    return PluginExecutionEngine(
+        dispatcher = PluginRuntimeDispatcher(
+            failureGuard = failureGuard,
+            logBus = logBus,
+        ),
+        failureGuard = failureGuard,
+        logBus = logBus,
+    )
 }
 
 private fun assertResourceFeedback(

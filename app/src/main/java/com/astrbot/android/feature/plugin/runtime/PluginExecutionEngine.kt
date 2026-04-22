@@ -40,8 +40,11 @@ class PluginExecutionEngine(
     private val clock: () -> Long = System::currentTimeMillis,
     private val scheduler: PluginRuntimeScheduler = dispatcher.scheduler,
     private val policyResolver: (PluginRuntimePlugin, PluginTriggerSource) -> PluginSchedulePolicy = dispatcher.policyResolver,
-    private val resultMerger: PluginExecutionResultMerger = PluginExecutionResultMerger(),
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val resultMerger: PluginExecutionResultMerger = PluginExecutionResultMerger(
+        logBus = dispatcher.logBus,
+        clock = clock,
+    ),
+    private val logBus: PluginRuntimeLogBus = dispatcher.logBus,
 ) {
     fun execute(
         plugin: PluginRuntimePlugin,

@@ -40,7 +40,7 @@ data class PluginV2ActiveRuntimeSnapshot(
 )
 
 class PluginV2ActiveRuntimeStore(
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val writeMutex = Mutex()
@@ -59,7 +59,11 @@ class PluginV2ActiveRuntimeStore(
             ).also { canonicalEntry ->
                 committedEntry = canonicalEntry
             }.let { canonicalEntry ->
-                currentSnapshot.withLoadedRuntimeInternal(canonicalEntry)
+                currentSnapshot.withLoadedRuntimeInternal(
+                    entry = canonicalEntry,
+                    logBus = logBus,
+                    clock = clock,
+                )
             }
         }
         committedEntry?.let { canonicalEntry ->
@@ -71,7 +75,11 @@ class PluginV2ActiveRuntimeStore(
 
     suspend fun unload(pluginId: String): PluginV2ActiveRuntimeSnapshot {
         return update { currentSnapshot ->
-            currentSnapshot.withoutPluginInternal(pluginId)
+            currentSnapshot.withoutPluginInternal(
+                pluginId = pluginId,
+                logBus = logBus,
+                clock = clock,
+            )
         }
     }
 
@@ -198,6 +206,8 @@ class PluginV2ActiveRuntimeStore(
 
 private fun PluginV2ActiveRuntimeSnapshot.withLoadedRuntimeInternal(
     entry: PluginV2ActiveRuntimeEntry,
+    logBus: PluginRuntimeLogBus,
+    clock: () -> Long,
 ): PluginV2ActiveRuntimeSnapshot {
     val pluginId = entry.pluginId
 
@@ -221,7 +231,11 @@ private fun PluginV2ActiveRuntimeSnapshot.withLoadedRuntimeInternal(
     val nextSummaries = LinkedHashMap(lastBootstrapSummariesByPluginId)
     nextSummaries[pluginId] = entry.lastBootstrapSummary.copy()
 
-    val toolState = compileCentralizedToolState(nextSessions)
+    val toolState = compileCentralizedToolState(
+        sessionsByPluginId = nextSessions,
+        logBus = logBus,
+        clock = clock,
+    )
 
     return copy(
         activeRuntimeEntriesByPluginId = nextEntries,
@@ -238,6 +252,8 @@ private fun PluginV2ActiveRuntimeSnapshot.withLoadedRuntimeInternal(
 
 private fun PluginV2ActiveRuntimeSnapshot.withoutPluginInternal(
     pluginId: String,
+    logBus: PluginRuntimeLogBus,
+    clock: () -> Long,
 ): PluginV2ActiveRuntimeSnapshot {
     if (pluginId.isBlank()) {
         return this
@@ -262,7 +278,11 @@ private fun PluginV2ActiveRuntimeSnapshot.withoutPluginInternal(
         summaries.remove(pluginId)
     }
 
-    val toolState = compileCentralizedToolState(nextSessions)
+    val toolState = compileCentralizedToolState(
+        sessionsByPluginId = nextSessions,
+        logBus = logBus,
+        clock = clock,
+    )
 
     return copy(
         activeRuntimeEntriesByPluginId = nextEntries,
@@ -283,12 +303,18 @@ internal fun compileCentralizedToolState(
     personaSnapshot: PersonaToolEnablementSnapshot? = null,
     capabilityGateway: PluginV2ToolCapabilityGateway = PluginV2ToolCapabilityGateway { true },
     activeFutureSourceKinds: Set<PluginToolSourceKind> = emptySet(),
+    logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    clock: () -> Long = System::currentTimeMillis,
 ): PluginV2ToolRegistryRuntimeSnapshot {
     val rawRegistries = sessionsByPluginId.values
         .filter { session -> session.pluginId != PluginExecutionHostApi.HostBuiltinPluginId }
         .mapNotNull(PluginV2RuntimeSession::rawRegistry)
     val sourceGateway = PluginV2ToolSourceGateway(activeFutureSourceKinds = activeFutureSourceKinds)
-    return PluginV2ToolRegistry(sourceGateway = sourceGateway).compileRuntimeSnapshot(
+    return PluginV2ToolRegistry(
+        sourceGateway = sourceGateway,
+        logBus = logBus,
+        clock = clock,
+    ).compileRuntimeSnapshot(
         rawRegistries = rawRegistries,
         additionalToolDescriptors = additionalToolDescriptors,
         personaSnapshot = personaSnapshot,
@@ -359,13 +385,23 @@ object PluginV2ActiveRuntimeStoreProvider {
     @Volatile
     private var storeOverrideForTests: PluginV2ActiveRuntimeStore? = null
 
+    @Volatile
+    private var installedStore: PluginV2ActiveRuntimeStore? = null
+
     private val sharedStore: PluginV2ActiveRuntimeStore by lazy {
-        PluginV2ActiveRuntimeStore()
+        PluginV2ActiveRuntimeStore(logBus = PluginRuntimeLogBusProvider.bus())
     }
 
-    fun store(): PluginV2ActiveRuntimeStore = storeOverrideForTests ?: sharedStore
+    fun store(): PluginV2ActiveRuntimeStore = storeOverrideForTests ?: installedStore ?: sharedStore
+
+    internal fun installFromHilt(store: PluginV2ActiveRuntimeStore) {
+        installedStore = store
+    }
 
     internal fun setStoreOverrideForTests(store: PluginV2ActiveRuntimeStore?) {
         storeOverrideForTests = store
+        if (store == null) {
+            installedStore = null
+        }
     }
 }

@@ -45,7 +45,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     private val llmClientPort: LlmClientPort,
     private val llmProviderProbePort: LlmProviderProbePort,
     override val runtimeContextResolverPort: RuntimeContextResolverPort,
-    private val defaultAppChatPluginRuntime: AppChatPluginRuntime,
+    private val injectedAppChatPluginRuntime: AppChatPluginRuntime,
     override val conversationRepositoryPort: ConversationRepositoryPort,
     private val appChatRuntimeServiceFactory: AppChatRuntimeServiceFactory,
     private val sendAppMessageUseCaseFactory: SendAppMessageUseCaseFactory,
@@ -55,6 +55,8 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
 
     override val defaultSessionId: String = ConversationRepository.DEFAULT_SESSION_ID
     override val defaultSessionTitle: String = ConversationRepository.DEFAULT_SESSION_TITLE
+    override val defaultAppChatPluginRuntime: AppChatPluginRuntime
+        get() = injectedAppChatPluginRuntime
     override val bots: StateFlow<List<BotProfile>> = BotRepository.botProfiles
     override val selectedBotId: StateFlow<String> = BotRepository.selectedBotId
     override val providers: StateFlow<List<ProviderProfile>> = ProviderRepository.providers
@@ -275,7 +277,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     }
 
     override val appChatRuntimePort: AppChatRuntimePort by lazy {
-        createAppChatRuntimePort(defaultAppChatPluginRuntime)
+        createAppChatRuntimePort(injectedAppChatPluginRuntime)
     }
 
     override val sendAppMessageUseCase: SendAppMessageUseCase by lazy {

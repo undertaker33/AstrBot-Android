@@ -1,12 +1,14 @@
 package com.astrbot.android.di.hilt
 
+import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
+import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDependencyBridge
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
@@ -39,26 +41,25 @@ internal object PluginRuntimeModule {
     @Provides
     @Singleton
     fun providePluginRuntimeLogBus(): PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus().also {
-        PluginRuntimeLogBusProvider.setBusOverrideForTests(it)
-        PluginRuntimeDependencyBridge.installLogBus(it)
+        PluginRuntimeLogBusProvider.installFromHilt(it)
     }
 
     @Provides
     @Singleton
     fun providePluginFailureStateStore(): PluginFailureStateStore = InMemoryPluginFailureStateStore().also {
-        PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(it)
+        PluginRuntimeFailureStateStoreProvider.installFromHilt(it)
     }
 
     @Provides
     @Singleton
     fun providePluginScopedFailureStateStore(): PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore().also {
-        PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(it)
+        PluginRuntimeScopedFailureStateStoreProvider.installFromHilt(it)
     }
 
     @Provides
     @Singleton
     fun providePluginScheduleStateStore(): PluginScheduleStateStore = InMemoryPluginScheduleStateStore().also {
-        PluginRuntimeScheduleStateStoreProvider.setStoreOverrideForTests(it)
+        PluginRuntimeScheduleStateStoreProvider.installFromHilt(it)
     }
 
     @Provides
@@ -66,8 +67,7 @@ internal object PluginRuntimeModule {
     fun providePluginV2ActiveRuntimeStore(
         logBus: PluginRuntimeLogBus,
     ): PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(logBus = logBus).also {
-        PluginV2ActiveRuntimeStoreProvider.setStoreOverrideForTests(it)
-        PluginRuntimeDependencyBridge.installActiveRuntimeStore(it)
+        PluginV2ActiveRuntimeStoreProvider.installFromHilt(it)
     }
 
     @Provides
@@ -96,11 +96,11 @@ internal object PluginRuntimeModule {
         activeRuntimeStore: PluginV2ActiveRuntimeStore,
         logBus: PluginRuntimeLogBus,
     ): PluginV2LifecycleManager = PluginV2LifecycleManager(
-        store = activeRuntimeStore,
+        clock = System::currentTimeMillis,
         logBus = logBus,
+        store = activeRuntimeStore,
     ).also {
-        PluginV2LifecycleManagerProvider.setManagerOverrideForTests(it)
-        PluginRuntimeDependencyBridge.installLifecycleManager(it)
+        PluginV2LifecycleManagerProvider.installFromHilt(it)
     }
 
     @Provides
@@ -110,15 +110,15 @@ internal object PluginRuntimeModule {
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
     ): PluginV2DispatchEngine = PluginV2DispatchEngine(
-        store = activeRuntimeStore,
+        clock = System::currentTimeMillis,
         logBus = logBus,
+        store = activeRuntimeStore,
         lifecycleManager = lifecycleManager,
         filterEvaluator = PluginV2FilterEvaluator(
             logBus = logBus,
         ),
     ).also {
-        PluginV2DispatchEngineProvider.setEngineOverrideForTests(it)
-        PluginRuntimeDependencyBridge.installDispatchEngine(it)
+        PluginV2DispatchEngineProvider.installFromHilt(it)
     }
 
     @Provides
@@ -127,13 +127,39 @@ internal object PluginRuntimeModule {
         activeRuntimeStore: PluginV2ActiveRuntimeStore,
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
-    ): PluginV2RuntimeLoader = PluginV2RuntimeLoader(
-        sessionFactory = PluginV2RuntimeSessionFactory(),
-        compiler = PluginV2RegistryCompiler(),
-        store = activeRuntimeStore,
+        pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
+    ): PluginV2RuntimeLoader = createPluginV2RuntimeLoader(
+        activeRuntimeStore = activeRuntimeStore,
         logBus = logBus,
         lifecycleManager = lifecycleManager,
+        repositoryStatePort = pluginRepositoryStateOwner,
+    )
+
+    internal fun providePluginV2RuntimeLoader(
+        activeRuntimeStore: PluginV2ActiveRuntimeStore,
+        logBus: PluginRuntimeLogBus,
+        lifecycleManager: PluginV2LifecycleManager,
+    ): PluginV2RuntimeLoader = createPluginV2RuntimeLoader(
+        activeRuntimeStore = activeRuntimeStore,
+        logBus = logBus,
+        lifecycleManager = lifecycleManager,
+        repositoryStatePort = EmptyPluginRepositoryStatePort,
+    )
+
+    private fun createPluginV2RuntimeLoader(
+        activeRuntimeStore: PluginV2ActiveRuntimeStore,
+        logBus: PluginRuntimeLogBus,
+        lifecycleManager: PluginV2LifecycleManager,
+        repositoryStatePort: PluginRepositoryStatePort,
+    ): PluginV2RuntimeLoader = PluginV2RuntimeLoader(
+        sessionFactory = PluginV2RuntimeSessionFactory(),
+        compiler = PluginV2RegistryCompiler(logBus = logBus),
+        clock = System::currentTimeMillis,
+        logBus = logBus,
+        store = activeRuntimeStore,
+        lifecycleManager = lifecycleManager,
+        repositoryStatePort = repositoryStatePort,
     ).also {
-        PluginV2RuntimeLoaderProvider.setLoaderOverrideForTests(it)
+        PluginV2RuntimeLoaderProvider.installFromHilt(it)
     }
 }

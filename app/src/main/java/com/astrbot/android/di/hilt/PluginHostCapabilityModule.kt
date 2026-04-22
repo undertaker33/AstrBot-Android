@@ -1,8 +1,11 @@
 package com.astrbot.android.di.hilt
 
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostResolver
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
+import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostResolver
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -24,8 +27,23 @@ internal abstract class PluginHostCapabilityModule {
         @Provides
         @Singleton
         @JvmStatic
+        fun provideExternalPluginHostActionExecutor(
+            failureGuard: PluginFailureGuard,
+            logBus: PluginRuntimeLogBus,
+        ): ExternalPluginHostActionExecutor = ExternalPluginHostActionExecutor(
+            failureGuard = failureGuard,
+            logBus = logBus,
+        )
+
+        @Provides
+        @Singleton
+        @JvmStatic
         fun providePluginHostCapabilityGatewayFactory(
             resolver: PluginExecutionHostResolver,
-        ): PluginHostCapabilityGatewayFactory = PluginHostCapabilityGatewayFactory(resolver)
+            hostActionExecutor: ExternalPluginHostActionExecutor,
+        ): PluginHostCapabilityGatewayFactory = PluginHostCapabilityGatewayFactory(
+            resolver = resolver,
+            hostActionExecutor = hostActionExecutor,
+        )
     }
 }

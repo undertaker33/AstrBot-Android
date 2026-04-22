@@ -16,7 +16,7 @@ data class PluginV2CommandRegistryMergeResult(
 )
 
 class PluginV2RegistryCompiler(
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun compile(rawRegistry: PluginV2RawRegistry): PluginV2RegistryCompileResult {

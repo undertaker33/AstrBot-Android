@@ -9,7 +9,6 @@ import com.astrbot.android.core.runtime.context.StreamingModeResolver
 import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
-import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
@@ -57,6 +56,7 @@ internal class QqMessageRuntimeService(
     private val pluginDispatchService: QqPluginDispatchService,
     private val streamingReplyService: QqStreamingReplyService,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val executeLegacyPluginsDuringLlmDispatch: Boolean = true,
     private val log: (String) -> Unit = {},
 ) : QqRuntimePort {
 
@@ -598,7 +598,7 @@ internal class QqMessageRuntimeService(
     }
 
     private fun shouldExecuteLegacyQqPluginsDuringLlmDispatch(): Boolean {
-        return llmRuntime === DefaultAppChatPluginRuntime
+        return executeLegacyPluginsDuringLlmDispatch
     }
 
     private fun sendFailureNoticeIfNeeded(

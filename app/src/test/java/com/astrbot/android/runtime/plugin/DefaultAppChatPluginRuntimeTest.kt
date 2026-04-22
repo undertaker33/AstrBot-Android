@@ -13,12 +13,28 @@ import org.junit.Test
 
 class DefaultAppChatPluginRuntimeTest {
     @Test
-    fun default_app_chat_runtime_writes_failures_into_shared_store() {
+    fun hilt_owned_app_chat_runtime_writes_failures_into_injected_store() {
         val attempts = AtomicInteger(0)
         val sharedStore = InMemoryPluginFailureStateStore()
         val scopedStore = InMemoryPluginScopedFailureStateStore()
-        PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(sharedStore)
-        PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(scopedStore)
+        val logBus = InMemoryPluginRuntimeLogBus()
+        val failureGuard = PluginFailureGuard(
+            store = sharedStore,
+            scopedStore = scopedStore,
+            logBus = logBus,
+        )
+        val runtime = EngineBackedAppChatPluginRuntime(
+            pluginProvider = PluginRuntimeCatalog::plugins,
+            engine = PluginExecutionEngine(
+                dispatcher = PluginRuntimeDispatcher(
+                    failureGuard = failureGuard,
+                    logBus = logBus,
+                ),
+                failureGuard = failureGuard,
+                logBus = logBus,
+            ),
+            hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
+        )
         PluginRuntimeRegistry.registerProvider {
             listOf(
                 runtimePlugin(
@@ -33,7 +49,7 @@ class DefaultAppChatPluginRuntimeTest {
 
         try {
             repeat(3) {
-                DefaultAppChatPluginRuntime.execute(
+                runtime.execute(
                     trigger = PluginTriggerSource.BeforeSendMessage,
                     contextFactory = ::executionContextFor,
                 )
@@ -46,8 +62,6 @@ class DefaultAppChatPluginRuntimeTest {
             assertTrue(snapshot?.isSuspended == true)
         } finally {
             PluginRuntimeRegistry.reset()
-            PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
-            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
         }
     }
 

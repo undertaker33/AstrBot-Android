@@ -9,8 +9,7 @@ keystore.properties
 .externalNativeBuild/
 captures/
 artifacts/*
-docs/*
-!docs/architecture.md
+docs/
 docs/plugins/
 .superpowers/
 .worktrees/
@@ -21,7 +20,6 @@ replay_pid15876.log
 .codex-home/
 .gradle-user-home/
 文档/*
-docs/plugins/*
 docs/superpowers/*
 AGENTS.md
 .codex/*

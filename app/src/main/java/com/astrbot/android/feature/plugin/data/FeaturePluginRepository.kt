@@ -52,6 +52,9 @@ import com.astrbot.android.feature.plugin.runtime.normalizeArchiveEntryName
 import java.io.File
 import java.util.zip.ZipInputStream
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
+import javax.inject.Singleton
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,8 +75,75 @@ interface PluginDataRemover {
     fun removePluginData(record: PluginInstallRecord)
 }
 
+interface PluginRepositoryStatePort {
+    val records: StateFlow<List<PluginInstallRecord>>
+    val repositorySources: StateFlow<List<PluginRepositorySource>>
+    val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
+
+    fun findByPluginId(pluginId: String): PluginInstallRecord?
+}
+
 object NoOpPluginDataRemover : PluginDataRemover {
     override fun removePluginData(record: PluginInstallRecord) = Unit
+}
+
+internal object EmptyPluginRepositoryStatePort : PluginRepositoryStatePort {
+    override val records: StateFlow<List<PluginInstallRecord>> = MutableStateFlow(emptyList())
+    override val repositorySources: StateFlow<List<PluginRepositorySource>> = MutableStateFlow(emptyList())
+    override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = MutableStateFlow(emptyList())
+
+    override fun findByPluginId(pluginId: String): PluginInstallRecord? = null
+}
+
+@Singleton
+class FeaturePluginRepositoryStateOwner @Inject constructor(
+    @ApplicationContext appContext: Context,
+    pluginDao: PluginInstallAggregateDao,
+    pluginCatalogDao: PluginCatalogDao,
+    pluginConfigDao: PluginConfigSnapshotDao,
+) : PluginRepositoryStatePort {
+    private val repository = FeaturePluginRepository
+    private val ownerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _records = MutableStateFlow<List<PluginInstallRecord>>(emptyList())
+    private val _repositorySources = MutableStateFlow<List<PluginRepositorySource>>(emptyList())
+    private val _catalogEntries = MutableStateFlow<List<PluginCatalogEntryRecord>>(emptyList())
+
+    init {
+        repository.installPersistence(
+            pluginDao = pluginDao,
+            pluginCatalogDao = pluginCatalogDao,
+            pluginConfigDao = pluginConfigDao,
+        )
+        repository.initialize(appContext)
+        ownerScope.launch {
+            repository.records.collect { records ->
+                _records.value = records
+            }
+        }
+        ownerScope.launch {
+            repository.repositorySources.collect { sources ->
+                _repositorySources.value = sources
+            }
+        }
+        ownerScope.launch {
+            repository.catalogEntries.collect { entries ->
+                _catalogEntries.value = entries
+            }
+        }
+    }
+
+    override val records: StateFlow<List<PluginInstallRecord>> = _records.asStateFlow()
+    override val repositorySources: StateFlow<List<PluginRepositorySource>> = _repositorySources.asStateFlow()
+    override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = _catalogEntries.asStateFlow()
+
+    override fun findByPluginId(pluginId: String): PluginInstallRecord? {
+        _records.value.firstOrNull { record -> record.pluginId == pluginId }?.let { return it }
+        return repository.findByPluginId(pluginId)
+    }
+
+    fun initialize(context: Context) {
+        repository.initialize(context)
+    }
 }
 
 class PluginFileDataRemover(
@@ -135,16 +205,23 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     val repositorySources: StateFlow<List<PluginRepositorySource>> = _repositorySources.asStateFlow()
     val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = _catalogEntries.asStateFlow()
 
+    internal fun installPersistence(
+        pluginDao: PluginInstallAggregateDao,
+        pluginCatalogDao: PluginCatalogDao,
+        pluginConfigDao: PluginConfigSnapshotDao,
+    ) {
+        this.pluginDao = pluginDao
+        this.pluginCatalogDao = pluginCatalogDao
+        this.pluginConfigDao = pluginConfigDao
+    }
+
     fun initialize(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
         val applicationContext = context.applicationContext
         appContext = applicationContext
         pluginDataRemover = PluginFileDataRemover(PluginStoragePaths.fromFilesDir(applicationContext.filesDir))
-        val database = AstrBotDatabase.get(context)
-        val dao = database.pluginInstallAggregateDao()
-        pluginCatalogDao = database.pluginCatalogDao()
-        pluginConfigDao = database.pluginConfigSnapshotDao()
-        pluginDao = dao
+        ensurePersistence(context)
+        val dao = requireDao()
         _records.value = runBlocking(Dispatchers.IO) {
             dao.listPluginInstallAggregates()
                 .map(PluginInstallAggregate::toInstallRecord)
@@ -470,6 +547,12 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     private fun requireInitialized() {
         check(initialized.get() && pluginDao != null) {
             "PluginRepository.initialize(context) must be called before use."
+        }
+    }
+
+    private fun ensurePersistence(context: Context) {
+        check(pluginDao != null && pluginCatalogDao != null && pluginConfigDao != null) {
+            "FeaturePluginRepository persistence must be installed before initialize(context)."
         }
     }
 

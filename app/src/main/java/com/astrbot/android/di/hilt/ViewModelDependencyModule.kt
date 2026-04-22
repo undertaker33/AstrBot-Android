@@ -3,15 +3,13 @@
 package com.astrbot.android.di.hilt
 
 import android.content.Context
-import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
-import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
-import com.astrbot.android.data.RuntimeAssetRepository
+import android.net.Uri
+import com.astrbot.android.data.RuntimeAssetStateOwner
 import com.astrbot.android.feature.config.data.RoomPhase3DataTransactionService
 import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
 import com.astrbot.android.feature.provider.runtime.DefaultProviderRuntimePort
 import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
+import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
 import com.astrbot.android.ui.viewmodel.DefaultPluginViewModelBindings
 import com.astrbot.android.ui.viewmodel.DefaultQQLoginViewModelBindings
 import com.astrbot.android.ui.viewmodel.PluginViewModelBindings
@@ -19,12 +17,14 @@ import com.astrbot.android.ui.viewmodel.QQLoginViewModelBindings
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
 import com.astrbot.android.feature.qq.data.NapCatLoginRepository
-import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
-import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.qq.data.NapCatBridgeStateOwner
 import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
+import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository.ImportReferenceAudioResult
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.NapCatRuntimeState
+import com.astrbot.android.model.ProviderProfile
+import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.RuntimeAssetState
 import com.astrbot.android.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
@@ -35,11 +35,20 @@ import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Inject
 import javax.inject.Singleton
 import javax.inject.Qualifier
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.SupervisorJob
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
@@ -101,6 +110,82 @@ internal annotation class PluginGovernanceReadModels
 @Retention(AnnotationRetention.BINARY)
 internal annotation class TtsVoiceAssets
 
+@Singleton
+internal class TtsVoiceAssetStateOwner @Inject constructor(
+    @ApplicationContext appContext: Context,
+) {
+    private val repository = TtsVoiceAssetRepository
+    private val ownerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _assets = MutableStateFlow<List<TtsVoiceReferenceAsset>>(emptyList())
+
+    init {
+        repository.initialize(appContext)
+        ownerScope.launch {
+            repository.assets.collect { assets ->
+                _assets.value = assets
+            }
+        }
+    }
+
+    val assets: StateFlow<List<TtsVoiceReferenceAsset>> = _assets.asStateFlow()
+
+    fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>> {
+        return repository.listVoiceChoicesFor(provider)
+    }
+
+    fun importReferenceAudio(
+        context: Context,
+        sourceUri: Uri,
+        name: String = "",
+        assetId: String? = null,
+    ): ImportReferenceAudioResult {
+        return repository.importReferenceAudio(
+            context = context,
+            sourceUri = sourceUri,
+            name = name,
+            assetId = assetId,
+        )
+    }
+
+    fun saveProviderBinding(
+        assetId: String,
+        providerId: String,
+        providerType: ProviderType,
+        model: String,
+        voiceId: String,
+        displayName: String,
+    ) {
+        repository.saveProviderBinding(
+            assetId = assetId,
+            providerId = providerId,
+            providerType = providerType,
+            model = model,
+            voiceId = voiceId,
+            displayName = displayName,
+        )
+    }
+
+    fun renameBinding(assetId: String, bindingId: String, displayName: String) {
+        repository.renameBinding(
+            assetId = assetId,
+            bindingId = bindingId,
+            displayName = displayName,
+        )
+    }
+
+    fun clearReferenceAudio(assetId: String) {
+        repository.clearReferenceAudio(assetId)
+    }
+
+    fun deleteReferenceClip(assetId: String, clipId: String) {
+        repository.deleteReferenceClip(assetId, clipId)
+    }
+
+    fun deleteBinding(assetId: String, bindingId: String) {
+        repository.deleteBinding(assetId, bindingId)
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 internal abstract class ViewModelDependencyModule {
@@ -139,37 +224,49 @@ internal abstract class ViewModelDependencyModule {
 
     @Provides
     @BridgeConfig
-    fun provideBridgeConfig(): StateFlow<NapCatBridgeConfig> = NapCatBridgeRepository.config
+    fun provideBridgeConfig(
+        bridgeStateOwner: NapCatBridgeStateOwner,
+    ): StateFlow<NapCatBridgeConfig> = bridgeStateOwner.config
 
     @Provides
     @BridgeRuntimeState
-    fun provideBridgeRuntimeState(): StateFlow<NapCatRuntimeState> = NapCatBridgeRepository.runtimeState
+    fun provideBridgeRuntimeState(
+        bridgeStateOwner: NapCatBridgeStateOwner,
+    ): StateFlow<NapCatRuntimeState> = bridgeStateOwner.runtimeState
 
     @Provides
-    fun provideBridgeConfigSaver(): BridgeConfigSaver = BridgeConfigSaver { config ->
-        NapCatBridgeRepository.updateConfig(config)
-    }
+    fun provideBridgeConfigSaver(
+        bridgeStateOwner: NapCatBridgeStateOwner,
+    ): BridgeConfigSaver = BridgeConfigSaver(bridgeStateOwner::updateConfig)
 
     @Provides
-    fun provideRuntimeAssetViewModelOps(): RuntimeAssetViewModelOps = object : RuntimeAssetViewModelOps {
-        override fun refresh(context: Context) = RuntimeAssetRepository.refresh(context)
-        override suspend fun downloadAsset(context: Context, assetId: String) = RuntimeAssetRepository.downloadAsset(context, assetId)
-        override suspend fun clearAsset(context: Context, assetId: String) = RuntimeAssetRepository.clearAsset(context, assetId)
-        override suspend fun downloadOnDeviceTtsModel(context: Context, modelId: String) = RuntimeAssetRepository.downloadOnDeviceTtsModel(context, modelId)
-        override suspend fun clearOnDeviceTtsModel(context: Context, modelId: String) = RuntimeAssetRepository.clearOnDeviceTtsModel(context, modelId)
+    fun provideRuntimeAssetViewModelOps(
+        runtimeAssetStateOwner: RuntimeAssetStateOwner,
+    ): RuntimeAssetViewModelOps = object : RuntimeAssetViewModelOps {
+        override fun refresh(context: Context) = runtimeAssetStateOwner.refresh(context)
+        override suspend fun downloadAsset(context: Context, assetId: String) = runtimeAssetStateOwner.downloadAsset(context, assetId)
+        override suspend fun clearAsset(context: Context, assetId: String) = runtimeAssetStateOwner.clearAsset(context, assetId)
+        override suspend fun downloadOnDeviceTtsModel(context: Context, modelId: String) = runtimeAssetStateOwner.downloadOnDeviceTtsModel(context, modelId)
+        override suspend fun clearOnDeviceTtsModel(context: Context, modelId: String) = runtimeAssetStateOwner.clearOnDeviceTtsModel(context, modelId)
     }
 
     @Provides
     @PluginRecords
-    fun providePluginRecords(): StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>> = FeaturePluginRepository.records
+    fun providePluginRecords(
+        pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
+    ): StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>> = pluginRepositoryStateOwner.records
 
     @Provides
     @PluginRepositorySources
-    fun providePluginRepositorySources(): StateFlow<@JvmSuppressWildcards List<PluginRepositorySource>> = FeaturePluginRepository.repositorySources
+    fun providePluginRepositorySources(
+        pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
+    ): StateFlow<@JvmSuppressWildcards List<PluginRepositorySource>> = pluginRepositoryStateOwner.repositorySources
 
     @Provides
     @PluginCatalogEntries
-    fun providePluginCatalogEntries(): StateFlow<@JvmSuppressWildcards List<PluginCatalogEntryRecord>> = FeaturePluginRepository.catalogEntries
+    fun providePluginCatalogEntries(
+        pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
+    ): StateFlow<@JvmSuppressWildcards List<PluginCatalogEntryRecord>> = pluginRepositoryStateOwner.catalogEntries
 
     @Provides
     @Singleton
@@ -183,7 +280,9 @@ internal abstract class ViewModelDependencyModule {
 
     @Provides
     @RuntimeAssetStateFlow
-    fun provideRuntimeAssetState(): StateFlow<RuntimeAssetState> = RuntimeAssetRepository.state
+    fun provideRuntimeAssetState(
+        runtimeAssetStateOwner: RuntimeAssetStateOwner,
+    ): StateFlow<RuntimeAssetState> = runtimeAssetStateOwner.state
 
     @Provides
     @BotLoginState
@@ -195,6 +294,8 @@ internal abstract class ViewModelDependencyModule {
 
     @Provides
     @TtsVoiceAssets
-    fun provideTtsVoiceAssets(): StateFlow<@JvmSuppressWildcards List<TtsVoiceReferenceAsset>> = TtsVoiceAssetRepository.assets
+    fun provideTtsVoiceAssets(
+        ttsVoiceAssetStateOwner: TtsVoiceAssetStateOwner,
+    ): StateFlow<@JvmSuppressWildcards List<TtsVoiceReferenceAsset>> = ttsVoiceAssetStateOwner.assets
     }
 }

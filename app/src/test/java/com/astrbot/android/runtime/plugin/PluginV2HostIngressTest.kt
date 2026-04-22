@@ -47,6 +47,7 @@ import com.astrbot.android.feature.qq.runtime.QqRuntimeProfileResolver
 import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
 import com.astrbot.android.feature.qq.runtime.OneBotSendResult
 import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
+import com.astrbot.android.feature.qq.runtime.QqPluginExecutionService
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.feature.qq.runtime.QqSessionKeyFactory
 import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
@@ -755,6 +756,7 @@ class PluginV2HostIngressTest {
                 )
             },
         )
+        val dispatchEngine = v2EngineWithHandlers()
         PluginRuntimeRegistry.registerProvider {
             listOf(
                 runtimePlugin(
@@ -770,12 +772,13 @@ class PluginV2HostIngressTest {
             bot = defaultBot(),
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
+            executeLegacyPluginsDuringLlmDispatch = false,
+            appChatPluginRuntime = runtime,
+            pluginV2DispatchEngine = dispatchEngine,
         ) {
-            QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
             QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success()
             }
-            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
 
             invokeHandlePayload(oneBotMessagePayload(messageId = "msg-no-legacy-before-send", text = "astrbot hello v2 only"))
 
@@ -822,7 +825,9 @@ class PluginV2HostIngressTest {
     fun send_success_persists_assistant_and_receipt_then_triggers_after_sent_once() = runBlocking {
         val sendAttempts = AtomicInteger(0)
         val assistantPersistedBeforeAfterSent = AtomicBoolean(false)
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
         val runtime = RecordingAppChatPluginRuntime(
+            logBus = logBus,
             preSend = { input ->
                 buildPipelineResult(
                     input = input,
@@ -864,6 +869,7 @@ class PluginV2HostIngressTest {
     fun send_failure_emits_llm_pipeline_failed_and_skips_after_sent() = runBlocking {
         val logBus = InMemoryPluginRuntimeLogBus(clock = { 200L })
         val runtime = RecordingAppChatPluginRuntime(
+            logBus = logBus,
             preSend = { input ->
                 buildPipelineResult(
                     input = input,
@@ -876,24 +882,20 @@ class PluginV2HostIngressTest {
             bot = defaultBot(),
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
+            appChatPluginRuntime = runtime,
+            pluginV2DispatchEngine = v2EngineWithHandlers(),
+            logBus = logBus,
         ) {
-            PluginRuntimeLogBusProvider.setBusOverrideForTests(logBus)
-            try {
-                QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-                QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
-                    OneBotSendResult.failure("send-boom")
-                }
-                PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
-
-                invokeHandlePayload(oneBotMessagePayload(messageId = "msg-send-failure", text = "astrbot hello failure"))
-
-                assertEquals(0, runtime.afterSentCalls.get())
-                val sessionMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
-                assertFalse(sessionMessages.any { message -> message.role == "assistant" })
-                assertTrue(logBus.snapshot(limit = 50).any { record -> record.code == "llm_pipeline_failed" })
-            } finally {
-                PluginRuntimeLogBusProvider.setBusOverrideForTests(null)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                OneBotSendResult.failure("send-boom")
             }
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-send-failure", text = "astrbot hello failure"))
+
+            assertEquals(0, runtime.afterSentCalls.get())
+            val sessionMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
+            assertFalse(sessionMessages.any { message -> message.role == "assistant" })
+            assertTrue(logBus.snapshot(limit = 50).any { record -> record.code == "llm_pipeline_failed" })
         }
     }
 
@@ -1006,7 +1008,10 @@ class PluginV2HostIngressTest {
     fun onebot_voice_streaming_sends_audio_segments_separately() = runBlocking {
         val sentAttachmentCounts = CopyOnWriteArrayList<Int>()
         val sentTexts = CopyOnWriteArrayList<String>()
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
         val runtime = RecordingAppChatPluginRuntime(
+            logBus = logBus,
+            lifecycleManager = PluginV2LifecycleManager(logBus = logBus),
             preSend = { input ->
                 buildPipelineResult(
                     input = input,
@@ -1113,6 +1118,7 @@ class PluginV2HostIngressTest {
     fun after_sent_handler_error_only_emits_on_plugin_error_without_rolling_back_sent_message() = runBlocking {
         val logBus = InMemoryPluginRuntimeLogBus(clock = { 300L })
         val runtime = RecordingAppChatPluginRuntime(
+            logBus = logBus,
             preSend = { input ->
                 buildPipelineResult(
                     input = input,
@@ -1128,29 +1134,21 @@ class PluginV2HostIngressTest {
             bot = defaultBot(),
             config = defaultConfig(textStreamingEnabled = false),
             providers = listOf(defaultChatProvider()),
+            appChatPluginRuntime = runtime,
+            pluginV2DispatchEngine = v2EngineWithHandlers(),
+            logBus = logBus,
         ) {
-            PluginV2LifecycleManagerProvider.manager()
-            PluginRuntimeLogBusProvider.setBusOverrideForTests(logBus)
-            try {
-                PluginV2LifecycleManagerProvider.setManagerOverrideForTests(
-                    PluginV2LifecycleManager(logBus = logBus),
-                )
-                QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
-                QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
-                    OneBotSendResult.success(receiptIds = listOf("receipt-after-sent"))
-                }
-                PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
-
-                invokeHandlePayload(oneBotMessagePayload(messageId = "msg-after-sent-error", text = "astrbot hello after sent"))
-
-                val sessionMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
-                assertTrue(sessionMessages.any { message -> message.role == "assistant" && message.content == "after-sent-error-text" })
-                val records = logBus.snapshot(limit = 80)
-                assertTrue(records.any { record -> record.code == "plugin_error_hook_emitted" })
-                assertFalse(records.any { record -> record.code == "llm_pipeline_failed" })
-            } finally {
-                PluginRuntimeLogBusProvider.setBusOverrideForTests(null)
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                OneBotSendResult.success(receiptIds = listOf("receipt-after-sent"))
             }
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-after-sent-error", text = "astrbot hello after sent"))
+
+            val sessionMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
+            assertTrue(sessionMessages.any { message -> message.role == "assistant" && message.content == "after-sent-error-text" })
+            val records = logBus.snapshot(limit = 80)
+            assertTrue(records.any { record -> record.code == "plugin_error_hook_emitted" })
+            assertFalse(records.any { record -> record.code == "llm_pipeline_failed" })
         }
     }
 
@@ -1185,7 +1183,13 @@ class PluginV2HostIngressTest {
             )
     }
 
-    private fun pluginDispatchService(): QqPluginDispatchService {
+    private fun pluginDispatchService(
+        dispatchEngine: PluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
+        failureStateStore: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
+        scopedFailureStateStore: PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore(),
+        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+        hostCapabilityGateway: PluginHostCapabilityGateway = testPluginHostCapabilityGateway(),
+    ): QqPluginDispatchService {
         return QqPluginDispatchService(
             replySender = QqReplySender(
                 socketSender = {},
@@ -1198,12 +1202,16 @@ class PluginV2HostIngressTest {
                 providerPort = LegacyProviderRepositoryAdapter(),
             ),
             resolvePluginPrivateRootPath = { "" },
-            gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
+            hostCapabilityGateway = hostCapabilityGateway,
+            hostActionExecutor = ExternalPluginHostActionExecutor(),
             log = {},
-            dispatchEngine = PluginV2DispatchEngineProvider.engine(),
-            failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
-            scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
-            logBus = PluginRuntimeLogBusProvider.bus(),
+            dispatchEngine = dispatchEngine,
+            executionService = QqPluginExecutionService(
+                pluginCatalog = PluginRuntimeCatalog::plugins,
+                failureStateStore = failureStateStore,
+                scopedFailureStateStore = scopedFailureStateStore,
+                logBus = logBus,
+            ),
         )
     }
 
@@ -1280,7 +1288,7 @@ class PluginV2HostIngressTest {
                 pluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
                 failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
                 scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
-                logBus = PluginRuntimeLogBusProvider.bus(),
+                logBus = current.logBus,
             )
         }
     }
@@ -1289,6 +1297,15 @@ class PluginV2HostIngressTest {
         bot: BotProfile,
         config: ConfigProfile,
         providers: List<ProviderProfile>,
+        executeLegacyPluginsDuringLlmDispatch: Boolean = true,
+        appChatPluginRuntime: AppChatLlmPipelineRuntime = DefaultAppChatPluginRuntime,
+        pluginV2DispatchEngine: PluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
+        failureStateStore: PluginFailureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
+        scopedFailureStateStore: PluginScopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
+        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+        gatewayFactory: PluginHostCapabilityGatewayFactory = testPluginHostCapabilityGatewayFactory(),
+        hostCapabilityGateway: PluginHostCapabilityGateway = testPluginHostCapabilityGateway(),
+        beforeInstall: () -> Unit = {},
         block: suspend () -> Unit,
     ) {
         val botSnapshot = BotRepository.snapshotProfiles()
@@ -1329,6 +1346,7 @@ class PluginV2HostIngressTest {
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
                 InMemoryPluginScopedFailureStateStore(),
             )
+            beforeInstall()
             BotRepository.restoreProfiles(listOf(bot), bot.id)
             ConfigRepository.restoreProfiles(listOf(config), config.id)
             ProviderRepository.restoreProfiles(providers)
@@ -1343,14 +1361,24 @@ class PluginV2HostIngressTest {
                     platformConfigPort = LegacyQqPlatformConfigAdapter(),
                     orchestrator = LegacyRuntimeOrchestratorAdapter(DefaultRuntimeLlmOrchestrator()),
                     runtimeContextResolverPort = runtimeContextResolverPort,
-                    appChatPluginRuntime = DefaultAppChatPluginRuntime,
-                    pluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
-                    failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
-                    scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
+                    appChatPluginRuntime = appChatPluginRuntime,
+                    pluginCatalog = PluginRuntimeCatalog::plugins,
+                    pluginV2DispatchEngine = pluginV2DispatchEngine,
+                    failureStateStore = failureStateStore,
+                    scopedFailureStateStore = scopedFailureStateStore,
                     providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
-                    gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
+                    gatewayFactory = gatewayFactory,
+                    hostCapabilityGateway = hostCapabilityGateway,
+                    hostActionExecutor = ExternalPluginHostActionExecutor(),
+                    pluginExecutionService = QqPluginExecutionService(
+                        pluginCatalog = PluginRuntimeCatalog::plugins,
+                        failureStateStore = failureStateStore,
+                        scopedFailureStateStore = scopedFailureStateStore,
+                        logBus = logBus,
+                    ),
                     llmProviderProbePort = LegacyLlmProviderProbeAdapter(),
-                    logBus = InMemoryPluginRuntimeLogBus(),
+                    logBus = logBus,
+                    executeLegacyPluginsDuringLlmDispatch = executeLegacyPluginsDuringLlmDispatch,
                 ),
             )
             RuntimeLogRepository.clear()
@@ -1575,6 +1603,8 @@ class PluginV2HostIngressTest {
     }
 
     private class RecordingAppChatPluginRuntime(
+        private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(clock = { 1L }),
+        private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManager(logBus = logBus),
         private val preSend: suspend (PluginV2LlmPipelineInput) -> PluginV2LlmPipelineResult,
         private val afterSent: suspend (PluginMessageEvent, PluginV2AfterSentView) -> Unit = { _, _ -> },
     ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
@@ -1624,7 +1654,7 @@ class PluginV2HostIngressTest {
             val preparedReply = request.prepareReply(pipelineResult)
             val sendResult = request.sendReply(preparedReply)
             if (!sendResult.success) {
-                PluginRuntimeLogBusProvider.bus().publishLifecycleRecord(
+                logBus.publishLifecycleRecord(
                     pluginId = "__host__",
                     pluginVersion = "",
                     occurredAtEpochMillis = 1L,
@@ -1665,7 +1695,7 @@ class PluginV2HostIngressTest {
                 )
             }.exceptionOrNull()
             if (afterSentError != null) {
-                PluginV2LifecycleManagerProvider.manager().emitPluginError(
+                lifecycleManager.emitPluginError(
                     event = PluginV2LlmAfterSentPayload(
                         event = request.pipelineInput.event,
                         view = afterSentView,
@@ -1846,6 +1876,36 @@ class PluginV2HostIngressTest {
                 diagnostics = compileResult.diagnostics,
                 callbackTokens = session.snapshotCallbackTokens(),
             ),
+        )
+    }
+
+    private fun emptyPluginV2DispatchEngine(): PluginV2DispatchEngine {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        return PluginV2DispatchEngine(
+            store = PluginV2ActiveRuntimeStore(
+                logBus = logBus,
+                clock = { 1L },
+            ),
+            logBus = logBus,
+            clock = { 1L },
+        )
+    }
+
+    private fun testPluginHostCapabilityGatewayFactory(): PluginHostCapabilityGatewayFactory {
+        return PluginHostCapabilityGatewayFactory(
+            resolver = DefaultPluginExecutionHostResolver(
+                DefaultPluginExecutionHostOperations(),
+            ),
+            hostActionExecutor = ExternalPluginHostActionExecutor(),
+        )
+    }
+
+    private fun testPluginHostCapabilityGateway(): PluginHostCapabilityGateway {
+        return DefaultPluginHostCapabilityGateway(
+            resolver = DefaultPluginExecutionHostResolver(
+                DefaultPluginExecutionHostOperations(),
+            ),
+            hostActionExecutor = ExternalPluginHostActionExecutor(),
         )
     }
 

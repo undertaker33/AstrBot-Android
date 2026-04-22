@@ -10,7 +10,9 @@ import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
-import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
+import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
@@ -66,13 +68,18 @@ internal data class QqOneBotRuntimeDependencies(
     val orchestrator: RuntimeLlmOrchestratorPort,
     val runtimeContextResolverPort: RuntimeContextResolverPort,
     val appChatPluginRuntime: AppChatLlmPipelineRuntime,
+    val pluginCatalog: () -> List<PluginRuntimePlugin>,
     val pluginV2DispatchEngine: PluginV2DispatchEngine,
     val failureStateStore: PluginFailureStateStore,
     val scopedFailureStateStore: PluginScopedFailureStateStore,
     val providerInvoker: QqProviderInvoker,
     val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    val hostCapabilityGateway: PluginHostCapabilityGateway,
+    val hostActionExecutor: ExternalPluginHostActionExecutor,
+    val pluginExecutionService: QqPluginExecutionService,
     val llmProviderProbePort: LlmProviderProbePort,
     val logBus: PluginRuntimeLogBus,
+    val executeLegacyPluginsDuringLlmDispatch: Boolean = false,
 )
 
 internal interface QqScheduledMessageSender {
@@ -291,7 +298,7 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
 
 internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
     @Volatile
-    private var appChatPluginRuntime: AppChatLlmPipelineRuntime = DefaultAppChatPluginRuntime
+    private var appChatPluginRuntimeOverrideForTests: AppChatLlmPipelineRuntime? = null
 
     @Volatile
     private var runtimeDependencies: QqOneBotRuntimeDependencies? = null
@@ -301,7 +308,7 @@ internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
         null
 
     internal fun setAppChatPluginRuntimeOverrideForTests(runtime: AppChatLlmPipelineRuntime?) {
-        appChatPluginRuntime = runtime ?: DefaultAppChatPluginRuntime
+        appChatPluginRuntimeOverrideForTests = runtime
     }
 
     internal fun setReplySenderOverrideForTests(
@@ -327,7 +334,8 @@ internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
             ?: error("QqOneBotBridgeServer requires runtime dependencies from the Hilt runtime graph.")
     }
 
-    override fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime = appChatPluginRuntime
+    override fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime =
+        appChatPluginRuntimeOverrideForTests ?: requireRuntimeDependencies().appChatPluginRuntime
 
     override fun currentReplySenderOverride():
         ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? = replySenderOverrideForTests

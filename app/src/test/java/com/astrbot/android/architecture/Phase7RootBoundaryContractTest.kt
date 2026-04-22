@@ -819,7 +819,6 @@ class Phase7RootBoundaryContractTest {
         )
 
         val allowedRootRuntimeExactPaths = setOf(
-            "runtime/llm/HiltLlmProviderProbePort.kt",
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
             "runtime/llm/LegacyLlmProviderProbeAdapter.kt",
             "runtime/llm/LegacyRuntimeOrchestratorAdapter.kt",

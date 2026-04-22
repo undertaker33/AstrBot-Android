@@ -113,10 +113,10 @@ internal data class PluginV2LlmPipelineResult(
 )
 
 internal class PluginV2LlmPipelineCoordinator(
-    private val dispatchEngine: PluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
+    private val dispatchEngine: PluginV2DispatchEngine = PluginV2DispatchEngine(),
     private val eventResultCoordinator: PluginV2EventResultCoordinator = PluginV2EventResultCoordinator(),
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
-    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManagerProvider.manager(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManager(),
     private val toolExecutor: PluginV2ToolExecutor = PluginV2ToolExecutor { args ->
         PluginToolResult(
             toolCallId = args.toolCallId,
@@ -129,6 +129,7 @@ internal class PluginV2LlmPipelineCoordinator(
     },
     private val clock: () -> Long = System::currentTimeMillis,
     private val requestIdFactory: () -> String = { "req-${clock()}" },
+    private val snapshotProvider: () -> PluginV2ActiveRuntimeSnapshot = { PluginV2ActiveRuntimeSnapshot() },
 ) {
     private val toolCallCounter = AtomicInteger(0)
     private val toolLoopCoordinator: PluginV2ToolLoopCoordinator = PluginV2ToolLoopCoordinator(
@@ -142,7 +143,7 @@ internal class PluginV2LlmPipelineCoordinator(
 
     suspend fun deliverLlmPipeline(
         request: PluginV2HostLlmDeliveryRequest,
-        snapshot: PluginV2ActiveRuntimeSnapshot = PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+        snapshot: PluginV2ActiveRuntimeSnapshot = snapshotProvider(),
     ): PluginV2HostLlmDeliveryResult {
         val pipelineResult = runCatching {
             runPreSendStages(
@@ -238,7 +239,7 @@ internal class PluginV2LlmPipelineCoordinator(
 
     suspend fun runPreSendStages(
         input: PluginV2LlmPipelineInput,
-        snapshot: PluginV2ActiveRuntimeSnapshot = PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+        snapshot: PluginV2ActiveRuntimeSnapshot = snapshotProvider(),
     ): PluginV2LlmPipelineResult {
         val admission = LlmPipelineAdmission(
             requestId = requestIdFactory(),
@@ -443,7 +444,7 @@ internal class PluginV2LlmPipelineCoordinator(
         event: PluginMessageEvent,
         afterSentView: PluginV2AfterSentView,
         followupSender: PluginV2FollowupSender? = null,
-        snapshot: PluginV2ActiveRuntimeSnapshot = PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
+        snapshot: PluginV2ActiveRuntimeSnapshot = snapshotProvider(),
     ): PluginV2LlmStageDispatchResult {
         return dispatchEngine.dispatchLlmStage(
             stage = PluginV2InternalStage.AfterMessageSent,
@@ -686,7 +687,7 @@ internal class PluginV2LlmPipelineCoordinator(
     }
 
     private fun snapshotRuntimeSessionIds(): String {
-        return PluginV2ActiveRuntimeStoreProvider.store().snapshot().runtimeSessionIds()
+        return snapshotProvider().runtimeSessionIds()
     }
 
     private fun Throwable.rethrowIfCancellation() {

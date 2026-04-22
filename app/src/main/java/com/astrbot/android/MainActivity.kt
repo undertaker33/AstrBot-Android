@@ -40,8 +40,8 @@ import com.astrbot.android.data.AppSettings
 import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.container.ContainerBridgeController
+import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
-import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.ui.app.AstrBotApp
@@ -61,6 +61,9 @@ import kotlinx.coroutines.withContext
 class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var pluginInstallIntentHandler: PluginInstallIntentHandler
+
+    @Inject
+    lateinit var bridgeStatePort: ContainerBridgeStatePort
 
     private val pendingPluginDeepLinkRequest = MutableStateFlow<PluginDeepLinkInstallRequest?>(null)
 
@@ -251,8 +254,8 @@ class MainActivity : AppCompatActivity() {
     private fun maybeAutoStartBridge() {
         if (
             !shouldAutoStartBridgeForTests(
-                NapCatBridgeRepository.config.value.autoStart,
-                NapCatBridgeRepository.runtimeState.value,
+                bridgeStatePort.config.value.autoStart,
+                bridgeStatePort.runtimeState.value,
             )
         ) return
 

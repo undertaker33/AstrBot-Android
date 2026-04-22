@@ -85,7 +85,55 @@ internal class EngineBackedAppChatPluginRuntime(
     private val pluginProvider: () -> List<PluginRuntimePlugin>,
     private val engine: PluginExecutionEngine,
     private val hostCapabilityGateway: PluginHostCapabilityGateway,
+    private val activeRuntimeStore: PluginV2ActiveRuntimeStore,
+    private val dispatchEngine: PluginV2DispatchEngine,
+    private val logBus: PluginRuntimeLogBus,
+    private val lifecycleManager: PluginV2LifecycleManager,
 ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
+    internal constructor(
+        pluginProvider: () -> List<PluginRuntimePlugin>,
+        engine: PluginExecutionEngine,
+        hostCapabilityGateway: PluginHostCapabilityGateway,
+    ) : this(
+        pluginProvider = pluginProvider,
+        engine = engine,
+        hostCapabilityGateway = hostCapabilityGateway,
+        runtimeServices = newCompatAppChatRuntimeServices(),
+    )
+
+    private constructor(
+        pluginProvider: () -> List<PluginRuntimePlugin>,
+        engine: PluginExecutionEngine,
+        hostCapabilityGateway: PluginHostCapabilityGateway,
+        runtimeServices: CompatAppChatRuntimeServices,
+    ) : this(
+        pluginProvider = pluginProvider,
+        engine = engine,
+        hostCapabilityGateway = hostCapabilityGateway,
+        activeRuntimeStore = runtimeServices.activeRuntimeStore,
+        dispatchEngine = runtimeServices.dispatchEngine,
+        logBus = runtimeServices.logBus,
+        lifecycleManager = runtimeServices.lifecycleManager,
+    )
+
+    internal constructor(
+        pluginCatalog: ExternalPluginRuntimeCatalog,
+        engine: PluginExecutionEngine,
+        hostCapabilityGateway: PluginHostCapabilityGateway,
+        activeRuntimeStore: PluginV2ActiveRuntimeStore,
+        dispatchEngine: PluginV2DispatchEngine,
+        logBus: PluginRuntimeLogBus,
+        lifecycleManager: PluginV2LifecycleManager,
+    ) : this(
+        pluginProvider = pluginCatalog::plugins,
+        engine = engine,
+        hostCapabilityGateway = hostCapabilityGateway,
+        activeRuntimeStore = activeRuntimeStore,
+        dispatchEngine = dispatchEngine,
+        logBus = logBus,
+        lifecycleManager = lifecycleManager,
+    )
+
     override fun execute(
         trigger: PluginTriggerSource,
         contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
@@ -107,13 +155,17 @@ internal class EngineBackedAppChatPluginRuntime(
         val futureDescriptors = futureRegistry.collectToolDescriptors(toolSourceContext)
         val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
         val snapshot = hostCapabilityGateway.registerHostBuiltinTools(
-            PluginRuntimeDependencyBridge.activeRuntimeStore().snapshot(),
+            activeRuntimeStore.snapshot(),
             personaSnapshot = input.personaToolEnablementSnapshot,
             futureSourceDescriptors = futureDescriptors,
             activeFutureSourceKinds = activeFutureKinds,
         )
         return AppChatPluginRuntimeCoordinatorProvider.coordinator(
             hostCapabilityGateway = hostCapabilityGateway,
+            dispatchEngine = dispatchEngine,
+            logBus = logBus,
+            lifecycleManager = lifecycleManager,
+            activeRuntimeStore = activeRuntimeStore,
             futureRegistry = futureRegistry,
             toolSourceContext = toolSourceContext,
             toolRegistrySnapshot = snapshot.toolRegistrySnapshot,
@@ -133,13 +185,17 @@ internal class EngineBackedAppChatPluginRuntime(
         val futureDescriptors = futureRegistry.collectToolDescriptors(toolSourceContext)
         val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
         val snapshot = request.hostCapabilityGateway.registerHostBuiltinTools(
-            PluginRuntimeDependencyBridge.activeRuntimeStore().snapshot(),
+            activeRuntimeStore.snapshot(),
             personaSnapshot = request.pipelineInput.personaToolEnablementSnapshot,
             futureSourceDescriptors = futureDescriptors,
             activeFutureSourceKinds = activeFutureKinds,
         )
         return AppChatPluginRuntimeCoordinatorProvider.coordinator(
             hostCapabilityGateway = request.hostCapabilityGateway,
+            dispatchEngine = dispatchEngine,
+            logBus = logBus,
+            lifecycleManager = lifecycleManager,
+            activeRuntimeStore = activeRuntimeStore,
             futureRegistry = futureRegistry,
             toolSourceContext = toolSourceContext,
             toolRegistrySnapshot = snapshot.toolRegistrySnapshot,
@@ -154,7 +210,13 @@ internal class EngineBackedAppChatPluginRuntime(
         afterSentView: PluginV2AfterSentView,
     ): PluginV2LlmStageDispatchResult {
         return AppChatPluginRuntimeCoordinatorProvider
-            .coordinator(hostCapabilityGateway)
+            .coordinator(
+                hostCapabilityGateway = hostCapabilityGateway,
+                dispatchEngine = dispatchEngine,
+                logBus = logBus,
+                lifecycleManager = lifecycleManager,
+                activeRuntimeStore = activeRuntimeStore,
+            )
             .dispatchAfterMessageSent(
             event = event,
             afterSentView = afterSentView,
@@ -168,14 +230,19 @@ internal object AppChatPluginRuntimeCoordinatorProvider {
 
     fun coordinator(
         hostCapabilityGateway: PluginHostCapabilityGateway,
+        dispatchEngine: PluginV2DispatchEngine,
+        logBus: PluginRuntimeLogBus,
+        lifecycleManager: PluginV2LifecycleManager,
+        activeRuntimeStore: PluginV2ActiveRuntimeStore,
         futureRegistry: FutureToolSourceRegistry? = null,
         toolSourceContext: com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceContext? = null,
         toolRegistrySnapshot: PluginV2ToolRegistrySnapshot? = null,
     ): PluginV2LlmPipelineCoordinator {
         return coordinatorOverrideForTests ?: PluginV2LlmPipelineCoordinator(
-            dispatchEngine = PluginRuntimeDependencyBridge.dispatchEngine(),
-            logBus = PluginRuntimeDependencyBridge.logBus(),
-            lifecycleManager = PluginRuntimeDependencyBridge.lifecycleManager(),
+            dispatchEngine = dispatchEngine,
+            logBus = logBus,
+            lifecycleManager = lifecycleManager,
+            snapshotProvider = activeRuntimeStore::snapshot,
             toolExecutor = PluginV2ToolExecutor { args ->
                 // 1. Try host builtin tools first
                 val hostResult = hostCapabilityGateway.executeHostBuiltinTool(args)
@@ -261,52 +328,28 @@ object PluginRuntimeRegistry {
     }
 }
 
-@Deprecated(
-    "Compat-only. Production code should use a Hilt-owned AppChatPluginRuntime.",
-    level = DeprecationLevel.WARNING,
+private data class CompatAppChatRuntimeServices(
+    val activeRuntimeStore: PluginV2ActiveRuntimeStore,
+    val dispatchEngine: PluginV2DispatchEngine,
+    val logBus: PluginRuntimeLogBus,
+    val lifecycleManager: PluginV2LifecycleManager,
 )
-internal object DefaultAppChatPluginRuntime : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
-    private fun delegate(): EngineBackedAppChatPluginRuntime {
-        val plugins = PluginRuntimeCatalog.plugins()
-        val failureGuard = PluginFailureGuard(
-            store = PluginRuntimeFailureStateStoreProvider.store(),
-        )
-        return EngineBackedAppChatPluginRuntime(
-            pluginProvider = { plugins },
-            engine = PluginExecutionEngine(
-                dispatcher = PluginRuntimeDispatcher(failureGuard),
-                failureGuard = failureGuard,
-            ),
-            hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
-        )
-    }
 
-    override fun execute(
-        trigger: PluginTriggerSource,
-        contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
-    ): PluginExecutionBatchResult {
-        return delegate().execute(trigger, contextFactory)
-    }
-
-    override suspend fun runLlmPipeline(
-        input: PluginV2LlmPipelineInput,
-    ): PluginV2LlmPipelineResult {
-        return delegate().runLlmPipeline(input)
-    }
-
-    override suspend fun deliverLlmPipeline(
-        request: PluginV2HostLlmDeliveryRequest,
-    ): PluginV2HostLlmDeliveryResult {
-        return delegate().deliverLlmPipeline(request)
-    }
-
-    override suspend fun dispatchAfterMessageSent(
-        event: PluginMessageEvent,
-        afterSentView: PluginV2AfterSentView,
-    ): PluginV2LlmStageDispatchResult {
-        return delegate().dispatchAfterMessageSent(
-            event = event,
-            afterSentView = afterSentView,
-        )
-    }
+private fun newCompatAppChatRuntimeServices(): CompatAppChatRuntimeServices {
+    val logBus = InMemoryPluginRuntimeLogBus()
+    val activeRuntimeStore = PluginV2ActiveRuntimeStore(logBus = logBus)
+    val lifecycleManager = PluginV2LifecycleManager(
+        logBus = logBus,
+        store = activeRuntimeStore,
+    )
+    return CompatAppChatRuntimeServices(
+        activeRuntimeStore = activeRuntimeStore,
+        dispatchEngine = PluginV2DispatchEngine(
+            logBus = logBus,
+            store = activeRuntimeStore,
+            lifecycleManager = lifecycleManager,
+        ),
+        logBus = logBus,
+        lifecycleManager = lifecycleManager,
+    )
 }

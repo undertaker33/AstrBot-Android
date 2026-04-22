@@ -87,14 +87,24 @@ object PluginRuntimeScheduleStateStoreProvider {
     @Volatile
     private var storeOverrideForTests: PluginScheduleStateStore? = null
 
+    @Volatile
+    private var installedStore: PluginScheduleStateStore? = null
+
     private val sharedStore: PluginScheduleStateStore by lazy {
         InMemoryPluginScheduleStateStore()
     }
 
-    fun store(): PluginScheduleStateStore = storeOverrideForTests ?: sharedStore
+    fun store(): PluginScheduleStateStore = storeOverrideForTests ?: installedStore ?: sharedStore
+
+    internal fun installFromHilt(store: PluginScheduleStateStore) {
+        installedStore = store
+    }
 
     internal fun setStoreOverrideForTests(store: PluginScheduleStateStore?) {
         storeOverrideForTests = store
+        if (store == null) {
+            installedStore = null
+        }
     }
 }
 
@@ -112,7 +122,7 @@ internal val DefaultPluginSchedulePolicyResolver: (PluginRuntimePlugin, PluginTr
     }
 
 class PluginRuntimeScheduler(
-    private val store: PluginScheduleStateStore = PluginRuntimeScheduleStateStoreProvider.store(),
+    private val store: PluginScheduleStateStore = InMemoryPluginScheduleStateStore(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun snapshot(

@@ -5,16 +5,16 @@ import com.astrbot.android.R
 import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionHandlers
 import com.astrbot.android.feature.plugin.runtime.HOST_SKIP_COMMAND_STAGE_EXTRA_KEY
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginDispatchSkipReason
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponse
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponseAttachment
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
-import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2MessageDispatchResult
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -40,33 +40,17 @@ import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
-import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGatewayFactory
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 
-@Suppress("DEPRECATION")
 class AppChatPluginCommandService(
     private val dependencies: ChatViewModelRuntimeBindings,
     private val appChatPluginRuntime: AppChatPluginRuntime,
-    private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val hostCapabilityGateway: PluginHostCapabilityGateway,
+    private val hostActionExecutor: ExternalPluginHostActionExecutor,
     private val dispatchEngine: PluginV2DispatchEngine,
 ) {
-    @Deprecated(
-        "Compat-only. Production code should supply a Hilt-owned PluginHostCapabilityGatewayFactory.",
-        level = DeprecationLevel.WARNING,
-    )
-    constructor(
-        dependencies: ChatViewModelRuntimeBindings,
-        appChatPluginRuntime: AppChatPluginRuntime,
-    ) : this(
-        dependencies = dependencies,
-        appChatPluginRuntime = appChatPluginRuntime,
-        gatewayFactory = createCompatPluginHostCapabilityGatewayFactory(),
-        dispatchEngine = PluginV2DispatchEngineProvider.engine(),
-    )
-
-    private val hostCapabilityGateway: PluginHostCapabilityGateway = gatewayFactory.create()
     fun isUnsupportedPluginCommand(content: String): Boolean {
         val parsedCommand = com.astrbot.android.feature.chat.runtime.botcommand.BotCommandParser.parse(content) ?: return false
         return !com.astrbot.android.feature.chat.runtime.botcommand.BotCommandRouter.supports(parsedCommand.name)
@@ -540,18 +524,19 @@ class AppChatPluginCommandService(
 
             is HostActionRequest -> {
                 val emittedMessages = mutableListOf<String>()
-                val execution = gatewayFactory.create(
-                    sendMessageHandler = { text -> emittedMessages += text },
-                    sendNotificationHandler = { title, message ->
-                        dependencies.log("Plugin notification requested: title=$title message=$message")
-                    },
-                    openHostPageHandler = { route ->
-                        dependencies.log("Plugin requested host page: route=$route")
-                    },
-                ).executeHostAction(
+                val execution = hostActionExecutor.execute(
                     pluginId = pluginId,
                     request = result,
                     context = context,
+                    handlers = ExternalPluginHostActionHandlers(
+                        sendMessage = { text -> emittedMessages += text },
+                        sendNotification = { title, message ->
+                        dependencies.log("Plugin notification requested: title=$title message=$message")
+                        },
+                        openHostPage = { route ->
+                        dependencies.log("Plugin requested host page: route=$route")
+                        },
+                    ),
                 )
                 if (execution.succeeded) {
                     PluginCommandConsumption(

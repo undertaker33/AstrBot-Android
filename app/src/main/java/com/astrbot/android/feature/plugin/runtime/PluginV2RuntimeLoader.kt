@@ -2,7 +2,8 @@
 
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
+import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
@@ -40,28 +41,50 @@ object PluginV2RuntimeLoaderProvider {
     @Volatile
     private var loaderOverrideForTests: PluginV2RuntimeLoader? = null
 
+    @Volatile
+    private var installedLoader: PluginV2RuntimeLoader? = null
+
     private val sharedLoader: PluginV2RuntimeLoader by lazy {
-        PluginV2RuntimeLoader()
+        PluginV2RuntimeLoader(
+            logBus = PluginRuntimeLogBusProvider.bus(),
+            store = PluginV2ActiveRuntimeStoreProvider.store(),
+            lifecycleManager = PluginV2LifecycleManagerProvider.manager(),
+        )
     }
 
-    fun loader(): PluginV2RuntimeLoader = loaderOverrideForTests ?: sharedLoader
+    fun loader(): PluginV2RuntimeLoader = loaderOverrideForTests ?: installedLoader ?: sharedLoader
+
+    internal fun installFromHilt(loader: PluginV2RuntimeLoader) {
+        installedLoader = loader
+    }
 
     internal fun setLoaderOverrideForTests(loader: PluginV2RuntimeLoader?) {
         loaderOverrideForTests = loader
+        if (loader == null) {
+            installedLoader = null
+        }
     }
 }
 
 class PluginV2RuntimeLoader(
     private val sessionFactory: PluginV2RuntimeSessionFactory = PluginV2RuntimeSessionFactory(),
     private val compiler: PluginV2RegistryCompiler = PluginV2RegistryCompiler(),
-    private val store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStoreProvider.store(),
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
-    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManagerProvider.manager(),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    private val store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(
+        logBus = logBus,
+        clock = clock,
+    ),
+    private val lifecycleManager: PluginV2LifecycleManager = PluginV2LifecycleManager(
+        clock = clock,
+        logBus = logBus,
+        store = store,
+    ),
+    private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
 ) {
     private val pluginLocks = ConcurrentHashMap<String, Mutex>()
 
-    suspend fun sync(records: List<PluginInstallRecord> = FeaturePluginRepository.records.value): PluginV2RuntimeSyncResult {
+    suspend fun sync(records: List<PluginInstallRecord> = repositoryStatePort.records.value): PluginV2RuntimeSyncResult {
         val eligibleRecords = records.filter(::isEligibleForLoad)
         val activeSnapshot = store.snapshot()
         val eligiblePluginIds = eligibleRecords.mapTo(linkedSetOf()) { record -> record.pluginId }
@@ -373,7 +396,7 @@ class PluginV2RuntimeLoader(
     private fun resolveReloadRecord(pluginId: String): PluginInstallRecord? {
         store.snapshot().activeRuntimeEntriesByPluginId[pluginId]?.session?.installRecord?.let { return it }
         return runCatching {
-            FeaturePluginRepository.findByPluginId(pluginId)
+            repositoryStatePort.findByPluginId(pluginId)
         }.getOrNull()
     }
 

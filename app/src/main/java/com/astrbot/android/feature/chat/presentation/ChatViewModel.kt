@@ -38,7 +38,6 @@ import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.HOST_SKIP_COMMAND_STAGE_EXTRA_KEY
 import com.astrbot.android.feature.plugin.runtime.PluginDispatchSkipReason
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostApi
@@ -98,7 +97,7 @@ class ChatViewModel @Inject constructor(
         dependencies: ChatViewModelRuntimeBindings,
     ) : this(
         dependencies = dependencies,
-        appChatPluginRuntime = DefaultAppChatPluginRuntime,
+        appChatPluginRuntime = dependencies.defaultAppChatPluginRuntime,
         ioDispatcher = Dispatchers.IO,
     )
 
@@ -107,7 +106,7 @@ class ChatViewModel @Inject constructor(
         ioDispatcher: CoroutineDispatcher,
     ) : this(
         dependencies = dependencies,
-        appChatPluginRuntime = DefaultAppChatPluginRuntime,
+        appChatPluginRuntime = dependencies.defaultAppChatPluginRuntime,
         ioDispatcher = ioDispatcher,
     )
 

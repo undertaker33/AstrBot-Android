@@ -81,6 +81,7 @@ class PluginCatalogSynchronizerTest {
                     ),
                 ),
                 now = { 9_999L },
+                logBus = bus,
             )
 
             synchronizer.sync("official")

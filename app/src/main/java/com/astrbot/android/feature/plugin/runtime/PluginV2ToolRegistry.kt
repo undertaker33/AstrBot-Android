@@ -60,7 +60,7 @@ fun interface PluginV2ToolCapabilityGateway {
 
 class PluginV2ToolRegistry(
     private val sourceGateway: PluginV2ToolSourceGateway = PluginV2ToolSourceGateway(),
-    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun compile(rawRegistries: Collection<PluginV2RawRegistry>): PluginV2ToolRegistryCompileResult {

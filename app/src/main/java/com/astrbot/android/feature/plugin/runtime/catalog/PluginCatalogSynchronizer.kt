@@ -8,8 +8,8 @@ import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.plugin.runtime.publishMarketV2ValidationCompleted
 import javax.inject.Inject
 
@@ -26,7 +26,7 @@ class PluginCatalogSynchronizer @Inject constructor(
         fetcher: PluginCatalogFetcher,
         now: () -> Long = System::currentTimeMillis,
         decode: (String) -> PluginRepositorySource = PluginCatalogJson::decodeRepositorySource,
-        logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     ) : this(store = store, fetcher = fetcher, logBus = logBus) {
         this.now = now
         this.decode = decode
