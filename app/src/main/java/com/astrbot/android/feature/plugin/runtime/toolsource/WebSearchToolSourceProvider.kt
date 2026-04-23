@@ -1,14 +1,9 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.plugin.runtime.toolsource
-
-import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.network.RuntimeNetworkCapability
 import com.astrbot.android.core.runtime.network.RuntimeNetworkRequest
 import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
 import com.astrbot.android.core.runtime.network.RuntimeTimeoutProfile
-import com.astrbot.android.di.hilt.RuntimeNetworkTransportRegistry
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
@@ -22,6 +17,7 @@ import com.astrbot.android.feature.plugin.runtime.toolsource.search.SearchPolicy
 import com.astrbot.android.feature.plugin.runtime.toolsource.search.SearchRelevanceAssessment
 import com.astrbot.android.feature.plugin.runtime.toolsource.search.SearchRelevanceScorer
 import com.astrbot.android.feature.plugin.runtime.toolsource.search.normalizeSearchText
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -30,16 +26,16 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.net.URLEncoder
 
-class WebSearchToolSourceProvider(
-    private val transport: RuntimeNetworkTransport = RuntimeNetworkTransportRegistry.transport(),
+class WebSearchToolSourceProvider @Inject constructor(
+    private val transport: RuntimeNetworkTransport,
+    override val contextResolver: FutureToolSourceContextResolver,
 ) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.WEB_SEARCH
 
     override suspend fun listBindings(
         context: ToolSourceRegistryIngestContext,
     ): List<ToolSourceDescriptorBinding> {
-        val configProfile = FeatureConfigRepository.resolve(context.configProfileId)
-        if (!configProfile.webSearchEnabled) return emptyList()
+        if (!context.toolSourceContext.webSearchEnabled) return emptyList()
         return listOf(buildWebSearchBinding())
     }
 
@@ -47,8 +43,7 @@ class WebSearchToolSourceProvider(
         identity: ToolSourceIdentity,
         context: ToolSourceAvailabilityContext,
     ): ToolSourceAvailability {
-        val configProfile = FeatureConfigRepository.resolve(context.configProfileId)
-        return if (configProfile.webSearchEnabled) {
+        return if (context.toolSourceContext.webSearchEnabled) {
             ToolSourceAvailability(
                 providerReachable = true,
                 permissionGranted = true,

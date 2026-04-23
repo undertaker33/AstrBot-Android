@@ -1,84 +1,44 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.settings
 
-import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.astrbot.android.feature.bot.data.FeatureBotRepository
-import com.astrbot.android.feature.config.data.FeatureConfigRepository
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository
-import com.astrbot.android.feature.provider.data.FeatureProviderRepository
-import com.astrbot.android.feature.cron.data.FeatureCronJobRepository
-import com.astrbot.android.feature.cron.domain.CronJobUseCases
+import com.astrbot.android.feature.bot.domain.BotRepositoryPort
+import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
-import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.feature.cron.domain.CronTaskCreateRequest
 import com.astrbot.android.feature.cron.domain.CronTaskCreateResult
 import com.astrbot.android.feature.cron.presentation.CronJobsPresentationController
-import com.astrbot.android.feature.cron.runtime.AndroidCronSchedulerPort
-import com.astrbot.android.feature.cron.runtime.CronRuntimeService
+import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.CronJob
-import com.astrbot.android.model.CronJobExecutionRecord
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTargetContext
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 
 @HiltViewModel
 internal class CronJobsViewModel @Inject constructor(
-    @ApplicationContext appContext: Context,
+    private val repository: CronJobRepositoryPort,
+    private val controller: CronJobsPresentationController,
+    private val botPort: BotRepositoryPort,
+    private val conversationPort: ConversationRepositoryPort,
+    private val configPort: ConfigRepositoryPort,
+    private val providerPort: ProviderRepositoryPort,
 ) : ViewModel() {
-    private val repository = object : CronJobRepositoryPort {
-        override val jobs: StateFlow<List<CronJob>>
-            get() = FeatureCronJobRepository.jobs
-
-        override suspend fun create(job: CronJob): CronJob = FeatureCronJobRepository.create(job)
-
-        override suspend fun update(job: CronJob): CronJob = FeatureCronJobRepository.update(job)
-
-        override suspend fun delete(jobId: String) = FeatureCronJobRepository.delete(jobId)
-
-        override suspend fun getByJobId(jobId: String): CronJob? = FeatureCronJobRepository.getByJobId(jobId)
-
-        override suspend fun listAll(): List<CronJob> = FeatureCronJobRepository.listAll()
-
-        override suspend fun listEnabled(): List<CronJob> = FeatureCronJobRepository.listEnabled()
-
-        override suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long?, lastError: String?) =
-            FeatureCronJobRepository.updateStatus(jobId, status, lastRunAt, lastError)
-
-        override suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord =
-            FeatureCronJobRepository.recordExecutionStarted(record)
-
-        override suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord =
-            FeatureCronJobRepository.updateExecutionRecord(record)
-
-        override suspend fun listRecentExecutionRecords(jobId: String, limit: Int): List<CronJobExecutionRecord> =
-            FeatureCronJobRepository.listRecentExecutionRecords(jobId, limit)
-
-        override suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? =
-            FeatureCronJobRepository.latestExecutionRecord(jobId)
-    }
-    private val scheduler: CronSchedulerPort = AndroidCronSchedulerPort { appContext }
-    private val controller = CronJobsPresentationController(
-        useCases = CronJobUseCases(repository = repository, scheduler = scheduler),
-        taskPort = CronRuntimeService(schedulerPort = scheduler),
-    )
-
     val jobs: StateFlow<List<CronJob>> = repository.jobs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val botProfiles: StateFlow<List<BotProfile>> = botPort.bots
+    val selectedBotId: StateFlow<String> = botPort.selectedBotId
 
     /** Tracks whether the create/edit dialog is showing. */
     val editingJob = mutableStateOf<CronJob?>(null)
@@ -116,7 +76,7 @@ internal class CronJobsViewModel @Inject constructor(
         runAt: String,
         note: String,
         runOnce: Boolean,
-        targetContext: ActiveCapabilityTargetContext? = null,
+        targetContext: ActiveCapabilityTargetContext,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val request = buildCronJobCreateRequest(
@@ -139,16 +99,16 @@ internal class CronJobsViewModel @Inject constructor(
     }
 
     fun defaultTargetContext(): ActiveCapabilityTargetContext {
-        return runCatching { defaultCronJobTargetContext() }
+        return runCatching { resolveDefaultCronJobTargetContext(botPort, configPort, providerPort) }
             .getOrElse {
                 AppLogger.append(
                     "CronJobsViewModel defaultTargetContext fallback: ${it.message ?: it.javaClass.simpleName}",
                 )
                 ActiveCapabilityTargetContext(
                     platform = RuntimePlatform.APP_CHAT.wireValue,
-                    conversationId = FeatureConversationRepository.DEFAULT_SESSION_ID,
+                    conversationId = conversationPort.defaultSessionId,
                     botId = "",
-                    configProfileId = FeatureConfigRepository.selectedProfileId.value,
+                    configProfileId = configPort.selectedProfileId.value,
                     personaId = "",
                     providerId = "",
                     origin = "ui",
@@ -163,9 +123,8 @@ internal fun buildCronJobCreateRequest(
     runAt: String,
     note: String,
     runOnce: Boolean,
-    targetContext: ActiveCapabilityTargetContext? = null,
+    targetContext: ActiveCapabilityTargetContext,
 ): CronTaskCreateRequest {
-    val resolvedTarget = targetContext ?: defaultCronJobTargetContext()
     return CronTaskCreateRequest(
         payload = mapOf(
             "name" to name,
@@ -177,36 +136,46 @@ internal fun buildCronJobCreateRequest(
             "enabled" to true,
             "origin" to "ui",
         ),
-        targetPlatform = resolvedTarget.platform,
-        targetConversationId = resolvedTarget.conversationId,
-        targetBotId = resolvedTarget.botId,
-        targetConfigProfileId = resolvedTarget.configProfileId,
-        targetPersonaId = resolvedTarget.personaId,
-        targetProviderId = resolvedTarget.providerId,
-        targetOrigin = resolvedTarget.origin,
+        targetPlatform = targetContext.platform,
+        targetConversationId = targetContext.conversationId,
+        targetBotId = targetContext.botId,
+        targetConfigProfileId = targetContext.configProfileId,
+        targetPersonaId = targetContext.personaId,
+        targetProviderId = targetContext.providerId,
+        targetOrigin = targetContext.origin,
     )
 }
 
-private fun defaultCronJobTargetContext(): ActiveCapabilityTargetContext {
-    val selectedBot = FeatureBotRepository.snapshotProfiles()
-        .firstOrNull { it.id == FeatureBotRepository.selectedBotId.value }
-        ?: FeatureBotRepository.snapshotProfiles().firstOrNull()
+internal fun resolveDefaultCronJobTargetContext(
+    botPort: BotRepositoryPort,
+    configPort: ConfigRepositoryPort,
+    providerPort: ProviderRepositoryPort,
+): ActiveCapabilityTargetContext {
+    val snapshot = botPort.snapshotProfiles()
+    val selectedBot = snapshot
+        .firstOrNull { it.id == botPort.selectedBotId.value }
+        ?: snapshot.firstOrNull()
         ?: error("No bot profiles available for scheduled task creation")
-    return selectedBot.toCronJobTargetContext()
+    return selectedBot.toCronJobTargetContext(
+        configPort = configPort,
+        providerPort = providerPort,
+    )
 }
 
 internal fun BotProfile.toCronJobTargetContext(
+    configPort: ConfigRepositoryPort,
+    providerPort: ProviderRepositoryPort,
     platform: String = RuntimePlatform.APP_CHAT.wireValue,
-    conversationId: String = FeatureConversationRepository.DEFAULT_SESSION_ID,
+    conversationId: String = DefaultAppChatConversationId,
     origin: String = "ui",
 ): ActiveCapabilityTargetContext {
-    val requestedConfigId = configProfileId.ifBlank { FeatureConfigRepository.selectedProfileId.value }
-    val config = FeatureConfigRepository.resolve(requestedConfigId)
+    val requestedConfigId = configProfileId.ifBlank { configPort.selectedProfileId.value }
+    val config = configPort.resolve(requestedConfigId)
     val resolvedConfigId = configProfileId.ifBlank { config.id }
     val providerId = defaultProviderId
         .ifBlank { config.defaultChatProviderId }
         .ifBlank {
-            FeatureProviderRepository.providers.value.firstOrNull { provider ->
+            providerPort.providers.value.firstOrNull { provider ->
                 provider.enabled && ProviderCapability.CHAT in provider.capabilities
             }?.id.orEmpty()
         }
@@ -217,6 +186,22 @@ internal fun BotProfile.toCronJobTargetContext(
         configProfileId = resolvedConfigId,
         personaId = defaultPersonaId,
         providerId = providerId,
+        origin = origin,
+    )
+}
+
+internal fun BotProfile.toCronJobTargetContext(
+    platform: String = RuntimePlatform.APP_CHAT.wireValue,
+    conversationId: String = DefaultAppChatConversationId,
+    origin: String = "ui",
+): ActiveCapabilityTargetContext {
+    return ActiveCapabilityTargetContext(
+        platform = platform,
+        conversationId = conversationId,
+        botId = id,
+        configProfileId = configProfileId,
+        personaId = defaultPersonaId,
+        providerId = defaultProviderId,
         origin = origin,
     )
 }

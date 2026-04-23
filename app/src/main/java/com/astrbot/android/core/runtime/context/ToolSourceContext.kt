@@ -13,6 +13,7 @@ data class ToolSourceContext(
     val promptSkills: List<PromptSkillProjection>,
     val toolSkills: List<ToolSkillProjection>,
     val conversationId: String,
+    val contextLimitStrategy: String = "",
     val runtimePermissions: Map<String, Any?> = emptyMap(),
     val networkPolicy: Map<String, Any?> = emptyMap(),
 ) {
@@ -36,6 +37,7 @@ data class ToolSourceContext(
                 promptSkills = promptSkills,
                 toolSkills = toolSkills,
                 conversationId = conversationId,
+                contextLimitStrategy = config.contextLimitStrategy,
             )
         }
     }

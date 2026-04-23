@@ -51,8 +51,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.feature.resource.presentation.ResourceCenterPresentationController
+import com.astrbot.android.feature.resource.presentation.ResourceCenterViewModel
 import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.SkillResourceKind
 import com.astrbot.android.ui.app.FloatingBottomNavFabBottomPadding
@@ -67,8 +69,9 @@ import kotlinx.coroutines.launch
 fun ResourceCenterScreen(
     onBack: () -> Unit,
     onOpenResourceList: (ResourceKind) -> Unit,
+    viewModel: ResourceCenterViewModel = hiltViewModel(),
 ) {
-    val controller: ResourceCenterPresentationController = defaultResourceCenterPresentationController()
+    val controller: ResourceCenterPresentationController = viewModel.controller
     SubPageScaffold(
         route = AppDestination.ResourceCenter.route,
         title = stringResource(R.string.resource_center_title),

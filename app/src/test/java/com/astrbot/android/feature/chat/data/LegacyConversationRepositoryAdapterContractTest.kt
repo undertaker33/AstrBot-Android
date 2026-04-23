@@ -5,33 +5,33 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class LegacyConversationRepositoryAdapterContractTest {
+class FeatureConversationRepositoryPortAdapterContractTest {
     @Test
-    fun adapter_is_the_only_chat_data_file_allowed_to_import_legacy_repository() {
-        val root = listOf(
-            File("src/main/java/com/astrbot/android/feature/chat"),
-            File("app/src/main/java/com/astrbot/android/feature/chat"),
+    fun semantic_adapter_file_exists_and_legacy_file_is_removed() {
+        val semantic = listOf(
+            File("src/main/java/com/astrbot/android/feature/chat/data/FeatureConversationRepositoryPortAdapter.kt"),
+            File("app/src/main/java/com/astrbot/android/feature/chat/data/FeatureConversationRepositoryPortAdapter.kt"),
         ).first { it.exists() }
 
-        val offenders = root.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .filter { it.name != "LegacyConversationRepositoryAdapter.kt" }
-            .filter { it.readText().contains("import com.astrbot.android.data.ConversationRepository") }
-            .map { it.relativeTo(root).path }
-            .toList()
+        val legacyCandidates = listOf(
+            File("src/main/java/com/astrbot/android/feature/chat/data/LegacyConversationRepositoryAdapter.kt"),
+            File("app/src/main/java/com/astrbot/android/feature/chat/data/LegacyConversationRepositoryAdapter.kt"),
+        )
 
-        assertTrue("Only the legacy adapter may import ConversationRepository: $offenders", offenders.isEmpty())
+        assertTrue(semantic.exists())
+        assertTrue(legacyCandidates.none { it.exists() })
     }
 
     @Test
-    fun adapter_explicitly_wraps_conversation_repository_port() {
+    fun semantic_adapter_explicitly_wraps_conversation_repository_port() {
         val source = listOf(
-            File("src/main/java/com/astrbot/android/feature/chat/data/LegacyConversationRepositoryAdapter.kt"),
-            File("app/src/main/java/com/astrbot/android/feature/chat/data/LegacyConversationRepositoryAdapter.kt"),
+            File("src/main/java/com/astrbot/android/feature/chat/data/FeatureConversationRepositoryPortAdapter.kt"),
+            File("app/src/main/java/com/astrbot/android/feature/chat/data/FeatureConversationRepositoryPortAdapter.kt"),
         ).first { it.exists() }.readText()
 
         assertTrue(source.contains("ConversationRepositoryPort"))
-        assertTrue(source.contains("ConversationRepository"))
+        assertTrue(source.contains("FeatureConversationRepository"))
         assertFalse(source.contains("RuntimeOrchestrator"))
+        assertFalse(source.contains("LegacyConversationRepositoryAdapter"))
     }
 }

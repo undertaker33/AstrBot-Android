@@ -7,34 +7,21 @@ import com.astrbot.android.core.runtime.network.RuntimeNetworkFailure
 import com.astrbot.android.core.runtime.network.RuntimeNetworkRequest
 import com.astrbot.android.core.runtime.network.RuntimeNetworkResponse
 import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
-import com.astrbot.android.core.runtime.network.SharedRuntimeNetworkTransport
 import com.astrbot.android.core.runtime.network.SseEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 
 class AstrBotHttpClientTest {
 
-    @Before
-    fun setUp() {
-        RuntimeLogRepository.clear()
-        SharedRuntimeNetworkTransport.setOverrideForTests(null)
-    }
-
-    @After
-    fun tearDown() {
-        SharedRuntimeNetworkTransport.setOverrideForTests(null)
-    }
-
     @Test
     fun `execute delegates to runtime transport and preserves response payload contract`() {
+        RuntimeLogRepository.clear()
         val transport = RecordingRuntimeTransport(
             executeResponse = RuntimeNetworkResponse(
                 statusCode = 201,
@@ -44,8 +31,7 @@ class AstrBotHttpClientTest {
                 durationMs = 5,
             ),
         )
-        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
-        val client = OkHttpAstrBotHttpClient()
+        val client = OkHttpAstrBotHttpClient(transport = transport)
 
         val response = client.execute(
             HttpRequestSpec(
@@ -75,8 +61,9 @@ class AstrBotHttpClientTest {
 
     @Test
     fun `execute converts runtime http failure into response payload`() {
-        SharedRuntimeNetworkTransport.setOverrideForTests(
-            RecordingRuntimeTransport(
+        RuntimeLogRepository.clear()
+        val client = OkHttpAstrBotHttpClient(
+            transport = RecordingRuntimeTransport(
                 executeException = RuntimeNetworkException(
                     RuntimeNetworkFailure.Http(
                         statusCode = 404,
@@ -86,7 +73,6 @@ class AstrBotHttpClientTest {
                 ),
             ),
         )
-        val client = OkHttpAstrBotHttpClient()
 
         val response = client.execute(
             HttpRequestSpec(
@@ -102,6 +88,7 @@ class AstrBotHttpClientTest {
 
     @Test
     fun `execute bytes delegates to runtime transport`() {
+        RuntimeLogRepository.clear()
         val transport = RecordingRuntimeTransport(
             executeResponse = RuntimeNetworkResponse(
                 statusCode = 200,
@@ -111,8 +98,7 @@ class AstrBotHttpClientTest {
                 durationMs = 2,
             ),
         )
-        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
-        val client = OkHttpAstrBotHttpClient()
+        val client = OkHttpAstrBotHttpClient(transport = transport)
 
         val bytes = client.executeBytes(
             HttpRequestSpec(
@@ -128,8 +114,9 @@ class AstrBotHttpClientTest {
 
     @Test
     fun `execute bytes on runtime http failure includes status and body`() {
-        SharedRuntimeNetworkTransport.setOverrideForTests(
-            RecordingRuntimeTransport(
+        RuntimeLogRepository.clear()
+        val client = OkHttpAstrBotHttpClient(
+            transport = RecordingRuntimeTransport(
                 executeException = RuntimeNetworkException(
                     RuntimeNetworkFailure.Http(
                         statusCode = 400,
@@ -139,7 +126,6 @@ class AstrBotHttpClientTest {
                 ),
             ),
         )
-        val client = OkHttpAstrBotHttpClient()
 
         val error = runCatching {
             client.executeBytes(
@@ -158,11 +144,11 @@ class AstrBotHttpClientTest {
 
     @Test
     fun `execute stream delegates to runtime transport lines`() {
+        RuntimeLogRepository.clear()
         val transport = RecordingRuntimeTransport(
             streamLines = flowOf("data: first", "", "data: second", ""),
         )
-        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
-        val client = OkHttpAstrBotHttpClient()
+        val client = OkHttpAstrBotHttpClient(transport = transport)
         val lines = mutableListOf<String>()
 
         runBlocking {
@@ -185,6 +171,7 @@ class AstrBotHttpClientTest {
 
     @Test
     fun `execute multipart delegates encoded body through runtime transport`() {
+        RuntimeLogRepository.clear()
         val transport = RecordingRuntimeTransport(
             executeResponse = RuntimeNetworkResponse(
                 statusCode = 200,
@@ -194,8 +181,7 @@ class AstrBotHttpClientTest {
                 durationMs = 1,
             ),
         )
-        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
-        val client = OkHttpAstrBotHttpClient()
+        val client = OkHttpAstrBotHttpClient(transport = transport)
 
         val response = client.executeMultipart(
             HttpRequestSpec(
@@ -228,7 +214,7 @@ class AstrBotHttpClientTest {
 
     @Test
     fun `sanitize error body redacts api keys`() {
-        val client = OkHttpAstrBotHttpClient()
+        val client = OkHttpAstrBotHttpClient(transport = RecordingRuntimeTransport())
         val raw = """{"error":"fail","api_key":"sk-12345secret"}"""
 
         val sanitized = client.sanitizeErrorBody(raw)
@@ -239,7 +225,7 @@ class AstrBotHttpClientTest {
 
     @Test
     fun `sanitize error body truncates long bodies`() {
-        val client = OkHttpAstrBotHttpClient()
+        val client = OkHttpAstrBotHttpClient(transport = RecordingRuntimeTransport())
         val raw = "x".repeat(2000)
 
         val sanitized = client.sanitizeErrorBody(raw)

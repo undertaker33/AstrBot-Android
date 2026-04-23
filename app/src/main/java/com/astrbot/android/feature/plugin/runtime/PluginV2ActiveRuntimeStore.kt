@@ -385,23 +385,13 @@ object PluginV2ActiveRuntimeStoreProvider {
     @Volatile
     private var storeOverrideForTests: PluginV2ActiveRuntimeStore? = null
 
-    @Volatile
-    private var installedStore: PluginV2ActiveRuntimeStore? = null
-
     private val sharedStore: PluginV2ActiveRuntimeStore by lazy {
-        PluginV2ActiveRuntimeStore(logBus = PluginRuntimeLogBusProvider.bus())
+        PluginV2ActiveRuntimeStore()
     }
 
-    fun store(): PluginV2ActiveRuntimeStore = storeOverrideForTests ?: installedStore ?: sharedStore
-
-    internal fun installFromHilt(store: PluginV2ActiveRuntimeStore) {
-        installedStore = store
-    }
+    fun store(): PluginV2ActiveRuntimeStore = storeOverrideForTests ?: sharedStore
 
     internal fun setStoreOverrideForTests(store: PluginV2ActiveRuntimeStore?) {
         storeOverrideForTests = store
-        if (store == null) {
-            installedStore = null
-        }
     }
 }

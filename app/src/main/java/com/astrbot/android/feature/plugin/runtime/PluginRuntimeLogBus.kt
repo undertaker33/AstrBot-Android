@@ -72,8 +72,6 @@ object NoOpPluginRuntimeLogBus : PluginRuntimeLogBus {
     override fun clearPlugin(pluginId: String) = Unit
 }
 
-internal fun compatPluginRuntimeLogBus(): PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus()
-
 class InMemoryPluginRuntimeLogBus(
     private val capacity: Int = 200,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -208,24 +206,14 @@ object PluginRuntimeLogBusProvider {
     @Volatile
     private var busOverrideForTests: PluginRuntimeLogBus? = null
 
-    @Volatile
-    private var installedBus: PluginRuntimeLogBus? = null
-
     private val sharedBus: PluginRuntimeLogBus by lazy {
         InMemoryPluginRuntimeLogBus()
     }
 
-    fun bus(): PluginRuntimeLogBus = busOverrideForTests ?: installedBus ?: sharedBus
-
-    internal fun installFromHilt(bus: PluginRuntimeLogBus) {
-        installedBus = bus
-    }
+    fun bus(): PluginRuntimeLogBus = busOverrideForTests ?: sharedBus
 
     internal fun setBusOverrideForTests(bus: PluginRuntimeLogBus?) {
         busOverrideForTests = bus
-        if (bus == null) {
-            installedBus = null
-        }
     }
 }
 

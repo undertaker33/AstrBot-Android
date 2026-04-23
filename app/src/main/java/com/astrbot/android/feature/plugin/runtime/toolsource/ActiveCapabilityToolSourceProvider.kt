@@ -1,14 +1,12 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceKind
 import com.astrbot.android.feature.plugin.runtime.PluginToolVisibility
+import javax.inject.Inject
 
 /**
  * Active capability tool source provider.
@@ -17,21 +15,16 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolVisibility
  * target resolution, persistence, and WorkManager scheduling are delegated to
  * [ActiveCapabilityRuntimeFacade].
  */
-class ActiveCapabilityToolSourceProvider(
-    private val facadeOverride: ActiveCapabilityRuntimeFacade? = null,
+class ActiveCapabilityToolSourceProvider @Inject constructor(
+    private val facade: ActiveCapabilityRuntimeFacade,
+    override val contextResolver: FutureToolSourceContextResolver,
 ) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY
-
-    var appContext: android.content.Context? = globalAppContext
-        set(value) {
-            field = value ?: globalAppContext
-        }
 
     override suspend fun listBindings(
         context: ToolSourceRegistryIngestContext,
     ): List<ToolSourceDescriptorBinding> {
-        val configProfile = FeatureConfigRepository.resolve(context.configProfileId)
-        if (!configProfile.proactiveEnabled) return emptyList()
+        if (!context.toolSourceContext.activeCapabilityEnabled) return emptyList()
 
         return listOf(
             buildCreateTaskBinding(),
@@ -44,8 +37,7 @@ class ActiveCapabilityToolSourceProvider(
         identity: ToolSourceIdentity,
         context: ToolSourceAvailabilityContext,
     ): ToolSourceAvailability {
-        val configProfile = FeatureConfigRepository.resolve(context.configProfileId)
-        return if (configProfile.proactiveEnabled) {
+        return if (context.toolSourceContext.activeCapabilityEnabled) {
             ToolSourceAvailability(
                 providerReachable = true,
                 permissionGranted = true,
@@ -98,16 +90,10 @@ class ActiveCapabilityToolSourceProvider(
         }
     }
 
-    private fun facade(): ActiveCapabilityRuntimeFacade {
-        return facadeOverride ?: ActiveCapabilityRuntimeFacade(
-            scheduler = WorkManagerActiveCapabilityScheduler { appContext },
-        )
-    }
-
     private suspend fun handleCreateFutureTask(
         request: ToolSourceInvokeRequest,
     ): ActiveCapabilityToolInvocation {
-        val result = facade().createFutureTask(
+        val result = facade.createFutureTask(
             ActiveCapabilityCreateTaskRequest(
                 payload = request.args.payload,
                 metadata = request.args.metadata,
@@ -118,12 +104,12 @@ class ActiveCapabilityToolSourceProvider(
         return ActiveCapabilityToolInvocation(
             status = if (failed == null) PluginToolResultStatus.SUCCESS else PluginToolResultStatus.ERROR,
             errorCode = failed?.error?.code,
-            text = facade().creationToJson(result).toString(2),
+            text = facade.creationToJson(result).toString(2),
         )
     }
 
     private suspend fun handleDeleteFutureTask(payload: Map<String, Any?>): ActiveCapabilityToolInvocation {
-        val json = facade().deleteFutureTask((payload["job_id"] as? String).orEmpty())
+        val json = facade.deleteFutureTask((payload["job_id"] as? String).orEmpty())
         val success = json.optBoolean("success", false)
         return ActiveCapabilityToolInvocation(
             status = if (success) PluginToolResultStatus.SUCCESS else PluginToolResultStatus.ERROR,
@@ -135,7 +121,7 @@ class ActiveCapabilityToolSourceProvider(
     private suspend fun handleListFutureTasks(): ActiveCapabilityToolInvocation {
         return ActiveCapabilityToolInvocation(
             status = PluginToolResultStatus.SUCCESS,
-            text = facade().listFutureTasks().toString(2),
+            text = facade.listFutureTasks().toString(2),
         )
     }
 
@@ -203,17 +189,6 @@ class ActiveCapabilityToolSourceProvider(
                 inputSchema = mapOf("type" to "object"),
             ),
         )
-    }
-
-    companion object {
-        internal var request_sessionId: String? = null
-
-        @Volatile
-        private var globalAppContext: android.content.Context? = null
-
-        fun initialize(context: android.content.Context) {
-            globalAppContext = context.applicationContext
-        }
     }
 }
 

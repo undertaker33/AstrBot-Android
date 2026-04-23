@@ -1,7 +1,8 @@
 package com.astrbot.android.feature.qq.data
 
-import android.content.Context
+import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.NapCatLoginState
+import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.model.RuntimeStatus
 import com.astrbot.android.core.runtime.container.BridgeCommandRunner
@@ -17,14 +18,23 @@ object NapCatLoginRepository {
     private const val RUNTIME_DIAGNOSTIC_THROTTLE_MS = 20_000L
     private const val QR_REFRESH_COOLDOWN_MS = 10_000L
 
-    private var appContext: Context? = null
     private var lastRuntimeDiagnosticAt: Long = 0L
     private val qrRefreshLock = Any()
     private var qrRefreshInFlight = false
     private var lastQrRefreshRequestedAt = 0L
     private var nowProvider: () -> Long = { System.currentTimeMillis() }
+    private var bridgeConfigSnapshot: () -> NapCatBridgeConfig = { NapCatBridgeConfig() }
+    private var bridgeRuntimeStateSnapshot: () -> NapCatRuntimeState = { NapCatRuntimeState() }
     private val _loginState = MutableStateFlow(NapCatLoginState())
     val loginState: StateFlow<NapCatLoginState> = _loginState.asStateFlow()
+
+    internal fun installBridgeStateAccessors(
+        configSnapshot: () -> NapCatBridgeConfig,
+        runtimeStateSnapshot: () -> NapCatRuntimeState,
+    ) {
+        bridgeConfigSnapshot = configSnapshot
+        bridgeRuntimeStateSnapshot = runtimeStateSnapshot
+    }
 
     internal fun buildRuntimeDiagnosticsLinesForTests(
         filesDir: File,
@@ -40,14 +50,13 @@ object NapCatLoginRepository {
         }
     }
 
-    fun initialize(context: Context) {
-        appContext = context.applicationContext
-        NapCatLoginLocalStore.initialize(appContext ?: context.applicationContext)
-        val savedQuickLoginUin = loadSavedQuickLoginUin()
-        val savedAccounts = loadSavedAccounts()
-        if (savedQuickLoginUin.isNotBlank()) {
+    internal fun bootstrapFromLocalStore(
+        quickLoginUin: String,
+        savedAccounts: List<SavedQqAccount>,
+    ) {
+        if (quickLoginUin.isNotBlank()) {
             _loginState.value = _loginState.value.copy(
-                quickLoginUin = savedQuickLoginUin,
+                quickLoginUin = quickLoginUin,
                 savedAccounts = savedAccounts,
             )
         } else if (savedAccounts.isNotEmpty()) {
@@ -225,16 +234,8 @@ object NapCatLoginRepository {
     }
 
     suspend fun logoutCurrentAccount() {
-        val context = appContext ?: run {
-            _loginState.value = _loginState.value.copy(
-                statusText = "Runtime is not initialized yet",
-                loginError = "Runtime is not initialized yet",
-                lastUpdated = System.currentTimeMillis(),
-            )
-            return
-        }
+        val context = NapCatLoginLocalStore.requireAppContext()
 
-        NapCatContainerRuntime.ensureInstalled(context)
         val scriptFile = File(context.filesDir, "runtime/scripts/logout_qq.sh")
         if (!scriptFile.exists()) {
             _loginState.value = _loginState.value.copy(
@@ -545,7 +546,7 @@ object NapCatLoginRepository {
         if (!shouldLogRuntimeDiagnostics(normalizedDetail)) {
             return
         }
-        val context = appContext ?: return
+        val context = runCatching { NapCatLoginLocalStore.requireAppContext() }.getOrNull() ?: return
         val now = System.currentTimeMillis()
         if (now - lastRuntimeDiagnosticAt < RUNTIME_DIAGNOSTIC_THROTTLE_MS) {
             return
@@ -594,8 +595,8 @@ object NapCatLoginRepository {
     }
 
     private fun requireBridgeHealthUrl(): String? {
-        val bridgeState = NapCatBridgeRepository.runtimeState.value
-        val healthUrl = NapCatBridgeRepository.config.value.healthUrl
+        val bridgeState = bridgeRuntimeStateSnapshot()
+        val healthUrl = bridgeConfigSnapshot().healthUrl
         if (bridgeState.statusType != RuntimeStatus.RUNNING) {
             val reason = if (bridgeState.details.isBlank()) "Waiting for NapCat bridge" else bridgeState.details
             markBridgeUnavailable(reason)

@@ -89,7 +89,9 @@ internal class EngineBackedAppChatPluginRuntime(
     private val dispatchEngine: PluginV2DispatchEngine,
     private val logBus: PluginRuntimeLogBus,
     private val lifecycleManager: PluginV2LifecycleManager,
+    private val futureToolSourceRegistry: FutureToolSourceRegistry,
 ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
+    // Test-only convenience constructor; production uses the Hilt-backed constructor below.
     internal constructor(
         pluginProvider: () -> List<PluginRuntimePlugin>,
         engine: PluginExecutionEngine,
@@ -98,14 +100,16 @@ internal class EngineBackedAppChatPluginRuntime(
         pluginProvider = pluginProvider,
         engine = engine,
         hostCapabilityGateway = hostCapabilityGateway,
-        runtimeServices = newCompatAppChatRuntimeServices(),
+        runtimeServices = newInMemoryAppChatRuntimeServices(),
+        futureToolSourceRegistry = FutureToolSourceRegistry.empty(),
     )
 
     private constructor(
         pluginProvider: () -> List<PluginRuntimePlugin>,
         engine: PluginExecutionEngine,
         hostCapabilityGateway: PluginHostCapabilityGateway,
-        runtimeServices: CompatAppChatRuntimeServices,
+        runtimeServices: InMemoryAppChatRuntimeServices,
+        futureToolSourceRegistry: FutureToolSourceRegistry,
     ) : this(
         pluginProvider = pluginProvider,
         engine = engine,
@@ -114,6 +118,7 @@ internal class EngineBackedAppChatPluginRuntime(
         dispatchEngine = runtimeServices.dispatchEngine,
         logBus = runtimeServices.logBus,
         lifecycleManager = runtimeServices.lifecycleManager,
+        futureToolSourceRegistry = futureToolSourceRegistry,
     )
 
     internal constructor(
@@ -124,6 +129,7 @@ internal class EngineBackedAppChatPluginRuntime(
         dispatchEngine: PluginV2DispatchEngine,
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
+        futureToolSourceRegistry: FutureToolSourceRegistry,
     ) : this(
         pluginProvider = pluginCatalog::plugins,
         engine = engine,
@@ -132,6 +138,7 @@ internal class EngineBackedAppChatPluginRuntime(
         dispatchEngine = dispatchEngine,
         logBus = logBus,
         lifecycleManager = lifecycleManager,
+        futureToolSourceRegistry = futureToolSourceRegistry,
     )
 
     override fun execute(
@@ -149,10 +156,9 @@ internal class EngineBackedAppChatPluginRuntime(
         input: PluginV2LlmPipelineInput,
     ): PluginV2LlmPipelineResult {
         val configProfileId = input.configProfileId.orEmpty()
-        val futureRegistry = FutureToolSourceRegistry()
         val toolSourceContext = input.toolSourceContext
-            ?: FutureToolSourceRegistry.contextForConfig(configProfileId)
-        val futureDescriptors = futureRegistry.collectToolDescriptors(toolSourceContext)
+            ?: futureToolSourceRegistry.contextForConfig(configProfileId)
+        val futureDescriptors = futureToolSourceRegistry.collectToolDescriptors(toolSourceContext)
         val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
         val snapshot = hostCapabilityGateway.registerHostBuiltinTools(
             activeRuntimeStore.snapshot(),
@@ -160,13 +166,13 @@ internal class EngineBackedAppChatPluginRuntime(
             futureSourceDescriptors = futureDescriptors,
             activeFutureSourceKinds = activeFutureKinds,
         )
-        return AppChatPluginRuntimeCoordinatorProvider.coordinator(
+        return createAppChatPluginRuntimeCoordinator(
             hostCapabilityGateway = hostCapabilityGateway,
             dispatchEngine = dispatchEngine,
             logBus = logBus,
             lifecycleManager = lifecycleManager,
             activeRuntimeStore = activeRuntimeStore,
-            futureRegistry = futureRegistry,
+            futureRegistry = futureToolSourceRegistry,
             toolSourceContext = toolSourceContext,
             toolRegistrySnapshot = snapshot.toolRegistrySnapshot,
         ).runPreSendStages(
@@ -179,10 +185,9 @@ internal class EngineBackedAppChatPluginRuntime(
         request: PluginV2HostLlmDeliveryRequest,
     ): PluginV2HostLlmDeliveryResult {
         val configProfileId = request.pipelineInput.configProfileId.orEmpty()
-        val futureRegistry = FutureToolSourceRegistry()
         val toolSourceContext = request.pipelineInput.toolSourceContext
-            ?: FutureToolSourceRegistry.contextForConfig(configProfileId)
-        val futureDescriptors = futureRegistry.collectToolDescriptors(toolSourceContext)
+            ?: futureToolSourceRegistry.contextForConfig(configProfileId)
+        val futureDescriptors = futureToolSourceRegistry.collectToolDescriptors(toolSourceContext)
         val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
         val snapshot = request.hostCapabilityGateway.registerHostBuiltinTools(
             activeRuntimeStore.snapshot(),
@@ -190,13 +195,13 @@ internal class EngineBackedAppChatPluginRuntime(
             futureSourceDescriptors = futureDescriptors,
             activeFutureSourceKinds = activeFutureKinds,
         )
-        return AppChatPluginRuntimeCoordinatorProvider.coordinator(
+        return createAppChatPluginRuntimeCoordinator(
             hostCapabilityGateway = request.hostCapabilityGateway,
             dispatchEngine = dispatchEngine,
             logBus = logBus,
             lifecycleManager = lifecycleManager,
             activeRuntimeStore = activeRuntimeStore,
-            futureRegistry = futureRegistry,
+            futureRegistry = futureToolSourceRegistry,
             toolSourceContext = toolSourceContext,
             toolRegistrySnapshot = snapshot.toolRegistrySnapshot,
         ).deliverLlmPipeline(
@@ -209,91 +214,90 @@ internal class EngineBackedAppChatPluginRuntime(
         event: PluginMessageEvent,
         afterSentView: PluginV2AfterSentView,
     ): PluginV2LlmStageDispatchResult {
-        return AppChatPluginRuntimeCoordinatorProvider
-            .coordinator(
-                hostCapabilityGateway = hostCapabilityGateway,
-                dispatchEngine = dispatchEngine,
-                logBus = logBus,
-                lifecycleManager = lifecycleManager,
-                activeRuntimeStore = activeRuntimeStore,
-            )
-            .dispatchAfterMessageSent(
-            event = event,
-            afterSentView = afterSentView,
+        return createAppChatPluginRuntimeCoordinator(
+            hostCapabilityGateway = hostCapabilityGateway,
+            dispatchEngine = dispatchEngine,
+            logBus = logBus,
+            lifecycleManager = lifecycleManager,
+            activeRuntimeStore = activeRuntimeStore,
         )
+            .dispatchAfterMessageSent(
+                event = event,
+                afterSentView = afterSentView,
+            )
     }
 }
 
 internal object AppChatPluginRuntimeCoordinatorProvider {
-    @Volatile
-    private var coordinatorOverrideForTests: PluginV2LlmPipelineCoordinator? = null
-
-    fun coordinator(
-        hostCapabilityGateway: PluginHostCapabilityGateway,
-        dispatchEngine: PluginV2DispatchEngine,
-        logBus: PluginRuntimeLogBus,
-        lifecycleManager: PluginV2LifecycleManager,
-        activeRuntimeStore: PluginV2ActiveRuntimeStore,
-        futureRegistry: FutureToolSourceRegistry? = null,
-        toolSourceContext: com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceContext? = null,
-        toolRegistrySnapshot: PluginV2ToolRegistrySnapshot? = null,
-    ): PluginV2LlmPipelineCoordinator {
-        return coordinatorOverrideForTests ?: PluginV2LlmPipelineCoordinator(
-            dispatchEngine = dispatchEngine,
-            logBus = logBus,
-            lifecycleManager = lifecycleManager,
-            snapshotProvider = activeRuntimeStore::snapshot,
-            toolExecutor = PluginV2ToolExecutor { args ->
-                // 1. Try host builtin tools first
-                val hostResult = hostCapabilityGateway.executeHostBuiltinTool(args)
-                if (hostResult != null) return@PluginV2ToolExecutor hostResult
-
-                // 2. Try future source tools (ACTIVE_CAPABILITY, MCP, etc.)
-                if (futureRegistry != null) {
-                    val entry = toolRegistrySnapshot?.activeEntriesByToolId?.get(args.toolId)
-                    if (entry != null) {
-                        val invokeResult = futureRegistry.invoke(
-                            ToolSourceInvokeRequest(
-                                identity = ToolSourceIdentity(
-                                    sourceKind = entry.sourceKind,
-                                    ownerId = entry.pluginId,
-                                    sourceRef = entry.name,
-                                    displayName = entry.name,
-                                ),
-                                args = args,
-                                timeoutMs = 60_000L,
-                                configProfileId = extractConfigProfileId(args),
-                                toolSourceContext = toolSourceContext,
-                            ),
-                        )
-                        if (invokeResult != null) return@PluginV2ToolExecutor invokeResult.result
-                    }
-                }
-
-                // 3. Fallback error
-                PluginToolResult(
-                    toolCallId = args.toolCallId,
-                    requestId = args.requestId,
-                    toolId = args.toolId,
-                    status = PluginToolResultStatus.ERROR,
-                    errorCode = "tool_executor_unavailable",
-                    text = "Tool executor is not wired yet.",
-                )
-            },
-        )
-    }
-
     internal fun setCoordinatorOverrideForTests(
         coordinator: PluginV2LlmPipelineCoordinator?,
     ) {
         coordinatorOverrideForTests = coordinator
     }
+}
 
-    private fun extractConfigProfileId(args: PluginToolArgs): String? {
-        val host = args.metadata?.get("__host") as? Map<*, *> ?: return null
-        val eventExtras = host["eventExtras"] as? Map<*, *> ?: return null
-        return (eventExtras["configProfileId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
-    }
+@Volatile
+private var coordinatorOverrideForTests: PluginV2LlmPipelineCoordinator? = null
+
+private fun createAppChatPluginRuntimeCoordinator(
+    hostCapabilityGateway: PluginHostCapabilityGateway,
+    dispatchEngine: PluginV2DispatchEngine,
+    logBus: PluginRuntimeLogBus,
+    lifecycleManager: PluginV2LifecycleManager,
+    activeRuntimeStore: PluginV2ActiveRuntimeStore,
+    futureRegistry: FutureToolSourceRegistry? = null,
+    toolSourceContext: com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceContext? = null,
+    toolRegistrySnapshot: PluginV2ToolRegistrySnapshot? = null,
+): PluginV2LlmPipelineCoordinator {
+    return coordinatorOverrideForTests ?: PluginV2LlmPipelineCoordinator(
+        dispatchEngine = dispatchEngine,
+        logBus = logBus,
+        lifecycleManager = lifecycleManager,
+        snapshotProvider = activeRuntimeStore::snapshot,
+        toolExecutor = PluginV2ToolExecutor { args ->
+            // 1. Try host builtin tools first
+            val hostResult = hostCapabilityGateway.executeHostBuiltinTool(args)
+            if (hostResult != null) return@PluginV2ToolExecutor hostResult
+
+            // 2. Try future source tools (ACTIVE_CAPABILITY, MCP, etc.)
+            if (futureRegistry != null) {
+                val entry = toolRegistrySnapshot?.activeEntriesByToolId?.get(args.toolId)
+                if (entry != null) {
+                    val invokeResult = futureRegistry.invoke(
+                        ToolSourceInvokeRequest(
+                            identity = ToolSourceIdentity(
+                                sourceKind = entry.sourceKind,
+                                ownerId = entry.pluginId,
+                                sourceRef = entry.name,
+                                displayName = entry.name,
+                            ),
+                            args = args,
+                            timeoutMs = 60_000L,
+                            configProfileId = extractConfigProfileId(args),
+                            toolSourceContext = toolSourceContext,
+                        ),
+                    )
+                    if (invokeResult != null) return@PluginV2ToolExecutor invokeResult.result
+                }
+            }
+
+            // 3. Fallback error
+            PluginToolResult(
+                toolCallId = args.toolCallId,
+                requestId = args.requestId,
+                toolId = args.toolId,
+                status = PluginToolResultStatus.ERROR,
+                errorCode = "tool_executor_unavailable",
+                text = "Tool executor is not wired yet.",
+            )
+        },
+    )
+}
+
+private fun extractConfigProfileId(args: PluginToolArgs): String? {
+    val host = args.metadata?.get("__host") as? Map<*, *> ?: return null
+    val eventExtras = host["eventExtras"] as? Map<*, *> ?: return null
+    return (eventExtras["configProfileId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
 }
 
 object PluginRuntimeRegistry {
@@ -314,7 +318,6 @@ object PluginRuntimeRegistry {
 
     fun registerProvider(provider: () -> List<PluginRuntimePlugin>) {
         pluginProvider = provider
-        PluginRuntimeCatalog.registerProvider(provider)
     }
 
     fun registerExternalProvider(provider: () -> List<PluginRuntimePlugin>) {
@@ -324,25 +327,24 @@ object PluginRuntimeRegistry {
     fun reset() {
         pluginProvider = { emptyList() }
         externalProviders = emptyList()
-        PluginRuntimeCatalog.reset()
     }
 }
 
-private data class CompatAppChatRuntimeServices(
+private data class InMemoryAppChatRuntimeServices(
     val activeRuntimeStore: PluginV2ActiveRuntimeStore,
     val dispatchEngine: PluginV2DispatchEngine,
     val logBus: PluginRuntimeLogBus,
     val lifecycleManager: PluginV2LifecycleManager,
 )
 
-private fun newCompatAppChatRuntimeServices(): CompatAppChatRuntimeServices {
+private fun newInMemoryAppChatRuntimeServices(): InMemoryAppChatRuntimeServices {
     val logBus = InMemoryPluginRuntimeLogBus()
     val activeRuntimeStore = PluginV2ActiveRuntimeStore(logBus = logBus)
     val lifecycleManager = PluginV2LifecycleManager(
         logBus = logBus,
         store = activeRuntimeStore,
     )
-    return CompatAppChatRuntimeServices(
+    return InMemoryAppChatRuntimeServices(
         activeRuntimeStore = activeRuntimeStore,
         dispatchEngine = PluginV2DispatchEngine(
             logBus = logBus,

@@ -1,12 +1,7 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.settings
 
 import androidx.annotation.StringRes
 import com.astrbot.android.R
-import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository
-import com.astrbot.android.feature.resource.domain.ResourceCompatibilityUseCase
-import com.astrbot.android.feature.resource.domain.ResourceCenterPort
 import com.astrbot.android.feature.resource.presentation.ResourceCenterPresentationController
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConfigResourceProjection
@@ -18,7 +13,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
 
 enum class MeEntryKind {
@@ -215,10 +209,6 @@ internal fun buildMeEntryKinds(): List<MeEntryKind> {
     )
 }
 
-internal fun buildResourceCenterPresentation(): ResourceCenterPresentation {
-    return buildResourceCenterPresentation(controller = defaultResourceCenterPresentationController())
-}
-
 internal fun buildResourceCenterPresentation(
     controller: ResourceCenterPresentationController,
 ): ResourceCenterPresentation {
@@ -290,7 +280,7 @@ internal fun buildResourceListPresentation(
 internal fun buildResourceCards(
     kind: ResourceKind,
     resources: List<ResourceCenterItem>,
-    controller: ResourceCenterPresentationController = defaultResourceCenterPresentationController(),
+    controller: ResourceCenterPresentationController,
 ): List<ResourceCardPresentation> {
     val liveResources = controller.listResources()
     val sourceResources = if (liveResources.isNotEmpty()) liveResources else resources
@@ -323,7 +313,7 @@ internal fun sampleResourceCards(kind: ResourceKind): List<ResourceCardPresentat
 
 internal fun buildResourceCompatibilitySnapshotPresentation(
     profile: ConfigProfile,
-    controller: ResourceCenterPresentationController = defaultResourceCenterPresentationController(),
+    controller: ResourceCenterPresentationController,
 ) = controller.compatibilitySnapshotForConfig(profile)
 
 internal fun buildCronJobsPresentation(
@@ -400,34 +390,3 @@ private fun buildResourceId(prefix: String, value: String): String {
     }
 }
 
-internal fun defaultResourceCenterPresentationController(): ResourceCenterPresentationController {
-    val port = object : ResourceCenterPort {
-        override val resources: StateFlow<List<ResourceCenterItem>>
-            get() = FeatureResourceCenterRepository.resources
-
-        override val projections: StateFlow<List<ConfigResourceProjection>>
-            get() = FeatureResourceCenterRepository.projections
-
-        override fun listResources(kind: ResourceCenterKind?): List<ResourceCenterItem> =
-            FeatureResourceCenterRepository.listResources(kind)
-
-        override fun saveResource(resource: ResourceCenterItem): ResourceCenterItem =
-            FeatureResourceCenterRepository.saveResource(resource)
-
-        override fun deleteResource(resourceId: String) =
-            FeatureResourceCenterRepository.deleteResource(resourceId)
-
-        override fun setProjection(projection: ConfigResourceProjection): ConfigResourceProjection =
-            FeatureResourceCenterRepository.setProjection(projection)
-
-        override fun projectionsForConfig(configId: String): List<ConfigResourceProjection> =
-            FeatureResourceCenterRepository.projectionsForConfig(configId)
-
-        override fun compatibilitySnapshotForConfig(profile: ConfigProfile) =
-            FeatureResourceCenterRepository.compatibilitySnapshotForConfig(profile)
-    }
-    return ResourceCenterPresentationController(
-        port = port,
-        compatibilityUseCase = ResourceCompatibilityUseCase(port),
-    )
-}

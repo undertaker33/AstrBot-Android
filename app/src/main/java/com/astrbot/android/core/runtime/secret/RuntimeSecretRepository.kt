@@ -20,7 +20,7 @@ object RuntimeSecretRepository {
     private const val SECRET_BYTE_SIZE = 32
 
     @Volatile
-    private var appContext: Context? = null
+    private var cachedRuntimeRootDir: File? = null
 
     @Volatile
     private var secretsOverrideForTests: RuntimeSecrets? = null
@@ -28,15 +28,25 @@ object RuntimeSecretRepository {
     private val lock = Any()
 
     fun initialize(context: Context) {
-        appContext = context.applicationContext
-        getOrCreateSecrets()
+        ensureSecrets(context.filesDir)
     }
 
     fun getOrCreateSecrets(): RuntimeSecrets {
         secretsOverrideForTests?.let { return it }
-        val context = appContext ?: throw IllegalStateException("RuntimeSecretRepository is not initialized.")
+        val rootDir = cachedRuntimeRootDir ?: throw IllegalStateException("RuntimeSecretRepository is not initialized.")
         return synchronized(lock) {
-            loadOrCreateSecrets(runtimeRootDir(context.filesDir)) { size ->
+            loadOrCreateSecrets(rootDir) { size ->
+                ByteArray(size).also(SecureRandom()::nextBytes)
+            }
+        }
+    }
+
+    fun ensureSecrets(filesDir: File): RuntimeSecrets {
+        secretsOverrideForTests?.let { return it }
+        val rootDir = runtimeRootDir(filesDir)
+        cachedRuntimeRootDir = rootDir
+        return synchronized(lock) {
+            loadOrCreateSecrets(rootDir) { size ->
                 ByteArray(size).also(SecureRandom()::nextBytes)
             }
         }

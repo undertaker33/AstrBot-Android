@@ -12,11 +12,32 @@ import com.astrbot.android.data.db.SavedQqAccountEntity
 import com.astrbot.android.data.db.toEntity
 import com.astrbot.android.data.db.toModel
 import com.astrbot.android.model.SavedQqAccount
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+
+@Singleton
+internal class NapCatLoginLocalStoreOwner @Inject constructor(
+    @ApplicationContext appContext: Context,
+    database: AstrBotDatabase,
+) {
+    init {
+        NapCatLoginLocalStore.installPersistence(
+            appContext = appContext,
+            appPreferenceDao = database.appPreferenceDao(),
+            savedQqAccountDao = database.savedQqAccountDao(),
+        )
+        NapCatLoginRepository.bootstrapFromLocalStore(
+            quickLoginUin = NapCatLoginLocalStore.loadSavedQuickLoginUin(),
+            savedAccounts = NapCatLoginLocalStore.loadSavedAccounts(),
+        )
+    }
+}
 
 internal object NapCatLoginLocalStore {
     private const val PREFS_NAME = "napcat_login_state"
@@ -27,15 +48,26 @@ internal object NapCatLoginLocalStore {
 
     private var appPreferenceDao: AppPreferenceDao = LoginStoreAppPreferenceDaoPlaceholder.instance
     private var savedQqAccountDao: SavedQqAccountDao = SavedQqAccountDaoPlaceholder.instance
+    private var appContext: Context? = null
     private var legacyPreferences: SharedPreferences? = null
     private var cachedQuickLoginUin: String = ""
     private var cachedAccounts: List<SavedQqAccount> = emptyList()
 
     fun initialize(context: Context) {
-        val database = AstrBotDatabase.get(context)
-        appPreferenceDao = database.appPreferenceDao()
-        savedQqAccountDao = database.savedQqAccountDao()
-        legacyPreferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        requireNotNull(appContext) {
+            "NapCatLoginLocalStore must be installed by Hilt before use."
+        }
+    }
+
+    internal fun installPersistence(
+        appContext: Context,
+        appPreferenceDao: AppPreferenceDao,
+        savedQqAccountDao: SavedQqAccountDao,
+    ) {
+        this.appContext = appContext.applicationContext
+        this.appPreferenceDao = appPreferenceDao
+        this.savedQqAccountDao = savedQqAccountDao
+        legacyPreferences = this.appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         runBlocking(Dispatchers.IO) {
             migrateLegacyStateIfNeeded()
             cachedQuickLoginUin = appPreferenceDao.getValue(PREF_QUICK_LOGIN_UIN).orEmpty().trim()
@@ -64,6 +96,12 @@ internal object NapCatLoginLocalStore {
 
     fun loadSavedAccounts(): List<SavedQqAccount> {
         return cachedAccounts
+    }
+
+    fun requireAppContext(): Context {
+        return requireNotNull(appContext) {
+            "NapCatLoginLocalStore must be installed by Hilt before use."
+        }
     }
 
     fun persistSavedAccounts(accounts: List<SavedQqAccount>) {

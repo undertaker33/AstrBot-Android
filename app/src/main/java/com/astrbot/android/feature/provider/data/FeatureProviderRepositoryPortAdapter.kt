@@ -1,45 +1,49 @@
-﻿package com.astrbot.android.feature.provider.data
+package com.astrbot.android.feature.provider.data
 
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.StateFlow
 
-@Suppress("DEPRECATION")
-open class FeatureProviderRepositoryPortAdapter : ProviderRepositoryPort {
+@Singleton
+class FeatureProviderRepositoryPortAdapter @Inject constructor(
+    private val repository: FeatureProviderRepositoryStore,
+) : ProviderRepositoryPort {
 
     override val providers: StateFlow<List<ProviderProfile>>
-        get() = FeatureProviderRepository.providers
+        get() = repository.providers
 
     override fun snapshotProfiles(): List<ProviderProfile> =
-        FeatureProviderRepository.snapshotProfiles()
+        repository.snapshotProfiles()
 
     override fun providersWithCapability(capability: ProviderCapability): List<ProviderProfile> =
-        FeatureProviderRepository.providers.value.filter { capability in it.capabilities }
+        repository.providers.value.filter { capability in it.capabilities }
 
     override fun toggleEnabled(id: String) {
-        FeatureProviderRepository.toggleEnabled(id)
+        repository.toggleEnabled(id)
     }
 
     override fun updateMultimodalProbeSupport(id: String, support: FeatureSupportState) {
-        FeatureProviderRepository.updateMultimodalProbeSupport(id, support)
+        repository.updateMultimodalProbeSupport(id, support)
     }
 
     override fun updateNativeStreamingProbeSupport(id: String, support: FeatureSupportState) {
-        FeatureProviderRepository.updateNativeStreamingProbeSupport(id, support)
+        repository.updateNativeStreamingProbeSupport(id, support)
     }
 
     override fun updateSttProbeSupport(id: String, support: FeatureSupportState) {
-        FeatureProviderRepository.updateSttProbeSupport(id, support)
+        repository.updateSttProbeSupport(id, support)
     }
 
     override fun updateTtsProbeSupport(id: String, support: FeatureSupportState) {
-        FeatureProviderRepository.updateTtsProbeSupport(id, support)
+        repository.updateTtsProbeSupport(id, support)
     }
 
     override suspend fun save(profile: ProviderProfile) {
-        FeatureProviderRepository.save(
+        repository.save(
             id = profile.id,
             name = profile.name,
             baseUrl = profile.baseUrl,
@@ -59,17 +63,6 @@ open class FeatureProviderRepositoryPortAdapter : ProviderRepositoryPort {
     }
 
     override suspend fun delete(id: String) {
-        FeatureProviderRepository.delete(id)
+        repository.delete(id)
     }
 }
-
-/**
- * Compat-only adapter for targeted tests and transitional callers.
- * Production mainline uses [FeatureProviderRepositoryPortAdapter].
- */
-@Deprecated(
-    "Compat-only seam. Production mainline uses FeatureProviderRepositoryPortAdapter.",
-    level = DeprecationLevel.WARNING,
-)
-class LegacyProviderRepositoryAdapter : FeatureProviderRepositoryPortAdapter()
-

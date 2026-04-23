@@ -1,54 +1,91 @@
 package com.astrbot.android.feature.persona.data
 
-import kotlinx.coroutines.flow.collect
-
-import android.content.Context
 import android.content.SharedPreferences
+import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.common.profile.PersonaReferenceGuard
 import com.astrbot.android.core.common.profile.ProfileCatalogKind
 import com.astrbot.android.core.common.profile.ProfileDeletionGuard
-import com.astrbot.android.core.common.profile.PersonaReferenceGuard
-import com.astrbot.android.data.parseLegacyPersonaProfiles
-import com.astrbot.android.data.db.AstrBotDatabase
-import com.astrbot.android.data.db.PersonaAggregate
 import com.astrbot.android.data.db.PersonaAggregateDao
-import com.astrbot.android.data.db.PersonaEntity
 import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.data.db.toWriteModel
+import com.astrbot.android.data.parseLegacyPersonaProfiles
+import com.astrbot.android.feature.persona.domain.defaultPersonaEnabledTools
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.PersonaToolEnablementSnapshot
-import com.astrbot.android.core.common.logging.AppLogger
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
+import javax.inject.Named
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 @Deprecated("Use PersonaRepositoryPort from feature/persona/domain. Direct access will be removed.")
 object FeaturePersonaRepository {
-    private const val PREFS_NAME = "persona_profiles"
     private const val KEY_PERSONAS_JSON = "personas_json"
-    private const val DEFAULT_ENABLED_TOOL = "web_search"
 
+    @Volatile
+    private var delegate: FeaturePersonaRepositoryStore? = null
+
+    internal fun installDelegate(store: FeaturePersonaRepositoryStore) {
+        delegate = store
+    }
+
+    private fun repository(): FeaturePersonaRepositoryStore {
+        return checkNotNull(delegate) {
+            "FeaturePersonaRepository was accessed before the Hilt graph created FeaturePersonaRepositoryStore."
+        }
+    }
+
+    val personas: StateFlow<List<PersonaProfile>>
+        get() = repository().personas
+
+    fun add(
+        name: String,
+        tag: String,
+        systemPrompt: String,
+        enabledTools: Set<String>,
+        defaultProviderId: String,
+        maxContextMessages: Int,
+    ) = repository().add(name, tag, systemPrompt, enabledTools, defaultProviderId, maxContextMessages)
+
+    fun update(profile: PersonaProfile) = repository().update(profile)
+
+    fun toggleEnabled(id: String) = repository().toggleEnabled(id)
+
+    fun delete(id: String) = repository().delete(id)
+
+    fun snapshotProfiles(): List<PersonaProfile> = repository().snapshotProfiles()
+
+    fun snapshotToolEnablement(personaId: String): PersonaToolEnablementSnapshot? =
+        repository().snapshotToolEnablement(personaId)
+
+    fun restoreProfiles(profiles: List<PersonaProfile>) = repository().restoreProfiles(profiles)
+
+    fun defaultEnabledTools(): Set<String> = defaultPersonaEnabledTools()
+
+    internal fun legacyPersonasJson(preferences: SharedPreferences): String? =
+        preferences.getString(KEY_PERSONAS_JSON, null)
+}
+
+@Singleton
+class FeaturePersonaRepositoryStore @Inject constructor(
+    private val personaDao: PersonaAggregateDao,
+    @Named("personaProfilesPreferences") private val preferences: SharedPreferences,
+) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val initialized = AtomicBoolean(false)
-
-    private var preferences: SharedPreferences? = null
-    private var personaDao: PersonaAggregateDao = PersonaDaoPlaceholder.instance
     private val _personas = MutableStateFlow(defaultPersonas())
 
     val personas: StateFlow<List<PersonaProfile>> = _personas.asStateFlow()
 
-    fun initialize(context: Context) {
-        if (!initialized.compareAndSet(false, true)) return
-        preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        personaDao = AstrBotDatabase.get(context).personaAggregateDao()
-
+    init {
+        FeaturePersonaRepository.installDelegate(this)
         runBlocking(Dispatchers.IO) {
             seedStorageIfNeeded()
         }
@@ -110,8 +147,7 @@ object FeaturePersonaRepository {
     }
 
     fun delete(id: String) {
-        val removed = _personas.value.firstOrNull { it.id == id }
-        if (removed == null) return
+        val removed = _personas.value.firstOrNull { it.id == id } ?: return
         ProfileDeletionGuard.requireCanDelete(
             remainingCount = _personas.value.size,
             kind = ProfileCatalogKind.PERSONA,
@@ -164,7 +200,7 @@ object FeaturePersonaRepository {
     private suspend fun seedStorageIfNeeded() {
         if (personaDao.count() > 0) return
         val imported = runCatching {
-            parseLegacyPersonaProfiles(preferences?.getString(KEY_PERSONAS_JSON, null))
+            parseLegacyPersonaProfiles(FeaturePersonaRepository.legacyPersonasJson(preferences))
         }.onFailure { error ->
             AppLogger.append("Persona catalog legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrDefault(emptyList())
@@ -206,23 +242,7 @@ object FeaturePersonaRepository {
         ),
     )
 
-    fun defaultEnabledTools(): Set<String> {
-        return setOf(DEFAULT_ENABLED_TOOL)
+    private fun defaultEnabledTools(): Set<String> {
+        return defaultPersonaEnabledTools()
     }
 }
-
-private object PersonaDaoPlaceholder {
-    val instance = object : PersonaAggregateDao() {
-        override fun observePersonaAggregates() = flowOf(emptyList<PersonaAggregate>())
-        override suspend fun listPersonaAggregates(): List<PersonaAggregate> = emptyList()
-        override suspend fun upsertPersonas(entities: List<PersonaEntity>) = Unit
-        override suspend fun upsertPrompts(entities: List<com.astrbot.android.data.db.PersonaPromptEntity>) = Unit
-        override suspend fun upsertEnabledTools(entities: List<com.astrbot.android.data.db.PersonaEnabledToolEntity>) = Unit
-        override suspend fun deleteMissingPersonas(ids: List<String>) = Unit
-        override suspend fun clearPersonas() = Unit
-        override suspend fun deletePrompts(personaIds: List<String>) = Unit
-        override suspend fun deleteEnabledTools(personaIds: List<String>) = Unit
-        override suspend fun count(): Int = 0
-    }
-}
-

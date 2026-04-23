@@ -35,7 +35,7 @@ class DefaultAppChatPluginRuntimeTest {
             ),
             hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
         )
-        PluginRuntimeRegistry.registerProvider {
+        PluginRuntimeCatalog.registerProvider {
             listOf(
                 runtimePlugin(
                     pluginId = "shared-plugin",
@@ -61,7 +61,7 @@ class DefaultAppChatPluginRuntimeTest {
             assertEquals("app chat boom", snapshot?.lastErrorSummary)
             assertTrue(snapshot?.isSuspended == true)
         } finally {
-            PluginRuntimeRegistry.reset()
+            PluginRuntimeCatalog.reset()
         }
     }
 

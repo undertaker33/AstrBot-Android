@@ -75,17 +75,23 @@ class HiltExitContractTest {
 
     @Test
     fun runtime_seams_must_stay_confined_to_explicit_entry_files() {
-        assertTokenConfinedToAllowedProductionFiles(
+        assertTokenAbsentFromProductionFiles(
             "EntryPointAccessors.fromApplication(",
-            setOf(
-                "core/runtime/container/ContainerRuntimeEntryPoint.kt",
-            ),
         )
-        assertTokenConfinedToAllowedProductionFiles(
+        assertTokenAbsentFromProductionFiles(
+            "EntryPoints.get(",
+        )
+        assertTokenAbsentFromProductionFiles(
             "installRuntimeDependencies(",
-            setOf(
-                "feature/qq/runtime/QqOneBotBridgeServer.kt",
-            ),
+        )
+        assertTokenAbsentFromProductionFiles(
+            "installRuntimeDependencies =",
+        )
+        assertTokenAbsentFromProductionFiles(
+            "RuntimeDependenciesTestInstaller",
+        )
+        assertTokenAbsentFromProductionFiles(
+            "updateRuntimeDependenciesForTests(",
         )
     }
 
@@ -157,19 +163,17 @@ class HiltExitContractTest {
         )
     }
 
-    private fun assertTokenConfinedToAllowedProductionFiles(
+    private fun assertTokenAbsentFromProductionFiles(
         token: String,
-        allowedPaths: Set<String>,
     ) {
         val actualPaths = kotlinFilesUnder(mainRoot)
             .filter { file -> file.readText().contains(token) }
             .map { file -> mainRoot.relativize(file).toString().replace('\\', '/') }
             .toSet()
-        val unexpectedPaths = actualPaths - allowedPaths
 
         assertTrue(
-            "Token '$token' must stay inside the allowlist. Unexpected files: $unexpectedPaths",
-            unexpectedPaths.isEmpty(),
+            "Token '$token' must not appear in production sources. Found in: $actualPaths",
+            actualPaths.isEmpty(),
         )
     }
 }

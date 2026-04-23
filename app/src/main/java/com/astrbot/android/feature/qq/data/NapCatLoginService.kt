@@ -9,6 +9,7 @@ import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.secret.AppSecretStore
+import com.astrbot.android.core.runtime.network.OkHttpRuntimeNetworkTransport
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.SavedQqAccount
 import org.json.JSONObject
@@ -23,7 +24,9 @@ import org.json.JSONException
 object NapCatLoginService {
     private var credential: String = ""
     private var postJsonOverride: ((String, JSONObject, String?) -> JSONObject)? = null
-    private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient()
+    private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient(
+        transport = OkHttpRuntimeNetworkTransport(),
+    )
 
     internal enum class LoginFailureCategory {
         AUTH_TOKEN_EXPIRED,
@@ -67,7 +70,9 @@ object NapCatLoginService {
     internal fun resetForTests() {
         credential = ""
         postJsonOverride = null
-        httpClient = OkHttpAstrBotHttpClient()
+        httpClient = OkHttpAstrBotHttpClient(
+            transport = OkHttpRuntimeNetworkTransport(),
+        )
     }
 
     internal fun setPostJsonOverrideForTests(override: ((String, JSONObject, String?) -> JSONObject)?) {
@@ -75,7 +80,9 @@ object NapCatLoginService {
     }
 
     internal fun setHttpClientOverrideForTests(override: AstrBotHttpClient?) {
-        httpClient = override ?: OkHttpAstrBotHttpClient()
+        httpClient = override ?: OkHttpAstrBotHttpClient(
+            transport = OkHttpRuntimeNetworkTransport(),
+        )
     }
 
     internal fun debugCredentialForTests(): String = credential

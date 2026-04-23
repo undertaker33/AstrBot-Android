@@ -55,6 +55,21 @@ class ConversationViewModelTest {
 
         override fun session(sessionId: String): ConversationSession = sessions.value.first { it.id == sessionId }
 
+        override fun syncSystemSessionTitle(sessionId: String, title: String) = Unit
+
+        override fun updateSessionBindings(
+            sessionId: String,
+            providerId: String,
+            personaId: String,
+            botId: String,
+        ) = Unit
+
+        override fun updateSessionServiceFlags(
+            sessionId: String,
+            sessionSttEnabled: Boolean?,
+            sessionTtsEnabled: Boolean?,
+        ) = Unit
+
         override fun appendMessage(
             sessionId: String,
             role: String,

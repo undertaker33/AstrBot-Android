@@ -1,33 +1,37 @@
-﻿package com.astrbot.android.feature.persona.data
+package com.astrbot.android.feature.persona.data
 
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.PersonaToolEnablementSnapshot
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.StateFlow
 
-@Suppress("DEPRECATION")
-open class FeaturePersonaRepositoryPortAdapter : PersonaRepositoryPort {
+@Singleton
+class FeaturePersonaRepositoryPortAdapter @Inject constructor(
+    private val repository: FeaturePersonaRepositoryStore,
+) : PersonaRepositoryPort {
 
     override val personas: StateFlow<List<PersonaProfile>>
-        get() = FeaturePersonaRepository.personas
+        get() = repository.personas
 
     override fun snapshotProfiles(): List<PersonaProfile> =
-        FeaturePersonaRepository.snapshotProfiles()
+        repository.snapshotProfiles()
 
     override fun snapshotToolEnablement(): List<PersonaToolEnablementSnapshot> =
-        FeaturePersonaRepository.snapshotProfiles().map { persona ->
+        repository.snapshotProfiles().map { persona ->
             PersonaToolEnablementSnapshot(
                 personaId = persona.id,
                 enabled = persona.enabled,
                 enabledTools = persona.enabledTools.toSet(),
             )
-        }
+    }
 
     override fun snapshotToolEnablement(personaId: String): PersonaToolEnablementSnapshot? =
-        FeaturePersonaRepository.snapshotToolEnablement(personaId)
+        repository.snapshotToolEnablement(personaId)
 
     override suspend fun add(profile: PersonaProfile) {
-        FeaturePersonaRepository.add(
+        repository.add(
             name = profile.name,
             tag = profile.tag,
             systemPrompt = profile.systemPrompt,
@@ -38,32 +42,21 @@ open class FeaturePersonaRepositoryPortAdapter : PersonaRepositoryPort {
     }
 
     override suspend fun update(profile: PersonaProfile) {
-        FeaturePersonaRepository.update(profile)
+        repository.update(profile)
     }
 
     override suspend fun toggleEnabled(id: String, enabled: Boolean) {
-        val current = FeaturePersonaRepository.snapshotToolEnablement(id)?.enabled ?: return
+        val current = repository.snapshotToolEnablement(id)?.enabled ?: return
         if (current != enabled) {
-            FeaturePersonaRepository.toggleEnabled(id)
+            repository.toggleEnabled(id)
         }
     }
 
     override suspend fun toggleEnabled(id: String) {
-        FeaturePersonaRepository.toggleEnabled(id)
+        repository.toggleEnabled(id)
     }
 
     override suspend fun delete(id: String) {
-        FeaturePersonaRepository.delete(id)
+        repository.delete(id)
     }
 }
-
-/**
- * Compat-only adapter for targeted tests and transitional callers.
- * Production mainline uses [FeaturePersonaRepositoryPortAdapter].
- */
-@Deprecated(
-    "Compat-only seam. Production mainline uses FeaturePersonaRepositoryPortAdapter.",
-    level = DeprecationLevel.WARNING,
-)
-class LegacyPersonaRepositoryAdapter : FeaturePersonaRepositoryPortAdapter()
-

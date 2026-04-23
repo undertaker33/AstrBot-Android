@@ -1,105 +1,29 @@
 package com.astrbot.android.feature.qq.data
 
-import com.astrbot.android.data.parseLegacyNapCatBridgeConfig
-
-import com.astrbot.android.data.mergeNapCatBridgeConfig
-
 import android.content.Context
 import android.content.SharedPreferences
+import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.data.db.AppPreferenceDao
 import com.astrbot.android.data.db.AppPreferenceEntity
+import com.astrbot.android.data.mergeNapCatBridgeConfig
+import com.astrbot.android.data.parseLegacyNapCatBridgeConfig
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.RuntimeStatus
-import com.astrbot.android.core.common.logging.AppLogger
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 @Singleton
 class NapCatBridgeStateOwner @Inject constructor(
-    @ApplicationContext appContext: Context,
-    appPreferenceDao: AppPreferenceDao,
+    @ApplicationContext private val appContext: Context,
+    private val appPreferenceDao: AppPreferenceDao,
 ) {
-    private val bridgeRepository = NapCatBridgeRepository
-    private val ownerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val _config = MutableStateFlow(bridgeRepository.config.value)
-    private val _runtimeState = MutableStateFlow(bridgeRepository.runtimeState.value)
-
-    init {
-        bridgeRepository.installAppPreferenceDao(appPreferenceDao)
-        bridgeRepository.initialize(appContext)
-        ownerScope.launch {
-            bridgeRepository.config.collect { config ->
-                _config.value = config
-            }
-        }
-        ownerScope.launch {
-            bridgeRepository.runtimeState.collect { runtimeState ->
-                _runtimeState.value = runtimeState
-            }
-        }
-    }
-
-    val config: StateFlow<NapCatBridgeConfig> = _config.asStateFlow()
-    val runtimeState: StateFlow<NapCatRuntimeState> = _runtimeState.asStateFlow()
-
-    fun updateConfig(config: NapCatBridgeConfig) = bridgeRepository.updateConfig(config)
-
-    fun applyRuntimeDefaults(defaults: NapCatBridgeConfig) = bridgeRepository.applyRuntimeDefaults(defaults)
-
-    fun markStarting() = bridgeRepository.markStarting()
-
-    fun markRunning(pidHint: String, details: String) {
-        bridgeRepository.markRunning(pidHint = pidHint, details = details)
-    }
-
-    fun markProcessRunning(pidHint: String, details: String) {
-        bridgeRepository.markProcessRunning(pidHint = pidHint, details = details)
-    }
-
-    fun markStopped(reason: String) = bridgeRepository.markStopped(reason)
-
-    fun markChecking() = bridgeRepository.markChecking()
-
-    fun markError(message: String) = bridgeRepository.markError(message)
-
-    fun updateProgress(label: String, percent: Int, indeterminate: Boolean, installerCached: Boolean) {
-        bridgeRepository.updateProgress(
-            label = label,
-            percent = percent,
-            indeterminate = indeterminate,
-            installerCached = installerCached,
-        )
-    }
-
-    fun markInstallerCached(cached: Boolean) = bridgeRepository.markInstallerCached(cached)
-
-    fun initialize(context: Context) = bridgeRepository.initialize(context)
-}
-
-object NapCatBridgeRepository {
-    private const val PREFS_NAME = "napcat_bridge_config"
-    private const val KEY_RUNTIME_MODE = "runtime_mode"
-    private const val KEY_ENDPOINT = "endpoint"
-    private const val KEY_HEALTH_URL = "health_url"
-    private const val KEY_AUTO_START = "auto_start"
-    private const val KEY_START_COMMAND = "start_command"
-    private const val KEY_STOP_COMMAND = "stop_command"
-    private const val KEY_STATUS_COMMAND = "status_command"
-    private const val KEY_COMMAND_PREVIEW = "command_preview"
-    private const val PREF_LEGACY_BRIDGE_CONFIG_MIGRATED = "legacy_bridge_config_migrated"
-
-    private var appPreferenceDao: AppPreferenceDao = BridgeAppPreferenceDaoPlaceholder.instance
     private var legacyPreferences: SharedPreferences? = null
     private val _config = MutableStateFlow(
         NapCatBridgeConfig(
@@ -114,15 +38,12 @@ object NapCatBridgeRepository {
     val config: StateFlow<NapCatBridgeConfig> = _config.asStateFlow()
     val runtimeState: StateFlow<NapCatRuntimeState> = _runtimeState.asStateFlow()
 
-    internal fun installAppPreferenceDao(appPreferenceDao: AppPreferenceDao) {
-        this.appPreferenceDao = appPreferenceDao
-    }
-
-    fun initialize(context: Context) {
-        check(appPreferenceDao !== BridgeAppPreferenceDaoPlaceholder.instance) {
-            "NapCatBridgeRepository AppPreferenceDao must be installed before initialize(context)."
-        }
-        legacyPreferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    init {
+        NapCatLoginRepository.installBridgeStateAccessors(
+            configSnapshot = { _config.value },
+            runtimeStateSnapshot = { _runtimeState.value },
+        )
+        legacyPreferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         runBlocking(Dispatchers.IO) {
             seedStorageIfNeeded(defaults = _config.value)
             _config.value = loadConfig(defaults = _config.value)
@@ -332,12 +253,17 @@ object NapCatBridgeRepository {
             ),
         )
     }
-}
 
-private object BridgeAppPreferenceDaoPlaceholder {
-    val instance = object : AppPreferenceDao {
-        override fun observeValue(key: String) = kotlinx.coroutines.flow.flowOf<String?>(null)
-        override suspend fun getValue(key: String): String? = null
-        override suspend fun upsert(entity: AppPreferenceEntity) = Unit
+    companion object {
+        private const val PREFS_NAME = "napcat_bridge_config"
+        private const val KEY_RUNTIME_MODE = "runtime_mode"
+        private const val KEY_ENDPOINT = "endpoint"
+        private const val KEY_HEALTH_URL = "health_url"
+        private const val KEY_AUTO_START = "auto_start"
+        private const val KEY_START_COMMAND = "start_command"
+        private const val KEY_STOP_COMMAND = "stop_command"
+        private const val KEY_STATUS_COMMAND = "status_command"
+        private const val KEY_COMMAND_PREVIEW = "command_preview"
+        private const val PREF_LEGACY_BRIDGE_CONFIG_MIGRATED = "legacy_bridge_config_migrated"
     }
 }

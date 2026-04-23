@@ -1,56 +1,50 @@
-﻿package com.astrbot.android.feature.cron.data
+package com.astrbot.android.feature.cron.data
 
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.StateFlow
 
-@Suppress("DEPRECATION")
-/**
- * Compat-only adapter for targeted tests and transitional callers.
- * Production mainline should use a Hilt-owned cron job repository port.
- */
-@Deprecated(
-    "Compat-only seam. Production mainline should use a Hilt-owned CronJobRepositoryPort.",
-    level = DeprecationLevel.WARNING,
-)
-class LegacyCronJobRepositoryAdapter : CronJobRepositoryPort {
+@Singleton
+class FeatureCronJobRepositoryPortAdapter @Inject constructor(
+    private val repository: FeatureCronJobRepositoryStore,
+) : CronJobRepositoryPort {
 
     override val jobs: StateFlow<List<CronJob>>
-        get() = FeatureCronJobRepository.jobs
+        get() = repository.jobs
 
     override suspend fun create(job: CronJob): CronJob =
-        FeatureCronJobRepository.create(job)
+        repository.create(job)
 
     override suspend fun update(job: CronJob): CronJob =
-        FeatureCronJobRepository.update(job)
+        repository.update(job)
 
     override suspend fun delete(jobId: String) =
-        FeatureCronJobRepository.delete(jobId)
+        repository.delete(jobId)
 
     override suspend fun getByJobId(jobId: String): CronJob? =
-        FeatureCronJobRepository.getByJobId(jobId)
+        repository.getByJobId(jobId)
 
     override suspend fun listAll(): List<CronJob> =
-        FeatureCronJobRepository.listAll()
+        repository.listAll()
 
     override suspend fun listEnabled(): List<CronJob> =
-        FeatureCronJobRepository.listEnabled()
+        repository.listEnabled()
 
     override suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long?, lastError: String?) =
-        FeatureCronJobRepository.updateStatus(jobId, status, lastRunAt, lastError)
+        repository.updateStatus(jobId, status, lastRunAt, lastError)
 
     override suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord =
-        FeatureCronJobRepository.recordExecutionStarted(record)
+        repository.recordExecutionStarted(record)
 
     override suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord =
-        FeatureCronJobRepository.updateExecutionRecord(record)
+        repository.updateExecutionRecord(record)
 
     override suspend fun listRecentExecutionRecords(jobId: String, limit: Int): List<CronJobExecutionRecord> =
-        FeatureCronJobRepository.listRecentExecutionRecords(jobId, limit)
+        repository.listRecentExecutionRecords(jobId, limit)
 
     override suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? =
-        FeatureCronJobRepository.latestExecutionRecord(jobId)
+        repository.latestExecutionRecord(jobId)
 }
-
-

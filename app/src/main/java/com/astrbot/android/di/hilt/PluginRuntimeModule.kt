@@ -1,8 +1,8 @@
 package com.astrbot.android.di.hilt
 
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
 import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
 import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
@@ -10,23 +10,15 @@ import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduleStateStoreProvider
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScopedFailureStateStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
-import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
-import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngineProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2FilterEvaluator
 import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
-import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManagerProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
 import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
-import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoaderProvider
 import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSessionFactory
 import dagger.Module
 import dagger.Provides
@@ -40,35 +32,31 @@ internal object PluginRuntimeModule {
 
     @Provides
     @Singleton
-    fun providePluginRuntimeLogBus(): PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus().also {
-        PluginRuntimeLogBusProvider.installFromHilt(it)
-    }
+    fun providePluginRepositoryStatePort(
+        owner: FeaturePluginRepositoryStateOwner,
+    ): PluginRepositoryStatePort = owner
 
     @Provides
     @Singleton
-    fun providePluginFailureStateStore(): PluginFailureStateStore = InMemoryPluginFailureStateStore().also {
-        PluginRuntimeFailureStateStoreProvider.installFromHilt(it)
-    }
+    fun providePluginRuntimeLogBus(): PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus()
 
     @Provides
     @Singleton
-    fun providePluginScopedFailureStateStore(): PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore().also {
-        PluginRuntimeScopedFailureStateStoreProvider.installFromHilt(it)
-    }
+    fun providePluginFailureStateStore(): PluginFailureStateStore = InMemoryPluginFailureStateStore()
 
     @Provides
     @Singleton
-    fun providePluginScheduleStateStore(): PluginScheduleStateStore = InMemoryPluginScheduleStateStore().also {
-        PluginRuntimeScheduleStateStoreProvider.installFromHilt(it)
-    }
+    fun providePluginScopedFailureStateStore(): PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore()
+
+    @Provides
+    @Singleton
+    fun providePluginScheduleStateStore(): PluginScheduleStateStore = InMemoryPluginScheduleStateStore()
 
     @Provides
     @Singleton
     fun providePluginV2ActiveRuntimeStore(
         logBus: PluginRuntimeLogBus,
-    ): PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(logBus = logBus).also {
-        PluginV2ActiveRuntimeStoreProvider.installFromHilt(it)
-    }
+    ): PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(logBus = logBus)
 
     @Provides
     @Singleton
@@ -99,9 +87,7 @@ internal object PluginRuntimeModule {
         clock = System::currentTimeMillis,
         logBus = logBus,
         store = activeRuntimeStore,
-    ).also {
-        PluginV2LifecycleManagerProvider.installFromHilt(it)
-    }
+    )
 
     @Provides
     @Singleton
@@ -117,9 +103,7 @@ internal object PluginRuntimeModule {
         filterEvaluator = PluginV2FilterEvaluator(
             logBus = logBus,
         ),
-    ).also {
-        PluginV2DispatchEngineProvider.installFromHilt(it)
-    }
+    )
 
     @Provides
     @Singleton
@@ -127,12 +111,12 @@ internal object PluginRuntimeModule {
         activeRuntimeStore: PluginV2ActiveRuntimeStore,
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
-        pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
+        repositoryStatePort: PluginRepositoryStatePort,
     ): PluginV2RuntimeLoader = createPluginV2RuntimeLoader(
         activeRuntimeStore = activeRuntimeStore,
         logBus = logBus,
         lifecycleManager = lifecycleManager,
-        repositoryStatePort = pluginRepositoryStateOwner,
+        repositoryStatePort = repositoryStatePort,
     )
 
     internal fun providePluginV2RuntimeLoader(
@@ -159,7 +143,5 @@ internal object PluginRuntimeModule {
         store = activeRuntimeStore,
         lifecycleManager = lifecycleManager,
         repositoryStatePort = repositoryStatePort,
-    ).also {
-        PluginV2RuntimeLoaderProvider.installFromHilt(it)
-    }
+    )
 }

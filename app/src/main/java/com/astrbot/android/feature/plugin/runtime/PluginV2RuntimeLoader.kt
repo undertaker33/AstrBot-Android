@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
@@ -41,28 +39,14 @@ object PluginV2RuntimeLoaderProvider {
     @Volatile
     private var loaderOverrideForTests: PluginV2RuntimeLoader? = null
 
-    @Volatile
-    private var installedLoader: PluginV2RuntimeLoader? = null
-
     private val sharedLoader: PluginV2RuntimeLoader by lazy {
-        PluginV2RuntimeLoader(
-            logBus = PluginRuntimeLogBusProvider.bus(),
-            store = PluginV2ActiveRuntimeStoreProvider.store(),
-            lifecycleManager = PluginV2LifecycleManagerProvider.manager(),
-        )
+        PluginV2RuntimeLoader()
     }
 
-    fun loader(): PluginV2RuntimeLoader = loaderOverrideForTests ?: installedLoader ?: sharedLoader
-
-    internal fun installFromHilt(loader: PluginV2RuntimeLoader) {
-        installedLoader = loader
-    }
+    fun loader(): PluginV2RuntimeLoader = loaderOverrideForTests ?: sharedLoader
 
     internal fun setLoaderOverrideForTests(loader: PluginV2RuntimeLoader?) {
         loaderOverrideForTests = loader
-        if (loader == null) {
-            installedLoader = null
-        }
     }
 }
 

@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.core.runtime.container
 
 import android.content.Context
@@ -73,7 +71,7 @@ class ContainerRuntimeInstaller @Inject constructor(
     }
 
     private fun installInternal() {
-        RuntimeSecretRepository.initialize(appContext)
+        RuntimeSecretRepository.ensureSecrets(appContext.filesDir)
         val runtimeDir = File(appContext.filesDir, "runtime")
         val binDir = File(runtimeDir, "bin")
         val scriptDir = File(runtimeDir, "scripts")
@@ -176,13 +174,4 @@ class ContainerRuntimeInstaller @Inject constructor(
         java.nio.file.Files.isSymbolicLink(toPath())
     }.getOrDefault(false)
 
-    companion object {
-        fun warmUpAsync(context: Context, scope: CoroutineScope) {
-            context.containerRuntimeEntryPoint().containerRuntimeInstaller().warmUpAsync(scope)
-        }
-
-        suspend fun ensureInstalled(context: Context) {
-            context.containerRuntimeEntryPoint().containerRuntimeInstaller().ensureInstalled()
-        }
-    }
 }

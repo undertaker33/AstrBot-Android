@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.settings
 
 import androidx.compose.foundation.background
@@ -52,7 +50,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
-import com.astrbot.android.feature.bot.data.FeatureBotRepository
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.ui.app.MonochromeUi
@@ -71,8 +68,8 @@ internal fun CronJobsScreen(
     viewModel: CronJobsViewModel = hiltViewModel(),
 ) {
     val jobs by viewModel.jobs.collectAsState()
-    val botProfiles by FeatureBotRepository.botProfiles.collectAsState()
-    val selectedBotId by FeatureBotRepository.selectedBotId.collectAsState()
+    val botProfiles by viewModel.botProfiles.collectAsState()
+    val selectedBotId by viewModel.selectedBotId.collectAsState()
     val defaultTargetContext = viewModel.defaultTargetContext()
 
     SubPageScaffold(
@@ -104,8 +101,8 @@ internal fun CronJobsContent(
         providerId = "",
         origin = "ui",
     ),
-    botProfiles: List<BotProfile> = FeatureBotRepository.snapshotProfiles(),
-    selectedBotId: String = FeatureBotRepository.selectedBotId.value,
+    botProfiles: List<BotProfile> = emptyList(),
+    selectedBotId: String = "",
     onCreateJob: (CronJobEditorDraft, BotProfile) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {

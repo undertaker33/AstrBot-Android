@@ -39,7 +39,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogCleanupRepository
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogCleanupSettings
 import com.astrbot.android.ui.navigation.AppDestination
@@ -59,8 +58,7 @@ fun PluginRuntimeLogScreenRoute(
     val uiState by pluginViewModel.uiState.collectAsState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val logBus = remember { PluginRuntimeLogBusProvider.bus() }
-    val logRecords by logBus.records.collectAsState()
+    val logRecords by pluginViewModel.runtimeLogRecords.collectAsState()
     val cleanupSettingsByPluginId by PluginRuntimeLogCleanupRepository.settings.collectAsState()
     val cleanupSettings = cleanupSettingsByPluginId[pluginId] ?: PluginRuntimeLogCleanupSettings()
     val pluginTitle = uiState.selectedPlugin?.manifestSnapshot?.title ?: pluginId
@@ -85,7 +83,7 @@ fun PluginRuntimeLogScreenRoute(
         cleanupSettings.lastCleanupAtEpochMillis,
     ) {
         PluginRuntimeLogCleanupRepository.maybeAutoClear(pluginId) {
-            logBus.clearPlugin(pluginId)
+            pluginViewModel.clearPluginRuntimeLogs(pluginId)
         }
     }
 
@@ -131,7 +129,7 @@ fun PluginRuntimeLogScreenRoute(
                 MonochromeSecondaryActionButton(
                     label = stringResource(R.string.plugin_logs_clear),
                     onClick = {
-                        logBus.clearPlugin(pluginId)
+                        pluginViewModel.clearPluginRuntimeLogs(pluginId)
                         PluginRuntimeLogCleanupRepository.recordCleanup(pluginId)
                         Toast.makeText(
                             context,

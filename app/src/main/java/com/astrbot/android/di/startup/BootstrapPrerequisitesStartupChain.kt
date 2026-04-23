@@ -1,33 +1,23 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.di.startup
 
 import android.app.Application
 import com.astrbot.android.AppStrings
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
-import com.astrbot.android.core.runtime.audio.TencentSilkEncoder
-import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
-import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
-import com.astrbot.android.data.RuntimeAssetStateOwner
-import com.astrbot.android.di.hilt.ApplicationScope
-import com.astrbot.android.feature.qq.data.NapCatLoginRepository
+import com.astrbot.android.feature.qq.data.NapCatLoginLocalStoreOwner
 import com.astrbot.android.feature.qq.data.NapCatBridgeStateOwner
 import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
-import com.astrbot.android.download.AppDownloadManager
+import com.astrbot.android.download.AppDownloadManagerBootstrap
 import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 internal class BootstrapPrerequisitesStartupChain @Inject constructor(
     private val application: Application,
     private val qqBridgeRuntime: QqBridgeRuntime,
-    private val pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
-    private val bridgeStateOwner: NapCatBridgeStateOwner,
-    private val runtimeAssetStateOwner: RuntimeAssetStateOwner,
-    @ApplicationScope private val appScope: CoroutineScope,
+    pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
+    bridgeStateOwner: NapCatBridgeStateOwner,
+    napCatLoginLocalStoreOwner: NapCatLoginLocalStoreOwner,
+    appDownloadManagerBootstrap: AppDownloadManagerBootstrap,
 ) : AppStartupChain {
 
     override fun run() {
@@ -38,23 +28,7 @@ internal class BootstrapPrerequisitesStartupChain @Inject constructor(
         }
 
         AppStrings.initialize(application)
-        RuntimeSecretRepository.initialize(application)
         qqBridgeRuntime.initialize(application)
-        TencentSilkEncoder.initialize(application)
-        appScope.launch(Dispatchers.IO) {
-            AppDownloadManager.initialize(application)
-        }
-        warmUpTtsVoiceAssets()
-        pluginRepositoryStateOwner.initialize(application)
-        bridgeStateOwner.initialize(application)
-        NapCatLoginRepository.initialize(application)
-        runtimeAssetStateOwner.initialize(application)
         SherpaOnnxBridge.initialize(application)
-    }
-
-    private fun warmUpTtsVoiceAssets() {
-        appScope.launch(Dispatchers.IO) {
-            TtsVoiceAssetRepository.initialize(application)
-        }
     }
 }

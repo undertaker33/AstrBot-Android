@@ -30,6 +30,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.File
 import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -79,6 +80,7 @@ internal data class QqOneBotRuntimeDependencies(
     val pluginExecutionService: QqPluginExecutionService,
     val llmProviderProbePort: LlmProviderProbePort,
     val logBus: PluginRuntimeLogBus,
+    val silkAudioEncoder: (File) -> File,
     val executeLegacyPluginsDuringLlmDispatch: Boolean = false,
 )
 
@@ -121,6 +123,8 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
     private var appContext: Context? = null
 
     protected abstract fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies
+
+    protected abstract fun runtimeGraphFactory(): QqRuntimeGraphFactory
 
     protected open fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime {
         return requireRuntimeDependencies().appChatPluginRuntime
@@ -195,7 +199,7 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
     private fun buildRuntimeGraph(
         dependencies: QqOneBotRuntimeDependencies,
     ): QqOneBotRuntimeGraph {
-        return QqOneBotRuntimeGraph(
+        return runtimeGraphFactory().create(
             dependencies = dependencies,
             transport = ensureTransport(),
             appChatPluginRuntime = currentAppChatPluginRuntime(),
@@ -207,7 +211,6 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
             currentLanguageTag = ::currentLanguageTag,
             transcribeAudio = dependencies.llmProviderProbePort::transcribeAudio,
             resolvePluginPrivateRootPath = ::resolvePluginPrivateRootPath,
-            gatewayFactory = dependencies.gatewayFactory,
             log = AppLogger::append,
         )
     }
@@ -304,6 +307,9 @@ internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
     private var runtimeDependencies: QqOneBotRuntimeDependencies? = null
 
     @Volatile
+    private var runtimeGraphFactoryOverrideForTests: QqRuntimeGraphFactory? = null
+
+    @Volatile
     private var replySenderOverrideForTests: ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? =
         null
 
@@ -317,21 +323,14 @@ internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
         replySenderOverrideForTests = sender
     }
 
-    internal fun installRuntimeDependencies(dependencies: QqOneBotRuntimeDependencies) {
-        runtimeDependencies = dependencies
-    }
-
-    internal fun updateRuntimeDependenciesForTests(
-        transform: (QqOneBotRuntimeDependencies) -> QqOneBotRuntimeDependencies,
-    ) {
-        val current = runtimeDependencies
-            ?: error("QqOneBotBridgeServer requires installed runtime dependencies before test updates.")
-        runtimeDependencies = transform(current)
-    }
-
     override fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies {
         return runtimeDependencies
             ?: error("QqOneBotBridgeServer requires runtime dependencies from the Hilt runtime graph.")
+    }
+
+    override fun runtimeGraphFactory(): QqRuntimeGraphFactory {
+        return runtimeGraphFactoryOverrideForTests
+            ?: error("QqOneBotBridgeServer requires a runtime graph factory override from test access.")
     }
 
     override fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime =
@@ -344,6 +343,9 @@ internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
 @Singleton
 internal class HiltQqOneBotBridgeRuntime @Inject constructor(
     private val runtimeDependencies: QqOneBotRuntimeDependencies,
+    private val qqRuntimeGraphFactory: QqRuntimeGraphFactory,
 ) : BaseQqOneBotBridgeRuntime() {
     override fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies = runtimeDependencies
+
+    override fun runtimeGraphFactory(): QqRuntimeGraphFactory = qqRuntimeGraphFactory
 }

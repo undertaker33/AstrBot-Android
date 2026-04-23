@@ -1,9 +1,8 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.plugin.runtime
 
 import android.content.Context
 import com.astrbot.android.download.AppDownloadManager
+import com.astrbot.android.download.AppDownloadManagerBootstrap
 import com.astrbot.android.download.DownloadOwnerType
 import com.astrbot.android.download.DownloadRequest
 import com.astrbot.android.download.DownloadTaskRecord
@@ -86,14 +85,14 @@ class UrlConnectionRemotePluginPackageDownloader : RemotePluginPackageDownloader
 }
 
 class DownloadManagerRemotePluginPackageDownloader @Inject constructor(
-    @ApplicationContext private val appContext: Context,
+    @ApplicationContext appContext: Context,
+    appDownloadManagerBootstrap: AppDownloadManagerBootstrap,
 ) : RemotePluginPackageDownloader {
     override suspend fun download(
         packageUrl: String,
         destinationFile: File,
         onProgress: (PluginDownloadProgress) -> Unit,
     ) {
-        AppDownloadManager.initialize(appContext)
         val taskKey = "plugin:${packageUrl.sha256Hex()}"
         AppDownloadManager.enqueue(
             DownloadRequest(

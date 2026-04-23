@@ -2,14 +2,15 @@
 
 import android.content.Context
 import com.astrbot.android.core.di.AppInitializer
-@Suppress("DEPRECATION")
-class BotRepositoryInitializer : AppInitializer {
+import javax.inject.Inject
+
+class BotRepositoryInitializer @Inject constructor(
+    @Suppress("unused") private val repository: FeatureBotRepositoryStore,
+) : AppInitializer {
     override val key: String = "bot"
     override val dependencies: Set<String> = setOf("config")
 
-    override fun initialize(context: Context) {
-        FeatureBotRepository.initialize(context)
-    }
+    override fun initialize(context: Context) = Unit
 }
 
 

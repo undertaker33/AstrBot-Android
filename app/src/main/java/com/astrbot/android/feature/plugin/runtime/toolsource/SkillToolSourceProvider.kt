@@ -6,6 +6,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceKind
 import com.astrbot.android.feature.plugin.runtime.PluginToolVisibility
+import javax.inject.Inject
 
 /**
  * Skill tool source provider.
@@ -13,7 +14,9 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolVisibility
  * Tool Skills are distinct from Prompt Skills. Prompt Skills are consumed by
  * PromptAssembler; only explicit tool skill projections are registered here.
  */
-class SkillToolSourceProvider : FutureToolSourceProvider {
+class SkillToolSourceProvider @Inject constructor(
+    override val contextResolver: FutureToolSourceContextResolver,
+) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.SKILL
 
     override suspend fun listBindings(

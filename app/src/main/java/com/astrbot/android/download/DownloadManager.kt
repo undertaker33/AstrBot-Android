@@ -4,8 +4,12 @@ import kotlinx.coroutines.flow.collect
 
 import android.content.Context
 import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.di.hilt.ApplicationScope
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -303,28 +307,36 @@ class DefaultDownloadManager(
     }
 }
 
+@Singleton
+class AppDownloadManagerBootstrap @Inject constructor(
+    @ApplicationContext appContext: Context,
+    database: AstrBotDatabase,
+    @ApplicationScope appScope: CoroutineScope,
+) {
+    init {
+        val manager = DefaultDownloadManager(
+            store = RoomDownloadTaskStore(database.downloadTaskDao()),
+            downloader = UrlConnectionResumableHttpDownloader(),
+            serviceStarter = {
+                DownloadForegroundService.start(appContext)
+            },
+        )
+        AppDownloadManager.installDelegateIfAbsent(manager)
+        appScope.launch(Dispatchers.IO) {
+            if (manager.hasRecoverableTasks()) {
+                DownloadForegroundService.start(appContext)
+            }
+        }
+    }
+}
+
 object AppDownloadManager : DownloadManager {
-    private val initializationMutex = Mutex()
     @Volatile
     private var delegate: DefaultDownloadManager? = null
 
     suspend fun initialize(context: Context) {
-        if (delegate != null) return
-        initializationMutex.withLock {
-            if (delegate != null) return
-            val appContext = context.applicationContext
-            val store = RoomDownloadTaskStore(AstrBotDatabase.get(appContext).downloadTaskDao())
-            val manager = DefaultDownloadManager(
-                store = store,
-                downloader = UrlConnectionResumableHttpDownloader(),
-                serviceStarter = {
-                    DownloadForegroundService.start(appContext)
-                },
-            )
-            delegate = manager
-            if (manager.hasRecoverableTasks()) {
-                DownloadForegroundService.start(appContext)
-            }
+        check(delegate != null) {
+            "AppDownloadManager must be installed by Hilt before use."
         }
     }
 
@@ -355,7 +367,13 @@ object AppDownloadManager : DownloadManager {
         requireDelegate().processQueue(onTaskUpdated)
     }
 
+    internal fun installDelegateIfAbsent(manager: DefaultDownloadManager) {
+        if (delegate == null) {
+            delegate = manager
+        }
+    }
+
     private fun requireDelegate(): DefaultDownloadManager {
-        return delegate ?: error("AppDownloadManager.initialize(context) must be called before use.")
+        return delegate ?: error("AppDownloadManager must be installed by Hilt before use.")
     }
 }

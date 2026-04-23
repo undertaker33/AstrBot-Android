@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.config.data
 
+import android.content.SharedPreferences
 import com.astrbot.android.data.db.AppPreferenceDao
 import com.astrbot.android.data.db.AppPreferenceEntity
 import com.astrbot.android.data.db.ConfigAdminUidEntity
@@ -16,46 +17,13 @@ import com.astrbot.android.data.db.ConfigWriteModel
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.ConfigProfile
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 import org.junit.Assert.fail
+import org.junit.Test
 
 class FeatureConfigRepositorySelectedStateTest {
-    private lateinit var originalConfigDao: ConfigAggregateDao
-    private lateinit var originalAppPreferenceDao: AppPreferenceDao
-    private var originalSyncJob: Job? = null
-    private lateinit var originalProfiles: List<ConfigProfile>
-    private lateinit var originalSelectedProfileId: String
-
-    @Before
-    fun setUp() {
-        originalConfigDao = getField("configProfileDao")
-        originalAppPreferenceDao = getField("appPreferenceDao")
-        originalSyncJob = getField("syncJob")
-        originalProfiles = profilesFlow().value
-        originalSelectedProfileId = selectedProfileIdFlow().value
-        cancelSyncJob()
-    }
-
-    @After
-    fun tearDown() {
-        cancelSyncJob()
-        setField("configProfileDao", originalConfigDao)
-        setField("appPreferenceDao", originalAppPreferenceDao)
-        profilesFlow().value = originalProfiles
-        selectedProfileIdFlow().value = originalSelectedProfileId
-        if (originalSyncJob != null) {
-            invokePrivate("startStateSync")
-        } else {
-            setField("syncJob", null)
-        }
-    }
-
     @Test
     fun select_waits_for_persisted_selected_profile_flow_before_switching_state() {
         val defaultProfile = configProfile(id = FeatureConfigRepository.DEFAULT_CONFIG_ID, name = "Default")
@@ -63,7 +31,16 @@ class FeatureConfigRepositorySelectedStateTest {
         val configDao = FakeConfigAggregateDao(listOf(defaultProfile, customProfile))
         val appPreferenceDao = FakeAppPreferenceDao(defaultProfile.id)
 
-        bindRepository(configDao, appPreferenceDao, listOf(defaultProfile, customProfile), defaultProfile.id)
+        FeatureConfigRepositoryStore(
+            configProfileDao = configDao,
+            appPreferenceDao = appPreferenceDao,
+            preferences = InMemorySharedPreferences(),
+        )
+
+        waitUntil("initial config state should sync from fake persistence") {
+            FeatureConfigRepository.profiles.value.map { it.id } == listOf(defaultProfile.id, customProfile.id) &&
+                FeatureConfigRepository.selectedProfileId.value == defaultProfile.id
+        }
 
         FeatureConfigRepository.select(customProfile.id)
 
@@ -86,7 +63,15 @@ class FeatureConfigRepositorySelectedStateTest {
         val configDao = FakeConfigAggregateDao(listOf(defaultProfile))
         val appPreferenceDao = FakeAppPreferenceDao(defaultProfile.id)
 
-        bindRepository(configDao, appPreferenceDao, listOf(defaultProfile), defaultProfile.id)
+        FeatureConfigRepositoryStore(
+            configProfileDao = configDao,
+            appPreferenceDao = appPreferenceDao,
+            preferences = InMemorySharedPreferences(),
+        )
+
+        waitUntil("initial config state should sync from fake persistence") {
+            FeatureConfigRepository.profiles.value.map { it.id } == listOf(defaultProfile.id)
+        }
 
         FeatureConfigRepository.save(customProfile)
 
@@ -111,7 +96,15 @@ class FeatureConfigRepositorySelectedStateTest {
         val configDao = FakeConfigAggregateDao(listOf(defaultProfile, customProfile))
         val appPreferenceDao = FakeAppPreferenceDao(customProfile.id)
 
-        bindRepository(configDao, appPreferenceDao, listOf(defaultProfile, customProfile), customProfile.id)
+        FeatureConfigRepositoryStore(
+            configProfileDao = configDao,
+            appPreferenceDao = appPreferenceDao,
+            preferences = InMemorySharedPreferences(),
+        )
+
+        waitUntil("initial config state should sync from fake persistence") {
+            FeatureConfigRepository.selectedProfileId.value == customProfile.id
+        }
 
         val fallbackId = FeatureConfigRepository.delete(customProfile.id)
 
@@ -139,7 +132,15 @@ class FeatureConfigRepositorySelectedStateTest {
         val configDao = FakeConfigAggregateDao(listOf(defaultProfile))
         val appPreferenceDao = FakeAppPreferenceDao(defaultProfile.id)
 
-        bindRepository(configDao, appPreferenceDao, listOf(defaultProfile), defaultProfile.id)
+        FeatureConfigRepositoryStore(
+            configProfileDao = configDao,
+            appPreferenceDao = appPreferenceDao,
+            preferences = InMemorySharedPreferences(),
+        )
+
+        waitUntil("initial config state should sync from fake persistence") {
+            FeatureConfigRepository.selectedProfileId.value == defaultProfile.id
+        }
 
         FeatureConfigRepository.restoreProfiles(
             profiles = listOf(defaultProfile, restoredProfile),
@@ -160,51 +161,6 @@ class FeatureConfigRepositorySelectedStateTest {
             FeatureConfigRepository.selectedProfileId.value == restoredProfile.id &&
                 FeatureConfigRepository.profiles.value.map { it.id } == listOf(defaultProfile.id, restoredProfile.id)
         }
-    }
-
-    private fun bindRepository(
-        configDao: FakeConfigAggregateDao,
-        appPreferenceDao: FakeAppPreferenceDao,
-        profiles: List<ConfigProfile>,
-        selectedProfileId: String,
-    ) {
-        setField("configProfileDao", configDao)
-        setField("appPreferenceDao", appPreferenceDao)
-        profilesFlow().value = profiles
-        selectedProfileIdFlow().value = selectedProfileId
-        invokePrivate("startStateSync")
-        waitUntil("initial config state should sync from fake persistence") {
-            FeatureConfigRepository.profiles.value.map { it.id } == profiles.map { it.id } &&
-                FeatureConfigRepository.selectedProfileId.value == selectedProfileId
-        }
-    }
-
-    private fun profilesFlow(): MutableStateFlow<List<ConfigProfile>> = getField("_profiles")
-
-    private fun selectedProfileIdFlow(): MutableStateFlow<String> = getField("_selectedProfileId")
-
-    private fun cancelSyncJob() {
-        getField<Job?>("syncJob")?.cancel()
-        setField("syncJob", null)
-    }
-
-    private fun invokePrivate(name: String) {
-        val method = FeatureConfigRepository::class.java.getDeclaredMethod(name)
-        method.isAccessible = true
-        method.invoke(FeatureConfigRepository)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun <T> getField(name: String): T {
-        val field = FeatureConfigRepository::class.java.getDeclaredField(name)
-        field.isAccessible = true
-        return field.get(FeatureConfigRepository) as T
-    }
-
-    private fun setField(name: String, value: Any?) {
-        val field = FeatureConfigRepository::class.java.getDeclaredField(name)
-        field.isAccessible = true
-        field.set(FeatureConfigRepository, value)
     }
 
     private fun configProfile(id: String, name: String): ConfigProfile {
@@ -311,5 +267,73 @@ private class FakeAppPreferenceDao(initialValue: String?) : AppPreferenceDao {
 
     fun emit(value: String?) {
         values.value = value
+    }
+}
+
+private class InMemorySharedPreferences : SharedPreferences {
+    private val values = mutableMapOf<String, Any?>()
+
+    override fun getAll(): MutableMap<String, *> = values.toMutableMap()
+
+    override fun getString(key: String?, defValue: String?): String? = values[key] as? String ?: defValue
+
+    override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+        @Suppress("UNCHECKED_CAST")
+        ((values[key] as? Set<String>)?.toMutableSet() ?: defValues)
+
+    override fun getInt(key: String?, defValue: Int): Int = values[key] as? Int ?: defValue
+
+    override fun getLong(key: String?, defValue: Long): Long = values[key] as? Long ?: defValue
+
+    override fun getFloat(key: String?, defValue: Float): Float = values[key] as? Float ?: defValue
+
+    override fun getBoolean(key: String?, defValue: Boolean): Boolean = values[key] as? Boolean ?: defValue
+
+    override fun contains(key: String?): Boolean = values.containsKey(key)
+
+    override fun edit(): SharedPreferences.Editor = Editor(values)
+
+    override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
+
+    override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
+
+    private class Editor(
+        private val values: MutableMap<String, Any?>,
+    ) : SharedPreferences.Editor {
+        override fun putString(key: String?, value: String?): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun putStringSet(key: String?, values: MutableSet<String>?): SharedPreferences.Editor = apply {
+            if (key != null) this.values[key] = values?.toSet()
+        }
+
+        override fun putInt(key: String?, value: Int): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun putLong(key: String?, value: Long): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun putFloat(key: String?, value: Float): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun putBoolean(key: String?, value: Boolean): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun remove(key: String?): SharedPreferences.Editor = apply {
+            if (key != null) values.remove(key)
+        }
+
+        override fun clear(): SharedPreferences.Editor = apply {
+            values.clear()
+        }
+
+        override fun commit(): Boolean = true
+
+        override fun apply() = Unit
     }
 }

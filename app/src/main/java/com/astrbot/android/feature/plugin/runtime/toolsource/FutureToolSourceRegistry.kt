@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
 import com.astrbot.android.core.runtime.tool.DefaultToolDescriptorCachePolicy
@@ -9,11 +7,9 @@ import com.astrbot.android.core.runtime.tool.ToolSourceRequestContext
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceBridge
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceKind
-import com.astrbot.android.feature.config.data.FeatureConfigRepository
-import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository
-import com.astrbot.android.core.runtime.context.IngressTrigger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
-import com.astrbot.android.core.runtime.context.RuntimeSkillProjectionResolver
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Aggregates all [FutureToolSourceProvider] instances and produces a unified list
@@ -22,10 +18,24 @@ import com.astrbot.android.core.runtime.context.RuntimeSkillProjectionResolver
  * This is the single gateway that [PluginV2ToolSourceGateway] and the host capability
  * system delegate to when resolving non-PLUGIN_V2/HOST_BUILTIN source kinds.
  */
-class FutureToolSourceRegistry(
-    private val providers: List<FutureToolSourceProvider> = defaultProviders(),
-    private val cachePolicy: ToolDescriptorCachePolicy = DefaultToolDescriptorCachePolicy(),
+@Singleton
+class FutureToolSourceRegistry @Inject constructor(
+    private val contextResolver: FutureToolSourceContextResolver,
+    mcpToolSourceProvider: McpToolSourceProvider,
+    skillToolSourceProvider: SkillToolSourceProvider,
+    activeCapabilityToolSourceProvider: ActiveCapabilityToolSourceProvider,
+    contextStrategyToolSourceProvider: ContextStrategyToolSourceProvider,
+    webSearchToolSourceProvider: WebSearchToolSourceProvider,
 ) {
+    private val cachePolicy: ToolDescriptorCachePolicy = DefaultToolDescriptorCachePolicy()
+    private val providers: List<FutureToolSourceProvider> = listOf(
+        mcpToolSourceProvider,
+        skillToolSourceProvider,
+        activeCapabilityToolSourceProvider,
+        contextStrategyToolSourceProvider,
+        webSearchToolSourceProvider,
+    )
+
     private val providersByKind: Map<PluginToolSourceKind, FutureToolSourceProvider> =
         providers.associateBy { it.sourceKind }
     private val bridgesByKind: Map<PluginToolSourceKind, PluginToolSourceBridge> =
@@ -51,20 +61,24 @@ class FutureToolSourceRegistry(
     suspend fun collectContractDescriptors(
         configProfileId: String,
     ): List<ToolDescriptor> {
-        return collectContractDescriptors(contextForConfig(configProfileId))
+        val requestContext = ToolSourceRequestContext(
+            botId = "",
+            configId = configProfileId,
+            personaId = "",
+            conversationId = "",
+        )
+        return providers.flatMap { provider ->
+            bridgesByKind.getValue(provider.sourceKind).descriptors(requestContext)
+        }
     }
 
     suspend fun collectContractDescriptors(
         toolSourceContext: ToolSourceContext,
     ): List<ToolDescriptor> {
-        val requestContext = ToolSourceRequestContext(
-            botId = "",
-            configId = toolSourceContext.configProfileId,
-            personaId = "",
-            conversationId = toolSourceContext.conversationId,
-        )
         return providers.flatMap { provider ->
-            bridgesByKind.getValue(provider.sourceKind).descriptors(requestContext)
+            provider.listBindings(
+                context = ToolSourceRegistryIngestContext(toolSourceContext = toolSourceContext),
+            ).map(ToolSourceDescriptorBinding::toContractDescriptor)
         }
     }
 
@@ -117,36 +131,110 @@ class FutureToolSourceRegistry(
         return providersByKind[sourceKind]
     }
 
+    fun contextForConfig(configProfileId: String): ToolSourceContext {
+        return contextResolver.resolveForConfig(configProfileId)
+    }
+
+    fun contextForRequest(requestContext: ToolSourceRequestContext): ToolSourceContext {
+        return contextResolver.resolveForRequest(requestContext)
+    }
+
     companion object {
-        fun defaultProviders(): List<FutureToolSourceProvider> = listOf(
-            McpToolSourceProvider(),
-            SkillToolSourceProvider(),
-            ActiveCapabilityToolSourceProvider(),
-            ContextStrategyToolSourceProvider(),
-            WebSearchToolSourceProvider(),
-        )
-
-        fun contextForConfig(configProfileId: String): ToolSourceContext {
-            val config = FeatureConfigRepository.resolve(configProfileId)
-            val resourceProjection = RuntimeSkillProjectionResolver.fromResourceCenterSnapshot(
-                snapshot = FeatureResourceCenterRepository.compatibilitySnapshotForConfig(config),
-                platform = RuntimePlatform.APP_CHAT,
-                trigger = IngressTrigger.USER_MESSAGE,
-            )
-            return ToolSourceContext.fromConfigProfile(
-                config = config,
-                mcpServers = resourceProjection.mcpServers,
-                promptSkills = resourceProjection.promptSkills,
-                toolSkills = resourceProjection.toolSkills,
+        fun empty(): FutureToolSourceRegistry {
+            val resolver = object : FutureToolSourceContextResolver {
+                override fun resolveForConfig(configProfileId: String): ToolSourceContext {
+                    return ToolSourceContext(
+                        requestId = "",
+                        platform = RuntimePlatform.APP_CHAT,
+                        configProfileId = configProfileId,
+                        webSearchEnabled = false,
+                        activeCapabilityEnabled = false,
+                        mcpServers = emptyList(),
+                        promptSkills = emptyList(),
+                        toolSkills = emptyList(),
+                        conversationId = "",
+                    )
+                }
+            }
+            return FutureToolSourceRegistry(
+                contextResolver = resolver,
+                mcpToolSourceProvider = McpToolSourceProvider(contextResolver = resolver),
+                skillToolSourceProvider = SkillToolSourceProvider(contextResolver = resolver),
+                activeCapabilityToolSourceProvider = ActiveCapabilityToolSourceProvider(
+                    facade = ActiveCapabilityRuntimeFacade(
+                        repository = EmptyCronJobRepositoryPort(),
+                        scheduler = EmptyCronSchedulerPort,
+                    ),
+                    contextResolver = resolver,
+                ),
+                contextStrategyToolSourceProvider = ContextStrategyToolSourceProvider(contextResolver = resolver),
+                webSearchToolSourceProvider = WebSearchToolSourceProvider(
+                    transport = EmptyRuntimeNetworkTransport,
+                    contextResolver = resolver,
+                ),
             )
         }
+    }
+}
 
-        fun contextForContractRequest(requestContext: ToolSourceRequestContext): ToolSourceContext {
-            return contextForConfig(requestContext.configId).copy(
-                requestId = requestContext.conversationId,
-                conversationId = requestContext.conversationId,
-            )
-        }
+private object EmptyCronSchedulerPort : com.astrbot.android.feature.cron.domain.CronSchedulerPort {
+    override fun schedule(job: com.astrbot.android.model.CronJob) = Unit
+
+    override fun cancel(jobId: String) = Unit
+}
+
+private class EmptyCronJobRepositoryPort : com.astrbot.android.feature.cron.domain.CronJobRepositoryPort {
+    override val jobs = kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.astrbot.android.model.CronJob>())
+
+    override suspend fun create(job: com.astrbot.android.model.CronJob): com.astrbot.android.model.CronJob = job
+
+    override suspend fun update(job: com.astrbot.android.model.CronJob): com.astrbot.android.model.CronJob = job
+
+    override suspend fun delete(jobId: String) = Unit
+
+    override suspend fun getByJobId(jobId: String): com.astrbot.android.model.CronJob? = null
+
+    override suspend fun listAll(): List<com.astrbot.android.model.CronJob> = emptyList()
+
+    override suspend fun listEnabled(): List<com.astrbot.android.model.CronJob> = emptyList()
+
+    override suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long?, lastError: String?) = Unit
+
+    override suspend fun recordExecutionStarted(
+        record: com.astrbot.android.model.CronJobExecutionRecord,
+    ): com.astrbot.android.model.CronJobExecutionRecord = record
+
+    override suspend fun updateExecutionRecord(
+        record: com.astrbot.android.model.CronJobExecutionRecord,
+    ): com.astrbot.android.model.CronJobExecutionRecord = record
+
+    override suspend fun listRecentExecutionRecords(
+        jobId: String,
+        limit: Int,
+    ): List<com.astrbot.android.model.CronJobExecutionRecord> = emptyList()
+
+    override suspend fun latestExecutionRecord(
+        jobId: String,
+    ): com.astrbot.android.model.CronJobExecutionRecord? = null
+}
+
+private object EmptyRuntimeNetworkTransport : com.astrbot.android.core.runtime.network.RuntimeNetworkTransport {
+    override suspend fun execute(
+        request: com.astrbot.android.core.runtime.network.RuntimeNetworkRequest,
+    ): com.astrbot.android.core.runtime.network.RuntimeNetworkResponse {
+        throw UnsupportedOperationException("Empty FutureToolSourceRegistry does not support network transport")
+    }
+
+    override fun openStream(
+        request: com.astrbot.android.core.runtime.network.RuntimeNetworkRequest,
+    ): kotlinx.coroutines.flow.Flow<String> {
+        throw UnsupportedOperationException("Empty FutureToolSourceRegistry does not support network transport")
+    }
+
+    override fun openSse(
+        request: com.astrbot.android.core.runtime.network.RuntimeNetworkRequest,
+    ): kotlinx.coroutines.flow.Flow<com.astrbot.android.core.runtime.network.SseEvent> {
+        throw UnsupportedOperationException("Empty FutureToolSourceRegistry does not support network transport")
     }
 }
 

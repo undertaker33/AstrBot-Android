@@ -1,33 +1,28 @@
 package com.astrbot.android.core.runtime.audio
 
-import com.astrbot.android.core.runtime.container.BridgeCommandRunner
-
-import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
-
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
-
 import android.content.Context
+import com.astrbot.android.core.runtime.container.BridgeCommandRunner
+import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.runBlocking
 
-@Deprecated("Will move to core/runtime/audio. Direct access from feature code is forbidden.")
-object TencentSilkEncoder {
-    @Volatile
-    private var appContext: Context? = null
-
-    fun initialize(context: Context) {
-        appContext = context.applicationContext
-    }
-
+@Singleton
+internal class TencentSilkEncoder @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    private val containerRuntimeInstaller: ContainerRuntimeInstaller,
+) {
     fun encode(inputFile: File): File {
-        val context = appContext ?: error("TencentSilkEncoder is not initialized")
         runBlocking {
-            ContainerRuntimeInstaller.ensureInstalled(context)
+            containerRuntimeInstaller.ensureInstalled()
         }
 
-        val appHome = context.filesDir.absolutePath
-        val nativeLibraryDir = context.applicationInfo.nativeLibraryDir
-        val scriptFile = File(context.filesDir, "runtime/scripts/convert_tencent_silk.sh")
+        val appHome = appContext.filesDir.absolutePath
+        val nativeLibraryDir = appContext.applicationInfo.nativeLibraryDir
+        val scriptFile = File(appContext.filesDir, "runtime/scripts/convert_tencent_silk.sh")
         val outputFile = File(
             inputFile.parentFile,
             inputFile.nameWithoutExtension + ".silk",

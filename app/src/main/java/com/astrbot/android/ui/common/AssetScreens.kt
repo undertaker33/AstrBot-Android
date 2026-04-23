@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.settings
 import com.astrbot.android.ui.bot.SelectionField
 import com.astrbot.android.ui.common.SubPageScaffold

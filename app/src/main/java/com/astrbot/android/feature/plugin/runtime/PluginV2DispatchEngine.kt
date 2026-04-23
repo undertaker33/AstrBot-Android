@@ -53,32 +53,16 @@ object PluginV2DispatchEngineProvider {
     @Volatile
     private var engineOverrideForTests: PluginV2DispatchEngine? = null
 
-    @Volatile
-    private var installedEngine: PluginV2DispatchEngine? = null
-
     private val sharedEngine: PluginV2DispatchEngine by lazy {
-        PluginV2DispatchEngine(
-            logBus = PluginRuntimeLogBusProvider.bus(),
-            store = PluginV2ActiveRuntimeStoreProvider.store(),
-            lifecycleManager = compatPluginV2LifecycleManager(),
-        )
+        PluginV2DispatchEngine()
     }
 
-    fun engine(): PluginV2DispatchEngine = engineOverrideForTests ?: installedEngine ?: sharedEngine
-
-    internal fun installFromHilt(engine: PluginV2DispatchEngine) {
-        installedEngine = engine
-    }
+    fun engine(): PluginV2DispatchEngine = engineOverrideForTests ?: sharedEngine
 
     internal fun setEngineOverrideForTests(engine: PluginV2DispatchEngine?) {
         engineOverrideForTests = engine
-        if (engine == null) {
-            installedEngine = null
-        }
     }
 }
-
-internal fun compatPluginV2DispatchEngine(): PluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine()
 
 class PluginV2DispatchEngine(
     private val clock: () -> Long = System::currentTimeMillis,

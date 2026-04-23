@@ -1,12 +1,12 @@
 package com.astrbot.android.feature.qq.runtime
 
-import com.astrbot.android.core.runtime.audio.SilkAudioEncoder
 import com.astrbot.android.model.chat.ConversationAttachment
 import java.io.File
 import java.util.Base64
 
 internal class QqAudioAttachmentMaterializer(
     private val filesDirProvider: () -> File?,
+    private val encodeSilkAudio: (File) -> File,
     private val log: (String) -> Unit,
 ) {
     fun materialize(attachment: ConversationAttachment): String? {
@@ -24,7 +24,7 @@ internal class QqAudioAttachmentMaterializer(
             val rawFile = File(outputDir, "tts-${System.currentTimeMillis()}-${attachment.id.take(8)}.$extension")
             rawFile.writeBytes(Base64.getDecoder().decode(attachment.base64Data))
             log("QQ TTS attachment materialized: ${rawFile.absolutePath}")
-            val silkFile = SilkAudioEncoder.encode(rawFile)
+            val silkFile = encodeSilkAudio(rawFile)
             val napCatBase64 = "base64://${Base64.getEncoder().encodeToString(silkFile.readBytes())}"
             log("QQ TTS attachment converted to silk: ${silkFile.absolutePath}")
             log("QQ TTS attachment mapped for OneBot: base64://${silkFile.name} bytes=${silkFile.length()}")

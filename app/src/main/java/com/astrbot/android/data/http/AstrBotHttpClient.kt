@@ -8,7 +8,7 @@ import com.astrbot.android.core.runtime.network.RuntimeNetworkRequest
 import com.astrbot.android.core.runtime.network.RuntimeNetworkResponse
 import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
 import com.astrbot.android.core.runtime.network.RuntimeTimeoutProfile
-import com.astrbot.android.di.hilt.RuntimeNetworkTransportRegistry
+import com.astrbot.android.core.runtime.network.OkHttpRuntimeNetworkTransport
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
 import okhttp3.MultipartBody
@@ -36,7 +36,7 @@ interface AstrBotHttpClient {
 }
 
 class OkHttpAstrBotHttpClient(
-    private val transport: RuntimeNetworkTransport = RuntimeNetworkTransportRegistry.transport(),
+    private val transport: RuntimeNetworkTransport,
     private val logger: (String) -> Unit = RuntimeLogRepository::append,
 ) : AstrBotHttpClient {
     override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {

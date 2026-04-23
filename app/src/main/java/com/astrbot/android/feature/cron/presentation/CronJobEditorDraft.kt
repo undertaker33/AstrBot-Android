@@ -1,11 +1,10 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.settings
 
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTargetContext
+
+internal const val DefaultAppChatConversationId: String = "chat-main"
 
 internal data class CronJobEditorDraft(
     val name: String = "",
@@ -14,7 +13,7 @@ internal data class CronJobEditorDraft(
     val runAt: String = "",
     val runOnce: Boolean = false,
     val platform: String = RuntimePlatform.APP_CHAT.wireValue,
-    val conversationId: String = FeatureConversationRepository.DEFAULT_SESSION_ID,
+    val conversationId: String = DefaultAppChatConversationId,
     val selectedBotId: String = "",
 ) {
     fun canSubmit(): Boolean = missingFields().isEmpty()
@@ -52,7 +51,7 @@ internal data class CronJobEditorDraft(
         fun fromBotProfile(
             botProfile: BotProfile,
             platform: String = RuntimePlatform.APP_CHAT.wireValue,
-            conversationId: String = FeatureConversationRepository.DEFAULT_SESSION_ID,
+            conversationId: String = DefaultAppChatConversationId,
         ): CronJobEditorDraft {
             return CronJobEditorDraft(
                 platform = platform,
