@@ -2,8 +2,6 @@ package com.astrbot.android.feature.cron.data
 
 import kotlinx.coroutines.flow.collect
 
-import android.content.Context
-import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.data.db.CronJobEntity
 import com.astrbot.android.data.db.CronJobExecutionRecordEntity
 import com.astrbot.android.data.db.cron.CronJobDao
@@ -11,7 +9,8 @@ import com.astrbot.android.data.db.cron.CronJobExecutionRecordDao
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
 import com.astrbot.android.core.common.logging.AppLogger
-import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,21 +22,63 @@ import org.json.JSONObject
 
 @Deprecated("Use CronJobRepositoryPort from feature/cron/domain. Direct access will be removed.")
 object FeatureCronJobRepository {
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val initialized = AtomicBoolean(false)
-    private var dao: CronJobDao? = null
-    private var executionRecordDao: CronJobExecutionRecordDao? = null
+    @Volatile
+    private var delegate: FeatureCronJobRepositoryStore? = null
 
+    internal fun installDelegate(store: FeatureCronJobRepositoryStore) {
+        delegate = store
+    }
+
+    private fun repository(): FeatureCronJobRepositoryStore {
+        return checkNotNull(delegate) {
+            "FeatureCronJobRepository was accessed before the Hilt graph created FeatureCronJobRepositoryStore."
+        }
+    }
+
+    val jobs: StateFlow<List<CronJob>>
+        get() = repository().jobs
+
+    suspend fun create(job: CronJob): CronJob = repository().create(job)
+
+    suspend fun update(job: CronJob): CronJob = repository().update(job)
+
+    suspend fun delete(jobId: String) = repository().delete(jobId)
+
+    suspend fun getByJobId(jobId: String): CronJob? = repository().getByJobId(jobId)
+
+    suspend fun listAll(): List<CronJob> = repository().listAll()
+
+    suspend fun listEnabled(): List<CronJob> = repository().listEnabled()
+
+    suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long? = null, lastError: String? = null) =
+        repository().updateStatus(jobId, status, lastRunAt, lastError)
+
+    suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord =
+        repository().recordExecutionStarted(record)
+
+    suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord =
+        repository().updateExecutionRecord(record)
+
+    suspend fun listRecentExecutionRecords(jobId: String, limit: Int = 5): List<CronJobExecutionRecord> =
+        repository().listRecentExecutionRecords(jobId, limit)
+
+    suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? = repository().latestExecutionRecord(jobId)
+}
+
+@Singleton
+class FeatureCronJobRepositoryStore @Inject constructor(
+    private val dao: CronJobDao,
+    private val executionRecordDao: CronJobExecutionRecordDao,
+) {
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _jobs = MutableStateFlow<List<CronJob>>(emptyList())
+
     val jobs: StateFlow<List<CronJob>> = _jobs.asStateFlow()
 
-    fun initialize(context: Context) {
-        if (!initialized.compareAndSet(false, true)) return
-        val database = AstrBotDatabase.get(context)
-        dao = database.cronJobDao()
-        executionRecordDao = database.cronJobExecutionRecordDao()
+    init {
+        FeatureCronJobRepository.installDelegate(this)
         repositoryScope.launch {
-            dao!!.observeAll().collect { entities ->
+            dao.observeAll().collect { entities ->
                 _jobs.value = entities.map { it.toDomain() }
             }
         }
@@ -49,37 +90,37 @@ object FeatureCronJobRepository {
             createdAt = if (job.createdAt == 0L) now else job.createdAt,
             updatedAt = now,
         ).toEntity()
-        requireDao().upsert(entity)
+        dao.upsert(entity)
         AppLogger.append("CronJob created: jobId=${job.jobId} name=${job.name}")
         return job
     }
 
     suspend fun update(job: CronJob): CronJob {
         val updated = job.copy(updatedAt = System.currentTimeMillis())
-        requireDao().upsert(updated.toEntity())
+        dao.upsert(updated.toEntity())
         return updated
     }
 
     suspend fun delete(jobId: String) {
-        requireDao().deleteByJobId(jobId)
+        dao.deleteByJobId(jobId)
         AppLogger.append("CronJob deleted: jobId=$jobId")
     }
 
     suspend fun getByJobId(jobId: String): CronJob? {
-        return requireDao().getByJobId(jobId)?.toDomain()
+        return dao.getByJobId(jobId)?.toDomain()
     }
 
     suspend fun listAll(): List<CronJob> {
-        return requireDao().listAll().map { it.toDomain() }
+        return dao.listAll().map { it.toDomain() }
     }
 
     suspend fun listEnabled(): List<CronJob> {
-        return requireDao().listEnabled().map { it.toDomain() }
+        return dao.listEnabled().map { it.toDomain() }
     }
 
     suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long? = null, lastError: String? = null) {
-        val existing = requireDao().getByJobId(jobId) ?: return
-        requireDao().upsert(
+        val existing = dao.getByJobId(jobId) ?: return
+        dao.upsert(
             existing.copy(
                 status = status,
                 lastRunAt = lastRunAt ?: existing.lastRunAt,
@@ -90,31 +131,21 @@ object FeatureCronJobRepository {
     }
 
     suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord {
-        requireExecutionRecordDao().upsert(record.toEntity())
+        executionRecordDao.upsert(record.toEntity())
         return record
     }
 
     suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord {
-        requireExecutionRecordDao().upsert(record.toEntity())
+        executionRecordDao.upsert(record.toEntity())
         return record
     }
 
     suspend fun listRecentExecutionRecords(jobId: String, limit: Int = 5): List<CronJobExecutionRecord> {
-        return requireExecutionRecordDao().listRecentForJob(jobId, limit.coerceAtLeast(1)).map { it.toDomain() }
+        return executionRecordDao.listRecentForJob(jobId, limit.coerceAtLeast(1)).map { it.toDomain() }
     }
 
     suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? {
-        return requireExecutionRecordDao().latestForJob(jobId)?.toDomain()
-    }
-
-    private fun requireDao(): CronJobDao {
-        return requireNotNull(dao) { "CronJobRepository not initialized. Call initialize(context) first." }
-    }
-
-    private fun requireExecutionRecordDao(): CronJobExecutionRecordDao {
-        return requireNotNull(executionRecordDao) {
-            "CronJobRepository execution records not initialized. Call initialize(context) first."
-        }
+        return executionRecordDao.latestForJob(jobId)?.toDomain()
     }
 }
 

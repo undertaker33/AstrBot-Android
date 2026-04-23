@@ -1,9 +1,16 @@
 package com.astrbot.android.ui.settings
 
+import com.astrbot.android.feature.resource.domain.ResourceCenterPort
+import com.astrbot.android.feature.resource.domain.ResourceCompatibilityUseCase
+import com.astrbot.android.feature.resource.presentation.ResourceCenterPresentationController
+import com.astrbot.android.model.ConfigProfile
+import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.ResourceCenterItem
+import com.astrbot.android.model.ResourceCenterCompatibilitySnapshot
 import com.astrbot.android.model.ResourceCenterKind
 import com.astrbot.android.model.SkillResourceKind
 import com.astrbot.android.R
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -31,7 +38,7 @@ class ResourceCenterPresentationTest {
 
     @Test
     fun `resource center exposes mcp skill and tool entries`() {
-        val presentation = buildResourceCenterPresentation()
+        val presentation = buildResourceCenterPresentation(resourceCenterController())
 
         assertEquals(listOf(ResourceKind.MCP, ResourceKind.SKILL, ResourceKind.TOOL), presentation.entries.map { it.kind })
     }
@@ -91,7 +98,7 @@ class ResourceCenterPresentationTest {
             ),
         )
 
-        val skillCards = buildResourceCards(ResourceKind.SKILL, resources)
+        val skillCards = buildResourceCards(ResourceKind.SKILL, resources, resourceCenterController(resources))
 
         assertEquals(listOf("prompt-1", "tool-skill-1"), skillCards.map { it.id })
         assertEquals(R.string.resource_status_enabled, skillCards.first().statusLabelRes)
@@ -148,5 +155,40 @@ class ResourceCenterPresentationTest {
                 statusLabelRes = R.string.resource_status_local,
             )
         }
+    }
+
+    private fun resourceCenterController(
+        initialResources: List<ResourceCenterItem> = emptyList(),
+        initialProjections: List<ConfigResourceProjection> = emptyList(),
+    ): ResourceCenterPresentationController {
+        val port = object : ResourceCenterPort {
+            override val resources = MutableStateFlow(initialResources)
+            override val projections = MutableStateFlow(initialProjections)
+
+            override fun listResources(kind: ResourceCenterKind?): List<ResourceCenterItem> {
+                return resources.value.filter { resource -> kind == null || resource.kind == kind }
+            }
+
+            override fun saveResource(resource: ResourceCenterItem): ResourceCenterItem = resource
+
+            override fun deleteResource(resourceId: String) = Unit
+
+            override fun setProjection(projection: ConfigResourceProjection): ConfigResourceProjection = projection
+
+            override fun projectionsForConfig(configId: String): List<ConfigResourceProjection> {
+                return projections.value.filter { projection -> projection.configId == configId }
+            }
+
+            override fun compatibilitySnapshotForConfig(profile: ConfigProfile): ResourceCenterCompatibilitySnapshot {
+                return ResourceCenterCompatibilitySnapshot(
+                    resources = listResources(),
+                    projections = projectionsForConfig(profile.id),
+                )
+            }
+        }
+        return ResourceCenterPresentationController(
+            port = port,
+            compatibilityUseCase = ResourceCompatibilityUseCase(port),
+        )
     }
 }

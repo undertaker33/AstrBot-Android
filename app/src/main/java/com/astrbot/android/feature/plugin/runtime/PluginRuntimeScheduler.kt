@@ -87,24 +87,14 @@ object PluginRuntimeScheduleStateStoreProvider {
     @Volatile
     private var storeOverrideForTests: PluginScheduleStateStore? = null
 
-    @Volatile
-    private var installedStore: PluginScheduleStateStore? = null
-
     private val sharedStore: PluginScheduleStateStore by lazy {
         InMemoryPluginScheduleStateStore()
     }
 
-    fun store(): PluginScheduleStateStore = storeOverrideForTests ?: installedStore ?: sharedStore
-
-    internal fun installFromHilt(store: PluginScheduleStateStore) {
-        installedStore = store
-    }
+    fun store(): PluginScheduleStateStore = storeOverrideForTests ?: sharedStore
 
     internal fun setStoreOverrideForTests(store: PluginScheduleStateStore?) {
         storeOverrideForTests = store
-        if (store == null) {
-            installedStore = null
-        }
     }
 }
 

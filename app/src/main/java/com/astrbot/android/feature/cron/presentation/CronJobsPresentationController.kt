@@ -5,8 +5,9 @@ import com.astrbot.android.feature.cron.domain.CronJobUseCases
 import com.astrbot.android.feature.cron.domain.CronTaskCreateRequest
 import com.astrbot.android.feature.cron.domain.CronTaskCreateResult
 import com.astrbot.android.model.CronJob
+import javax.inject.Inject
 
-class CronJobsPresentationController(
+class CronJobsPresentationController @Inject constructor(
     private val useCases: CronJobUseCases,
     private val taskPort: ActiveCapabilityTaskPort,
 ) {

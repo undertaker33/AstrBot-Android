@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.app
 import com.astrbot.android.ui.navigation.AppDestination
 import com.astrbot.android.ui.navigation.AppNavigator

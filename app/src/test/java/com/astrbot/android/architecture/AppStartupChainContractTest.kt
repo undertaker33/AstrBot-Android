@@ -84,6 +84,38 @@ class AppStartupChainContractTest {
         )
     }
 
+    @Test
+    fun repository_initialization_chain_must_not_retain_legacy_initializer_mainline() {
+        val source = startupSource("RepositoryInitializationStartupChain.kt")
+        val runBody = functionBody(source, "run")
+        val forbiddenTokens = listOf(
+            "InitializationCoordinator(",
+            "ConfigRepositoryInitializer()",
+            "BotRepositoryInitializer()",
+            "PersonaRepositoryInitializer()",
+            ".initialize(application)",
+            "providerRepositoryWarmup.warmUp()",
+        )
+        val violations = forbiddenTokens.filter(runBody::contains)
+
+        assertTrue(
+            "RepositoryInitializationStartupChain.run must not retain legacy repository initialization residue: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun database_module_must_not_use_legacy_static_database_get() {
+        val file = mainRoot.resolve("di/hilt/DatabaseModule.kt")
+        assertTrue("DatabaseModule.kt must exist under di/hilt", file.exists())
+        val source = file.readText()
+
+        assertTrue(
+            "DatabaseModule must not provide the Room database via AstrBotDatabase.get(...)",
+            !source.contains("AstrBotDatabase.get("),
+        )
+    }
+
     private fun startupSource(fileName: String): String {
         val file = mainRoot.resolve("di/startup/$fileName")
         assertTrue("$fileName must exist under di/startup", file.exists())

@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
@@ -92,24 +90,14 @@ object PluginRuntimeFailureStateStoreProvider {
     @Volatile
     private var storeOverrideForTests: PluginFailureStateStore? = null
 
-    @Volatile
-    private var installedStore: PluginFailureStateStore? = null
-
     private val persistentStore: PluginFailureStateStore by lazy {
         PersistentPluginFailureStateStore()
     }
 
-    fun store(): PluginFailureStateStore = storeOverrideForTests ?: installedStore ?: persistentStore
-
-    internal fun installFromHilt(store: PluginFailureStateStore) {
-        installedStore = store
-    }
+    fun store(): PluginFailureStateStore = storeOverrideForTests ?: persistentStore
 
     internal fun setStoreOverrideForTests(store: PluginFailureStateStore?) {
         storeOverrideForTests = store
-        if (store == null) {
-            installedStore = null
-        }
     }
 }
 
@@ -163,29 +151,16 @@ object PluginRuntimeScopedFailureStateStoreProvider {
     @Volatile
     private var storeOverrideForTests: PluginScopedFailureStateStore? = null
 
-    @Volatile
-    private var installedStore: PluginScopedFailureStateStore? = null
-
     private val sharedStore: PluginScopedFailureStateStore by lazy {
         InMemoryPluginScopedFailureStateStore()
     }
 
-    fun store(): PluginScopedFailureStateStore = storeOverrideForTests ?: installedStore ?: sharedStore
-
-    internal fun installFromHilt(store: PluginScopedFailureStateStore) {
-        installedStore = store
-    }
+    fun store(): PluginScopedFailureStateStore = storeOverrideForTests ?: sharedStore
 
     internal fun setStoreOverrideForTests(store: PluginScopedFailureStateStore?) {
         storeOverrideForTests = store
-        if (store == null) {
-            installedStore = null
-        }
     }
 }
-
-internal fun compatPluginRuntimeScopedFailureStateStore(): PluginScopedFailureStateStore =
-    PluginRuntimeScopedFailureStateStoreProvider.store()
 
 class PluginFailureGuard(
     private val store: PluginFailureStateStore = InMemoryPluginFailureStateStore(),

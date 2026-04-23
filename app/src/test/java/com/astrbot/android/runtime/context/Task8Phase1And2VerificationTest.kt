@@ -11,7 +11,6 @@ import com.astrbot.android.core.runtime.network.RuntimeNetworkRequest
 import com.astrbot.android.core.runtime.network.RuntimeNetworkResponse
 import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
 import com.astrbot.android.core.runtime.network.RuntimeTimeoutProfile
-import com.astrbot.android.core.runtime.network.SharedRuntimeNetworkTransport
 import com.astrbot.android.core.runtime.network.SseEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -203,88 +202,83 @@ class Task8Phase1And2VerificationTest {
             ),
             streamLines = flowOf("line-1", "line-2"),
         )
-        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
-        try {
-            val providerClient = OkHttpAstrBotHttpClient()
+        val providerClient = OkHttpAstrBotHttpClient(transport = transport)
 
-            val executeResponse = providerClient.execute(
+        val executeResponse = providerClient.execute(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = "http://127.0.0.1:1/provider",
+                headers = mapOf("Authorization" to "Bearer token"),
+                body = """{"hello":"world"}""",
+                contentType = "application/json",
+            ),
+        )
+
+        val bytes = providerClient.executeBytes(
+            HttpRequestSpec(
+                method = HttpMethod.GET,
+                url = "http://127.0.0.1:1/provider-bytes",
+            ),
+        )
+
+        val streamed = mutableListOf<String>()
+        runBlocking {
+            providerClient.executeStream(
                 HttpRequestSpec(
                     method = HttpMethod.POST,
-                    url = "http://127.0.0.1:1/provider",
-                    headers = mapOf("Authorization" to "Bearer token"),
-                    body = """{"hello":"world"}""",
+                    url = "http://127.0.0.1:1/provider-stream",
+                    body = """{"stream":true}""",
                     contentType = "application/json",
                 ),
-            )
-
-            val bytes = providerClient.executeBytes(
-                HttpRequestSpec(
-                    method = HttpMethod.GET,
-                    url = "http://127.0.0.1:1/provider-bytes",
-                ),
-            )
-
-            val streamed = mutableListOf<String>()
-            runBlocking {
-                providerClient.executeStream(
-                    HttpRequestSpec(
-                        method = HttpMethod.POST,
-                        url = "http://127.0.0.1:1/provider-stream",
-                        body = """{"stream":true}""",
-                        contentType = "application/json",
-                    ),
-                ) { line -> streamed += line }
-            }
-
-            val multipartResponse = providerClient.executeMultipart(
-                HttpRequestSpec(
-                    method = HttpMethod.POST,
-                    url = "http://127.0.0.1:1/provider-upload",
-                    headers = mapOf("Authorization" to "Bearer token"),
-                ),
-                listOf(
-                    MultipartPartSpec.Text(name = "purpose", value = "vision"),
-                    MultipartPartSpec.File(
-                        name = "file",
-                        fileName = "photo.jpg",
-                        contentType = "image/jpeg",
-                        bytes = byteArrayOf(1, 2, 3),
-                    ),
-                ),
-            )
-
-            assertEquals(200, executeResponse.code)
-            assertEquals("""{"ok":true}""", executeResponse.body)
-            assertEquals("""{"ok":true}""", bytes.decodeToString())
-            assertEquals(listOf("line-1", "line-2"), streamed)
-            assertEquals(200, multipartResponse.code)
-            assertEquals(3, transport.executeRequests.size)
-            assertEquals(1, transport.streamRequests.size)
-
-            val executeRequest = transport.executeRequests[0]
-            assertEquals(RuntimeNetworkCapability.PROVIDER, executeRequest.capability)
-            assertEquals("POST", executeRequest.method)
-            assertEquals("http://127.0.0.1:1/provider", executeRequest.url)
-            assertEquals("application/json", executeRequest.contentType)
-            assertEquals("""{"hello":"world"}""", executeRequest.body!!.decodeToString())
-
-            val bytesRequest = transport.executeRequests[1]
-            assertEquals(RuntimeNetworkCapability.PROVIDER, bytesRequest.capability)
-            assertEquals("GET", bytesRequest.method)
-            assertEquals("http://127.0.0.1:1/provider-bytes", bytesRequest.url)
-
-            val multipartRequest = transport.executeRequests[2]
-            assertEquals(RuntimeNetworkCapability.PROVIDER, multipartRequest.capability)
-            assertEquals("POST", multipartRequest.method)
-            assertEquals("http://127.0.0.1:1/provider-upload", multipartRequest.url)
-            assertTrue(multipartRequest.contentType!!.startsWith("multipart/form-data; boundary="))
-            val bodyText = multipartRequest.body!!.decodeToString()
-            assertTrue(bodyText.contains("name=\"purpose\""))
-            assertTrue(bodyText.contains("vision"))
-            assertTrue(bodyText.contains("name=\"file\"; filename=\"photo.jpg\""))
-        } finally {
-            SharedRuntimeNetworkTransport.setOverrideForTests(null)
+            ) { line -> streamed += line }
         }
+
+        val multipartResponse = providerClient.executeMultipart(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = "http://127.0.0.1:1/provider-upload",
+                headers = mapOf("Authorization" to "Bearer token"),
+            ),
+            listOf(
+                MultipartPartSpec.Text(name = "purpose", value = "vision"),
+                MultipartPartSpec.File(
+                    name = "file",
+                    fileName = "photo.jpg",
+                    contentType = "image/jpeg",
+                    bytes = byteArrayOf(1, 2, 3),
+                ),
+            ),
+        )
+
+        assertEquals(200, executeResponse.code)
+        assertEquals("""{"ok":true}""", executeResponse.body)
+        assertEquals("""{"ok":true}""", bytes.decodeToString())
+        assertEquals(listOf("line-1", "line-2"), streamed)
+        assertEquals(200, multipartResponse.code)
+        assertEquals(3, transport.executeRequests.size)
+        assertEquals(1, transport.streamRequests.size)
+
+        val executeRequest = transport.executeRequests[0]
+        assertEquals(RuntimeNetworkCapability.PROVIDER, executeRequest.capability)
+        assertEquals("POST", executeRequest.method)
+        assertEquals("http://127.0.0.1:1/provider", executeRequest.url)
+        assertEquals("application/json", executeRequest.contentType)
+        assertEquals("""{"hello":"world"}""", executeRequest.body!!.decodeToString())
+
+        val bytesRequest = transport.executeRequests[1]
+        assertEquals(RuntimeNetworkCapability.PROVIDER, bytesRequest.capability)
+        assertEquals("GET", bytesRequest.method)
+        assertEquals("http://127.0.0.1:1/provider-bytes", bytesRequest.url)
+
+        val multipartRequest = transport.executeRequests[2]
+        assertEquals(RuntimeNetworkCapability.PROVIDER, multipartRequest.capability)
+        assertEquals("POST", multipartRequest.method)
+        assertEquals("http://127.0.0.1:1/provider-upload", multipartRequest.url)
+        assertTrue(multipartRequest.contentType!!.startsWith("multipart/form-data; boundary="))
+        val bodyText = multipartRequest.body!!.decodeToString()
+        assertTrue(bodyText.contains("name=\"purpose\""))
+        assertTrue(bodyText.contains("vision"))
+        assertTrue(bodyText.contains("name=\"file\"; filename=\"photo.jpg\""))
     }
 
     @Test

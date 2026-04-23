@@ -32,15 +32,19 @@ import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
-import com.astrbot.android.feature.bot.data.LegacyBotRepositoryAdapter
-import com.astrbot.android.feature.config.data.LegacyConfigRepositoryAdapter
+import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
+import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
+import com.astrbot.android.core.runtime.llm.SttProbeResult
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
-import com.astrbot.android.feature.persona.data.LegacyPersonaRepositoryAdapter
-import com.astrbot.android.feature.provider.data.LegacyProviderRepositoryAdapter
-import com.astrbot.android.feature.qq.data.LegacyQqConversationAdapter
-import com.astrbot.android.feature.qq.data.LegacyQqPlatformConfigAdapter
+import com.astrbot.android.feature.qq.data.FeatureQqConversationPortAdapter
+import com.astrbot.android.feature.qq.data.FeatureQqPlatformConfigPortAdapter
 import com.astrbot.android.runtime.IncomingMessageEvent
+import com.astrbot.android.testsupport.CompatBotRepositoryPort
+import com.astrbot.android.testsupport.CompatConfigRepositoryPort
+import com.astrbot.android.testsupport.CompatPersonaRepositoryPort
+import com.astrbot.android.testsupport.CompatProviderRepositoryPort
 import com.astrbot.android.feature.qq.runtime.QqOneBotBridgeServer
+import com.astrbot.android.feature.qq.runtime.QqOneBotBridgeServerTestAccess
 import com.astrbot.android.feature.qq.runtime.QqPluginDispatchService
 import com.astrbot.android.feature.qq.runtime.QqReplySender
 import com.astrbot.android.feature.qq.runtime.QqRuntimeProfileResolver
@@ -51,9 +55,6 @@ import com.astrbot.android.feature.qq.runtime.QqPluginExecutionService
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.feature.qq.runtime.QqSessionKeyFactory
 import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
-import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter
-import com.astrbot.android.runtime.llm.LegacyLlmProviderProbeAdapter
-import com.astrbot.android.runtime.llm.LegacyRuntimeOrchestratorAdapter
 import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
 import java.nio.file.Files
 import java.util.AbstractMap
@@ -80,7 +81,7 @@ class PluginV2HostIngressTest {
                 },
             ),
         )
-        PluginRuntimeRegistry.registerProvider {
+        PluginRuntimeCatalog.registerProvider {
             listOf(
                 runtimePlugin(
                     pluginId = "legacy-supported",
@@ -126,6 +127,7 @@ class PluginV2HostIngressTest {
                     .reason,
             )
         } finally {
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
         }
@@ -141,7 +143,7 @@ class PluginV2HostIngressTest {
                 },
             ),
         )
-        PluginRuntimeRegistry.registerProvider {
+        PluginRuntimeCatalog.registerProvider {
             listOf(
                 runtimePlugin(
                     pluginId = "legacy-should-not-run",
@@ -167,6 +169,7 @@ class PluginV2HostIngressTest {
             assertEquals(1, legacyRuns.get())
             assertEquals(1, batch.outcomes.size)
         } finally {
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
         }
@@ -182,7 +185,7 @@ class PluginV2HostIngressTest {
                 },
             ),
         )
-        PluginRuntimeRegistry.registerProvider {
+        PluginRuntimeCatalog.registerProvider {
             listOf(
                 runtimePlugin(
                     pluginId = "legacy-onebot-stop",
@@ -216,6 +219,7 @@ class PluginV2HostIngressTest {
             assertTrue(result?.propagationStopped == true)
             assertEquals(0, legacyRuns.get())
         } finally {
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
         }
@@ -227,7 +231,7 @@ class PluginV2HostIngressTest {
         PluginV2DispatchEngineProvider.setEngineOverrideForTests(
             v2EngineWithCustomFilterFailure(),
         )
-        PluginRuntimeRegistry.registerProvider {
+        PluginRuntimeCatalog.registerProvider {
             listOf(
                 runtimePlugin(
                     pluginId = "legacy-onebot-filter",
@@ -262,13 +266,14 @@ class PluginV2HostIngressTest {
             assertTrue(result?.userVisibleFailureMessage?.isNotBlank() == true)
             assertEquals(0, legacyRuns.get())
         } finally {
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
         }
     }
 
     @Test
-    fun onebot_plain_message_and_slash_command_both_materialize_v2_message_event() {
+    fun onebot_plain_message_and_slash_command_both_materialize_v2_message_event() = runBlocking {
         val v2MessageEvents = CopyOnWriteArrayList<PluginMessageEvent>()
         val v2CommandEvents = CopyOnWriteArrayList<PluginCommandEvent>()
         PluginV2DispatchEngineProvider.setEngineOverrideForTests(
@@ -281,7 +286,7 @@ class PluginV2HostIngressTest {
                 },
             ),
         )
-        PluginRuntimeRegistry.registerProvider {
+        PluginRuntimeCatalog.registerProvider {
             listOf(
                 runtimePlugin(
                     pluginId = "legacy-onebot-plugin",
@@ -296,59 +301,67 @@ class PluginV2HostIngressTest {
         }
 
         try {
-            val plainEvent = oneBotEvent(
-                messageId = "msg-plain",
-                text = "hello-onebot",
-            )
-            invokeExecuteQqPlugins(
-                trigger = PluginTriggerSource.BeforeSendMessage,
-                event = plainEvent,
-                contextFactory = { plugin ->
-                    oneBotContext(
-                        plugin = plugin,
-                        trigger = PluginTriggerSource.BeforeSendMessage,
-                        event = plainEvent,
-                    )
-                },
-            )
-
-            val slashEvent = oneBotEvent(
-                messageId = "msg-command",
-                text = "/echo host-ingress",
-            )
             val bot = BotProfile(
                 id = "qq-main",
                 configProfileId = "config-main",
                 displayName = "Host Bot",
             )
-            val session = ConversationSession(
-                id = "qq-session",
-                title = "QQ Session",
-                botId = bot.id,
-                personaId = "",
-                providerId = "",
-                platformId = "qq",
-                messageType = MessageType.GroupMessage,
-                originSessionId = "group:30003",
-                maxContextMessages = 12,
-                messages = emptyList(),
-            )
-            invokeHandlePluginCommand(
-                event = slashEvent,
+            val config = defaultConfig(textStreamingEnabled = false).copy(id = bot.configProfileId)
+            withOneBotState(
                 bot = bot,
-                config = ConfigProfile(id = bot.configProfileId),
-                sessionId = session.id,
-                session = session,
-            )
+                config = config,
+                providers = listOf(defaultChatProvider()),
+            ) {
+                val plainEvent = oneBotEvent(
+                    messageId = "msg-plain",
+                    text = "hello-onebot",
+                )
+                invokeExecuteQqPlugins(
+                    trigger = PluginTriggerSource.BeforeSendMessage,
+                    event = plainEvent,
+                    contextFactory = { plugin ->
+                        oneBotContext(
+                            plugin = plugin,
+                            trigger = PluginTriggerSource.BeforeSendMessage,
+                            event = plainEvent,
+                        )
+                    },
+                )
 
-            assertEquals(
-                listOf("hello-onebot", "/echo host-ingress"),
-                v2MessageEvents.map { event -> event.rawText },
-            )
-            assertTrue(v2MessageEvents.all { event -> event.platformAdapterType == "onebot" })
-            assertEquals(1, v2CommandEvents.size)
-            assertEquals("echo", v2CommandEvents.single().commandPath.last())
+                val slashEvent = oneBotEvent(
+                    messageId = "msg-command",
+                    text = "/echo host-ingress",
+                )
+                val session = ConversationSession(
+                    id = "qq-session",
+                    title = "QQ Session",
+                    botId = bot.id,
+                    personaId = "",
+                    providerId = "",
+                    platformId = "qq",
+                    messageType = MessageType.GroupMessage,
+                    originSessionId = "group:30003",
+                    maxContextMessages = 12,
+                    messages = emptyList(),
+                )
+                invokeHandlePluginCommand(
+                    event = slashEvent,
+                    bot = bot,
+                    config = config,
+                    sessionId = session.id,
+                    session = session,
+                )
+
+                assertEquals(
+                    listOf("hello-onebot", "/echo host-ingress"),
+                    v2MessageEvents.map { event -> event.rawText },
+                )
+                assertTrue(v2MessageEvents.all { event -> event.platformAdapterType == "onebot" })
+                assertEquals(1, v2CommandEvents.size)
+                assertEquals("echo", v2CommandEvents.single().commandPath.last())
+            }
         } finally {
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
         }
@@ -479,7 +492,7 @@ class PluginV2HostIngressTest {
         PluginV2DispatchEngineProvider.setEngineOverrideForTests(
             v2EngineWithDispatchFailure(),
         )
-        PluginRuntimeRegistry.registerProvider {
+        PluginRuntimeCatalog.registerProvider {
             listOf(
                 runtimePlugin(
                     pluginId = "legacy-onebot-plugin",
@@ -512,6 +525,7 @@ class PluginV2HostIngressTest {
 
             assertEquals(1, legacyRuns.get())
         } finally {
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
         }
@@ -572,6 +586,7 @@ class PluginV2HostIngressTest {
             assertTrue(batch.outcomes.isEmpty())
             assertEquals(0, externalRuns.get())
         } finally {
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
         }
     }
@@ -757,7 +772,7 @@ class PluginV2HostIngressTest {
             },
         )
         val dispatchEngine = v2EngineWithHandlers()
-        PluginRuntimeRegistry.registerProvider {
+        PluginRuntimeCatalog.registerProvider {
             listOf(
                 runtimePlugin(
                     pluginId = "legacy-before-send-should-not-run",
@@ -1196,10 +1211,10 @@ class PluginV2HostIngressTest {
                 resolveReplyConfig = { null },
             ),
             profileResolver = QqRuntimeProfileResolver(
-                botPort = LegacyBotRepositoryAdapter(),
-                configPort = LegacyConfigRepositoryAdapter(),
-                personaPort = LegacyPersonaRepositoryAdapter(),
-                providerPort = LegacyProviderRepositoryAdapter(),
+                botPort = CompatBotRepositoryPort(),
+                configPort = CompatConfigRepositoryPort(),
+                personaPort = CompatPersonaRepositoryPort(),
+                providerPort = CompatProviderRepositoryPort(),
             ),
             resolvePluginPrivateRootPath = { "" },
             hostCapabilityGateway = hostCapabilityGateway,
@@ -1283,7 +1298,7 @@ class PluginV2HostIngressTest {
     }
 
     private fun refreshQqRuntimeDependenciesForCurrentOverrides() {
-        QqOneBotBridgeServer.updateRuntimeDependenciesForTests { current ->
+        QqOneBotBridgeServerTestAccess.updateRuntimeDependencies { current ->
             current.copy(
                 pluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
                 failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
@@ -1351,22 +1366,22 @@ class PluginV2HostIngressTest {
             ConfigRepository.restoreProfiles(listOf(config), config.id)
             ProviderRepository.restoreProfiles(providers)
             ConversationRepository.restoreSessions(emptyList())
-            QqOneBotBridgeServer.installRuntimeDependencies(
+            QqOneBotBridgeServerTestAccess.primeRuntimeDependencies(
                 QqOneBotRuntimeDependencies(
-                    botPort = LegacyBotRepositoryAdapter(),
-                    configPort = LegacyConfigRepositoryAdapter(),
-                    personaPort = LegacyPersonaRepositoryAdapter(),
-                    providerPort = LegacyProviderRepositoryAdapter(),
-                    conversationPort = LegacyQqConversationAdapter(),
-                    platformConfigPort = LegacyQqPlatformConfigAdapter(),
-                    orchestrator = LegacyRuntimeOrchestratorAdapter(DefaultRuntimeLlmOrchestrator()),
+                botPort = CompatBotRepositoryPort(),
+                configPort = CompatConfigRepositoryPort(),
+                personaPort = CompatPersonaRepositoryPort(),
+                providerPort = CompatProviderRepositoryPort(),
+                conversationPort = FeatureQqConversationPortAdapter(),
+                platformConfigPort = FeatureQqPlatformConfigPortAdapter(),
+                orchestrator = DefaultRuntimeLlmOrchestrator(),
                     runtimeContextResolverPort = runtimeContextResolverPort,
                     appChatPluginRuntime = appChatPluginRuntime,
                     pluginCatalog = PluginRuntimeCatalog::plugins,
                     pluginV2DispatchEngine = pluginV2DispatchEngine,
                     failureStateStore = failureStateStore,
                     scopedFailureStateStore = scopedFailureStateStore,
-                    providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
+                providerInvoker = DefaultQqProviderInvoker(ChatCompletionServiceLlmClient()),
                     gatewayFactory = gatewayFactory,
                     hostCapabilityGateway = hostCapabilityGateway,
                     hostActionExecutor = ExternalPluginHostActionExecutor(),
@@ -1376,18 +1391,21 @@ class PluginV2HostIngressTest {
                         scopedFailureStateStore = scopedFailureStateStore,
                         logBus = logBus,
                     ),
-                    llmProviderProbePort = LegacyLlmProviderProbeAdapter(),
+                llmProviderProbePort = chatCompletionServiceProbePort(),
                     logBus = logBus,
+                    silkAudioEncoder = { input -> input },
                     executeLegacyPluginsDuringLlmDispatch = executeLegacyPluginsDuringLlmDispatch,
                 ),
             )
             RuntimeLogRepository.clear()
             block()
         } finally {
+            QqOneBotBridgeServerTestAccess.clearRuntimeDependencies()
             QqOneBotBridgeServer.setReplySenderOverrideForTests(null)
             QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(null)
             AppChatPluginRuntimeCoordinatorProvider.setCoordinatorOverrideForTests(null)
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
+            PluginRuntimeCatalog.reset()
             PluginRuntimeRegistry.reset()
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
@@ -1907,6 +1925,55 @@ class PluginV2HostIngressTest {
             ),
             hostActionExecutor = ExternalPluginHostActionExecutor(),
         )
+    }
+
+    private fun chatCompletionServiceProbePort(): LlmProviderProbePort {
+        return object : LlmProviderProbePort {
+            override fun fetchModels(baseUrl: String, apiKey: String, providerType: ProviderType): List<String> {
+                return ChatCompletionService.fetchModels(baseUrl, apiKey, providerType)
+            }
+
+            override fun detectMultimodalRule(provider: ProviderProfile): FeatureSupportState {
+                return ChatCompletionService.detectMultimodalRule(provider)
+            }
+
+            override fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
+                return ChatCompletionService.probeMultimodalSupport(provider)
+            }
+
+            override fun detectNativeStreamingRule(provider: ProviderProfile): FeatureSupportState {
+                return ChatCompletionService.detectNativeStreamingRule(provider)
+            }
+
+            override fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState {
+                return ChatCompletionService.probeNativeStreamingSupport(provider)
+            }
+
+            override fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
+                val result = ChatCompletionService.probeSttSupport(provider)
+                return SttProbeResult(state = result.state, transcript = result.transcript)
+            }
+
+            override fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState {
+                return ChatCompletionService.probeTtsSupport(provider)
+            }
+
+            override fun transcribeAudio(
+                provider: ProviderProfile,
+                attachment: ConversationAttachment,
+            ): String {
+                return ChatCompletionService.transcribeAudio(provider, attachment)
+            }
+
+            override fun synthesizeSpeech(
+                provider: ProviderProfile,
+                text: String,
+                voiceId: String,
+                readBracketedContent: Boolean,
+            ): ConversationAttachment {
+                return ChatCompletionService.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
+            }
+        }
     }
 
     private data class RuntimeFixture(

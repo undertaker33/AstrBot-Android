@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.navigation
 
 import androidx.compose.ui.unit.dp
@@ -16,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
@@ -23,7 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.astrbot.android.R
 import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
-import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository as ResourceCenterRepository
+import com.astrbot.android.feature.resource.presentation.ResourceCenterViewModel
 import com.astrbot.android.core.db.backup.AppBackupModuleKind
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigResourceProjection
@@ -417,17 +416,19 @@ internal fun AstrBotAppNavGraph(
                     onBack = { AppNavigator.back(navController) },
                 )
             } else {
-                val repositoryResources by ResourceCenterRepository.resources.collectAsState()
+                val resourceCenterViewModel: ResourceCenterViewModel = hiltViewModel()
+                val repositoryResources by resourceCenterViewModel.resources.collectAsState()
+                val controller = resourceCenterViewModel.controller
                 ResourceListScreen(
                     kind = kind,
-                    resources = buildResourceCards(kind, repositoryResources),
+                    resources = buildResourceCards(kind, repositoryResources, controller),
                     onBack = { AppNavigator.back(navController) },
                     onAddResource = { resource ->
-                        val savedResource = ResourceCenterRepository.saveResource(resource)
+                        val savedResource = controller.saveResource(resource)
                         val selectedConfigId = ConfigRepository.resolveExistingId(ConfigRepository.selectedProfileId.value)
-                        val nextSortIndex = ResourceCenterRepository.projectionsForConfig(selectedConfigId)
+                        val nextSortIndex = controller.projectionsForConfig(selectedConfigId)
                             .count { projection -> projection.kind == savedResource.kind }
-                        ResourceCenterRepository.setProjection(
+                        controller.setProjection(
                             ConfigResourceProjection(
                                 configId = selectedConfigId,
                                 resourceId = savedResource.resourceId,

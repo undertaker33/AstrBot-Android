@@ -9,7 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
 
-class PluginV1LegacyAdapterTest {
+class PluginV1DispatchAdapterTest {
 
     @Test
     fun dispatchLegacy_delegates_to_explicit_legacy_boundary() {
@@ -17,8 +17,8 @@ class PluginV1LegacyAdapterTest {
         var capturedRequestedStage: PluginExecutionStage? = null
         var capturedPlugins: List<PluginRuntimePlugin>? = null
         val expected = PluginLegacyDispatchAttempt(accepted = true, reason = "legacy")
-        val adapter = PluginV1LegacyAdapter(
-            dispatchLegacyCall = { trigger: PluginTriggerSource?, plugins: List<PluginRuntimePlugin>, requestedStage: PluginExecutionStage? ->
+        val adapter = PluginV1DispatchAdapter(
+            dispatchV1Call = { trigger: PluginTriggerSource?, plugins: List<PluginRuntimePlugin>, requestedStage: PluginExecutionStage? ->
                 capturedTrigger = trigger
                 capturedPlugins = plugins
                 capturedRequestedStage = requestedStage

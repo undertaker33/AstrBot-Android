@@ -13,12 +13,27 @@ interface ConversationRepositoryPort {
 
     fun session(sessionId: String): ConversationSession
 
+    fun syncSystemSessionTitle(sessionId: String, title: String)
+
     fun appendMessage(
         sessionId: String,
         role: String,
         content: String,
         attachments: List<ConversationAttachment> = emptyList(),
     ): String
+
+    fun updateSessionBindings(
+        sessionId: String,
+        providerId: String,
+        personaId: String,
+        botId: String,
+    )
+
+    fun updateSessionServiceFlags(
+        sessionId: String,
+        sessionSttEnabled: Boolean? = null,
+        sessionTtsEnabled: Boolean? = null,
+    )
 
     fun updateMessage(
         sessionId: String,

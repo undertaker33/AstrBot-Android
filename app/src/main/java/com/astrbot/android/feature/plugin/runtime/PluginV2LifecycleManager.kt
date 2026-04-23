@@ -375,29 +375,13 @@ object PluginV2LifecycleManagerProvider {
     @Volatile
     private var managerOverrideForTests: PluginV2LifecycleManager? = null
 
-    @Volatile
-    private var installedManager: PluginV2LifecycleManager? = null
-
     private val sharedManager: PluginV2LifecycleManager by lazy {
-        PluginV2LifecycleManager(
-            logBus = PluginRuntimeLogBusProvider.bus(),
-            store = PluginV2ActiveRuntimeStoreProvider.store(),
-        )
+        PluginV2LifecycleManager()
     }
 
-    fun manager(): PluginV2LifecycleManager = managerOverrideForTests ?: installedManager ?: sharedManager
-
-    internal fun installFromHilt(manager: PluginV2LifecycleManager) {
-        installedManager = manager
-    }
+    fun manager(): PluginV2LifecycleManager = managerOverrideForTests ?: sharedManager
 
     internal fun setManagerOverrideForTests(manager: PluginV2LifecycleManager?) {
         managerOverrideForTests = manager
-        if (manager == null) {
-            installedManager = null
-        }
     }
 }
-
-internal fun compatPluginV2LifecycleManager(): PluginV2LifecycleManager =
-    PluginV2LifecycleManagerProvider.manager()

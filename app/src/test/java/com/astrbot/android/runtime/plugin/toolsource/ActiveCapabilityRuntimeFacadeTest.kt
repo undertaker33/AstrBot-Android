@@ -1,5 +1,7 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
+import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
+import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
@@ -7,6 +9,8 @@ import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceContext
 import java.time.OffsetDateTime
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -304,13 +308,16 @@ class ActiveCapabilityRuntimeFacadeTest {
     }
 }
 
-private class InMemoryActiveCapabilityTaskRepository : ActiveCapabilityTaskRepository {
+private class InMemoryActiveCapabilityTaskRepository : CronJobRepositoryPort {
     val created = mutableListOf<CronJob>()
+    override val jobs: StateFlow<List<CronJob>> = MutableStateFlow(emptyList())
 
     override suspend fun create(job: CronJob): CronJob {
         created += job
         return job
     }
+
+    override suspend fun update(job: CronJob): CronJob = job
 
     override suspend fun delete(jobId: String) = Unit
 
@@ -320,10 +327,20 @@ private class InMemoryActiveCapabilityTaskRepository : ActiveCapabilityTaskRepos
 
     override suspend fun listAll(): List<CronJob> = created
 
+    override suspend fun listEnabled(): List<CronJob> = created.filter(CronJob::enabled)
+
+    override suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long?, lastError: String?) = Unit
+
+    override suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord = record
+
+    override suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord = record
+
+    override suspend fun listRecentExecutionRecords(jobId: String, limit: Int): List<CronJobExecutionRecord> = emptyList()
+
     override suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? = null
 }
 
-private class RecordingActiveCapabilityScheduler : ActiveCapabilityScheduler {
+private class RecordingActiveCapabilityScheduler : CronSchedulerPort {
     val scheduled = mutableListOf<CronJob>()
     val cancelled = mutableListOf<String>()
 

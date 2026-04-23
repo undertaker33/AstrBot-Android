@@ -29,6 +29,7 @@ class QqOneBotOutboundGatewayTest {
             platformConfigPort = FakePlatformConfigPort(bot),
             audioMaterializer = QqAudioAttachmentMaterializer(
                 filesDirProvider = { null },
+                encodeSilkAudio = { input -> input },
                 log = {},
             ),
             replyOverrideProvider = { null },

@@ -1,12 +1,10 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.core.runtime.secret
 
 import android.content.Context
 
 object AppSecretStore {
     fun initialize(context: Context) {
-        RuntimeSecretRepository.initialize(context)
+        RuntimeSecretRepository.ensureSecrets(context.filesDir)
     }
 
     fun getOrCreateWebUiToken(): String {

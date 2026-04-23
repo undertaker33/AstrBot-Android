@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.di.hilt
 
 import android.content.Context
@@ -35,20 +33,12 @@ import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Inject
 import javax.inject.Singleton
 import javax.inject.Qualifier
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.SupervisorJob
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
@@ -112,22 +102,9 @@ internal annotation class TtsVoiceAssets
 
 @Singleton
 internal class TtsVoiceAssetStateOwner @Inject constructor(
-    @ApplicationContext appContext: Context,
+    private val repository: TtsVoiceAssetRepository,
 ) {
-    private val repository = TtsVoiceAssetRepository
-    private val ownerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val _assets = MutableStateFlow<List<TtsVoiceReferenceAsset>>(emptyList())
-
-    init {
-        repository.initialize(appContext)
-        ownerScope.launch {
-            repository.assets.collect { assets ->
-                _assets.value = assets
-            }
-        }
-    }
-
-    val assets: StateFlow<List<TtsVoiceReferenceAsset>> = _assets.asStateFlow()
+    val assets: StateFlow<List<TtsVoiceReferenceAsset>> = repository.assets
 
     fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>> {
         return repository.listVoiceChoicesFor(provider)

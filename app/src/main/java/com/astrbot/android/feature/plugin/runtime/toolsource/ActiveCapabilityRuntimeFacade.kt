@@ -1,9 +1,7 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import android.content.Context
-import com.astrbot.android.feature.cron.data.FeatureCronJobRepository
+import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
+import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
 import com.astrbot.android.core.common.logging.AppLogger
@@ -16,53 +14,9 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.UUID
+import javax.inject.Inject
 import org.json.JSONArray
 import org.json.JSONObject
-
-interface ActiveCapabilityTaskRepository {
-    suspend fun create(job: CronJob): CronJob
-    suspend fun delete(jobId: String)
-    suspend fun getByJobId(jobId: String): CronJob?
-    suspend fun listAll(): List<CronJob>
-    suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord?
-}
-
-object CronJobActiveCapabilityTaskRepository : ActiveCapabilityTaskRepository {
-    override suspend fun create(job: CronJob): CronJob = FeatureCronJobRepository.create(job)
-    override suspend fun delete(jobId: String) = FeatureCronJobRepository.delete(jobId)
-    override suspend fun getByJobId(jobId: String): CronJob? = FeatureCronJobRepository.getByJobId(jobId)
-    override suspend fun listAll(): List<CronJob> = FeatureCronJobRepository.listAll()
-    override suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? {
-        return FeatureCronJobRepository.latestExecutionRecord(jobId)
-    }
-}
-
-interface ActiveCapabilityScheduler {
-    fun schedule(job: CronJob)
-    fun cancel(jobId: String)
-}
-
-class WorkManagerActiveCapabilityScheduler(
-    private val contextProvider: () -> Context?,
-) : ActiveCapabilityScheduler {
-    override fun schedule(job: CronJob) {
-        val context = contextProvider()
-            ?: throw IllegalStateException(
-                "Cannot schedule cron job: application context not available. " +
-                    "Ensure ActiveCapabilityToolSourceProvider.initialize() is called at app startup.",
-            )
-        CronJobScheduler.scheduleJob(context, job)
-    }
-
-    override fun cancel(jobId: String) {
-        val context = contextProvider()
-        if (context == null) {
-            AppLogger.append("ActiveCapability: cannot cancel WorkManager job, no app context")
-        } else {
-            CronJobScheduler.cancelJob(context, jobId)
-        }
-    }
-}
 
 data class ActiveCapabilityCreateTaskRequest(
     val payload: Map<String, Any?>,
@@ -84,11 +38,22 @@ data class ActiveCapabilityStructuredError(
 )
 
 class ActiveCapabilityRuntimeFacade(
-    private val repository: ActiveCapabilityTaskRepository = CronJobActiveCapabilityTaskRepository,
-    private val scheduler: ActiveCapabilityScheduler,
+    private val repository: CronJobRepositoryPort,
+    private val scheduler: CronSchedulerPort,
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) {
+    @Inject
+    constructor(
+        repository: CronJobRepositoryPort,
+        scheduler: CronSchedulerPort,
+    ) : this(
+        repository = repository,
+        scheduler = scheduler,
+        clock = { System.currentTimeMillis() },
+        idGenerator = { UUID.randomUUID().toString() },
+    )
+
     suspend fun createFutureTask(request: ActiveCapabilityCreateTaskRequest): ActiveCapabilityTaskCreation {
         val now = clock()
         val name = request.payload.stringValue("name").ifBlank { "Unnamed Task" }

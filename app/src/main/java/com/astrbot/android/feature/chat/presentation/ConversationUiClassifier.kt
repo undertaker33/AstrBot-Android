@@ -3,6 +3,8 @@
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 
+private const val DefaultAppChatConversationId: String = "chat-main"
+
 internal fun ConversationSession.isQqConversation(): Boolean {
     return platformId == "qq"
 }
@@ -15,8 +17,7 @@ internal fun ConversationSession.canRenameConversation(): Boolean {
     return isQqPrivateConversation()
 }
 
-@Suppress("DEPRECATION")
 internal fun ConversationSession.canDeleteConversation(): Boolean {
-    return id != com.astrbot.android.feature.chat.data.FeatureConversationRepository.DEFAULT_SESSION_ID
+    return id != DefaultAppChatConversationId
 }
 

@@ -1,7 +1,10 @@
 package com.astrbot.android.feature.cron.runtime
 
+import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -206,24 +209,40 @@ private class SequenceClock(vararg values: Long) : () -> Long {
 
 private class InMemoryCronJobRunRepository(
     initialJob: CronJob,
-) : CronJobRunRepository {
-    private val jobs = linkedMapOf(initialJob.jobId to initialJob)
+) : CronJobRepositoryPort {
+    private val jobsById = linkedMapOf(initialJob.jobId to initialJob)
+    private val jobsState = MutableStateFlow(listOf(initialJob))
+    override val jobs: StateFlow<List<CronJob>> = jobsState
     val records = mutableListOf<CronJobExecutionRecord>()
     val updatedJobs = mutableListOf<CronJob>()
     val deletedJobIds = mutableListOf<String>()
 
-    override suspend fun getByJobId(jobId: String): CronJob? = jobs[jobId]
+    override suspend fun create(job: CronJob): CronJob {
+        jobsById[job.jobId] = job
+        jobsState.value = jobsById.values.toList()
+        return job
+    }
+
+    override suspend fun getByJobId(jobId: String): CronJob? = jobsById[jobId]
 
     override suspend fun update(job: CronJob): CronJob {
-        jobs[job.jobId] = job
+        jobsById[job.jobId] = job
+        jobsState.value = jobsById.values.toList()
         updatedJobs += job
         return job
     }
 
     override suspend fun delete(jobId: String) {
-        jobs.remove(jobId)
+        jobsById.remove(jobId)
+        jobsState.value = jobsById.values.toList()
         deletedJobIds += jobId
     }
+
+    override suspend fun listAll(): List<CronJob> = jobsById.values.toList()
+
+    override suspend fun listEnabled(): List<CronJob> = jobsById.values.filter(CronJob::enabled)
+
+    override suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long?, lastError: String?) = Unit
 
     override suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord {
         records += record
@@ -238,6 +257,14 @@ private class InMemoryCronJobRunRepository(
             records += record
         }
         return record
+    }
+
+    override suspend fun listRecentExecutionRecords(jobId: String, limit: Int): List<CronJobExecutionRecord> {
+        return records.filter { it.jobId == jobId }.takeLast(limit)
+    }
+
+    override suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? {
+        return records.lastOrNull { it.jobId == jobId }
     }
 }
 

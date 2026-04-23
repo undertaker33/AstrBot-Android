@@ -14,7 +14,7 @@ class SkillToolSourceProviderTest {
 
     @Test
     fun list_bindings_ignores_prompt_skills_and_registers_tool_skills_only() = runBlocking {
-        val provider = SkillToolSourceProvider()
+        val provider = SkillToolSourceProvider(contextResolver = noopContextResolver)
         val context = ToolSourceRegistryIngestContext(
             toolSourceContext = toolSourceContext(
                 promptSkills = listOf(
@@ -45,7 +45,7 @@ class SkillToolSourceProviderTest {
 
     @Test
     fun invoke_executes_tool_skill_template_with_payload() = runBlocking {
-        val provider = SkillToolSourceProvider()
+        val provider = SkillToolSourceProvider(contextResolver = noopContextResolver)
         val context = toolSourceContext(
             toolSkills = listOf(
                 ToolSkillProjection(
@@ -95,6 +95,22 @@ class SkillToolSourceProviderTest {
             promptSkills = promptSkills,
             toolSkills = toolSkills,
             conversationId = "conversation-1",
+        )
+    }
+}
+
+private val noopContextResolver = object : FutureToolSourceContextResolver {
+    override fun resolveForConfig(configProfileId: String): ToolSourceContext {
+        return ToolSourceContext(
+            requestId = "",
+            platform = RuntimePlatform.APP_CHAT,
+            configProfileId = configProfileId,
+            webSearchEnabled = false,
+            activeCapabilityEnabled = false,
+            mcpServers = emptyList(),
+            promptSkills = emptyList(),
+            toolSkills = emptyList(),
+            conversationId = "",
         )
     }
 }

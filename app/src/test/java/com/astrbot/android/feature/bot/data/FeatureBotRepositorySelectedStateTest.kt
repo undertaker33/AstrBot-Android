@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.bot.data
 
+import android.content.SharedPreferences
 import com.astrbot.android.data.db.AppPreferenceDao
 import com.astrbot.android.data.db.AppPreferenceEntity
 import com.astrbot.android.data.db.BotAggregate
@@ -7,66 +8,51 @@ import com.astrbot.android.data.db.BotAggregateDao
 import com.astrbot.android.data.db.BotBoundQqUinEntity
 import com.astrbot.android.data.db.BotEntity
 import com.astrbot.android.data.db.BotTriggerWordEntity
+import com.astrbot.android.data.db.ConfigAdminUidEntity
+import com.astrbot.android.data.db.ConfigAggregate
+import com.astrbot.android.data.db.ConfigAggregateDao
+import com.astrbot.android.data.db.ConfigKeywordPatternEntity
+import com.astrbot.android.data.db.ConfigMcpServerEntity
+import com.astrbot.android.data.db.ConfigProfileEntity
+import com.astrbot.android.data.db.ConfigSkillEntity
+import com.astrbot.android.data.db.ConfigTextRuleEntity
+import com.astrbot.android.data.db.ConfigWakeWordEntity
+import com.astrbot.android.data.db.ConfigWhitelistEntryEntity
+import com.astrbot.android.data.db.ConfigWriteModel
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.feature.config.data.FeatureConfigRepository
+import com.astrbot.android.feature.config.data.FeatureConfigRepositoryStore
 import com.astrbot.android.model.BotProfile
+import com.astrbot.android.model.ConfigProfile
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlinx.coroutines.Job
+import javax.inject.Provider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 import org.junit.Assert.fail
+import org.junit.Test
 
 class FeatureBotRepositorySelectedStateTest {
-    private lateinit var originalBotDao: BotAggregateDao
-    private lateinit var originalAppPreferenceDao: AppPreferenceDao
-    private var originalSyncJob: Job? = null
-    private lateinit var originalProfiles: List<BotProfile>
-    private lateinit var originalSelectedBotId: String
-    private lateinit var originalBotProfile: BotProfile
-
-    @Before
-    fun setUp() {
-        originalBotDao = getField("botDao")
-        originalAppPreferenceDao = getField("appPreferenceDao")
-        originalSyncJob = getField("syncJob")
-        originalProfiles = botProfilesFlow().value
-        originalSelectedBotId = selectedBotIdFlow().value
-        originalBotProfile = botProfileFlow().value
-        cancelSyncJob()
-    }
-
-    @After
-    fun tearDown() {
-        cancelSyncJob()
-        setField("botDao", originalBotDao)
-        setField("appPreferenceDao", originalAppPreferenceDao)
-        botProfilesFlow().value = originalProfiles
-        selectedBotIdFlow().value = originalSelectedBotId
-        botProfileFlow().value = originalBotProfile
-        if (originalSyncJob != null) {
-            invokePrivate("startStateSync")
-        } else {
-            setField("syncJob", null)
-        }
-    }
-
     @Test
     fun select_waits_for_persisted_selected_bot_flow_before_switching_state() {
+        val defaultConfig = configProfile(id = FeatureConfigRepository.DEFAULT_CONFIG_ID, name = "Default")
+        val configStore = FeatureConfigRepositoryStore(
+            configProfileDao = FakeConfigAggregateDao(listOf(defaultConfig)),
+            appPreferenceDao = FakeConfigPreferenceDao(defaultConfig.id),
+            preferences = InMemorySharedPreferences(),
+        )
         val alpha = botProfile(id = "bot-alpha", displayName = "Alpha")
         val beta = botProfile(id = "bot-beta", displayName = "Beta")
         val botDao = FakeBotAggregateDao(listOf(alpha, beta))
-        val appPreferenceDao = FakeAppPreferenceDao(alpha.id)
+        val appPreferenceDao = FakeBotPreferenceDao(alpha.id)
 
-        setField("botDao", botDao)
-        setField("appPreferenceDao", appPreferenceDao)
-        botProfilesFlow().value = listOf(alpha, beta)
-        selectedBotIdFlow().value = alpha.id
-        botProfileFlow().value = alpha
-        invokePrivate("startStateSync")
+        FeatureBotRepositoryStore(
+            botDao = botDao,
+            appPreferenceDao = appPreferenceDao,
+            bindingsPreferences = InMemorySharedPreferences(),
+            configRepositoryProvider = Provider { configStore },
+        )
+
         waitUntil("initial bot state should sync from fake persistence") {
             FeatureBotRepository.selectedBotId.value == alpha.id &&
                 FeatureBotRepository.botProfile.value.id == alpha.id
@@ -88,36 +74,6 @@ class FeatureBotRepositorySelectedStateTest {
         }
     }
 
-    private fun botProfilesFlow(): MutableStateFlow<List<BotProfile>> = getField("_botProfiles")
-
-    private fun selectedBotIdFlow(): MutableStateFlow<String> = getField("_selectedBotId")
-
-    private fun botProfileFlow(): MutableStateFlow<BotProfile> = getField("_botProfile")
-
-    private fun cancelSyncJob() {
-        getField<Job?>("syncJob")?.cancel()
-        setField("syncJob", null)
-    }
-
-    private fun invokePrivate(name: String) {
-        val method = FeatureBotRepository::class.java.getDeclaredMethod(name)
-        method.isAccessible = true
-        method.invoke(FeatureBotRepository)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun <T> getField(name: String): T {
-        val field = FeatureBotRepository::class.java.getDeclaredField(name)
-        field.isAccessible = true
-        return field.get(FeatureBotRepository) as T
-    }
-
-    private fun setField(name: String, value: Any?) {
-        val field = FeatureBotRepository::class.java.getDeclaredField(name)
-        field.isAccessible = true
-        field.set(FeatureBotRepository, value)
-    }
-
     private fun botProfile(id: String, displayName: String): BotProfile {
         return BotProfile(
             id = id,
@@ -126,6 +82,13 @@ class FeatureBotRepositorySelectedStateTest {
             accountHint = "QQ account not linked",
             triggerWords = listOf("astrbot"),
             configProfileId = FeatureConfigRepository.DEFAULT_CONFIG_ID,
+        )
+    }
+
+    private fun configProfile(id: String, name: String): ConfigProfile {
+        return ConfigProfile(
+            id = id,
+            name = name,
         )
     }
 
@@ -174,7 +137,7 @@ private class FakeBotAggregateDao(initialProfiles: List<BotProfile>) : BotAggreg
     }
 }
 
-private class FakeAppPreferenceDao(initialValue: String?) : AppPreferenceDao {
+private class FakeBotPreferenceDao(initialValue: String?) : AppPreferenceDao {
     private val values = MutableStateFlow(initialValue)
     val upsertedValues = CopyOnWriteArrayList<String?>()
 
@@ -188,5 +151,148 @@ private class FakeAppPreferenceDao(initialValue: String?) : AppPreferenceDao {
 
     fun emit(value: String?) {
         values.value = value
+    }
+}
+
+private class FakeConfigAggregateDao(initialProfiles: List<ConfigProfile>) : ConfigAggregateDao() {
+    private val aggregates = MutableStateFlow(initialProfiles.map(::toAggregate))
+
+    override fun observeConfigAggregates(): Flow<List<ConfigAggregate>> = aggregates
+
+    override suspend fun listConfigAggregates(): List<ConfigAggregate> = aggregates.value
+
+    override suspend fun replaceAll(writeModels: List<ConfigWriteModel>) {
+        aggregates.value = writeModels.map(::toAggregate)
+    }
+
+    override suspend fun upsertConfigs(entities: List<ConfigProfileEntity>) = Unit
+
+    override suspend fun upsertAdminUids(entities: List<ConfigAdminUidEntity>) = Unit
+
+    override suspend fun upsertWakeWords(entities: List<ConfigWakeWordEntity>) = Unit
+
+    override suspend fun upsertWhitelistEntries(entities: List<ConfigWhitelistEntryEntity>) = Unit
+
+    override suspend fun upsertKeywordPatterns(entities: List<ConfigKeywordPatternEntity>) = Unit
+
+    override suspend fun upsertTextRules(entities: List<ConfigTextRuleEntity>) = Unit
+
+    override suspend fun upsertMcpServers(entities: List<ConfigMcpServerEntity>) = Unit
+
+    override suspend fun upsertSkills(entities: List<ConfigSkillEntity>) = Unit
+
+    override suspend fun deleteMissingConfigs(ids: List<String>) = Unit
+
+    override suspend fun clearConfigs() = Unit
+
+    override suspend fun deleteAdminUids(configIds: List<String>) = Unit
+
+    override suspend fun deleteWakeWords(configIds: List<String>) = Unit
+
+    override suspend fun deleteWhitelistEntries(configIds: List<String>) = Unit
+
+    override suspend fun deleteKeywordPatterns(configIds: List<String>) = Unit
+
+    override suspend fun deleteTextRules(configIds: List<String>) = Unit
+
+    override suspend fun deleteMcpServers(configIds: List<String>) = Unit
+
+    override suspend fun deleteSkills(configIds: List<String>) = Unit
+
+    override suspend fun count(): Int = aggregates.value.size
+
+    private fun toAggregate(profile: ConfigProfile): ConfigAggregate = toAggregate(profile.toWriteModel(sortIndex = 0))
+
+    private fun toAggregate(writeModel: ConfigWriteModel): ConfigAggregate {
+        return ConfigAggregate(
+            config = writeModel.config,
+            adminUids = writeModel.adminUids,
+            wakeWords = writeModel.wakeWords,
+            whitelistEntries = writeModel.whitelistEntries,
+            keywordPatterns = writeModel.keywordPatterns,
+            textRules = listOf(writeModel.textRule),
+            mcpServers = writeModel.mcpServers,
+            skills = writeModel.skills,
+        )
+    }
+}
+
+private class FakeConfigPreferenceDao(initialValue: String?) : AppPreferenceDao {
+    private val values = MutableStateFlow(initialValue)
+
+    override fun observeValue(key: String): Flow<String?> = values
+
+    override suspend fun getValue(key: String): String? = values.value
+
+    override suspend fun upsert(entity: AppPreferenceEntity) {
+        values.value = entity.value
+    }
+}
+
+private class InMemorySharedPreferences : SharedPreferences {
+    private val values = mutableMapOf<String, Any?>()
+
+    override fun getAll(): MutableMap<String, *> = values.toMutableMap()
+
+    override fun getString(key: String?, defValue: String?): String? = values[key] as? String ?: defValue
+
+    override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+        @Suppress("UNCHECKED_CAST")
+        ((values[key] as? Set<String>)?.toMutableSet() ?: defValues)
+
+    override fun getInt(key: String?, defValue: Int): Int = values[key] as? Int ?: defValue
+
+    override fun getLong(key: String?, defValue: Long): Long = values[key] as? Long ?: defValue
+
+    override fun getFloat(key: String?, defValue: Float): Float = values[key] as? Float ?: defValue
+
+    override fun getBoolean(key: String?, defValue: Boolean): Boolean = values[key] as? Boolean ?: defValue
+
+    override fun contains(key: String?): Boolean = values.containsKey(key)
+
+    override fun edit(): SharedPreferences.Editor = Editor(values)
+
+    override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
+
+    override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
+
+    private class Editor(
+        private val values: MutableMap<String, Any?>,
+    ) : SharedPreferences.Editor {
+        override fun putString(key: String?, value: String?): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun putStringSet(key: String?, values: MutableSet<String>?): SharedPreferences.Editor = apply {
+            if (key != null) this.values[key] = values?.toSet()
+        }
+
+        override fun putInt(key: String?, value: Int): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun putLong(key: String?, value: Long): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun putFloat(key: String?, value: Float): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun putBoolean(key: String?, value: Boolean): SharedPreferences.Editor = apply {
+            if (key != null) values[key] = value
+        }
+
+        override fun remove(key: String?): SharedPreferences.Editor = apply {
+            if (key != null) values.remove(key)
+        }
+
+        override fun clear(): SharedPreferences.Editor = apply {
+            values.clear()
+        }
+
+        override fun commit(): Boolean = true
+
+        override fun apply() = Unit
     }
 }

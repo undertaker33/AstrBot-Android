@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.settings
 
 import android.widget.Toast

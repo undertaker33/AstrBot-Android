@@ -13,6 +13,7 @@ import com.astrbot.android.data.http.HttpMethod
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
+import com.astrbot.android.core.runtime.network.OkHttpRuntimeNetworkTransport
 import android.content.Context
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.chat.ConversationAttachment
@@ -124,7 +125,9 @@ object ChatCompletionService {
     private var probeSttAudioBase64: String? = null
 
     @Volatile
-    private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient()
+    private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient(
+        transport = OkHttpRuntimeNetworkTransport(),
+    )
 
     internal fun extractOpenAiStyleStreamingContentForTests(line: String): String =
         TtsPromptFormatter.extractOpenAiStyleStreamingContent(line)
@@ -156,7 +159,9 @@ object ChatCompletionService {
     ): JSONObject = buildOpenAiPayload(provider, messages, systemPrompt, tools)
 
     internal fun setHttpClientOverrideForTests(client: AstrBotHttpClient?) {
-        httpClient = client ?: OkHttpAstrBotHttpClient()
+        httpClient = client ?: OkHttpAstrBotHttpClient(
+            transport = OkHttpRuntimeNetworkTransport(),
+        )
     }
 
     fun initialize(context: Context) {
@@ -182,13 +187,21 @@ object ChatCompletionService {
     }
 
     fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
+        return probeMultimodalSupportInternal(provider, context = null)
+    }
+
+    fun probeMultimodalSupport(provider: ProviderProfile, context: Context): FeatureSupportState {
+        return probeMultimodalSupportInternal(provider, context = context)
+    }
+
+    private fun probeMultimodalSupportInternal(provider: ProviderProfile, context: Context?): FeatureSupportState {
         require(ProviderCapability.CHAT in provider.capabilities) { "Multimodal checks are only available for chat models." }
         require(provider.providerType.supportsChatCompletions()) { "This provider does not support chat completions." }
 
         val result = when {
-            provider.providerType.usesOpenAiStyleChatApi() -> probeOpenAiStyleMultimodal(provider)
-            provider.providerType == ProviderType.OLLAMA -> probeOllamaMultimodal(provider)
-            provider.providerType == ProviderType.GEMINI -> probeGeminiMultimodal(provider)
+            provider.providerType.usesOpenAiStyleChatApi() -> probeOpenAiStyleMultimodal(provider, context)
+            provider.providerType == ProviderType.OLLAMA -> probeOllamaMultimodal(provider, context)
+            provider.providerType == ProviderType.GEMINI -> probeGeminiMultimodal(provider, context)
             else -> FeatureSupportState.UNKNOWN
         }
         RuntimeLogRepository.append("Multimodal probe: provider=${provider.name} result=${result.name}")
@@ -210,13 +223,21 @@ object ChatCompletionService {
     }
 
     fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
+        return probeSttSupportInternal(provider, context = null)
+    }
+
+    fun probeSttSupport(provider: ProviderProfile, context: Context): SttProbeResult {
+        return probeSttSupportInternal(provider, context = context)
+    }
+
+    private fun probeSttSupportInternal(provider: ProviderProfile, context: Context?): SttProbeResult {
         require(ProviderCapability.STT in provider.capabilities) { "STT checks are only available for STT models." }
         val attachment = ConversationAttachment(
             id = "stt-probe",
             type = "audio",
             mimeType = PROBE_STT_AUDIO_MIME_TYPE,
             fileName = PROBE_STT_AUDIO_ASSET_NAME,
-            base64Data = requireProbeSttAudioBase64(),
+            base64Data = requireProbeSttAudioBase64(context),
         )
         val transcript = transcribeAudio(provider, attachment)
         val normalized = transcript.lowercase(Locale.US)
@@ -1041,9 +1062,9 @@ object ChatCompletionService {
         }.distinct().sorted()
     }
 
-    private fun probeOpenAiStyleMultimodal(provider: ProviderProfile): FeatureSupportState {
+    private fun probeOpenAiStyleMultimodal(provider: ProviderProfile, context: Context?): FeatureSupportState {
         require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
-        val probeImageBase64 = requireProbeImageBase64()
+        val probeImageBase64 = requireProbeImageBase64(context)
         val payload = JSONObject().apply {
             put("model", provider.model)
             put(
@@ -1175,8 +1196,8 @@ object ChatCompletionService {
         }
     }
 
-    private fun probeOllamaMultimodal(provider: ProviderProfile): FeatureSupportState {
-        val probeImageBase64 = requireProbeImageBase64()
+    private fun probeOllamaMultimodal(provider: ProviderProfile, context: Context?): FeatureSupportState {
+        val probeImageBase64 = requireProbeImageBase64(context)
         val payload = JSONObject().apply {
             put("model", provider.model)
             put("stream", false)
@@ -1201,9 +1222,9 @@ object ChatCompletionService {
         )
     }
 
-    private fun probeGeminiMultimodal(provider: ProviderProfile): FeatureSupportState {
+    private fun probeGeminiMultimodal(provider: ProviderProfile, context: Context?): FeatureSupportState {
         require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
-        val probeImageBase64 = requireProbeImageBase64()
+        val probeImageBase64 = requireProbeImageBase64(context)
         val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
         val endpoint = buildGeminiEndpoint(provider.baseUrl, "$modelName:generateContent", provider.apiKey)
         val payload = JSONObject().apply {
@@ -1818,9 +1839,9 @@ object ChatCompletionService {
         }
     }
 
-    private fun requireProbeImageBase64(): String {
+    private fun requireProbeImageBase64(contextOverride: Context? = null): String {
         probeImageBase64?.let { return it }
-        val context = appContext ?: throw IllegalStateException("ChatCompletionService is not initialized.")
+        val context = contextOverride ?: appContext ?: throw IllegalStateException("ChatCompletionService is not initialized.")
         val encoded = context.assets.open(PROBE_IMAGE_ASSET_NAME).use { stream ->
             Base64.getEncoder().encodeToString(stream.readBytes())
         }
@@ -1828,9 +1849,9 @@ object ChatCompletionService {
         return encoded
     }
 
-    private fun requireProbeSttAudioBase64(): String {
+    private fun requireProbeSttAudioBase64(contextOverride: Context? = null): String {
         probeSttAudioBase64?.let { return it }
-        val context = appContext ?: throw IllegalStateException("ChatCompletionService is not initialized.")
+        val context = contextOverride ?: appContext ?: throw IllegalStateException("ChatCompletionService is not initialized.")
         val encoded = context.assets.open(PROBE_STT_AUDIO_ASSET_NAME).use { stream ->
             Base64.getEncoder().encodeToString(stream.readBytes())
         }

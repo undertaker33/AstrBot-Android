@@ -1,34 +1,11 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.cron.runtime
 
-import com.astrbot.android.feature.cron.data.FeatureCronJobRepository
+import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
-
-interface CronJobRunRepository {
-    suspend fun getByJobId(jobId: String): CronJob?
-    suspend fun update(job: CronJob): CronJob
-    suspend fun delete(jobId: String)
-    suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord
-    suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord
-}
-
-object CronJobRunRepositoryAdapter : CronJobRunRepository {
-    override suspend fun getByJobId(jobId: String): CronJob? = FeatureCronJobRepository.getByJobId(jobId)
-    override suspend fun update(job: CronJob): CronJob = FeatureCronJobRepository.update(job)
-    override suspend fun delete(jobId: String) = FeatureCronJobRepository.delete(jobId)
-    override suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord {
-        return FeatureCronJobRepository.recordExecutionStarted(record)
-    }
-
-    override suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord {
-        return FeatureCronJobRepository.updateExecutionRecord(record)
-    }
-}
 
 fun interface ScheduledTaskExecutor {
     suspend fun execute(context: CronJobExecutionContext): CronJobDeliverySummary
@@ -88,16 +65,8 @@ class MissingScheduledTaskContextException(
 )
 
 class CronJobRunCoordinator(
-    private val repository: CronJobRunRepository = CronJobRunRepositoryAdapter,
-    private val executor: ScheduledTaskExecutor = ScheduledTaskExecutor { context ->
-        val bridge = CronJobExecutionBridge.instance
-            ?: throw CronJobExecutionFailure(
-                code = "runtime_bridge_missing",
-                retryable = true,
-                message = "No CronJobExecutionBridge registered.",
-            )
-        bridge.execute(context)
-    },
+    private val repository: CronJobRepositoryPort,
+    private val executor: ScheduledTaskExecutor,
     private val scheduler: CronRescheduler,
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val nextFireTime: (String, Long, String) -> Long = CronExpressionParser::nextFireTime,

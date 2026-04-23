@@ -18,7 +18,7 @@ class PluginRuntimeFacadeTest {
         )
         assertTrue(
             facadeClass.declaredFields.none { field ->
-                field.type.name.endsWith("PluginV1LegacyAdapter")
+                field.type.name.endsWith("PluginV1DispatchAdapter")
             },
         )
     }

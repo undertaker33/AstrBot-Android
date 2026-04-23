@@ -1,8 +1,9 @@
 package com.astrbot.android.feature.cron.domain
 
 import com.astrbot.android.model.CronJob
+import javax.inject.Inject
 
-class CronJobUseCases(
+class CronJobUseCases @Inject constructor(
     private val repository: CronJobRepositoryPort,
     private val scheduler: CronSchedulerPort,
 ) {

@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.di.hilt
 
 import com.astrbot.android.core.common.logging.RuntimeLogRepository

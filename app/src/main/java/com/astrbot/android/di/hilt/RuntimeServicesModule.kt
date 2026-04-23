@@ -7,6 +7,8 @@ import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
 import com.astrbot.android.core.runtime.llm.HiltLlmProviderProbePort
+import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
+import com.astrbot.android.core.runtime.audio.TencentSilkEncoder
 import com.astrbot.android.di.ProductionContainerBridgeStatePort
 import com.astrbot.android.di.ProductionRuntimeContextDataPort
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
@@ -15,14 +17,19 @@ import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
+import com.astrbot.android.feature.cron.data.FeatureCronSchedulerPortAdapter
+import com.astrbot.android.feature.cron.domain.ActiveCapabilityTaskPort
+import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
+import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.feature.cron.runtime.CronJobRunCoordinator
+import com.astrbot.android.feature.cron.runtime.CronRuntimeService
 import com.astrbot.android.feature.cron.runtime.CronRescheduler
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskExecutor
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeExecutor
 import com.astrbot.android.feature.cron.runtime.WorkManagerCronRescheduler
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
+import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
@@ -41,14 +48,19 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.plugin.runtime.toolsource.FutureToolSourceContextResolver
+import com.astrbot.android.feature.plugin.runtime.toolsource.FutureToolSourceRegistry
+import com.astrbot.android.feature.plugin.runtime.toolsource.PortBackedFutureToolSourceContextResolver
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
 import com.astrbot.android.feature.qq.domain.QqPlatformConfigPort
 import com.astrbot.android.feature.qq.runtime.DefaultQqProviderInvoker
 import com.astrbot.android.feature.qq.runtime.HiltQqOneBotBridgeRuntime
+import com.astrbot.android.feature.qq.runtime.HiltQqRuntimeGraphFactory
 import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
 import com.astrbot.android.feature.qq.runtime.QqOneBotRuntimeDependencies
 import com.astrbot.android.feature.qq.runtime.QqPluginExecutionService
+import com.astrbot.android.feature.qq.runtime.QqRuntimeGraphFactory
 import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import dagger.Module
 import dagger.Provides
@@ -100,9 +112,9 @@ internal object RuntimeServicesModule {
     @Provides
     @Singleton
     fun provideExternalPluginRuntimeCatalog(
-        pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
+        repositoryStatePort: PluginRepositoryStatePort,
     ): ExternalPluginRuntimeCatalog = ExternalPluginRuntimeCatalog(
-        repositoryStatePort = pluginRepositoryStateOwner,
+        repositoryStatePort = repositoryStatePort,
     )
 
     @Provides
@@ -115,14 +127,16 @@ internal object RuntimeServicesModule {
         pluginV2DispatchEngine: PluginV2DispatchEngine,
         pluginV2LifecycleManager: PluginV2LifecycleManager,
         logBus: PluginRuntimeLogBus,
+        futureToolSourceRegistry: FutureToolSourceRegistry,
     ): AppChatPluginRuntime = EngineBackedAppChatPluginRuntime(
-        pluginCatalog = pluginCatalog,
-        engine = engine,
-        hostCapabilityGateway = hostCapabilityGateway,
-        activeRuntimeStore = activeRuntimeStore,
-        dispatchEngine = pluginV2DispatchEngine,
-        lifecycleManager = pluginV2LifecycleManager,
-        logBus = logBus,
+        pluginCatalog,
+        engine,
+        hostCapabilityGateway,
+        activeRuntimeStore,
+        pluginV2DispatchEngine,
+        logBus,
+        pluginV2LifecycleManager,
+        futureToolSourceRegistry,
     )
 
     @Provides
@@ -182,15 +196,35 @@ internal object RuntimeServicesModule {
     }
 
     @Provides
+    @Singleton
+    fun provideFutureToolSourceContextResolver(
+        resolver: PortBackedFutureToolSourceContextResolver,
+    ): FutureToolSourceContextResolver = resolver
+
+    @Provides
+    @Singleton
+    fun provideCronSchedulerPort(
+        @ApplicationContext appContext: Context,
+    ): CronSchedulerPort = FeatureCronSchedulerPortAdapter(appContext)
+
+    @Provides
+    @Singleton
+    fun provideActiveCapabilityTaskPort(
+        runtimeService: CronRuntimeService,
+    ): ActiveCapabilityTaskPort = runtimeService
+
+    @Provides
     fun provideCronRescheduler(
         @ApplicationContext appContext: Context,
     ): CronRescheduler = WorkManagerCronRescheduler(appContext)
 
     @Provides
     fun provideCronJobRunCoordinator(
+        repository: CronJobRepositoryPort,
         scheduler: CronRescheduler,
         executor: ScheduledTaskExecutor,
     ): CronJobRunCoordinator = CronJobRunCoordinator(
+        repository = repository,
         scheduler = scheduler,
         executor = executor,
     )
@@ -218,6 +252,7 @@ internal object RuntimeServicesModule {
         pluginExecutionService: QqPluginExecutionService,
         llmProviderProbePort: LlmProviderProbePort,
         logBus: PluginRuntimeLogBus,
+        tencentSilkEncoder: TencentSilkEncoder,
     ): QqOneBotRuntimeDependencies {
         return QqOneBotRuntimeDependencies(
             botPort = botPort,
@@ -240,8 +275,15 @@ internal object RuntimeServicesModule {
             pluginExecutionService = pluginExecutionService,
             llmProviderProbePort = llmProviderProbePort,
             logBus = logBus,
+            silkAudioEncoder = tencentSilkEncoder::encode,
         )
     }
+
+    @Provides
+    @Singleton
+    fun provideQqRuntimeGraphFactory(
+        factory: HiltQqRuntimeGraphFactory,
+    ): QqRuntimeGraphFactory = factory
 
     @Provides
     @Singleton

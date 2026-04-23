@@ -12,9 +12,7 @@ import com.astrbot.android.model.chat.ConversationAttachment
 internal class HiltLlmProviderProbePort(
     appContext: Context,
 ) : LlmProviderProbePort {
-    init {
-        ChatCompletionService.initialize(appContext)
-    }
+    private val appContext = appContext.applicationContext
 
     override fun fetchModels(baseUrl: String, apiKey: String, providerType: ProviderType): List<String> {
         return ChatCompletionService.fetchModels(baseUrl, apiKey, providerType)
@@ -25,7 +23,7 @@ internal class HiltLlmProviderProbePort(
     }
 
     override fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
-        return ChatCompletionService.probeMultimodalSupport(provider)
+        return ChatCompletionService.probeMultimodalSupport(provider, appContext)
     }
 
     override fun detectNativeStreamingRule(provider: ProviderProfile): FeatureSupportState {
@@ -37,7 +35,7 @@ internal class HiltLlmProviderProbePort(
     }
 
     override fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
-        val result = ChatCompletionService.probeSttSupport(provider)
+        val result = ChatCompletionService.probeSttSupport(provider, appContext)
         return SttProbeResult(state = result.state, transcript = result.transcript)
     }
 

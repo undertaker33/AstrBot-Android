@@ -1,27 +1,18 @@
 package com.astrbot.android.feature.cron.runtime
 
 import com.astrbot.android.feature.cron.domain.ActiveCapabilityTaskPort
-import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.feature.cron.domain.CronTaskCreateRequest
 import com.astrbot.android.feature.cron.domain.CronTaskCreateResult
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityCreateTaskRequest
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityRuntimeFacade
-import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityScheduler
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTargetContext
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTaskCreation
-import com.astrbot.android.model.CronJob
+import javax.inject.Inject
 
-class CronRuntimeService(
-    private val schedulerPort: CronSchedulerPort,
+class CronRuntimeService @Inject constructor(
+    private val facade: ActiveCapabilityRuntimeFacade,
 ) : ActiveCapabilityTaskPort {
-
     override suspend fun createFutureTask(request: CronTaskCreateRequest): CronTaskCreateResult {
-        val facade = ActiveCapabilityRuntimeFacade(
-            scheduler = object : ActiveCapabilityScheduler {
-                override fun schedule(job: CronJob) = schedulerPort.schedule(job)
-                override fun cancel(jobId: String) = schedulerPort.cancel(jobId)
-            },
-        )
         val runtimeRequest = ActiveCapabilityCreateTaskRequest(
             payload = request.payload,
             metadata = null,

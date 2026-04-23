@@ -3,13 +3,13 @@ package com.astrbot.android.runtime.llm
 import com.astrbot.android.core.runtime.llm.LlmToolCall
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
-import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter.Companion.toLegacyToolDefinition
-import com.astrbot.android.runtime.llm.LegacyChatCompletionServiceAdapter.Companion.toLlmInvocationResult
+import com.astrbot.android.core.runtime.llm.LlmInvocationResult
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class LegacyChatCompletionServiceAdapterTest {
+class ChatCompletionServiceLlmInteropTest {
 
     @Test
     fun tool_definition_conversion_accepts_blank_parameters_as_empty_object() {
@@ -18,7 +18,7 @@ class LegacyChatCompletionServiceAdapterTest {
             description = "A test tool",
             parametersJson = "",
         )
-        val legacy = definition.toLegacyToolDefinition()
+        val legacy = definition.toChatToolDefinitionForTest()
         assertEquals("test_tool", legacy.name)
         assertEquals("A test tool", legacy.description)
         assertEquals("{}", legacy.parameters.toString())
@@ -32,7 +32,7 @@ class LegacyChatCompletionServiceAdapterTest {
             description = "Search the web",
             parametersJson = json,
         )
-        val legacy = definition.toLegacyToolDefinition()
+        val legacy = definition.toChatToolDefinitionForTest()
         assertEquals("search", legacy.name)
         assertEquals("Search the web", legacy.description)
         assertTrue(legacy.parameters.has("type"))
@@ -45,7 +45,7 @@ class LegacyChatCompletionServiceAdapterTest {
             text = "Hello world",
             toolCalls = emptyList(),
         )
-        val result = legacyResult.toLlmInvocationResult()
+        val result = legacyResult.toLlmInvocationResultForTest()
         assertEquals("Hello world", result.text)
         assertTrue(result.toolCalls.isEmpty())
         assertEquals("stop", result.finishReason)
@@ -63,7 +63,7 @@ class LegacyChatCompletionServiceAdapterTest {
                 ),
             ),
         )
-        val result = legacyResult.toLlmInvocationResult()
+        val result = legacyResult.toLlmInvocationResultForTest()
         assertEquals("", result.text)
         assertEquals(1, result.toolCalls.size)
         assertEquals("tool_calls", result.finishReason)
@@ -83,11 +83,34 @@ class LegacyChatCompletionServiceAdapterTest {
                 ChatCompletionService.ChatToolCall(id = "tc2", name = "tool_b", arguments = """{"x":1}"""),
             ),
         )
-        val result = legacyResult.toLlmInvocationResult()
+        val result = legacyResult.toLlmInvocationResultForTest()
         assertEquals("Let me help", result.text)
         assertEquals(2, result.toolCalls.size)
         assertEquals("tool_calls", result.finishReason)
         assertEquals("tc1", result.toolCalls[0].id)
         assertEquals("tc2", result.toolCalls[1].id)
     }
+}
+
+private fun LlmToolDefinition.toChatToolDefinitionForTest(): ChatCompletionService.ChatToolDefinition {
+    val safeParameters = parametersJson.ifBlank { "{}" }
+    return ChatCompletionService.ChatToolDefinition(
+        name = name,
+        description = description,
+        parameters = JSONObject(safeParameters),
+    )
+}
+
+private fun ChatCompletionService.ChatCompletionResult.toLlmInvocationResultForTest(): LlmInvocationResult {
+    return LlmInvocationResult(
+        text = text,
+        toolCalls = toolCalls.map { tc ->
+            LlmToolCall(
+                id = tc.id,
+                name = tc.name,
+                arguments = tc.arguments,
+            )
+        },
+        finishReason = if (toolCalls.isNotEmpty()) "tool_calls" else "stop",
+    )
 }

@@ -9,9 +9,6 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.core.common.logging.AppLogger
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -25,15 +22,6 @@ import java.util.concurrent.TimeUnit
 object CronJobScheduler {
 
     private const val WORK_TAG = "cron_job"
-
-    fun initialize(context: Context) {
-        // Reschedule all enabled jobs on app start.
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-            val enabledJobs = com.astrbot.android.feature.cron.data.FeatureCronJobRepository.listEnabled()
-            AppLogger.append("CronJobScheduler: re-scheduling ${enabledJobs.size} enabled jobs")
-            enabledJobs.forEach { job -> scheduleJob(context, job) }
-        }
-    }
 
     fun scheduleJob(context: Context, job: CronJob) {
         if (!job.enabled) {

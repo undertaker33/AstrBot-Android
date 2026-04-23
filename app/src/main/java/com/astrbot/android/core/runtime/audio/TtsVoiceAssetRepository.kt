@@ -9,11 +9,8 @@ import android.content.SharedPreferences
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
-import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.data.db.TtsVoiceAssetAggregate
 import com.astrbot.android.data.db.TtsVoiceAssetAggregateDao
-import com.astrbot.android.data.db.TtsVoiceAssetEntity
-import com.astrbot.android.data.db.TtsVoiceAssetWriteModel
 import com.astrbot.android.data.db.toModel
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.ClonedVoiceBinding
@@ -22,36 +19,40 @@ import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.TtsVoiceReferenceClip
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-object TtsVoiceAssetRepository {
-    private const val PREFS_NAME = "tts_voice_assets"
-    private const val KEY_ASSETS_JSON = "assets_json"
+@Singleton
+class TtsVoiceAssetRepository @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    private val assetDao: TtsVoiceAssetAggregateDao,
+) {
+    private val prefsName = "tts_voice_assets"
+    private val keyAssetsJson = "assets_json"
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeMutex = Mutex()
-    private var legacyPreferences: SharedPreferences? = null
-    private var assetDao: TtsVoiceAssetAggregateDao = TtsVoiceAssetAggregateDaoPlaceholder.instance
+    private val legacyPreferences: SharedPreferences =
+        appContext.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val _assets = MutableStateFlow<List<TtsVoiceReferenceAsset>>(emptyList())
 
     val assets: StateFlow<List<TtsVoiceReferenceAsset>> = _assets.asStateFlow()
 
-    fun initialize(context: Context) {
-        val database = AstrBotDatabase.get(context)
-        assetDao = database.ttsVoiceAssetAggregateDao()
-        legacyPreferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    init {
+        graphInstance = this
         repositoryScope.launch {
             writeMutex.withLock {
                 seedStorageIfNeeded()
@@ -87,7 +88,6 @@ object TtsVoiceAssetRepository {
         name: String = "",
         assetId: String? = null,
     ): ImportReferenceAudioResult {
-        val appContext = context.applicationContext
         val resolver = appContext.contentResolver
         val sourceDisplayName = queryDisplayName(appContext, sourceUri)
         val fileExtension = inferSupportedExtension(
@@ -337,7 +337,7 @@ object TtsVoiceAssetRepository {
     private suspend fun seedStorageIfNeeded() {
         if (assetDao.count() > 0) return
         val imported = runCatching {
-            parseLegacyTtsVoiceAssets(legacyPreferences?.getString(KEY_ASSETS_JSON, null))
+            parseLegacyTtsVoiceAssets(legacyPreferences.getString(keyAssetsJson, null))
         }.onFailure { error ->
             RuntimeLogRepository.append("TTS voice assets legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrDefault(emptyList())
@@ -407,19 +407,80 @@ object TtsVoiceAssetRepository {
         val durationMs: Long,
         val sampleRateHz: Int,
     )
-}
 
-private object TtsVoiceAssetAggregateDaoPlaceholder {
-    val instance = object : TtsVoiceAssetAggregateDao() {
-        override fun observeAssetAggregates() = flowOf(emptyList<TtsVoiceAssetAggregate>())
-        override suspend fun listAssetAggregates(): List<TtsVoiceAssetAggregate> = emptyList()
-        override suspend fun upsertAssets(entities: List<TtsVoiceAssetEntity>) = Unit
-        override suspend fun upsertClips(entities: List<com.astrbot.android.data.db.TtsVoiceClipEntity>) = Unit
-        override suspend fun upsertProviderBindings(entities: List<com.astrbot.android.data.db.TtsVoiceProviderBindingEntity>) = Unit
-        override suspend fun deleteMissingAssets(ids: List<String>) = Unit
-        override suspend fun clearAssets() = Unit
-        override suspend fun deleteClipsForAssets(assetIds: List<String>) = Unit
-        override suspend fun deleteBindingsForAssets(assetIds: List<String>) = Unit
-        override suspend fun count(): Int = 0
+    companion object {
+        @Volatile
+        private var graphInstance: TtsVoiceAssetRepository? = null
+
+        private fun requireInstance(): TtsVoiceAssetRepository {
+            return graphInstance ?: error("TtsVoiceAssetRepository graph instance is unavailable.")
+        }
+
+        val assets: StateFlow<List<TtsVoiceReferenceAsset>>
+            get() = requireInstance().assets
+
+        fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>> {
+            return requireInstance().listVoiceChoicesFor(provider)
+        }
+
+        fun importReferenceAudio(
+            context: Context,
+            sourceUri: Uri,
+            name: String = "",
+            assetId: String? = null,
+        ): ImportReferenceAudioResult {
+            return requireInstance().importReferenceAudio(
+                context = context,
+                sourceUri = sourceUri,
+                name = name,
+                assetId = assetId,
+            )
+        }
+
+        fun saveProviderBinding(
+            assetId: String,
+            providerId: String,
+            providerType: ProviderType,
+            model: String,
+            voiceId: String,
+            displayName: String,
+        ) {
+            requireInstance().saveProviderBinding(
+                assetId = assetId,
+                providerId = providerId,
+                providerType = providerType,
+                model = model,
+                voiceId = voiceId,
+                displayName = displayName,
+            )
+        }
+
+        fun renameBinding(assetId: String, bindingId: String, displayName: String) {
+            requireInstance().renameBinding(
+                assetId = assetId,
+                bindingId = bindingId,
+                displayName = displayName,
+            )
+        }
+
+        fun clearReferenceAudio(assetId: String) {
+            requireInstance().clearReferenceAudio(assetId)
+        }
+
+        fun deleteReferenceClip(assetId: String, clipId: String) {
+            requireInstance().deleteReferenceClip(assetId, clipId)
+        }
+
+        fun deleteBinding(assetId: String, bindingId: String) {
+            requireInstance().deleteBinding(assetId, bindingId)
+        }
+
+        fun snapshotAssets(): List<TtsVoiceReferenceAsset> {
+            return requireInstance().snapshotAssets()
+        }
+
+        fun restoreAssets(assets: List<TtsVoiceReferenceAsset>) {
+            requireInstance().restoreAssets(assets)
+        }
     }
 }

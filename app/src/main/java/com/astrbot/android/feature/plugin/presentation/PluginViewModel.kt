@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.ui.viewmodel
 
 import android.content.Context
@@ -65,6 +63,7 @@ import com.astrbot.android.model.plugin.PluginStaticConfigField
 import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
 import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
+import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
 import com.astrbot.android.model.plugin.ExternalPluginWorkspacePolicy
 import com.astrbot.android.model.plugin.PluginSourceType
@@ -756,9 +755,14 @@ class PluginViewModel @Inject constructor(
     private val catalogEntries = bindings.catalogEntries
     private val governanceReadModels = bindings.governanceReadModels
     private val logBus = bindings.logBus
+    val runtimeLogRecords: StateFlow<List<PluginRuntimeLogRecord>> = logBus.records
 
     private companion object {
         const val MARKET_REFRESH_TIMEOUT_MILLIS = 15_000L
+    }
+
+    fun clearPluginRuntimeLogs(pluginId: String) {
+        logBus.clearPlugin(pluginId)
     }
 
     private suspend fun handleInstallIntent(

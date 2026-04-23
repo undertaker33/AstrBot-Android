@@ -1,57 +1,123 @@
 package com.astrbot.android.feature.provider.data
 
-import kotlinx.coroutines.flow.collect
-
-import android.content.Context
 import android.content.SharedPreferences
-import com.astrbot.android.data.parseLegacyProviderProfiles
-import com.astrbot.android.data.db.AstrBotDatabase
-import com.astrbot.android.data.db.ProviderAggregate
+import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.common.profile.ProviderReferenceGuard
 import com.astrbot.android.data.db.ProviderAggregateDao
-import com.astrbot.android.data.db.ProviderEntity
-import com.astrbot.android.data.db.ProviderWriteModel
 import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.data.db.toWriteModel
+import com.astrbot.android.data.parseLegacyProviderProfiles
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.defaultCapability
 import com.astrbot.android.model.inferMultimodalRuleSupport
-import com.astrbot.android.core.common.profile.ProviderReferenceGuard
 import com.astrbot.android.model.inferNativeStreamingRuleSupport
-import com.astrbot.android.core.common.logging.AppLogger
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
+import javax.inject.Named
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 @Deprecated("Use ProviderRepositoryPort from feature/provider/domain. Direct access will be removed.")
 object FeatureProviderRepository {
-    private const val PREFS_NAME = "provider_profiles"
     private const val KEY_PROVIDERS_JSON = "providers_json"
 
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val initialized = AtomicBoolean(false)
+    @Volatile
+    private var delegate: FeatureProviderRepositoryStore? = null
 
-    private var preferences: SharedPreferences? = null
-    private var providerDao: ProviderAggregateDao = ProviderDaoPlaceholder.instance
+    internal fun installDelegate(store: FeatureProviderRepositoryStore) {
+        delegate = store
+    }
+
+    private fun repository(): FeatureProviderRepositoryStore {
+        return checkNotNull(delegate) {
+            "FeatureProviderRepository was accessed before the Hilt graph created FeatureProviderRepositoryStore."
+        }
+    }
+
+    val providers: StateFlow<List<ProviderProfile>>
+        get() = repository().providers
+
+    fun save(
+        id: String?,
+        name: String,
+        baseUrl: String,
+        model: String,
+        providerType: ProviderType,
+        apiKey: String,
+        capabilities: Set<ProviderCapability>,
+        enabled: Boolean,
+        multimodalRuleSupport: FeatureSupportState,
+        multimodalProbeSupport: FeatureSupportState,
+        nativeStreamingRuleSupport: FeatureSupportState,
+        nativeStreamingProbeSupport: FeatureSupportState,
+        sttProbeSupport: FeatureSupportState,
+        ttsProbeSupport: FeatureSupportState,
+        ttsVoiceOptions: List<String>,
+    ): ProviderProfile = repository().save(
+        id = id,
+        name = name,
+        baseUrl = baseUrl,
+        model = model,
+        providerType = providerType,
+        apiKey = apiKey,
+        capabilities = capabilities,
+        enabled = enabled,
+        multimodalRuleSupport = multimodalRuleSupport,
+        multimodalProbeSupport = multimodalProbeSupport,
+        nativeStreamingRuleSupport = nativeStreamingRuleSupport,
+        nativeStreamingProbeSupport = nativeStreamingProbeSupport,
+        sttProbeSupport = sttProbeSupport,
+        ttsProbeSupport = ttsProbeSupport,
+        ttsVoiceOptions = ttsVoiceOptions,
+    )
+
+    fun toggleEnabled(id: String) = repository().toggleEnabled(id)
+
+    fun delete(id: String) = repository().delete(id)
+
+    fun snapshotProfiles(): List<ProviderProfile> = repository().snapshotProfiles()
+
+    fun restoreProfiles(profiles: List<ProviderProfile>) = repository().restoreProfiles(profiles)
+
+    fun updateMultimodalProbeSupport(id: String, probeSupport: FeatureSupportState) =
+        repository().updateMultimodalProbeSupport(id, probeSupport)
+
+    fun updateNativeStreamingProbeSupport(id: String, probeSupport: FeatureSupportState) =
+        repository().updateNativeStreamingProbeSupport(id, probeSupport)
+
+    fun updateSttProbeSupport(id: String, probeSupport: FeatureSupportState) =
+        repository().updateSttProbeSupport(id, probeSupport)
+
+    fun updateTtsProbeSupport(id: String, probeSupport: FeatureSupportState) =
+        repository().updateTtsProbeSupport(id, probeSupport)
+
+    internal fun legacyProvidersJson(preferences: SharedPreferences): String? =
+        preferences.getString(KEY_PROVIDERS_JSON, null)
+}
+
+@Singleton
+class FeatureProviderRepositoryStore @Inject constructor(
+    private val providerDao: ProviderAggregateDao,
+    @Named("providerProfilesPreferences") private val preferences: SharedPreferences,
+) {
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _providers = MutableStateFlow(defaultProviders())
 
     val providers: StateFlow<List<ProviderProfile>> = _providers.asStateFlow()
 
-    fun initialize(context: Context) {
-        if (!initialized.compareAndSet(false, true)) return
-        preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        providerDao = AstrBotDatabase.get(context).providerAggregateDao()
-
+    init {
+        FeatureProviderRepository.installDelegate(this)
         runBlocking(Dispatchers.IO) {
             seedStorageIfNeeded()
         }
@@ -206,7 +272,7 @@ object FeatureProviderRepository {
     private suspend fun seedStorageIfNeeded() {
         if (providerDao.count() > 0) return
         val imported = runCatching {
-            parseLegacyProviderProfiles(preferences?.getString(KEY_PROVIDERS_JSON, null))
+            parseLegacyProviderProfiles(FeatureProviderRepository.legacyProvidersJson(preferences))
         }.onFailure { error ->
             AppLogger.append("Provider catalog legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrDefault(emptyList())
@@ -223,21 +289,15 @@ object FeatureProviderRepository {
         )
     }
 
-    /**
-     * Legacy mojibake patterns that appear in corrupted OpenAI provider names.
-     * These originate from the default Chinese name "OpenAI 鑱婂ぉ" being stored via
-     * a Latin-1/GBK encoding mismatch in early database versions. We detect them
-     * here so that corrupted records are silently repaired to "OpenAI Chat".
-     */
-    private val LEGACY_MOJIBAKE_OPENAI_PATTERNS = listOf(
-        "\u9390\u7535\u9426\uff1f",   // 閻庣數閻?  鈥?mojibake of partial "鑱婂ぉ"
-        "\u95fb\u5ea3\u6578\u9862\u5a47\u60c1", // 闁诲海鏁搁、濠囨儊 鈥?mojibake of "OpenAI 鑱婂ぉ" prefix
+    private val legacyMojibakeOpenAiPatterns = listOf(
+        "\u9390\u7535\u9426\uff1f",
+        "\u95fb\u5ea3\u6578\u9862\u5a47\u60c1",
     )
 
     private fun normalizeProvider(provider: ProviderProfile): ProviderProfile {
         val normalizedName = when {
             provider.id == "openai-chat" && provider.name.isBlank() -> "OpenAI Chat"
-            provider.id == "openai-chat" && LEGACY_MOJIBAKE_OPENAI_PATTERNS.any { provider.name.contains(it) } ->
+            provider.id == "openai-chat" && legacyMojibakeOpenAiPatterns.any { provider.name.contains(it) } ->
                 "OpenAI Chat"
             else -> provider.name
         }
@@ -279,19 +339,3 @@ object FeatureProviderRepository {
         ),
     )
 }
-
-private object ProviderDaoPlaceholder {
-    val instance = object : ProviderAggregateDao() {
-        override fun observeProviderAggregates() = flowOf(emptyList<ProviderAggregate>())
-        override suspend fun listProviderAggregates(): List<ProviderAggregate> = emptyList()
-        override suspend fun upsertProviders(entities: List<ProviderEntity>) = Unit
-        override suspend fun upsertCapabilities(entities: List<com.astrbot.android.data.db.ProviderCapabilityEntity>) = Unit
-        override suspend fun upsertVoiceOptions(entities: List<com.astrbot.android.data.db.ProviderTtsVoiceOptionEntity>) = Unit
-        override suspend fun deleteMissingProviders(ids: List<String>) = Unit
-        override suspend fun clearProviders() = Unit
-        override suspend fun deleteCapabilities(providerIds: List<String>) = Unit
-        override suspend fun deleteVoiceOptions(providerIds: List<String>) = Unit
-        override suspend fun count(): Int = 0
-    }
-}
-

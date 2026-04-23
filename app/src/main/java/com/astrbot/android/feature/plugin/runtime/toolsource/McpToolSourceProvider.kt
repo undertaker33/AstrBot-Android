@@ -8,6 +8,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceKind
 import com.astrbot.android.feature.plugin.runtime.PluginToolVisibility
 import com.astrbot.android.feature.plugin.runtime.mcp.McpSessionManager
+import javax.inject.Inject
 
 /**
  * MCP (Model Context Protocol) tool source provider.
@@ -18,7 +19,9 @@ import com.astrbot.android.feature.plugin.runtime.mcp.McpSessionManager
  * On Android, only remote streamable_http MCP transports are supported.
  * stdio-based MCP is not feasible without a local subprocess runtime.
  */
-class McpToolSourceProvider : FutureToolSourceProvider {
+class McpToolSourceProvider @Inject constructor(
+    override val contextResolver: FutureToolSourceContextResolver,
+) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.MCP
 
     override suspend fun listBindings(
@@ -187,7 +190,7 @@ class McpToolSourceProvider : FutureToolSourceProvider {
         ownerId: String,
     ): McpServerEntry? {
         val resolvedConfigId = configProfileId?.takeIf { it.isNotBlank() } ?: return null
-        val context = toolSourceContext ?: FutureToolSourceRegistry.contextForConfig(resolvedConfigId)
+        val context = toolSourceContext ?: contextResolver.resolveForConfig(resolvedConfigId)
         return context.mcpServers.firstOrNull { server -> "mcp.${server.serverId}" == ownerId && server.active }
     }
 

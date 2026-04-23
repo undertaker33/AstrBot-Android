@@ -1,9 +1,6 @@
 package com.astrbot.android.feature.plugin.data
 
-import kotlinx.coroutines.flow.collect
-
 import android.content.Context
-import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.data.db.PluginCatalogDao
 import com.astrbot.android.data.db.PluginCatalogEntryEntity
 import com.astrbot.android.data.db.PluginCatalogSourceEntity
@@ -49,18 +46,18 @@ import com.astrbot.android.feature.plugin.runtime.PluginPackageValidationResult
 import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
 import com.astrbot.android.feature.plugin.runtime.compareVersions
 import com.astrbot.android.feature.plugin.runtime.normalizeArchiveEntryName
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.util.zip.ZipInputStream
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -97,52 +94,14 @@ internal object EmptyPluginRepositoryStatePort : PluginRepositoryStatePort {
 
 @Singleton
 class FeaturePluginRepositoryStateOwner @Inject constructor(
-    @ApplicationContext appContext: Context,
-    pluginDao: PluginInstallAggregateDao,
-    pluginCatalogDao: PluginCatalogDao,
-    pluginConfigDao: PluginConfigSnapshotDao,
+    private val repository: FeaturePluginRepository,
 ) : PluginRepositoryStatePort {
-    private val repository = FeaturePluginRepository
-    private val ownerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val _records = MutableStateFlow<List<PluginInstallRecord>>(emptyList())
-    private val _repositorySources = MutableStateFlow<List<PluginRepositorySource>>(emptyList())
-    private val _catalogEntries = MutableStateFlow<List<PluginCatalogEntryRecord>>(emptyList())
-
-    init {
-        repository.installPersistence(
-            pluginDao = pluginDao,
-            pluginCatalogDao = pluginCatalogDao,
-            pluginConfigDao = pluginConfigDao,
-        )
-        repository.initialize(appContext)
-        ownerScope.launch {
-            repository.records.collect { records ->
-                _records.value = records
-            }
-        }
-        ownerScope.launch {
-            repository.repositorySources.collect { sources ->
-                _repositorySources.value = sources
-            }
-        }
-        ownerScope.launch {
-            repository.catalogEntries.collect { entries ->
-                _catalogEntries.value = entries
-            }
-        }
-    }
-
-    override val records: StateFlow<List<PluginInstallRecord>> = _records.asStateFlow()
-    override val repositorySources: StateFlow<List<PluginRepositorySource>> = _repositorySources.asStateFlow()
-    override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = _catalogEntries.asStateFlow()
+    override val records: StateFlow<List<PluginInstallRecord>> = repository.records
+    override val repositorySources: StateFlow<List<PluginRepositorySource>> = repository.repositorySources
+    override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = repository.catalogEntries
 
     override fun findByPluginId(pluginId: String): PluginInstallRecord? {
-        _records.value.firstOrNull { record -> record.pluginId == pluginId }?.let { return it }
         return repository.findByPluginId(pluginId)
-    }
-
-    fun initialize(context: Context) {
-        repository.initialize(context)
     }
 }
 
@@ -185,18 +144,17 @@ class PluginPackageInstallBlockedException(
 
 @Deprecated("Use PluginRepositoryPort from feature/plugin/domain. Direct access will be removed.")
 @Suppress("DEPRECATION")
-object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
-    const val SUPPORTED_PROTOCOL_VERSION = 2
-
+@Singleton
+class FeaturePluginRepository @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    private val pluginDao: PluginInstallAggregateDao,
+    private val pluginCatalogDao: PluginCatalogDao,
+    private val pluginConfigDao: PluginConfigSnapshotDao,
+) : PluginInstallStore, PluginCatalogSyncStore {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val initialized = AtomicBoolean(false)
-
-    private var appContext: Context? = null
-    private var pluginDao: PluginInstallAggregateDao? = null
-    private var pluginCatalogDao: PluginCatalogDao? = null
-    private var pluginConfigDao: PluginConfigSnapshotDao? = null
     private var timeProvider: () -> Long = System::currentTimeMillis
-    private var pluginDataRemover: PluginDataRemover = NoOpPluginDataRemover
+    private var pluginDataRemover: PluginDataRemover =
+        PluginFileDataRemover(PluginStoragePaths.fromFilesDir(appContext.filesDir))
     private val _records = MutableStateFlow<List<PluginInstallRecord>>(emptyList())
     private val _repositorySources = MutableStateFlow<List<PluginRepositorySource>>(emptyList())
     private val _catalogEntries = MutableStateFlow<List<PluginCatalogEntryRecord>>(emptyList())
@@ -205,31 +163,16 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     val repositorySources: StateFlow<List<PluginRepositorySource>> = _repositorySources.asStateFlow()
     val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = _catalogEntries.asStateFlow()
 
-    internal fun installPersistence(
-        pluginDao: PluginInstallAggregateDao,
-        pluginCatalogDao: PluginCatalogDao,
-        pluginConfigDao: PluginConfigSnapshotDao,
-    ) {
-        this.pluginDao = pluginDao
-        this.pluginCatalogDao = pluginCatalogDao
-        this.pluginConfigDao = pluginConfigDao
-    }
-
-    fun initialize(context: Context) {
-        if (!initialized.compareAndSet(false, true)) return
-        val applicationContext = context.applicationContext
-        appContext = applicationContext
-        pluginDataRemover = PluginFileDataRemover(PluginStoragePaths.fromFilesDir(applicationContext.filesDir))
-        ensurePersistence(context)
-        val dao = requireDao()
+    init {
+        graphInstance = this
         _records.value = runBlocking(Dispatchers.IO) {
-            dao.listPluginInstallAggregates()
+            pluginDao.listPluginInstallAggregates()
                 .map(PluginInstallAggregate::toInstallRecord)
                 .map(::repairAndProjectInstallRecordForHost)
         }
         refreshCatalogState()
         repositoryScope.launch {
-            dao.observePluginInstallAggregates().collect { aggregates ->
+            pluginDao.observePluginInstallAggregates().collect { aggregates ->
                 _records.value = aggregates
                     .map(PluginInstallAggregate::toInstallRecord)
                     .map(::repairAndProjectInstallRecordForHost)
@@ -238,10 +181,9 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 
     override fun findByPluginId(pluginId: String): PluginInstallRecord? {
-        requireInitialized()
         _records.value.firstOrNull { record -> record.pluginId == pluginId }?.let { return it }
         return runBlocking(Dispatchers.IO) {
-            requireDao().getPluginInstallAggregate(pluginId)
+            pluginDao.getPluginInstallAggregate(pluginId)
                 ?.toInstallRecord()
                 ?.let(::repairAndProjectInstallRecordForHost)
         }?.also { persistedRecord ->
@@ -253,10 +195,9 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 
     override fun upsert(record: PluginInstallRecord) {
-        requireInitialized()
         val projectedRecord = projectInstallRecordForHost(record)
         runBlocking(Dispatchers.IO) {
-            requireDao().upsertRecord(projectedRecord.toWriteModel())
+            pluginDao.upsertRecord(projectedRecord.toWriteModel())
         }
         _records.value = _records.value
             .filterNot { current -> current.pluginId == projectedRecord.pluginId }
@@ -265,18 +206,16 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 
     fun delete(pluginId: String) {
-        requireInitialized()
         runBlocking(Dispatchers.IO) {
-            requireDao().delete(pluginId)
+            pluginDao.delete(pluginId)
         }
         _records.value = _records.value.filterNot { record -> record.pluginId == pluginId }
     }
 
     override fun replaceRepositoryCatalog(source: PluginRepositorySource) {
-        requireInitialized()
         val writeModel = source.toWriteModel()
         runBlocking(Dispatchers.IO) {
-            requireCatalogDao().replaceCatalog(
+            pluginCatalogDao.replaceCatalog(
                 source = writeModel.source,
                 entries = writeModel.entries,
                 versions = writeModel.versions,
@@ -286,7 +225,6 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 
     override fun upsertRepositorySource(source: PluginRepositorySource) {
-        requireInitialized()
         val sourceEntity = PluginCatalogSourceEntity(
             sourceId = source.sourceId,
             title = source.title,
@@ -297,16 +235,15 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
             lastSyncErrorSummary = source.lastSyncErrorSummary,
         )
         runBlocking(Dispatchers.IO) {
-            requireCatalogDao().upsertSources(listOf(sourceEntity))
+            pluginCatalogDao.upsertSources(listOf(sourceEntity))
         }
         refreshCatalogState()
     }
 
     override fun listRepositorySources(): List<PluginRepositorySource> {
-        requireInitialized()
         return runBlocking(Dispatchers.IO) {
             buildList {
-                requireCatalogDao().listSources().forEach { entity ->
+                pluginCatalogDao.listSources().forEach { entity ->
                     add(assembleRepositorySource(entity))
                 }
             }
@@ -314,9 +251,8 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 
     override fun getRepositorySource(sourceId: String): PluginRepositorySource? {
-        requireInitialized()
         return runBlocking(Dispatchers.IO) {
-            val sourceEntity = requireCatalogDao().getSource(sourceId) ?: return@runBlocking null
+            val sourceEntity = pluginCatalogDao.getSource(sourceId) ?: return@runBlocking null
             assembleRepositorySource(sourceEntity)
         }
     }
@@ -545,19 +481,13 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 
     private fun requireInitialized() {
-        check(initialized.get() && pluginDao != null) {
-            "PluginRepository.initialize(context) must be called before use."
-        }
+        Unit
     }
 
-    private fun ensurePersistence(context: Context) {
-        check(pluginDao != null && pluginCatalogDao != null && pluginConfigDao != null) {
-            "FeaturePluginRepository persistence must be installed before initialize(context)."
-        }
-    }
+    private fun ensurePersistence(@Suppress("UNUSED_PARAMETER") context: Context) = Unit
 
     fun requireAppContext(): Context {
-        return appContext ?: error("PluginRepository.initialize(context) must be called before use.")
+        return appContext
     }
 
     private fun requireRecord(pluginId: String): PluginInstallRecord {
@@ -766,9 +696,8 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 
     private fun currentHostVersionOrNull(): String? {
-        val applicationContext = appContext ?: return null
         return runCatching {
-            applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0).versionName
+            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
         }.getOrNull().orEmpty().ifBlank { null }
     }
 
@@ -1010,13 +939,10 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 
     private fun requireDao(): PluginInstallAggregateDao = pluginDao
-        ?: error("PluginRepository.initialize(context) must be called before use.")
 
     private fun requireCatalogDao(): PluginCatalogDao = pluginCatalogDao
-        ?: error("PluginRepository.initialize(context) must be called before use.")
 
     private fun requireConfigDao(): PluginConfigSnapshotDao = pluginConfigDao
-        ?: error("PluginRepository.initialize(context) must be called before use.")
 
     private fun persistConfigSnapshot(
         pluginId: String,
@@ -1029,6 +955,215 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
                     updatedAt = timeProvider(),
                 ),
             )
+        }
+    }
+
+    companion object : PluginInstallStore, PluginCatalogSyncStore {
+        const val SUPPORTED_PROTOCOL_VERSION = 2
+
+        @Volatile
+        private var graphInstance: FeaturePluginRepository? = null
+
+        private fun requireInstance(): FeaturePluginRepository {
+            return graphInstance ?: error("FeaturePluginRepository graph instance is unavailable.")
+        }
+
+        val records: StateFlow<List<PluginInstallRecord>>
+            get() = requireInstance().records
+
+        val repositorySources: StateFlow<List<PluginRepositorySource>>
+            get() = requireInstance().repositorySources
+
+        val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
+            get() = requireInstance().catalogEntries
+
+        override fun findByPluginId(pluginId: String): PluginInstallRecord? {
+            return requireInstance().findByPluginId(pluginId)
+        }
+
+        override fun upsert(record: PluginInstallRecord) {
+            requireInstance().upsert(record)
+        }
+
+        fun delete(pluginId: String) {
+            requireInstance().delete(pluginId)
+        }
+
+        override fun replaceRepositoryCatalog(source: PluginRepositorySource) {
+            requireInstance().replaceRepositoryCatalog(source)
+        }
+
+        override fun upsertRepositorySource(source: PluginRepositorySource) {
+            requireInstance().upsertRepositorySource(source)
+        }
+
+        override fun listRepositorySources(): List<PluginRepositorySource> {
+            return requireInstance().listRepositorySources()
+        }
+
+        override fun getRepositorySource(sourceId: String): PluginRepositorySource? {
+            return requireInstance().getRepositorySource(sourceId)
+        }
+
+        override fun getRepositorySourceSyncState(sourceId: String): PluginCatalogSyncState? {
+            return requireInstance().getRepositorySourceSyncState(sourceId)
+        }
+
+        override fun listAllCatalogEntries(): List<PluginCatalogEntryRecord> {
+            return requireInstance().listAllCatalogEntries()
+        }
+
+        fun listCatalogEntries(sourceId: String): List<PluginCatalogEntry> {
+            return requireInstance().listCatalogEntries(sourceId)
+        }
+
+        fun getCatalogEntry(sourceId: String, pluginId: String): PluginCatalogEntry? {
+            return requireInstance().getCatalogEntry(sourceId, pluginId)
+        }
+
+        override fun listCatalogVersions(sourceId: String, pluginId: String): List<PluginCatalogVersion> {
+            return requireInstance().listCatalogVersions(sourceId, pluginId)
+        }
+
+        fun getUpdateAvailability(
+            pluginId: String,
+            hostVersion: String,
+        ): PluginUpdateAvailability? {
+            return requireInstance().getUpdateAvailability(pluginId, hostVersion)
+        }
+
+        fun getUpdateAvailability(
+            pluginId: String,
+            hostVersion: String,
+            supportedProtocolVersion: Int,
+        ): PluginUpdateAvailability? {
+            return requireInstance().getUpdateAvailability(pluginId, hostVersion, supportedProtocolVersion)
+        }
+
+        fun setEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
+            return requireInstance().setEnabled(pluginId, enabled)
+        }
+
+        fun updateFailureState(
+            pluginId: String,
+            failureState: PluginFailureState,
+        ): PluginInstallRecord {
+            return requireInstance().updateFailureState(pluginId, failureState)
+        }
+
+        fun clearFailureState(pluginId: String): PluginInstallRecord {
+            return requireInstance().clearFailureState(pluginId)
+        }
+
+        fun uninstall(
+            pluginId: String,
+            policy: PluginUninstallPolicy,
+        ): PluginUninstallResult {
+            return requireInstance().uninstall(pluginId, policy)
+        }
+
+        fun resolveConfigSnapshot(
+            pluginId: String,
+            boundary: PluginConfigStorageBoundary,
+        ): PluginConfigStoreSnapshot {
+            return requireInstance().resolveConfigSnapshot(pluginId, boundary)
+        }
+
+        fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
+            return requireInstance().getInstalledStaticConfigSchema(pluginId)
+        }
+
+        fun resolveInstalledStaticConfigSchemaPath(pluginId: String): String? {
+            return requireInstance().resolveInstalledStaticConfigSchemaPath(pluginId)
+        }
+
+        fun resolveInstalledSettingsSchemaPath(pluginId: String): String? {
+            return requireInstance().resolveInstalledSettingsSchemaPath(pluginId)
+        }
+
+        fun updateCoreConfig(
+            pluginId: String,
+            boundary: PluginConfigStorageBoundary,
+            coreValues: Map<String, PluginStaticConfigValue>,
+        ): PluginConfigStoreSnapshot {
+            return requireInstance().saveCoreConfig(pluginId, boundary, coreValues)
+        }
+
+        fun updateExtensionConfig(
+            pluginId: String,
+            boundary: PluginConfigStorageBoundary,
+            extensionValues: Map<String, PluginStaticConfigValue>,
+        ): PluginConfigStoreSnapshot {
+            return requireInstance().saveExtensionConfig(pluginId, boundary, extensionValues)
+        }
+
+        fun saveCoreConfig(
+            pluginId: String,
+            boundary: PluginConfigStorageBoundary,
+            coreValues: Map<String, PluginStaticConfigValue>,
+        ): PluginConfigStoreSnapshot {
+            return requireInstance().saveCoreConfig(pluginId, boundary, coreValues)
+        }
+
+        fun saveExtensionConfig(
+            pluginId: String,
+            boundary: PluginConfigStorageBoundary,
+            extensionValues: Map<String, PluginStaticConfigValue>,
+        ): PluginConfigStoreSnapshot {
+            return requireInstance().saveExtensionConfig(pluginId, boundary, extensionValues)
+        }
+
+        fun projectInstallRecordForHost(
+            record: PluginInstallRecord,
+            hostVersion: String? = null,
+        ): PluginInstallRecord {
+            return requireInstance().projectInstallRecordForHost(record, hostVersion)
+        }
+
+        fun requireAppContext(): Context {
+            return requireInstance().requireAppContext()
+        }
+
+        fun evaluateCatalogVersion(
+            version: PluginCatalogVersion,
+            hostVersion: String,
+        ): PluginCatalogVersionGateResult {
+            return requireInstance().evaluateCatalogVersion(version, hostVersion)
+        }
+
+        fun evaluateCatalogVersion(
+            version: PluginCatalogVersion,
+            hostVersion: String,
+            supportedProtocolVersion: Int,
+        ): PluginCatalogVersionGateResult {
+            return requireInstance().evaluateCatalogVersion(version, hostVersion, supportedProtocolVersion)
+        }
+
+        fun validateLocalPackage(
+            packageFile: File,
+            hostVersion: String,
+        ): PluginPackageValidationResult {
+            return requireInstance().validateLocalPackage(packageFile, hostVersion)
+        }
+
+        fun validateLocalPackage(
+            packageFile: File,
+            hostVersion: String,
+            supportedProtocolVersion: Int,
+        ): PluginPackageValidationResult {
+            return requireInstance().validateLocalPackage(packageFile, hostVersion, supportedProtocolVersion)
+        }
+
+        fun buildLocalPackageInstallBlockedException(
+            validation: PluginPackageValidationResult,
+        ): PluginPackageInstallBlockedException {
+            return requireInstance().buildLocalPackageInstallBlockedException(validation)
+        }
+
+        fun buildLocalPackageInstallBlockedException(
+            error: Throwable,
+        ): PluginPackageInstallBlockedException {
+            return requireInstance().buildLocalPackageInstallBlockedException(error)
         }
     }
 }

@@ -1,13 +1,10 @@
-@file:Suppress("DEPRECATION")
-
 package com.astrbot.android.feature.plugin.runtime.toolsource
-
-import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceKind
 import com.astrbot.android.feature.plugin.runtime.PluginToolVisibility
+import javax.inject.Inject
 
 /**
  * Context strategy tool source provider.
@@ -16,14 +13,15 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolVisibility
  * this provider exports a host-internal tool that the LLM pipeline can invoke
  * to compress conversation context when the turn limit is reached.
  */
-class ContextStrategyToolSourceProvider : FutureToolSourceProvider {
+class ContextStrategyToolSourceProvider @Inject constructor(
+    override val contextResolver: FutureToolSourceContextResolver,
+) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.CONTEXT_STRATEGY
 
     override suspend fun listBindings(
         context: ToolSourceRegistryIngestContext,
     ): List<ToolSourceDescriptorBinding> {
-        val configProfile = FeatureConfigRepository.resolve(context.configProfileId)
-        if (configProfile.contextLimitStrategy != "llm_compress") return emptyList()
+        if (context.toolSourceContext.contextLimitStrategy != "llm_compress") return emptyList()
 
         return listOf(buildCompressContextBinding())
     }
@@ -32,8 +30,7 @@ class ContextStrategyToolSourceProvider : FutureToolSourceProvider {
         identity: ToolSourceIdentity,
         context: ToolSourceAvailabilityContext,
     ): ToolSourceAvailability {
-        val configProfile = FeatureConfigRepository.resolve(context.configProfileId)
-        return if (configProfile.contextLimitStrategy == "llm_compress") {
+        return if (context.toolSourceContext.contextLimitStrategy == "llm_compress") {
             ToolSourceAvailability(
                 providerReachable = true,
                 permissionGranted = true,

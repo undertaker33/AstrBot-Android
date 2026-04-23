@@ -1,17 +1,21 @@
 package com.astrbot.android.feature.chat.data
 
-import android.content.Context
+import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.data.db.ConversationAggregateDao
 import com.astrbot.android.data.db.toConversationSession
 import com.astrbot.android.data.db.toWriteModel
-import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.feature.bot.data.FeatureBotRepositoryStore
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
-import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.chat.defaultSessionRefFor
 import com.astrbot.android.model.chat.importDedupKey
-import com.astrbot.android.core.common.logging.AppLogger
+import java.io.File
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Named
+import javax.inject.Provider
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,9 +28,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 
 data class ConversationImportPreview(
     val totalSessions: Int,
@@ -43,20 +44,113 @@ data class ConversationImportResult(
 @Deprecated("Use ConversationRepositoryPort from feature/chat/domain. Direct access will be removed.")
 object FeatureConversationRepository {
     const val DEFAULT_SESSION_ID = "chat-main"
-    const val DEFAULT_SESSION_TITLE = "新对话"
+    const val DEFAULT_SESSION_TITLE = "\u65B0\u5BF9\u8BDD"
 
-    private const val LEGACY_STORAGE_FILE_NAME = "persistent_conversations.json"
-    private const val PERSIST_DEBOUNCE_MS = 300L
-
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val initialized = AtomicBoolean(false)
-    private val initializationLoaded = AtomicBoolean(false)
-    private val persistenceMutex = Mutex()
     @Volatile
-    private var selectedBotIdProvider: () -> String = { "qq-main" }
+    private var delegate: FeatureConversationRepositoryStore? = null
 
-    private var legacyStorageFile: File? = null
-    private var conversationAggregateDao: ConversationAggregateDao = ConversationAggregateDaoPlaceholder.instance
+    internal fun installDelegate(store: FeatureConversationRepositoryStore) {
+        delegate = store
+    }
+
+    private fun repository(): FeatureConversationRepositoryStore {
+        return checkNotNull(delegate) {
+            "FeatureConversationRepository was accessed before the Hilt graph created FeatureConversationRepositoryStore."
+        }
+    }
+
+    val sessions: StateFlow<List<ConversationSession>>
+        get() = repository().sessions
+
+    val isReady: StateFlow<Boolean>
+        get() = repository().isReady
+
+    fun setSelectedBotIdProvider(provider: () -> String) = repository().setSelectedBotIdProvider(provider)
+
+    fun session(sessionId: String = DEFAULT_SESSION_ID): ConversationSession = repository().session(sessionId)
+
+    fun createSession(
+        title: String = DEFAULT_SESSION_TITLE,
+        botId: String = repository().currentSelectedBotId(),
+    ): ConversationSession = repository().createSession(title, botId)
+
+    fun deleteSession(sessionId: String) = repository().deleteSession(sessionId)
+
+    fun deleteSessionsForBot(botId: String) = repository().deleteSessionsForBot(botId)
+
+    fun renameSession(sessionId: String, title: String) = repository().renameSession(sessionId, title)
+
+    fun syncSystemSessionTitle(sessionId: String, title: String) = repository().syncSystemSessionTitle(sessionId, title)
+
+    fun toggleSessionPinned(sessionId: String) = repository().toggleSessionPinned(sessionId)
+
+    fun buildContextPreview(sessionId: String): String = repository().buildContextPreview(sessionId)
+
+    fun appendMessage(
+        sessionId: String,
+        role: String,
+        content: String,
+        attachments: List<ConversationAttachment> = emptyList(),
+    ): String = repository().appendMessage(sessionId, role, content, attachments)
+
+    fun updateMessage(
+        sessionId: String,
+        messageId: String,
+        content: String? = null,
+        attachments: List<ConversationAttachment>? = null,
+    ) = repository().updateMessage(sessionId, messageId, content, attachments)
+
+    fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) =
+        repository().replaceMessages(sessionId, messages)
+
+    fun updateSessionBindings(
+        sessionId: String,
+        providerId: String,
+        personaId: String,
+        botId: String,
+    ) = repository().updateSessionBindings(sessionId, providerId, personaId, botId)
+
+    fun updateSessionServiceFlags(
+        sessionId: String,
+        sessionSttEnabled: Boolean? = null,
+        sessionTtsEnabled: Boolean? = null,
+    ) = repository().updateSessionServiceFlags(sessionId, sessionSttEnabled, sessionTtsEnabled)
+
+    fun syncPersistenceForBot(botId: String, persistConversationLocally: Boolean) =
+        repository().syncPersistenceForBot(botId, persistConversationLocally)
+
+    fun snapshotSessions(): List<ConversationSession> = repository().snapshotSessions()
+
+    fun restoreSessions(restoredSessions: List<ConversationSession>) = repository().restoreSessions(restoredSessions)
+
+    suspend fun restoreSessionsDurable(restoredSessions: List<ConversationSession>) =
+        repository().restoreSessionsDurable(restoredSessions)
+
+    fun previewImportedSessions(importedSessions: List<ConversationSession>): ConversationImportPreview =
+        repository().previewImportedSessions(importedSessions)
+
+    fun importSessions(
+        importedSessions: List<ConversationSession>,
+        overwriteDuplicates: Boolean,
+    ): ConversationImportResult = repository().importSessions(importedSessions, overwriteDuplicates)
+
+    suspend fun importSessionsDurable(
+        importedSessions: List<ConversationSession>,
+        overwriteDuplicates: Boolean,
+    ): ConversationImportResult = repository().importSessionsDurable(importedSessions, overwriteDuplicates)
+}
+
+@Singleton
+class FeatureConversationRepositoryStore @Inject constructor(
+    private val conversationAggregateDao: ConversationAggregateDao,
+    @Named("legacyConversationStorageFile") private val legacyStorageFile: File,
+    private val botRepositoryProvider: Provider<FeatureBotRepositoryStore>,
+) {
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val persistenceMutex = Mutex()
+
+    @Volatile
+    private var selectedBotIdProvider: (() -> String)? = null
 
     private val _sessions = MutableStateFlow(defaultSessions())
     val sessions: StateFlow<List<ConversationSession>> = _sessions.asStateFlow()
@@ -66,17 +160,10 @@ object FeatureConversationRepository {
     @Volatile
     private var debouncedPersistJob: Job? = null
 
-    fun setSelectedBotIdProvider(provider: () -> String) {
-        selectedBotIdProvider = provider
-    }
+    private val initializationLoaded = MutableStateFlow(false)
 
-    fun initialize(context: Context) {
-        if (!initialized.compareAndSet(false, true)) return
-        initializationLoaded.set(false)
-
-        legacyStorageFile = File(context.filesDir, LEGACY_STORAGE_FILE_NAME)
-        conversationAggregateDao = AstrBotDatabase.get(context).conversationAggregateDao()
-
+    init {
+        FeatureConversationRepository.installDelegate(this)
         repositoryScope.launch {
             runCatching {
                 val importedLegacy = importLegacySessionsIfNeeded()
@@ -93,12 +180,12 @@ object FeatureConversationRepository {
                         .getOrNull()
                 }
                 _sessions.value = if (sessionsFromDb.isEmpty()) defaultSessions() else sessionsFromDb
-                initializationLoaded.set(true)
+                initializationLoaded.value = true
                 _isReady.value = true
                 AppLogger.append("Conversation database initialized: sessions=${_sessions.value.size}")
             }.onFailure { error ->
                 _sessions.value = defaultSessions()
-                initializationLoaded.set(true)
+                initializationLoaded.value = true
                 _isReady.value = true
                 AppLogger.append(
                     "Conversation database init failed, fallback to defaults: ${error.message ?: error.javaClass.simpleName}",
@@ -107,12 +194,16 @@ object FeatureConversationRepository {
         }
     }
 
-    fun session(sessionId: String = DEFAULT_SESSION_ID): ConversationSession {
+    fun setSelectedBotIdProvider(provider: () -> String) {
+        selectedBotIdProvider = provider
+    }
+
+    fun session(sessionId: String = FeatureConversationRepository.DEFAULT_SESSION_ID): ConversationSession {
         return _sessions.value.firstOrNull { it.id == sessionId } ?: createMissingSession(sessionId)
     }
 
     fun createSession(
-        title: String = DEFAULT_SESSION_TITLE,
+        title: String = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
         botId: String = currentSelectedBotId(),
     ): ConversationSession {
         val created = ConversationSession(
@@ -161,7 +252,7 @@ object FeatureConversationRepository {
     }
 
     fun renameSession(sessionId: String, title: String) {
-        val cleaned = title.trim().ifBlank { DEFAULT_SESSION_TITLE }
+        val cleaned = title.trim().ifBlank { FeatureConversationRepository.DEFAULT_SESSION_TITLE }
         _sessions.update { current ->
             current.map { item ->
                 if (item.id == sessionId) item.copy(title = cleaned, titleCustomized = true) else item
@@ -179,7 +270,7 @@ object FeatureConversationRepository {
                     applySystemSessionTitle(
                         session = item,
                         incomingTitle = title,
-                        defaultTitle = DEFAULT_SESSION_TITLE,
+                        defaultTitle = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
                     )
                 } else {
                     null
@@ -195,7 +286,7 @@ object FeatureConversationRepository {
         if (updated) {
             persistSessions()
             AppLogger.append(
-                "Conversation system title synced: session=$sessionId title=${title.trim().ifBlank { DEFAULT_SESSION_TITLE }}",
+                "Conversation system title synced: session=$sessionId title=${title.trim().ifBlank { FeatureConversationRepository.DEFAULT_SESSION_TITLE }}",
             )
         }
     }
@@ -246,9 +337,8 @@ object FeatureConversationRepository {
             current.map { item ->
                 if (item.id == currentSession.id) item.copy(messages = item.messages + message) else item
             }
-        }.also {
-            _sessions.value = sortConversationSessions(_sessions.value)
         }
+        _sessions.value = sortConversationSessions(_sessions.value)
         persistSessions()
         AppLogger.append(
             "Conversation message appended: session=$sessionId role=$role chars=${content.length} attachments=${attachments.size}",
@@ -291,7 +381,7 @@ object FeatureConversationRepository {
             )
             return
         }
-        persistSessions()
+        debouncedPersist()
     }
 
     fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
@@ -300,9 +390,8 @@ object FeatureConversationRepository {
             current.map { item ->
                 if (item.id == currentSession.id) item.copy(messages = messages) else item
             }
-        }.also {
-            _sessions.value = sortConversationSessions(_sessions.value)
         }
+        _sessions.value = sortConversationSessions(_sessions.value)
         persistSessions()
         AppLogger.append("Conversation replaced: session=$sessionId messages=${messages.size}")
     }
@@ -377,46 +466,17 @@ object FeatureConversationRepository {
     }
 
     fun restoreSessions(restoredSessions: List<ConversationSession>) {
-        val normalized = restoredSessions
-            .map { session ->
-                session.copy(
-                    title = session.title.ifBlank { DEFAULT_SESSION_TITLE },
-                    botId = session.botId.ifBlank { currentSelectedBotId() },
-                    messages = session.messages.sortedBy { it.timestamp },
-                )
-            }
-            .distinctBy { it.id }
-            .ifEmpty { defaultSessions() }
-            .let(::sortConversationSessions)
-
+        val normalized = normalizeSessions(restoredSessions)
         _sessions.value = normalized
-        if (initializationLoaded.get()) {
+        if (initializationLoaded.value) {
             persistSessions()
         }
         AppLogger.append("Conversation sessions restored: sessions=${normalized.size}")
     }
 
-    /**
-     * Task10 Phase3 – Task D: durable restore path.
-     *
-     * Unlike [restoreSessions] which fires-and-forgets the DB write, this suspend function
-     * waits for the Room write to complete before returning.  Callers such as the backup
-     * restore flow should prefer this when "restore complete" must mean "data is on disk".
-     */
     suspend fun restoreSessionsDurable(restoredSessions: List<ConversationSession>) {
-        val normalized = restoredSessions
-            .map { session ->
-                session.copy(
-                    title = session.title.ifBlank { DEFAULT_SESSION_TITLE },
-                    botId = session.botId.ifBlank { currentSelectedBotId() },
-                    messages = session.messages.sortedBy { it.timestamp },
-                )
-            }
-            .distinctBy { it.id }
-            .ifEmpty { defaultSessions() }
-            .let(::sortConversationSessions)
-
-        val snapshot = _sessions.value  // capture before mutation so we can roll back on DB failure
+        val normalized = normalizeSessions(restoredSessions)
+        val snapshot = _sessions.value
         _sessions.value = normalized
         withContext(Dispatchers.IO) {
             persistenceMutex.withLock {
@@ -426,8 +486,8 @@ object FeatureConversationRepository {
                     AppLogger.append(
                         "Conversation durable restore failed, rolling back in-memory state: ${error.message ?: error.javaClass.simpleName}",
                     )
-                    _sessions.value = snapshot  // roll back so in-memory state stays consistent with DB
-                }.getOrThrow()  // propagate to caller — "durable restore" must surface DB failures
+                    _sessions.value = snapshot
+                }.getOrThrow()
             }
         }
         AppLogger.append("Conversation sessions durably restored: sessions=${normalized.size}")
@@ -448,71 +508,164 @@ object FeatureConversationRepository {
         importedSessions: List<ConversationSession>,
         overwriteDuplicates: Boolean,
     ): ConversationImportResult {
-        val incoming = importedSessions
-            .map { session ->
-                session.copy(
-                    title = session.title.ifBlank { DEFAULT_SESSION_TITLE },
-                        botId = session.botId.ifBlank { currentSelectedBotId() },
-                    messages = session.messages.sortedBy { it.timestamp },
-                )
-            }
-            .distinctBy { it.id }
-
-        val currentByKey = _sessions.value.associateBy { it.importDedupKey() }.toMutableMap()
-        var importedCount = 0
-        var overwrittenCount = 0
-        var skippedCount = 0
-
-        incoming.forEach { session ->
-            val dedupKey = session.importDedupKey()
-            val existingSession = currentByKey[dedupKey]
-            when {
-                existingSession == null -> {
-                    currentByKey[dedupKey] = session
-                    importedCount += 1
-                }
-                overwriteDuplicates -> {
-                    currentByKey[dedupKey] = session.copy(id = existingSession.id)
-                    overwrittenCount += 1
-                }
-                else -> skippedCount += 1
-            }
-        }
-
-        val merged = currentByKey.values
-            .toList()
-            .ifEmpty { defaultSessions() }
-            .let(::sortConversationSessions)
-
-        _sessions.value = merged
-        if (initializationLoaded.get()) {
+        val result = mergeImportedSessions(importedSessions, overwriteDuplicates)
+        _sessions.value = result.mergedSessions
+        if (initializationLoaded.value) {
             persistSessions()
         }
         AppLogger.append(
-            "Conversation sessions imported: new=$importedCount overwritten=$overwrittenCount skipped=$skippedCount",
+            "Conversation sessions imported: new=${result.importedCount} overwritten=${result.overwrittenCount} skipped=${result.skippedCount}",
         )
         return ConversationImportResult(
-            importedCount = importedCount,
-            overwrittenCount = overwrittenCount,
-            skippedCount = skippedCount,
+            importedCount = result.importedCount,
+            overwrittenCount = result.overwrittenCount,
+            skippedCount = result.skippedCount,
         )
     }
 
-    /**
-     * Task10 Phase3 – Task D (import path): durable counterpart of [importSessions].
-     *
-     * Unlike [importSessions] which fires-and-forgets the DB write, this suspend function awaits
-     * the Room write before returning.  On DB failure the in-memory state is rolled back and the
-     * exception is rethrown so callers (e.g. the backup import flow) see the failure.
-     */
     suspend fun importSessionsDurable(
         importedSessions: List<ConversationSession>,
         overwriteDuplicates: Boolean,
     ): ConversationImportResult {
+        val result = mergeImportedSessions(importedSessions, overwriteDuplicates)
+        val snapshot = _sessions.value
+        _sessions.value = result.mergedSessions
+        withContext(Dispatchers.IO) {
+            persistenceMutex.withLock {
+                runCatching {
+                    conversationAggregateDao.replaceAll(result.mergedSessions.map { it.toWriteModel() })
+                }.onFailure { error ->
+                    AppLogger.append(
+                        "Conversation durable import failed, rolling back in-memory state: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                    _sessions.value = snapshot
+                }.getOrThrow()
+            }
+        }
+        AppLogger.append(
+            "Conversation sessions durably imported: new=${result.importedCount} overwritten=${result.overwrittenCount} skipped=${result.skippedCount}",
+        )
+        return ConversationImportResult(
+            importedCount = result.importedCount,
+            overwrittenCount = result.overwrittenCount,
+            skippedCount = result.skippedCount,
+        )
+    }
+
+    fun currentSelectedBotId(): String {
+        val override = selectedBotIdProvider
+        if (override != null) {
+            return override().ifBlank { "qq-main" }
+        }
+        return runCatching { botRepositoryProvider.get().selectedBotId.value }
+            .getOrDefault("qq-main")
+            .ifBlank { "qq-main" }
+    }
+
+    private fun createMissingSession(sessionId: String): ConversationSession {
+        val created = ConversationSession(
+            id = sessionId,
+            title = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
+            botId = currentSelectedBotId(),
+            personaId = "",
+            providerId = "",
+            maxContextMessages = 12,
+            sessionSttEnabled = true,
+            sessionTtsEnabled = true,
+            pinned = false,
+            titleCustomized = false,
+            messages = emptyList(),
+        )
+        _sessions.update { current -> sortConversationSessions(listOf(created) + current) }
+        persistSessions()
+        AppLogger.append("Conversation created: session=$sessionId")
+        return created
+    }
+
+    private fun persistSessions() {
+        if (!initializationLoaded.value) {
+            AppLogger.append("Conversation persist skipped: repository is still loading initial sessions")
+            return
+        }
+        repositoryScope.launch {
+            persistenceMutex.withLock {
+                runCatching {
+                    val snapshot = _sessions.value
+                    conversationAggregateDao.replaceAll(snapshot.map { it.toWriteModel() })
+                }.onFailure { error ->
+                    AppLogger.append(
+                        "Conversation database persist failed: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun debouncedPersist() {
+        debouncedPersistJob?.cancel()
+        debouncedPersistJob = repositoryScope.launch {
+            kotlinx.coroutines.delay(300L)
+            persistSessions()
+        }
+    }
+
+    private suspend fun importLegacySessionsIfNeeded(): Boolean {
+        if (!legacyStorageFile.exists()) return false
+        val legacySessions = loadLegacyConversationSessions(
+            file = legacyStorageFile,
+            defaultTitle = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
+            onFailure = { error ->
+                AppLogger.append(
+                    "Conversation legacy migration failed: ${error.message ?: error.javaClass.simpleName}",
+                )
+            },
+        )
+        if (legacySessions.isEmpty()) return false
+        val existingSessions = conversationAggregateDao.listConversationAggregates().mapNotNull { aggregate ->
+            runCatching { aggregate.toConversationSession() }.getOrNull()
+        }
+        val mergedSessions = mergeImportedConversationSessions(
+            defaultSessionId = FeatureConversationRepository.DEFAULT_SESSION_ID,
+            existingSessions = existingSessions,
+            legacySessions = legacySessions,
+            defaultSessionsProvider = ::defaultSessions,
+        )
+        conversationAggregateDao.replaceAll(mergedSessions.map { it.toWriteModel() })
+        AppLogger.append(
+            "Conversation legacy JSON imported into database: legacy=${legacySessions.size} merged=${mergedSessions.size}",
+        )
+        return true
+    }
+
+    private fun normalizeSessions(restoredSessions: List<ConversationSession>): List<ConversationSession> {
+        return restoredSessions
+            .map { session ->
+                session.copy(
+                    title = session.title.ifBlank { FeatureConversationRepository.DEFAULT_SESSION_TITLE },
+                    botId = session.botId.ifBlank { currentSelectedBotId() },
+                    messages = session.messages.sortedBy { it.timestamp },
+                )
+            }
+            .distinctBy { it.id }
+            .ifEmpty { defaultSessions() }
+            .let(::sortConversationSessions)
+    }
+
+    private data class ImportMergeResult(
+        val mergedSessions: List<ConversationSession>,
+        val importedCount: Int,
+        val overwrittenCount: Int,
+        val skippedCount: Int,
+    )
+
+    private fun mergeImportedSessions(
+        importedSessions: List<ConversationSession>,
+        overwriteDuplicates: Boolean,
+    ): ImportMergeResult {
         val incoming = importedSessions
             .map { session ->
                 session.copy(
-                    title = session.title.ifBlank { DEFAULT_SESSION_TITLE },
+                    title = session.title.ifBlank { FeatureConversationRepository.DEFAULT_SESSION_TITLE },
                     botId = session.botId.ifBlank { currentSelectedBotId() },
                     messages = session.messages.sortedBy { it.timestamp },
                 )
@@ -540,124 +693,19 @@ object FeatureConversationRepository {
             }
         }
 
-        val merged = currentByKey.values
-            .toList()
-            .ifEmpty { defaultSessions() }
-            .let(::sortConversationSessions)
-
-        val snapshot = _sessions.value  // capture before mutation for rollback on DB failure
-        _sessions.value = merged
-        withContext(Dispatchers.IO) {
-            persistenceMutex.withLock {
-                runCatching {
-                    conversationAggregateDao.replaceAll(merged.map { it.toWriteModel() })
-                }.onFailure { error ->
-                    AppLogger.append(
-                        "Conversation durable import failed, rolling back in-memory state: ${error.message ?: error.javaClass.simpleName}",
-                    )
-                    _sessions.value = snapshot  // roll back so in-memory state stays consistent with DB
-                }.getOrThrow()  // propagate to caller — durable import must surface DB failures
-            }
-        }
-        AppLogger.append(
-            "Conversation sessions durably imported: new=$importedCount overwritten=$overwrittenCount skipped=$skippedCount",
-        )
-        return ConversationImportResult(
+        return ImportMergeResult(
+            mergedSessions = currentByKey.values.toList().ifEmpty { defaultSessions() }.let(::sortConversationSessions),
             importedCount = importedCount,
             overwrittenCount = overwrittenCount,
             skippedCount = skippedCount,
         )
     }
 
-    private fun createMissingSession(sessionId: String): ConversationSession {
-        val created = ConversationSession(
-            id = sessionId,
-            title = DEFAULT_SESSION_TITLE,
-            botId = currentSelectedBotId(),
-            personaId = "",
-            providerId = "",
-            maxContextMessages = 12,
-            sessionSttEnabled = true,
-            sessionTtsEnabled = true,
-            pinned = false,
-            titleCustomized = false,
-            messages = emptyList(),
-        )
-        _sessions.update { current -> sortConversationSessions(listOf(created) + current) }
-        persistSessions()
-        AppLogger.append("Conversation created: session=$sessionId")
-        return created
-    }
-
-    private fun persistSessions() {
-        if (!initializationLoaded.get()) {
-            AppLogger.append("Conversation persist skipped: repository is still loading initial sessions")
-            return
-        }
-        repositoryScope.launch {
-            persistenceMutex.withLock {
-                runCatching {
-                    val snapshot = _sessions.value
-                    conversationAggregateDao.replaceAll(snapshot.map { it.toWriteModel() })
-                }.onFailure { error ->
-                    AppLogger.append(
-                        "Conversation database persist failed: ${error.message ?: error.javaClass.simpleName}",
-                    )
-                }
-            }
-        }
-    }
-
-    /**
-     * Debounced persistence: coalesces rapid-fire updates (e.g. streaming segments)
-     * into a single DB write after [PERSIST_DEBOUNCE_MS] of quiet time.
-     */
-    private fun debouncedPersist() {
-        debouncedPersistJob?.cancel()
-        debouncedPersistJob = repositoryScope.launch {
-            kotlinx.coroutines.delay(PERSIST_DEBOUNCE_MS)
-            persistSessions()
-        }
-    }
-
-    private fun currentSelectedBotId(): String {
-        return selectedBotIdProvider().ifBlank { "qq-main" }
-    }
-
-    private suspend fun importLegacySessionsIfNeeded(): Boolean {
-        val file = legacyStorageFile ?: return false
-        if (!file.exists()) return false
-        val legacySessions = loadLegacyConversationSessions(
-            file = file,
-            defaultTitle = DEFAULT_SESSION_TITLE,
-            onFailure = { error ->
-                AppLogger.append(
-                    "Conversation legacy migration failed: ${error.message ?: error.javaClass.simpleName}",
-                )
-            },
-        )
-        if (legacySessions.isEmpty()) return false
-        val existingSessions = conversationAggregateDao.listConversationAggregates().mapNotNull { aggregate ->
-            runCatching { aggregate.toConversationSession() }.getOrNull()
-        }
-        val mergedSessions = mergeImportedConversationSessions(
-            defaultSessionId = DEFAULT_SESSION_ID,
-            existingSessions = existingSessions,
-            legacySessions = legacySessions,
-            defaultSessionsProvider = ::defaultSessions,
-        )
-        conversationAggregateDao.replaceAll(mergedSessions.map { it.toWriteModel() })
-        AppLogger.append(
-            "Conversation legacy JSON imported into database: legacy=${legacySessions.size} merged=${mergedSessions.size}",
-        )
-        return true
-    }
-
     private fun defaultSessions(): List<ConversationSession> {
         return listOf(
             ConversationSession(
-                id = DEFAULT_SESSION_ID,
-                title = DEFAULT_SESSION_TITLE,
+                id = FeatureConversationRepository.DEFAULT_SESSION_ID,
+                title = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
                 botId = currentSelectedBotId(),
                 personaId = "",
                 providerId = "",
@@ -670,7 +718,7 @@ object FeatureConversationRepository {
                     ConversationMessage(
                         id = UUID.randomUUID().toString(),
                         role = "assistant",
-                        content = "对话已就绪。配置好模型后就可以开始聊天。",
+                        content = "\u5BF9\u8BDD\u5DF2\u5C31\u7EEA\u3002\u914D\u7F6E\u597D\u6A21\u578B\u540E\u5C31\u53EF\u4EE5\u5F00\u59CB\u804A\u5929\u3002",
                         timestamp = System.currentTimeMillis(),
                     ),
                 ),
@@ -678,6 +726,3 @@ object FeatureConversationRepository {
         )
     }
 }
-
-
-

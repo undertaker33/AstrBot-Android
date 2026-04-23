@@ -23,12 +23,13 @@ import org.json.JSONObject
  */
 interface FutureToolSourceProvider : ToolSourceProviderPort {
     val sourceKind: PluginToolSourceKind
+    val contextResolver: FutureToolSourceContextResolver
 
     override val kind: ToolSourceKind
         get() = sourceKind.toContractKind()
 
     override suspend fun descriptors(context: ToolSourceRequestContext): List<ToolDescriptor> {
-        val toolSourceContext = FutureToolSourceRegistry.contextForContractRequest(context)
+        val toolSourceContext = contextResolver.resolveForRequest(context)
         return listBindings(
             context = ToolSourceRegistryIngestContext(toolSourceContext = toolSourceContext),
         ).map(ToolSourceDescriptorBinding::toContractDescriptor)

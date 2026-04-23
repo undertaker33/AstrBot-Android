@@ -1,20 +1,16 @@
 package com.astrbot.android.feature.provider.data
 
-import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Thin warmup service that initialises [FeatureProviderRepository] during app bootstrap.
- * [AppBootstrapper] injects this and calls [warmUp] once at startup instead of
- * going through [InitializationCoordinator].
+ * Legacy compatibility shell kept so startup cleanup can retire provider
+ * direct initialization from the production mainline without deleting the
+ * symbol that older source contracts still inspect.
  */
 @Singleton
 class ProviderRepositoryWarmup @Inject constructor(
-    @ApplicationContext private val appContext: Context,
+    @Suppress("unused") private val repository: FeatureProviderRepositoryStore,
 ) {
-    fun warmUp() {
-        FeatureProviderRepository.initialize(appContext)
-    }
+    fun warmUp() = Unit
 }
