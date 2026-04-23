@@ -3,6 +3,17 @@ package com.astrbot.android.di.hilt
 import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
 import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
 import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
+import com.astrbot.android.feature.plugin.data.config.DefaultPluginHostConfigResolver
+import com.astrbot.android.feature.plugin.data.config.PluginConfigStorage
+import com.astrbot.android.feature.plugin.data.config.PluginHostConfigResolver
+import com.astrbot.android.feature.plugin.data.config.RoomPluginConfigStorage
+import com.astrbot.android.feature.plugin.data.state.PluginStateStore
+import com.astrbot.android.feature.plugin.data.state.RoomPluginStateStore
+import com.astrbot.android.data.db.PluginStateEntryDao
+import com.astrbot.android.feature.plugin.domain.cleanup.DefaultPluginDataCleanupService
+import com.astrbot.android.feature.plugin.domain.cleanup.DefaultPluginRuntimeArtifactCleaner
+import com.astrbot.android.feature.plugin.domain.cleanup.PluginDataCleanupService
+import com.astrbot.android.feature.plugin.domain.cleanup.PluginRuntimeArtifactCleaner
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
@@ -35,6 +46,38 @@ internal object PluginRuntimeModule {
     fun providePluginRepositoryStatePort(
         owner: FeaturePluginRepositoryStateOwner,
     ): PluginRepositoryStatePort = owner
+
+    @Provides
+    @Singleton
+    fun providePluginConfigStorage(
+        storage: RoomPluginConfigStorage,
+    ): PluginConfigStorage = storage
+
+    @Provides
+    @Singleton
+    fun providePluginHostConfigResolver(
+        resolver: DefaultPluginHostConfigResolver,
+    ): PluginHostConfigResolver = resolver
+
+    @Provides
+    @Singleton
+    fun providePluginStateStore(
+        dao: PluginStateEntryDao,
+    ): PluginStateStore = RoomPluginStateStore(
+        dao = dao,
+    )
+
+    @Provides
+    @Singleton
+    fun providePluginRuntimeArtifactCleaner(
+        cleaner: DefaultPluginRuntimeArtifactCleaner,
+    ): PluginRuntimeArtifactCleaner = cleaner
+
+    @Provides
+    @Singleton
+    fun providePluginDataCleanupService(
+        service: DefaultPluginDataCleanupService,
+    ): PluginDataCleanupService = service
 
     @Provides
     @Singleton
@@ -112,22 +155,26 @@ internal object PluginRuntimeModule {
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
         repositoryStatePort: PluginRepositoryStatePort,
+        stateStore: PluginStateStore,
     ): PluginV2RuntimeLoader = createPluginV2RuntimeLoader(
         activeRuntimeStore = activeRuntimeStore,
         logBus = logBus,
         lifecycleManager = lifecycleManager,
         repositoryStatePort = repositoryStatePort,
+        stateStore = stateStore,
     )
 
     internal fun providePluginV2RuntimeLoader(
         activeRuntimeStore: PluginV2ActiveRuntimeStore,
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
+        stateStore: PluginStateStore,
     ): PluginV2RuntimeLoader = createPluginV2RuntimeLoader(
         activeRuntimeStore = activeRuntimeStore,
         logBus = logBus,
         lifecycleManager = lifecycleManager,
         repositoryStatePort = EmptyPluginRepositoryStatePort,
+        stateStore = stateStore,
     )
 
     private fun createPluginV2RuntimeLoader(
@@ -135,6 +182,7 @@ internal object PluginRuntimeModule {
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
         repositoryStatePort: PluginRepositoryStatePort,
+        stateStore: PluginStateStore,
     ): PluginV2RuntimeLoader = PluginV2RuntimeLoader(
         sessionFactory = PluginV2RuntimeSessionFactory(),
         compiler = PluginV2RegistryCompiler(logBus = logBus),
@@ -143,5 +191,6 @@ internal object PluginRuntimeModule {
         store = activeRuntimeStore,
         lifecycleManager = lifecycleManager,
         repositoryStatePort = repositoryStatePort,
+        stateStore = stateStore,
     )
 }

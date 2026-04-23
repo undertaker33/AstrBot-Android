@@ -1,6 +1,9 @@
 package com.astrbot.android.feature.plugin.runtime
 
+import com.astrbot.android.feature.plugin.data.state.InMemoryPluginStateStore
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
+import com.astrbot.android.model.plugin.PluginExecutionContext
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -438,6 +441,183 @@ class PluginV2BootstrapHostApiTest {
         )
     }
 
+    @Test
+    fun getSettings_reads_merged_settings_from_plugin_execution_host_resolution_path() {
+        PluginExecutionHostApi.installCompatOperations(
+            object : PluginExecutionHostOperations {
+                override fun resolve(pluginId: String): PluginExecutionHostSnapshot {
+                    return PluginExecutionHostSnapshot(
+                        mergedSettings = linkedMapOf(
+                            "token" to "secret",
+                            "enabled" to true,
+                        ),
+                    )
+                }
+
+                override fun inject(
+                    context: PluginExecutionContext,
+                    hostSnapshot: PluginExecutionHostSnapshot,
+                ): PluginExecutionContext = context
+
+                override fun registeredHostToolDescriptors(
+                    handlers: PluginExecutionHostToolHandlers,
+                ): List<PluginToolDescriptor> = emptyList()
+
+                override fun registerHostBuiltinTools(
+                    snapshot: PluginV2ActiveRuntimeSnapshot,
+                    handlers: PluginExecutionHostToolHandlers,
+                    personaSnapshot: com.astrbot.android.model.PersonaToolEnablementSnapshot?,
+                    capabilityGateway: PluginV2ToolCapabilityGateway,
+                    futureSourceDescriptors: Collection<PluginToolDescriptor>,
+                    activeFutureSourceKinds: Set<PluginToolSourceKind>,
+                ): PluginV2ActiveRuntimeSnapshot = snapshot
+
+                override fun executeHostBuiltinTool(
+                    args: PluginToolArgs,
+                    handlers: PluginExecutionHostToolHandlers,
+                ): PluginToolResult? = null
+            },
+        )
+        try {
+            val hostApi = PluginV2BootstrapHostApi(
+                session = bootstrapRunningSession(sessionInstanceId = "session-settings"),
+                logBus = InMemoryPluginRuntimeLogBus(clock = { 1_300L }),
+                clock = { 1_300L },
+            )
+
+            val settings = hostApi.getSettings()
+
+            assertEquals("secret", settings["token"])
+            assertEquals(true, settings["enabled"])
+        } finally {
+            PluginExecutionHostApi.installCompatOperations(null)
+        }
+    }
+
+    @Test
+    fun getSettings_returns_empty_map_and_logs_warning_when_host_resolution_fails() {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1_301L })
+        PluginExecutionHostApi.installCompatOperations(
+            object : PluginExecutionHostOperations {
+                override fun resolve(pluginId: String): PluginExecutionHostSnapshot {
+                    error("boom")
+                }
+
+                override fun inject(
+                    context: PluginExecutionContext,
+                    hostSnapshot: PluginExecutionHostSnapshot,
+                ): PluginExecutionContext = context
+
+                override fun registeredHostToolDescriptors(
+                    handlers: PluginExecutionHostToolHandlers,
+                ): List<PluginToolDescriptor> = emptyList()
+
+                override fun registerHostBuiltinTools(
+                    snapshot: PluginV2ActiveRuntimeSnapshot,
+                    handlers: PluginExecutionHostToolHandlers,
+                    personaSnapshot: com.astrbot.android.model.PersonaToolEnablementSnapshot?,
+                    capabilityGateway: PluginV2ToolCapabilityGateway,
+                    futureSourceDescriptors: Collection<PluginToolDescriptor>,
+                    activeFutureSourceKinds: Set<PluginToolSourceKind>,
+                ): PluginV2ActiveRuntimeSnapshot = snapshot
+
+                override fun executeHostBuiltinTool(
+                    args: PluginToolArgs,
+                    handlers: PluginExecutionHostToolHandlers,
+                ): PluginToolResult? = null
+            },
+        )
+        try {
+            val hostApi = PluginV2BootstrapHostApi(
+                session = bootstrapRunningSession(sessionInstanceId = "session-settings-failure"),
+                logBus = logBus,
+                clock = { 1_301L },
+            )
+
+            val settings = hostApi.getSettings()
+
+            assertTrue(settings.isEmpty())
+            assertEquals("bootstrap_settings_load_failed", logBus.snapshot().single().code)
+        } finally {
+            PluginExecutionHostApi.installCompatOperations(null)
+        }
+    }
+
+    @Test
+    fun plugin_storage_reads_writes_lists_and_clears_values_without_touching_settings_surface() {
+        val stateStore = InMemoryPluginStateStore()
+        val hostApi = PluginV2BootstrapHostApi(
+            session = bootstrapRunningSession(sessionInstanceId = "session-storage-plugin"),
+            logBus = InMemoryPluginRuntimeLogBus(clock = { 1_400L }),
+            clock = { 1_400L },
+            stateStore = stateStore,
+        )
+
+        hostApi.pluginStorageSet(
+            key = "alpha",
+            value = linkedMapOf(
+                "enabled" to true,
+                "count" to 2,
+            ),
+        )
+        hostApi.pluginStorageSet(
+            key = "beta",
+            value = listOf("x", 3),
+        )
+
+        assertEquals(
+            linkedMapOf(
+                "enabled" to true,
+                "count" to 2,
+            ),
+            hostApi.pluginStorageGet("alpha"),
+        )
+        assertEquals(listOf("alpha", "beta"), hostApi.pluginStorageKeys())
+        assertEquals("fallback", hostApi.pluginStorageGet("missing", "fallback"))
+
+        hostApi.pluginStorageRemove("alpha")
+        assertNull(hostApi.pluginStorageGet("alpha"))
+        assertEquals(listOf("beta"), hostApi.pluginStorageKeys())
+
+        hostApi.pluginStorageClear(prefix = "be")
+        assertTrue(hostApi.pluginStorageKeys().isEmpty())
+    }
+
+    @Test
+    fun session_storage_uses_unified_origin_scope_isolation_and_raises_structured_error_when_missing() {
+        val stateStore = InMemoryPluginStateStore()
+        val sessionUnifiedOrigin = AtomicReference("qq:group:group:30003:user:20002")
+        val hostApi = PluginV2BootstrapHostApi(
+            session = bootstrapRunningSession(sessionInstanceId = "session-storage-session"),
+            logBus = InMemoryPluginRuntimeLogBus(clock = { 1_401L }),
+            clock = { 1_401L },
+            stateStore = stateStore,
+            sessionUnifiedOriginProvider = { sessionUnifiedOrigin.get() },
+        )
+
+        hostApi.sessionStorageSet("counter", 1)
+
+        sessionUnifiedOrigin.set("qq:group:group:30004:user:20002")
+        assertEquals("fallback", hostApi.sessionStorageGet("counter", "fallback"))
+        hostApi.sessionStorageSet("counter", 2)
+        assertEquals(listOf("counter"), hostApi.sessionStorageKeys())
+
+        sessionUnifiedOrigin.set("qq:group:group:30003:user:20002")
+        assertEquals(1, hostApi.sessionStorageGet("counter"))
+
+        sessionUnifiedOrigin.set(null)
+        val failure = runCatching {
+            hostApi.sessionStorageGet("counter")
+        }.exceptionOrNull()
+
+        assertTrue(failure is PluginV2StorageAccessException)
+        assertEquals(
+            "missing_session_scope",
+            (failure as PluginV2StorageAccessException).error.code,
+        )
+        assertTrue(failure.message.orEmpty().contains("missing_session_scope"))
+    }
+
     private fun bootstrapRunningSession(
         sessionInstanceId: String = "session-bootstrap",
     ): PluginV2RuntimeSession {
@@ -456,4 +636,5 @@ class PluginV2BootstrapHostApiTest {
             .map { it.name }
             .sorted()
     }
+
 }

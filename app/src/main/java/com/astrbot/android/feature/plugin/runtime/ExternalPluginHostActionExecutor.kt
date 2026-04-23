@@ -23,8 +23,8 @@ data class ExternalPluginHostActionExecutionResult(
 )
 
 class ExternalPluginHostActionExecutor(
-    private val failureGuard: PluginFailureGuard = PluginFailureGuard(),
-    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    private val failureGuard: PluginFailureGuard = defaultFailureGuard(),
+    private val logBus: PluginRuntimeLogBus = failureGuard.logBus,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     internal fun asV2ToolExecutor(): PluginV2ToolExecutor {
@@ -194,4 +194,13 @@ class ExternalPluginHostActionExecutor(
             else -> "host_action_failed"
         }
     }
+}
+
+private fun defaultFailureGuard(): PluginFailureGuard {
+    val logBus = InMemoryPluginRuntimeLogBus()
+    return PluginFailureGuard(
+        store = InMemoryPluginFailureStateStore(),
+        scopedStore = InMemoryPluginScopedFailureStateStore(),
+        logBus = logBus,
+    )
 }

@@ -59,12 +59,19 @@ import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.PluginHostAction
+import com.astrbot.android.feature.plugin.presentation.PluginPresentationController
+import com.astrbot.android.feature.plugin.presentation.bindings.PluginConfigBindings
+import com.astrbot.android.feature.plugin.presentation.bindings.PluginGovernanceBindings
+import com.astrbot.android.feature.plugin.presentation.bindings.PluginManagementBindings
+import com.astrbot.android.feature.plugin.presentation.bindings.PluginMarketBindings
+import com.astrbot.android.feature.plugin.presentation.bindings.PluginWorkspaceBindings
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOperations
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostResolver
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceFailureProjection
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
@@ -79,11 +86,14 @@ import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
 import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
+import com.astrbot.android.feature.plugin.runtime.compareVersions
 import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.feature.plugin.runtime.samplePluginV2InstallRecord
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.data.PluginCatalogVersionGateResult
+import com.astrbot.android.feature.plugin.data.unsupportedProtocolCompatibilityNote
 import java.lang.reflect.Method
 import java.nio.file.Files
 import org.json.JSONObject
@@ -172,12 +182,7 @@ class PluginViewModelTest {
 
     @Test
     fun supported_protocol_version_uses_repository_single_source() {
-        val repositoryField = PluginRepository::class.java.declaredFields.firstOrNull { field ->
-            field.name == "SUPPORTED_PROTOCOL_VERSION"
-        }
-
-        assertTrue(repositoryField != null)
-        assertEquals(PluginRepository.SUPPORTED_PROTOCOL_VERSION, repositoryField!!.getInt(null))
+        assertEquals(2, PluginRepository.SUPPORTED_PROTOCOL_VERSION)
         assertFalse(
             runCatching { Class.forName("com.astrbot.android.di.AstrBotViewModelDependenciesKt") }
                 .getOrNull()
@@ -2870,7 +2875,12 @@ class PluginViewModelTest {
         private val hostVersion: String = "9.9.9",
         override val logBus: PluginRuntimeLogBus = NoOpPluginRuntimeLogBus,
         private val governanceReadsLogBus: Boolean = false,
-    ) : PluginViewModelBindings {
+    ) : PluginViewModelBindings,
+        PluginMarketBindings,
+        PluginConfigBindings,
+        PluginWorkspaceBindings,
+        PluginGovernanceBindings,
+        PluginManagementBindings {
         private val recordsFlow = MutableStateFlow(records.map(::projectInstalledRecord))
         private val repositorySourcesFlow = MutableStateFlow(repositorySources)
         private val catalogEntriesFlow = MutableStateFlow(catalogEntries)
@@ -2907,6 +2917,11 @@ class PluginViewModelTest {
         var nextInstallProgress: PluginDownloadProgress? = null
         var installIntentGate: CompletableDeferred<Unit>? = null
 
+        override val market: PluginMarketBindings = this
+        override val config: PluginConfigBindings = this
+        override val workspace: PluginWorkspaceBindings = this
+        override val governance: PluginGovernanceBindings = this
+
         override val records: StateFlow<List<PluginInstallRecord>> = recordsFlow
         override val repositorySources: StateFlow<List<com.astrbot.android.model.plugin.PluginRepositorySource>> = repositorySourcesFlow
         override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = catalogEntriesFlow
@@ -2938,7 +2953,7 @@ class PluginViewModelTest {
         override fun getHostVersion(): String = hostVersion
 
         override fun evaluateCatalogVersion(version: PluginCatalogVersion): PluginCatalogVersionGateResult {
-            return PluginRepository.evaluateCatalogVersion(
+            return evaluateCatalogVersionForTest(
                 version = version,
                 hostVersion = hostVersion,
             )
@@ -3056,7 +3071,7 @@ class PluginViewModelTest {
             return updated
         }
 
-        override fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
+        private fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
             clearedFailurePluginIds += pluginId
             val updated = requireNotNull(recordsFlow.value.firstOrNull { it.pluginId == pluginId }).withOverrides(
                 failureState = PluginFailureState.none(),
@@ -3068,7 +3083,7 @@ class PluginViewModelTest {
             return updated
         }
 
-        override fun recoverPluginFailureState(pluginId: String): PluginInstallRecord {
+        private fun recoverPluginFailureState(pluginId: String): PluginInstallRecord {
             recoveryError?.let { throw it }
             recoveredFailurePluginIds += pluginId
             val updated = requireNotNull(recordsFlow.value.firstOrNull { it.pluginId == pluginId }).withOverrides(
@@ -3108,7 +3123,15 @@ class PluginViewModelTest {
             return updated
         }
 
-        override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
+        override fun enablePlugin(pluginId: String): PluginInstallRecord {
+            return setPluginEnabled(pluginId, enabled = true)
+        }
+
+        override fun disablePlugin(pluginId: String): PluginInstallRecord {
+            return setPluginEnabled(pluginId, enabled = false)
+        }
+
+        private fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
             enableRequests += pluginId to enabled
             val updated = requireNotNull(recordsFlow.value.firstOrNull { it.pluginId == pluginId }).withOverrides(
                 enabled = enabled,
@@ -3132,6 +3155,23 @@ class PluginViewModelTest {
                 policy = policy,
                 removedData = policy == PluginUninstallPolicy.REMOVE_DATA,
             )
+        }
+
+        override suspend fun refreshCatalog(): com.astrbot.android.feature.plugin.domain.PluginManagementResult {
+            marketRefreshError?.let { throw it }
+            return com.astrbot.android.feature.plugin.domain.PluginManagementResult.Success
+        }
+
+        override fun recoverPlugin(pluginId: String) {
+            recoverPluginFailureState(pluginId)
+        }
+
+        override fun suspendPlugin(pluginId: String, reason: String) {
+            error("Not used in this test")
+        }
+
+        override fun findByPluginId(pluginId: String): PluginInstallRecord? {
+            return recordsFlow.value.firstOrNull { it.pluginId == pluginId }
         }
 
         override suspend fun handleInstallIntent(
@@ -3301,7 +3341,7 @@ class PluginViewModelTest {
         }
 
         private fun projectInstalledRecord(record: PluginInstallRecord): PluginInstallRecord {
-            return PluginRepository.projectInstallRecordForHost(
+            return projectInstallRecordForTest(
                 record = record,
                 hostVersion = null,
             )
@@ -3487,8 +3527,11 @@ private fun createPluginViewModel(
     hostCapabilityGateway: PluginHostCapabilityGateway = testPluginHostCapabilityGateway(),
     entryExecutionService: PluginEntryExecutionService = fakePluginEntryExecutionService(bindings.logBus),
 ): com.astrbot.android.ui.viewmodel.PluginViewModel {
+    val managementBindings = bindings as? PluginManagementBindings
+        ?: error("Test bindings must implement PluginManagementBindings")
     return com.astrbot.android.ui.viewmodel.PluginViewModel(
         bindings = bindings,
+        pluginPresentationController = PluginPresentationController(managementBindings),
         hostCapabilityGateway = hostCapabilityGateway,
         entryExecutionService = entryExecutionService,
     )
@@ -3534,11 +3577,107 @@ private fun testPluginExecutionEngine(
     return PluginExecutionEngine(
         dispatcher = PluginRuntimeDispatcher(
             failureGuard = failureGuard,
+            scheduler = PluginRuntimeScheduler(
+                store = InMemoryPluginScheduleStateStore(),
+            ),
             logBus = logBus,
         ),
         failureGuard = failureGuard,
         logBus = logBus,
     )
+}
+
+private fun evaluateCatalogVersionForTest(
+    version: PluginCatalogVersion,
+    hostVersion: String,
+): PluginCatalogVersionGateResult {
+    val compatibilityState = PluginCompatibilityState.fromChecks(
+        protocolSupported = version.protocolVersion == PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+        minHostVersionSatisfied = version.minHostVersion.isBlank() ||
+            compareVersions(hostVersion, version.minHostVersion) >= 0,
+        maxHostVersionSatisfied = version.maxHostVersion.isBlank() ||
+            compareVersions(hostVersion, version.maxHostVersion) <= 0,
+        notes = buildCompatibilityNotesForTest(
+            protocolVersion = version.protocolVersion,
+            minHostVersion = version.minHostVersion,
+            maxHostVersion = version.maxHostVersion,
+            hostVersion = hostVersion,
+        ),
+    )
+    return PluginCatalogVersionGateResult(
+        compatibilityState = compatibilityState,
+        installable = compatibilityState.status.name == "COMPATIBLE",
+    )
+}
+
+private fun projectInstallRecordForTest(
+    record: PluginInstallRecord,
+    hostVersion: String?,
+): PluginInstallRecord {
+    val manifest = record.manifestSnapshot ?: return record
+    val minHostVersionSatisfied = hostVersion?.let { resolvedHostVersion ->
+        manifest.minHostVersion.isBlank() || compareVersions(resolvedHostVersion, manifest.minHostVersion) >= 0
+    } ?: record.compatibilityState.minHostVersionSatisfied
+    val maxHostVersionSatisfied = hostVersion?.let { resolvedHostVersion ->
+        manifest.maxHostVersion.isBlank() || compareVersions(resolvedHostVersion, manifest.maxHostVersion) <= 0
+    } ?: record.compatibilityState.maxHostVersionSatisfied
+    val projectedCompatibilityState = PluginCompatibilityState.fromChecks(
+        protocolSupported = manifest.protocolVersion == PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+        minHostVersionSatisfied = minHostVersionSatisfied,
+        maxHostVersionSatisfied = maxHostVersionSatisfied,
+        notes = buildCompatibilityNotesForTest(
+            protocolVersion = manifest.protocolVersion,
+            minHostVersion = manifest.minHostVersion,
+            maxHostVersion = manifest.maxHostVersion,
+            hostVersion = hostVersion,
+            existingNotes = record.compatibilityState.notes,
+        ),
+    )
+    if (projectedCompatibilityState == record.compatibilityState) {
+        return record
+    }
+    return PluginInstallRecord.restoreFromPersistedState(
+        manifestSnapshot = record.manifestSnapshot,
+        source = record.source,
+        packageContractSnapshot = record.packageContractSnapshot,
+        permissionSnapshot = record.permissionSnapshot,
+        compatibilityState = projectedCompatibilityState,
+        uninstallPolicy = record.uninstallPolicy,
+        enabled = record.enabled,
+        failureState = record.failureState,
+        catalogSourceId = record.catalogSourceId,
+        installedPackageUrl = record.installedPackageUrl,
+        lastCatalogCheckAtEpochMillis = record.lastCatalogCheckAtEpochMillis,
+        installedAt = record.installedAt,
+        lastUpdatedAt = record.lastUpdatedAt,
+        localPackagePath = record.localPackagePath,
+        extractedDir = record.extractedDir,
+    )
+}
+
+private fun buildCompatibilityNotesForTest(
+    protocolVersion: Int,
+    minHostVersion: String,
+    maxHostVersion: String,
+    hostVersion: String?,
+    existingNotes: String = "",
+): String {
+    val notes = mutableListOf<String>()
+    unsupportedProtocolCompatibilityNote(
+        protocolVersion = protocolVersion,
+        supportedProtocolVersion = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+    )?.let(notes::add)
+    if (hostVersion != null && minHostVersion.isNotBlank() && compareVersions(hostVersion, minHostVersion) < 0) {
+        notes += "Host version $hostVersion is below required minimum $minHostVersion."
+    }
+    if (hostVersion != null && maxHostVersion.isNotBlank() && compareVersions(hostVersion, maxHostVersion) > 0) {
+        notes += "Host version $hostVersion exceeds supported maximum $maxHostVersion."
+    }
+    return when {
+        notes.isNotEmpty() -> notes.joinToString(separator = " ")
+        existingNotes.isNotBlank() -> existingNotes
+        else -> ""
+    }
 }
 
 private fun assertResourceFeedback(

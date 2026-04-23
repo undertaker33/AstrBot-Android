@@ -397,3 +397,30 @@ internal val migration19To20 = object : Migration(19, 20) {
         )
     }
 }
+
+internal val migration20To21 = object : Migration(20, 21) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS plugin_config_snapshots_new (
+                pluginId TEXT NOT NULL PRIMARY KEY,
+                coreConfigJson TEXT NOT NULL,
+                extensionConfigJson TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT INTO plugin_config_snapshots_new (
+                pluginId, coreConfigJson, extensionConfigJson, updatedAt
+            )
+            SELECT pluginId, coreConfigJson, extensionConfigJson, updatedAt
+            FROM plugin_config_snapshots
+            """.trimIndent(),
+        )
+        db.execSQL("DROP TABLE plugin_config_snapshots")
+        db.execSQL("ALTER TABLE plugin_config_snapshots_new RENAME TO plugin_config_snapshots")
+        db.createPluginStateTablesV21()
+    }
+}

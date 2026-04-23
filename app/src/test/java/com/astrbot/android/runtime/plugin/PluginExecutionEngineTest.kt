@@ -17,9 +17,9 @@ class PluginExecutionEngineTest {
     @Test
     fun engine_returns_protocol_results_in_dispatch_order() {
         val clock = TestClock()
-        val failureGuard = PluginFailureGuard(clock = { clock.now })
+        val failureGuard = testPluginFailureGuard(clock = { clock.now })
         val engine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(failureGuard),
+            dispatcher = testPluginRuntimeDispatcher(failureGuard = failureGuard),
             failureGuard = failureGuard,
         )
         val plugins = listOf(
@@ -45,11 +45,13 @@ class PluginExecutionEngineTest {
         val sharedStore = InMemoryPluginFailureStateStore()
         val failureGuard = PluginFailureGuard(
             store = sharedStore,
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
             policy = PluginFailurePolicy(maxConsecutiveFailures = 2, suspensionWindowMillis = 1_000L),
             clock = { clock.now },
+            logBus = InMemoryPluginRuntimeLogBus(),
         )
         val engine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(failureGuard),
+            dispatcher = testPluginRuntimeDispatcher(failureGuard = failureGuard),
             failureGuard = failureGuard,
         )
         val executed = mutableListOf<String>()
@@ -82,7 +84,7 @@ class PluginExecutionEngineTest {
         assertEquals("boom", (batch.outcomes[1].result as ErrorResult).message)
         assertTrue(batch.outcomes[2].succeeded)
         assertEquals("omega-result", (batch.outcomes[2].result as TextResult).text)
-        val observerGuard = PluginFailureGuard(
+        val observerGuard = testPluginFailureGuard(
             store = sharedStore,
             policy = PluginFailurePolicy(maxConsecutiveFailures = 2, suspensionWindowMillis = 1_000L),
             clock = { clock.now },
@@ -95,11 +97,11 @@ class PluginExecutionEngineTest {
     @Test
     fun engine_updates_scheduler_state_and_exposes_merged_batch_snapshot() {
         val clock = TestClock(now = 50_000L)
-        val failureGuard = PluginFailureGuard(clock = { clock.now })
-        val scheduler = PluginRuntimeScheduler(clock = { clock.now })
+        val failureGuard = testPluginFailureGuard(clock = { clock.now })
+        val scheduler = testPluginRuntimeScheduler(clock = { clock.now })
         val policy = PluginSchedulePolicy(successCooldownMillis = 400L)
         val engine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(
+            dispatcher = testPluginRuntimeDispatcher(
                 failureGuard = failureGuard,
                 clock = { clock.now },
                 scheduler = scheduler,
@@ -147,7 +149,7 @@ class PluginExecutionEngineTest {
     fun engine_batch_normalizes_context_trigger_to_batch_trigger_for_failure_isolation() {
         val clock = TestClock(now = 90_000L)
         val scopedStore = InMemoryPluginScopedFailureStateStore()
-        val failureGuard = PluginFailureGuard(
+        val failureGuard = testPluginFailureGuard(
             scopedStore = scopedStore,
             policy = PluginFailurePolicy(
                 maxConsecutiveFailures = 3,
@@ -156,7 +158,7 @@ class PluginExecutionEngineTest {
             clock = { clock.now },
         )
         val engine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(failureGuard),
+            dispatcher = testPluginRuntimeDispatcher(failureGuard = failureGuard),
             failureGuard = failureGuard,
         )
         val plugin = runtimePlugin(
@@ -193,66 +195,4 @@ class PluginExecutionEngineTest {
         assertEquals(0, onCommandSnapshot.consecutiveFailureCount)
     }
 
-    @Test
-    fun engine_execute_legacy_batch_noops_when_phase4_llm_stage_is_routed_back_into_legacy_path() {
-        val logBus = InMemoryPluginRuntimeLogBus(clock = { 12_000L })
-        val failureGuard = PluginFailureGuard(clock = { 12_000L })
-        val engine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(
-                failureGuard = failureGuard,
-                clock = { 12_000L },
-                logBus = logBus,
-            ),
-            failureGuard = failureGuard,
-            clock = { 12_000L },
-            logBus = logBus,
-        )
-
-        val attempt = engine.executeLegacyBatch(
-            trigger = PluginTriggerSource.BeforeSendMessage,
-            plugins = listOf(runtimePlugin("alpha") { TextResult("alpha") }),
-            contextFactory = ::executionContextFor,
-            requestedStage = PluginExecutionStage.AfterMessageSent,
-        )
-
-        assertFalse(attempt.accepted)
-        assertEquals("phase4_stage_after_message_sent", attempt.reason)
-        assertTrue(attempt.batchResult == null)
-        val guardrail = logBus.snapshot(limit = 10)
-            .first { it.category == PluginRuntimeLogCategory.Execution }
-        assertEquals(PluginRuntimeLogLevel.Warning, guardrail.level)
-        assertEquals("legacy_execution_guardrail", guardrail.code)
-        assertEquals("after_message_sent", guardrail.metadata["requestedStage"])
-        assertEquals("phase4_stage_after_message_sent", guardrail.metadata["reason"])
-    }
-
-    @Test
-    fun engine_execute_legacy_batch_noops_when_legacy_trigger_source_is_missing() {
-        val logBus = InMemoryPluginRuntimeLogBus(clock = { 13_000L })
-        val failureGuard = PluginFailureGuard(clock = { 13_000L })
-        val engine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(
-                failureGuard = failureGuard,
-                clock = { 13_000L },
-                logBus = logBus,
-            ),
-            failureGuard = failureGuard,
-            clock = { 13_000L },
-            logBus = logBus,
-        )
-
-        val attempt = engine.executeLegacyBatch(
-            trigger = null,
-            plugins = listOf(runtimePlugin("alpha") { TextResult("alpha") }),
-            contextFactory = ::executionContextFor,
-        )
-
-        assertFalse(attempt.accepted)
-        assertEquals("missing_legacy_trigger_source", attempt.reason)
-        assertTrue(attempt.batchResult == null)
-        val guardrail = logBus.snapshot(limit = 10)
-            .first { it.category == PluginRuntimeLogCategory.Execution }
-        assertEquals("legacy_execution_guardrail", guardrail.code)
-        assertEquals("missing_legacy_trigger_source", guardrail.metadata["reason"])
-    }
 }

@@ -300,6 +300,9 @@ private class QuickJsExternalPluginBootstrapSession(
         name: String,
         hostApi: PluginV2BootstrapHostApi,
     ): JSObject {
+        hostApi.attachSessionUnifiedOriginProvider {
+            runtimeHandle.currentSessionUnifiedOrigin
+        }
         val bridge = runtimeHandle.context.createNewJSObject()
         bindHostCall(bridge, "registerMessageHandler") { args ->
             val descriptor = requireObjectArg(args, 0, "registerMessageHandler")
@@ -390,8 +393,101 @@ private class QuickJsExternalPluginBootstrapSession(
         bridge.setProperty("getPluginSettings", settingsCallback)
         bridge.setProperty("readSettings", settingsCallback)
         bridge.setProperty("getConfig", settingsCallback)
+        bridge.setProperty(
+            "storage",
+            createStorageBridge(
+                runtimeHandle = runtimeHandle,
+                hostApi = hostApi,
+            ),
+        )
         runtimeHandle.handleStore["global::$name"] = bridge
         return bridge
+    }
+
+    private fun createStorageBridge(
+        runtimeHandle: QuickJsBootstrapRuntime,
+        hostApi: PluginV2BootstrapHostApi,
+    ): JSObject {
+        val storageBridge = runtimeHandle.context.createNewJSObject()
+        storageBridge.setProperty(
+            "plugin",
+            createStorageScopeBridge(
+                runtimeHandle = runtimeHandle,
+                getValue = { key, defaultValue -> hostApi.pluginStorageGet(key, defaultValue) },
+                setValue = { key, value -> hostApi.pluginStorageSet(key, value) },
+                removeValue = { key -> hostApi.pluginStorageRemove(key) },
+                listKeys = { prefix -> hostApi.pluginStorageKeys(prefix) },
+                clearScope = { prefix -> hostApi.pluginStorageClear(prefix) },
+            ),
+        )
+        storageBridge.setProperty(
+            "session",
+            createStorageScopeBridge(
+                runtimeHandle = runtimeHandle,
+                getValue = { key, defaultValue -> hostApi.sessionStorageGet(key, defaultValue) },
+                setValue = { key, value -> hostApi.sessionStorageSet(key, value) },
+                removeValue = { key -> hostApi.sessionStorageRemove(key) },
+                listKeys = { prefix -> hostApi.sessionStorageKeys(prefix) },
+                clearScope = { prefix -> hostApi.sessionStorageClear(prefix) },
+            ),
+        )
+        runtimeHandle.handleStore["storage::${runtimeHandle.handleStore.size}"] = storageBridge
+        return storageBridge
+    }
+
+    private fun createStorageScopeBridge(
+        runtimeHandle: QuickJsBootstrapRuntime,
+        getValue: (String, Any?) -> Any?,
+        setValue: (String, Any?) -> Boolean,
+        removeValue: (String) -> Boolean,
+        listKeys: (String) -> List<String>,
+        clearScope: (String) -> Boolean,
+    ): JSObject {
+        val scopeBridge = runtimeHandle.context.createNewJSObject()
+        scopeBridge.setProperty(
+            "get",
+            JSCallFunction { args ->
+                createJsValue(
+                    runtimeHandle,
+                    getValue(
+                        args.getOrNull(0)?.toString().orEmpty(),
+                        coerceJsValue(args.getOrNull(1)),
+                    ),
+                )
+            },
+        )
+        scopeBridge.setProperty(
+            "set",
+            JSCallFunction { args ->
+                setValue(
+                    args.getOrNull(0)?.toString().orEmpty(),
+                    coerceJsValue(args.getOrNull(1)),
+                )
+            },
+        )
+        scopeBridge.setProperty(
+            "remove",
+            JSCallFunction { args ->
+                removeValue(args.getOrNull(0)?.toString().orEmpty())
+            },
+        )
+        scopeBridge.setProperty(
+            "keys",
+            JSCallFunction { args ->
+                createJsArray(
+                    runtimeHandle,
+                    listKeys(args.getOrNull(0)?.toString().orEmpty()),
+                )
+            },
+        )
+        scopeBridge.setProperty(
+            "clear",
+            JSCallFunction { args ->
+                clearScope(args.getOrNull(0)?.toString().orEmpty())
+            },
+        )
+        runtimeHandle.handleStore["storage-scope::${runtimeHandle.handleStore.size}"] = scopeBridge
+        return scopeBridge
     }
 
     private fun bindHostCall(
@@ -1344,14 +1440,50 @@ private class QuickJsExternalPluginBootstrapSession(
                 val runtimeHandle = checkNotNull(runtime) {
                     "QuickJS bootstrap session has already been disposed: $pluginId"
                 }
+                val previousSessionUnifiedOrigin = runtimeHandle.currentSessionUnifiedOrigin
+                runtimeHandle.currentSessionUnifiedOrigin = resolveSessionUnifiedOrigin(args)
                 val jsArgs = args.map { createJsValue(runtimeHandle, it) }
                 try {
                     function.call(*jsArgs.toTypedArray())
                 } finally {
+                    runtimeHandle.currentSessionUnifiedOrigin = previousSessionUnifiedOrigin
                     jsArgs.forEach(::releaseQuickJsValueIfNeeded)
                 }
             }
         }
+    }
+
+    private fun resolveSessionUnifiedOrigin(
+        args: Array<out Any?>,
+    ): String? {
+        return args.asSequence()
+            .mapNotNull(::extractSessionUnifiedOrigin)
+            .firstOrNull()
+    }
+
+    private fun extractSessionUnifiedOrigin(
+        value: Any?,
+    ): String? {
+        return when (value) {
+            is PluginMessageEvent -> value.extras.sessionUnifiedOrigin()
+            is PluginCommandEvent -> value.extras.sessionUnifiedOrigin()
+            is PluginRegexEvent -> value.extras.sessionUnifiedOrigin()
+            is PluginV2LlmWaitingPayload -> value.extras.sessionUnifiedOrigin()
+            is PluginV2LlmRequestPayload -> value.event.extras.sessionUnifiedOrigin()
+            is PluginV2LlmResponsePayload -> value.event.extras.sessionUnifiedOrigin()
+            is PluginV2LlmResultDecoratingPayload -> value.event.extras.sessionUnifiedOrigin()
+            is PluginV2LlmAfterSentPayload -> value.event.extras.sessionUnifiedOrigin()
+            is PluginErrorHookArgs -> extractSessionUnifiedOrigin(value.event)
+            is PluginV2CustomFilterRequest -> value.eventView.extrasSnapshot.sessionUnifiedOrigin()
+            else -> null
+        }
+    }
+
+    private fun Map<String, *>.sessionUnifiedOrigin(): String? {
+        return this["sessionUnifiedOrigin"]
+            ?.toString()
+            ?.trim()
+            ?.takeIf { candidate -> candidate.isNotBlank() }
     }
 
     private fun initializeRuntime(): QuickJsBootstrapRuntime {
@@ -1493,6 +1625,7 @@ private data class QuickJsBootstrapRuntime(
     val bootstrapExecutionSourcePath: String,
     val bootstrapPollSourcePath: String,
     val handleStore: LinkedHashMap<String, Any>,
+    var currentSessionUnifiedOrigin: String? = null,
 ) {
     fun dispose() {
         handleStore.values

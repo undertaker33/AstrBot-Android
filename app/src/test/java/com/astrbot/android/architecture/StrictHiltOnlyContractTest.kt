@@ -141,13 +141,18 @@ class StrictHiltOnlyContractTest {
                 "private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus()",
             ),
             "feature/plugin/runtime/PluginFailureGuard.kt" to listOf(
+                "private val store: PluginFailureStateStore = InMemoryPluginFailureStateStore()",
+                "private val scopedStore: PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore()",
                 "private val scopedStore: PluginScopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store()",
+                "internal val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus()",
                 "private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus()",
             ),
             "feature/plugin/runtime/PluginRuntimeDispatcher.kt" to listOf(
+                "internal val scheduler: PluginRuntimeScheduler = PluginRuntimeScheduler(clock = clock)",
                 "private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus()",
             ),
             "feature/plugin/runtime/PluginRuntimeScheduler.kt" to listOf(
+                "private val store: PluginScheduleStateStore = InMemoryPluginScheduleStateStore()",
                 "private val store: PluginScheduleStateStore = PluginRuntimeScheduleStateStoreProvider.store()",
             ),
             "feature/plugin/runtime/PluginV2ActiveRuntimeStore.kt" to listOf(
@@ -209,6 +214,37 @@ class StrictHiltOnlyContractTest {
         assertTrue(
             "Phase-3 runtime constructors must not keep static provider defaults: $violations",
             violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun runtime_hilt_modules_must_wire_scheduler_and_governance_repository_explicitly() {
+        val runtimeServicesText = mainRoot.resolve("di/hilt/RuntimeServicesModule.kt").readText()
+        assertTrue(
+            "RuntimeServicesModule must inject PluginRuntimeScheduler into PluginExecutionEngine wiring.",
+            runtimeServicesText.contains("scheduler: PluginRuntimeScheduler"),
+        )
+        assertTrue(
+            "RuntimeServicesModule must thread the injected scheduler into PluginRuntimeDispatcher.",
+            runtimeServicesText.contains("scheduler = scheduler"),
+        )
+
+        val viewModelModuleText = mainRoot.resolve("di/hilt/ViewModelDependencyModule.kt").readText()
+        val requiredTokens = listOf(
+            "repositoryStatePort: PluginRepositoryStatePort",
+            "activeRuntimeStore: PluginV2ActiveRuntimeStore",
+            "failureStateStore: PluginFailureStateStore",
+            "logBus: PluginRuntimeLogBus",
+            "runtimeSnapshotProvider = activeRuntimeStore::snapshot",
+        )
+        val missingTokens = requiredTokens.filterNot(viewModelModuleText::contains)
+        assertTrue(
+            "ViewModelDependencyModule must build PluginGovernanceRepository from explicit Hilt-owned ports: $missingTokens",
+            missingTokens.isEmpty(),
+        )
+        assertTrue(
+            "ViewModelDependencyModule must not keep the zero-arg PluginGovernanceRepository fallback.",
+            !viewModelModuleText.contains("PluginGovernanceRepository()"),
         )
     }
 

@@ -9,7 +9,7 @@ class PluginRuntimeSchedulerTest {
     @Test
     fun scheduler_blocks_trigger_during_success_cooldown_and_reopens_after_window() {
         val clock = TestClock(now = 10_000L)
-        val scheduler = PluginRuntimeScheduler(clock = { clock.now })
+        val scheduler = testPluginRuntimeScheduler(clock = { clock.now })
         val policy = PluginSchedulePolicy(successCooldownMillis = 500L)
 
         scheduler.recordDispatched(
@@ -45,7 +45,7 @@ class PluginRuntimeSchedulerTest {
     @Test
     fun scheduler_enters_retry_backoff_then_silence_window_after_failure() {
         val clock = TestClock(now = 20_000L)
-        val scheduler = PluginRuntimeScheduler(clock = { clock.now })
+        val scheduler = testPluginRuntimeScheduler(clock = { clock.now })
         val policy = PluginSchedulePolicy(
             failureRetryBackoffMillis = 300L,
             failureSilenceMillis = 600L,

@@ -16,7 +16,7 @@ class PluginRuntimeDispatcherTest {
         val clock = TestClock()
         val sharedStore = InMemoryPluginFailureStateStore()
         val scopedStore = InMemoryPluginScopedFailureStateStore()
-        val writerGuard = PluginFailureGuard(
+        val writerGuard = testPluginFailureGuard(
             store = sharedStore,
             scopedStore = scopedStore,
             policy = PluginFailurePolicy(
@@ -36,8 +36,8 @@ class PluginRuntimeDispatcherTest {
             errorSummary = "shared failure",
         )
 
-        val dispatcher = PluginRuntimeDispatcher(
-            PluginFailureGuard(
+        val dispatcher = testPluginRuntimeDispatcher(
+            failureGuard = testPluginFailureGuard(
                 store = sharedStore,
                 scopedStore = scopedStore,
                 policy = PluginFailurePolicy(
@@ -46,6 +46,7 @@ class PluginRuntimeDispatcherTest {
                 ),
                 clock = { clock.now },
             ),
+            clock = { clock.now },
         )
         val plan = dispatcher.dispatch(
             trigger = PluginTriggerSource.OnCommand,
@@ -87,7 +88,7 @@ class PluginRuntimeDispatcherTest {
     fun dispatcher_respects_scheduler_windows_and_exposes_trigger_scope() {
         val clock = TestClock()
         val policy = PluginSchedulePolicy(successCooldownMillis = 500L)
-        val scheduler = PluginRuntimeScheduler(clock = { clock.now })
+        val scheduler = testPluginRuntimeScheduler(clock = { clock.now })
         scheduler.recordDispatched(
             pluginId = "alpha",
             trigger = PluginTriggerSource.OnCommand,
@@ -98,8 +99,8 @@ class PluginRuntimeDispatcherTest {
             policy = policy,
         )
 
-        val dispatcher = PluginRuntimeDispatcher(
-            failureGuard = PluginFailureGuard(clock = { clock.now }),
+        val dispatcher = testPluginRuntimeDispatcher(
+            failureGuard = testPluginFailureGuard(clock = { clock.now }),
             clock = { clock.now },
             scheduler = scheduler,
             policyResolver = { _, _ -> policy },
@@ -121,49 +122,4 @@ class PluginRuntimeDispatcherTest {
         )
     }
 
-    @Test
-    fun dispatch_legacy_noops_and_logs_guardrail_when_phase4_llm_stage_is_reintroduced() {
-        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1_000L })
-        val dispatcher = PluginRuntimeDispatcher(
-            failureGuard = PluginFailureGuard(clock = { 1_000L }),
-            clock = { 1_000L },
-            logBus = logBus,
-        )
-
-        val attempt = dispatcher.dispatchLegacy(
-            trigger = PluginTriggerSource.BeforeSendMessage,
-            plugins = listOf(runtimePlugin(pluginId = "alpha")),
-            requestedStage = PluginExecutionStage.ResultDecorating,
-        )
-
-        assertFalse(attempt.accepted)
-        assertEquals("phase4_stage_result_decorating", attempt.reason)
-        val guardrail = logBus.snapshot(limit = 10).single()
-        assertEquals(PluginRuntimeLogCategory.Dispatcher, guardrail.category)
-        assertEquals(PluginRuntimeLogLevel.Warning, guardrail.level)
-        assertEquals("legacy_dispatch_guardrail", guardrail.code)
-        assertEquals("result_decorating", guardrail.metadata["requestedStage"])
-        assertEquals("phase4_stage_result_decorating", guardrail.metadata["reason"])
-    }
-
-    @Test
-    fun dispatch_legacy_noops_and_logs_guardrail_when_trigger_source_is_missing() {
-        val logBus = InMemoryPluginRuntimeLogBus(clock = { 2_000L })
-        val dispatcher = PluginRuntimeDispatcher(
-            failureGuard = PluginFailureGuard(clock = { 2_000L }),
-            clock = { 2_000L },
-            logBus = logBus,
-        )
-
-        val attempt = dispatcher.dispatchLegacy(
-            trigger = null,
-            plugins = listOf(runtimePlugin(pluginId = "alpha")),
-        )
-
-        assertFalse(attempt.accepted)
-        assertEquals("missing_legacy_trigger_source", attempt.reason)
-        val guardrail = logBus.snapshot(limit = 10).single()
-        assertEquals("legacy_dispatch_guardrail", guardrail.code)
-        assertEquals("missing_legacy_trigger_source", guardrail.metadata["reason"])
-    }
 }

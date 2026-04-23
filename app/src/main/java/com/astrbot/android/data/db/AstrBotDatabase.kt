@@ -18,6 +18,7 @@ import com.astrbot.android.data.db.core.migration16To17
 import com.astrbot.android.data.db.core.migration17To18
 import com.astrbot.android.data.db.core.migration18To19
 import com.astrbot.android.data.db.core.migration19To20
+import com.astrbot.android.data.db.core.migration20To21
 import com.astrbot.android.data.db.resource.ConfigResourceProjectionEntity
 import com.astrbot.android.data.db.resource.ResourceCenterDao
 import com.astrbot.android.data.db.resource.ResourceCenterItemEntity
@@ -54,6 +55,7 @@ import com.astrbot.android.data.db.resource.ResourceCenterItemEntity
         PluginManifestPermissionEntity::class,
         PluginPermissionSnapshotEntity::class,
         PluginConfigSnapshotEntity::class,
+        PluginStateEntryEntity::class,
         DownloadTaskEntity::class,
         SavedQqAccountEntity::class,
         TtsVoiceAssetEntity::class,
@@ -64,7 +66,7 @@ import com.astrbot.android.data.db.resource.ResourceCenterItemEntity
         ResourceCenterItemEntity::class,
         ConfigResourceProjectionEntity::class,
     ],
-    version = 20,
+    version = 21,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -77,6 +79,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
     abstract fun pluginInstallAggregateDao(): PluginInstallAggregateDao
     abstract fun pluginCatalogDao(): PluginCatalogDao
     abstract fun pluginConfigSnapshotDao(): PluginConfigSnapshotDao
+    abstract fun pluginStateEntryDao(): PluginStateEntryDao
     abstract fun downloadTaskDao(): DownloadTaskDao
     abstract fun savedQqAccountDao(): SavedQqAccountDao
     abstract fun ttsVoiceAssetAggregateDao(): TtsVoiceAssetAggregateDao
@@ -353,6 +356,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration17To18,
             migration18To19,
             migration19To20,
+            migration20To21,
         )
 
         fun get(context: Context): AstrBotDatabase {

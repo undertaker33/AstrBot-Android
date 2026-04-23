@@ -1,16 +1,15 @@
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
-import com.astrbot.android.feature.plugin.data.PluginStoragePaths
+import com.astrbot.android.feature.plugin.data.config.EmptyPluginHostConfigResolver
+import com.astrbot.android.feature.plugin.data.config.PluginHostConfigResolver
+import com.astrbot.android.feature.plugin.data.config.ResolvedPluginHostConfig
 import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.plugin.ExternalPluginRuntimeKind
-import com.astrbot.android.model.plugin.ExternalPluginWorkspacePolicy
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
-import com.astrbot.android.model.plugin.PluginConfigStorageJson
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
-import com.astrbot.android.model.plugin.toStorageBoundary
+import com.astrbot.android.model.plugin.PluginConfigStorageJson
 import javax.inject.Inject
 import javax.inject.Singleton
 import org.json.JSONArray
@@ -22,6 +21,7 @@ data class PluginExecutionHostSnapshot(
     val workspaceSnapshot: PluginHostWorkspaceSnapshot = PluginHostWorkspaceSnapshot(),
     val configBoundary: PluginConfigStorageBoundary? = null,
     val configSnapshot: PluginConfigStoreSnapshot = PluginConfigStoreSnapshot(),
+    val mergedSettings: Map<String, Any?> = emptyMap(),
 )
 
 data class PluginExecutionHostToolHandlers(
@@ -58,30 +58,18 @@ internal interface PluginExecutionHostOperations {
 }
 
 @Singleton
-internal class DefaultPluginExecutionHostOperations @Inject constructor() : PluginExecutionHostOperations {
+internal class DefaultPluginExecutionHostOperations(
+    private val hostConfigResolver: PluginHostConfigResolver = EmptyPluginHostConfigResolver,
+) : PluginExecutionHostOperations {
     override fun resolve(pluginId: String): PluginExecutionHostSnapshot {
-        val workspaceSnapshot = runCatching {
-            val appContext = FeaturePluginRepository.requireAppContext()
-            ExternalPluginWorkspacePolicy.snapshot(
-                storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir),
-                pluginId = pluginId,
-            )
-        }.getOrDefault(PluginHostWorkspaceSnapshot())
-        val boundary = runCatching {
-            FeaturePluginRepository.getInstalledStaticConfigSchema(pluginId)?.toStorageBoundary()
-        }.getOrNull()
-        val configSnapshot = boundary?.let { resolvedBoundary ->
-            runCatching {
-                FeaturePluginRepository.resolveConfigSnapshot(
-                    pluginId = pluginId,
-                    boundary = resolvedBoundary,
-                )
-            }.getOrDefault(PluginConfigStoreSnapshot())
-        } ?: PluginConfigStoreSnapshot()
+        val resolvedConfig = runCatching {
+            hostConfigResolver.resolve(pluginId)
+        }.getOrDefault(ResolvedPluginHostConfig())
         return PluginExecutionHostSnapshot(
-            workspaceSnapshot = workspaceSnapshot,
-            configBoundary = boundary,
-            configSnapshot = configSnapshot,
+            workspaceSnapshot = resolvedConfig.workspaceSnapshot,
+            configBoundary = resolvedConfig.configBoundary,
+            configSnapshot = resolvedConfig.configSnapshot,
+            mergedSettings = resolvedConfig.mergedSettings,
         )
     }
 
@@ -369,7 +357,9 @@ object PluginExecutionHostApi {
     const val HostOpenHostPageToolName = "open_host_page"
 
     @Volatile
-    private var compatOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations()
+    private var compatOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations(
+        hostConfigResolver = EmptyPluginHostConfigResolver,
+    )
 
     fun resolve(pluginId: String): PluginExecutionHostSnapshot = compatOperations.resolve(pluginId)
 
@@ -406,7 +396,9 @@ object PluginExecutionHostApi {
     internal fun installCompatOperations(
         operations: PluginExecutionHostOperations?,
     ) {
-        compatOperations = operations ?: DefaultPluginExecutionHostOperations()
+        compatOperations = operations ?: DefaultPluginExecutionHostOperations(
+            hostConfigResolver = EmptyPluginHostConfigResolver,
+        )
     }
 }
 

@@ -53,6 +53,8 @@ import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFac
 import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.BaseHandlerRegistrationInput
 import com.astrbot.android.feature.plugin.runtime.BootstrapFilterDescriptor
@@ -68,6 +70,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginCommandEvent
 import com.astrbot.android.feature.plugin.runtime.PluginLlmResponse
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
 import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeHandler
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
@@ -1453,6 +1456,10 @@ class ChatViewModelTest {
                 return this@FakeChatDependencies.session(sessionId)
             }
 
+            override fun syncSystemSessionTitle(sessionId: String, title: String) {
+                this@FakeChatDependencies.renameSession(sessionId, title)
+            }
+
             override fun appendMessage(
                 sessionId: String,
                 role: String,
@@ -1460,6 +1467,32 @@ class ChatViewModelTest {
                 attachments: List<ConversationAttachment>,
             ): String {
                 return this@FakeChatDependencies.appendMessage(sessionId, role, content, attachments)
+            }
+
+            override fun updateSessionBindings(
+                sessionId: String,
+                providerId: String,
+                personaId: String,
+                botId: String,
+            ) {
+                this@FakeChatDependencies.updateSessionBindings(
+                    sessionId = sessionId,
+                    providerId = providerId,
+                    personaId = personaId,
+                    botId = botId,
+                )
+            }
+
+            override fun updateSessionServiceFlags(
+                sessionId: String,
+                sessionSttEnabled: Boolean?,
+                sessionTtsEnabled: Boolean?,
+            ) {
+                this@FakeChatDependencies.updateSessionServiceFlags(
+                    sessionId = sessionId,
+                    sessionSttEnabled = sessionSttEnabled,
+                    sessionTtsEnabled = sessionTtsEnabled,
+                )
             }
 
             override fun updateMessage(
@@ -1549,11 +1582,20 @@ class ChatViewModelTest {
     private class RecordingAppChatPluginRuntime(
         plugins: List<PluginRuntimePlugin>,
     ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
-        private val failureGuard = PluginFailureGuard(InMemoryPluginFailureStateStore())
+        private val failureGuard = PluginFailureGuard(
+            store = InMemoryPluginFailureStateStore(),
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
+            logBus = InMemoryPluginRuntimeLogBus(),
+        )
         private val delegate = EngineBackedAppChatPluginRuntime(
             pluginProvider = { plugins },
             engine = PluginExecutionEngine(
-                dispatcher = PluginRuntimeDispatcher(failureGuard),
+                dispatcher = PluginRuntimeDispatcher(
+                    failureGuard = failureGuard,
+                    scheduler = PluginRuntimeScheduler(
+                        store = InMemoryPluginScheduleStateStore(),
+                    ),
+                ),
                 failureGuard = failureGuard,
             ),
             hostCapabilityGateway = testPluginHostCapabilityGatewayFactory().create(),

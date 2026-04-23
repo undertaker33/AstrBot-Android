@@ -5,18 +5,17 @@ import com.astrbot.android.data.db.PluginCatalogDao
 import com.astrbot.android.data.db.PluginCatalogEntryEntity
 import com.astrbot.android.data.db.PluginCatalogSourceEntity
 import com.astrbot.android.data.db.PluginCatalogVersionEntity
-import com.astrbot.android.data.db.PluginConfigSnapshotDao
 import com.astrbot.android.data.db.toEntryRecord
 import com.astrbot.android.data.db.PluginInstallAggregate
 import com.astrbot.android.data.db.PluginInstallAggregateDao
 import com.astrbot.android.data.db.toEntity
-import com.astrbot.android.data.db.toSnapshot
 import com.astrbot.android.data.db.toModel
 import com.astrbot.android.data.db.toSyncState
 import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.db.toWriteModel
-import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
+import com.astrbot.android.feature.plugin.data.config.PluginConfigStorage
+import com.astrbot.android.feature.plugin.domain.cleanup.PluginDataCleanupService
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogEntry
@@ -40,7 +39,6 @@ import com.astrbot.android.model.plugin.PluginSourceBadge
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
-import com.astrbot.android.model.plugin.resolvePluginPackageSnapshotFile
 import com.astrbot.android.model.plugin.toSnapshot as toPackageContractSnapshot
 import com.astrbot.android.feature.plugin.runtime.PluginPackageValidationResult
 import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
@@ -61,15 +59,10 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
-
 interface PluginInstallStore {
     fun findByPluginId(pluginId: String): PluginInstallRecord?
 
     fun upsert(record: PluginInstallRecord)
-}
-
-interface PluginDataRemover {
-    fun removePluginData(record: PluginInstallRecord)
 }
 
 interface PluginRepositoryStatePort {
@@ -78,10 +71,6 @@ interface PluginRepositoryStatePort {
     val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
 
     fun findByPluginId(pluginId: String): PluginInstallRecord?
-}
-
-object NoOpPluginDataRemover : PluginDataRemover {
-    override fun removePluginData(record: PluginInstallRecord) = Unit
 }
 
 internal object EmptyPluginRepositoryStatePort : PluginRepositoryStatePort {
@@ -102,20 +91,6 @@ class FeaturePluginRepositoryStateOwner @Inject constructor(
 
     override fun findByPluginId(pluginId: String): PluginInstallRecord? {
         return repository.findByPluginId(pluginId)
-    }
-}
-
-class PluginFileDataRemover(
-    private val storagePaths: PluginStoragePaths,
-) : PluginDataRemover {
-    override fun removePluginData(record: PluginInstallRecord) {
-        cleanupPath(storagePaths.privateDir(record.pluginId))
-    }
-
-    private fun cleanupPath(path: File) {
-        if (path.exists()) {
-            path.deleteRecursively()
-        }
     }
 }
 
@@ -149,12 +124,11 @@ class FeaturePluginRepository @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val pluginDao: PluginInstallAggregateDao,
     private val pluginCatalogDao: PluginCatalogDao,
-    private val pluginConfigDao: PluginConfigSnapshotDao,
+    private val pluginConfigStorage: PluginConfigStorage,
+    private val pluginDataCleanupService: PluginDataCleanupService,
 ) : PluginInstallStore, PluginCatalogSyncStore {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var timeProvider: () -> Long = System::currentTimeMillis
-    private var pluginDataRemover: PluginDataRemover =
-        PluginFileDataRemover(PluginStoragePaths.fromFilesDir(appContext.filesDir))
     private val _records = MutableStateFlow<List<PluginInstallRecord>>(emptyList())
     private val _repositorySources = MutableStateFlow<List<PluginRepositorySource>>(emptyList())
     private val _catalogEntries = MutableStateFlow<List<PluginCatalogEntryRecord>>(emptyList())
@@ -376,13 +350,10 @@ class FeaturePluginRepository @Inject constructor(
     ): PluginUninstallResult {
         requireInitialized()
         val current = requireRecord(pluginId)
-        if (policy == PluginUninstallPolicy.REMOVE_DATA) {
-            pluginDataRemover.removePluginData(current)
-            removeInstalledPluginFiles(current)
-            runBlocking(Dispatchers.IO) {
-                requireConfigDao().delete(pluginId)
-            }
-        }
+        pluginDataCleanupService.cleanupForUninstall(
+            record = current,
+            policy = policy,
+        )
         delete(pluginId)
         return PluginUninstallResult(
             pluginId = pluginId,
@@ -391,61 +362,23 @@ class FeaturePluginRepository @Inject constructor(
         )
     }
 
-    private fun removeInstalledPluginFiles(record: PluginInstallRecord) {
-        listOf(
-            record.localPackagePath,
-            record.extractedDir,
-        ).filter(String::isNotBlank)
-            .map(::File)
-            .forEach { path ->
-                if (path.exists()) {
-                    path.deleteRecursively()
-                }
-            }
-    }
-
     fun resolveConfigSnapshot(
         pluginId: String,
         boundary: PluginConfigStorageBoundary,
     ): PluginConfigStoreSnapshot {
-        requireInitialized()
-        requireRecord(pluginId)
-        val persisted = runBlocking(Dispatchers.IO) {
-            requireConfigDao().get(pluginId)?.toSnapshot()
-        } ?: PluginConfigStoreSnapshot()
-        return boundary.createSnapshot(
-            coreValues = (boundary.coreDefaults + persisted.coreValues)
-                .filterKeys { it in boundary.coreFieldKeys },
-            extensionValues = persisted.extensionValues.filterKeys { it in boundary.extensionFieldKeys },
-        )
+        return pluginConfigStorage.resolveConfigSnapshot(pluginId, boundary)
     }
 
     fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
-        requireInitialized()
-        val schemaPath = resolveInstalledStaticConfigSchemaPath(pluginId) ?: return null
-        return runCatching {
-            PluginStaticConfigJson.decodeSchema(
-                JSONObject(File(schemaPath).readText()),
-            )
-        }.getOrNull()
+        return pluginConfigStorage.getInstalledStaticConfigSchema(pluginId)
     }
 
     fun resolveInstalledStaticConfigSchemaPath(pluginId: String): String? {
-        requireInitialized()
-        val record = requireRecord(pluginId)
-        return resolveInstalledSnapshotConfigFile(
-            record = record,
-            relativePath = record.packageContractSnapshot?.config?.staticSchema.orEmpty(),
-        )?.absolutePath
+        return pluginConfigStorage.resolveInstalledStaticConfigSchemaPath(pluginId)
     }
 
     fun resolveInstalledSettingsSchemaPath(pluginId: String): String? {
-        requireInitialized()
-        val record = requireRecord(pluginId)
-        return resolveInstalledSnapshotConfigFile(
-            record = record,
-            relativePath = record.packageContractSnapshot?.config?.settingsSchema.orEmpty(),
-        )?.absolutePath
+        return pluginConfigStorage.resolveInstalledSettingsSchemaPath(pluginId)
     }
 
     fun saveCoreConfig(
@@ -453,15 +386,7 @@ class FeaturePluginRepository @Inject constructor(
         boundary: PluginConfigStorageBoundary,
         coreValues: Map<String, PluginStaticConfigValue>,
     ): PluginConfigStoreSnapshot {
-        requireInitialized()
-        requireRecord(pluginId)
-        val current = resolveConfigSnapshot(pluginId = pluginId, boundary = boundary)
-        val snapshot = boundary.createSnapshot(
-            coreValues = coreValues,
-            extensionValues = current.extensionValues,
-        )
-        persistConfigSnapshot(pluginId = pluginId, snapshot = snapshot)
-        return snapshot
+        return pluginConfigStorage.saveCoreConfig(pluginId, boundary, coreValues)
     }
 
     fun saveExtensionConfig(
@@ -469,15 +394,7 @@ class FeaturePluginRepository @Inject constructor(
         boundary: PluginConfigStorageBoundary,
         extensionValues: Map<String, PluginStaticConfigValue>,
     ): PluginConfigStoreSnapshot {
-        requireInitialized()
-        requireRecord(pluginId)
-        val current = resolveConfigSnapshot(pluginId = pluginId, boundary = boundary)
-        val snapshot = boundary.createSnapshot(
-            coreValues = current.coreValues,
-            extensionValues = extensionValues,
-        )
-        persistConfigSnapshot(pluginId = pluginId, snapshot = snapshot)
-        return snapshot
+        return pluginConfigStorage.saveExtensionConfig(pluginId, boundary, extensionValues)
     }
 
     private fun requireInitialized() {
@@ -493,17 +410,6 @@ class FeaturePluginRepository @Inject constructor(
     private fun requireRecord(pluginId: String): PluginInstallRecord {
         return findByPluginId(pluginId)
             ?: error("Plugin install record not found for pluginId=$pluginId")
-    }
-
-    private fun resolveInstalledSnapshotConfigFile(
-        record: PluginInstallRecord,
-        relativePath: String,
-    ): File? {
-        val extractedDir = record.extractedDir.takeIf { it.isNotBlank() }?.let(::File) ?: return null
-        return resolvePluginPackageSnapshotFile(
-            rootDir = extractedDir,
-            relativePath = relativePath,
-        )
     }
 
     private fun persistUpdatedRecord(
@@ -941,22 +847,6 @@ class FeaturePluginRepository @Inject constructor(
     private fun requireDao(): PluginInstallAggregateDao = pluginDao
 
     private fun requireCatalogDao(): PluginCatalogDao = pluginCatalogDao
-
-    private fun requireConfigDao(): PluginConfigSnapshotDao = pluginConfigDao
-
-    private fun persistConfigSnapshot(
-        pluginId: String,
-        snapshot: PluginConfigStoreSnapshot,
-    ) {
-        runBlocking(Dispatchers.IO) {
-            requireConfigDao().upsert(
-                snapshot.toEntity(
-                    pluginId = pluginId,
-                    updatedAt = timeProvider(),
-                ),
-            )
-        }
-    }
 
     companion object : PluginInstallStore, PluginCatalogSyncStore {
         const val SUPPORTED_PROTOCOL_VERSION = 2

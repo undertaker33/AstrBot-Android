@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
+import com.astrbot.android.core.runtime.tool.ToolJsonValueNormalizer
 import com.astrbot.android.core.runtime.tool.ToolDescriptor
 import com.astrbot.android.core.runtime.tool.ToolDescriptorVisibility
 import com.astrbot.android.core.runtime.tool.ToolSourceKind
@@ -171,26 +172,5 @@ private fun ToolDescriptorVisibility.toPluginVisibility(): PluginToolVisibility 
 
 private fun String.toJsonLikeMap(): JsonLikeMap {
     if (isBlank()) return emptyMap()
-    return JSONObject(this).toJsonLikeMap()
-}
-
-private fun JSONObject.toJsonLikeMap(): JsonLikeMap {
-    return keys().asSequence().associateWith { key ->
-        get(key).toJsonLikeValue()
-    }
-}
-
-private fun JSONArray.toJsonLikeList(): List<Any?> {
-    return (0 until length()).map { index -> get(index).toJsonLikeValue() }
-}
-
-private fun Any?.toJsonLikeValue(): Any? {
-    return when (this) {
-        null,
-        JSONObject.NULL,
-        -> null
-        is JSONObject -> toJsonLikeMap()
-        is JSONArray -> toJsonLikeList()
-        else -> this
-    }
+    return ToolJsonValueNormalizer.normalizeObject(JSONObject(this))
 }

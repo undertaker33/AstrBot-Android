@@ -1,6 +1,5 @@
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginExecutionResult
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -18,7 +17,6 @@ open class PluginEntryExecutionService @Inject constructor(
         val runtime = pluginCatalog.plugins()
             .firstOrNull { plugin ->
                 plugin.pluginId == record.pluginId &&
-                    ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnPluginEntryClick) &&
                     PluginTriggerSource.OnPluginEntryClick in plugin.supportedTriggers
             }
             ?: return null

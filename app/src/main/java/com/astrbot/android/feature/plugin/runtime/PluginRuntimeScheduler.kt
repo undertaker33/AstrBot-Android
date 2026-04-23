@@ -83,21 +83,6 @@ class InMemoryPluginScheduleStateStore : PluginScheduleStateStore {
     ): String = "$pluginId#${trigger.wireValue}"
 }
 
-object PluginRuntimeScheduleStateStoreProvider {
-    @Volatile
-    private var storeOverrideForTests: PluginScheduleStateStore? = null
-
-    private val sharedStore: PluginScheduleStateStore by lazy {
-        InMemoryPluginScheduleStateStore()
-    }
-
-    fun store(): PluginScheduleStateStore = storeOverrideForTests ?: sharedStore
-
-    internal fun setStoreOverrideForTests(store: PluginScheduleStateStore?) {
-        storeOverrideForTests = store
-    }
-}
-
 internal val DefaultPluginSchedulePolicyResolver: (PluginRuntimePlugin, PluginTriggerSource) -> PluginSchedulePolicy =
     { _, trigger ->
         when (trigger) {
@@ -112,7 +97,7 @@ internal val DefaultPluginSchedulePolicyResolver: (PluginRuntimePlugin, PluginTr
     }
 
 class PluginRuntimeScheduler(
-    private val store: PluginScheduleStateStore = InMemoryPluginScheduleStateStore(),
+    private val store: PluginScheduleStateStore,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun snapshot(

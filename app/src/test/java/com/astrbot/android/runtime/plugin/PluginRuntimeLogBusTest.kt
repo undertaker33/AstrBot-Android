@@ -147,13 +147,14 @@ class PluginRuntimeLogBusTest {
     fun engine_and_dispatcher_publish_runtime_logs_for_queued_skipped_success_and_failure_paths() {
         val clock = TestClock(now = 1_000L)
         val bus = InMemoryPluginRuntimeLogBus(capacity = 32)
-        val failureGuard = PluginFailureGuard(
+        val failureGuard = testPluginFailureGuard(
             store = InMemoryPluginFailureStateStore(),
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
             clock = { clock.now },
             logBus = bus,
         )
         val engine = PluginExecutionEngine(
-            dispatcher = PluginRuntimeDispatcher(
+            dispatcher = testPluginRuntimeDispatcher(
                 failureGuard = failureGuard,
                 logBus = bus,
                 clock = { clock.now },
@@ -184,9 +185,10 @@ class PluginRuntimeLogBusTest {
     @Test
     fun host_action_executor_publishes_success_and_failure_logs() {
         val bus = InMemoryPluginRuntimeLogBus(capacity = 16)
-        val executor = ExternalPluginHostActionExecutor(
-            failureGuard = PluginFailureGuard(
+        val executor = testExternalPluginHostActionExecutor(
+            failureGuard = testPluginFailureGuard(
                 store = InMemoryPluginFailureStateStore(),
+                scopedStore = InMemoryPluginScopedFailureStateStore(),
                 logBus = bus,
             ),
             logBus = bus,

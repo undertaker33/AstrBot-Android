@@ -12,6 +12,7 @@ import com.astrbot.android.data.db.PersonaAggregateDao
 import com.astrbot.android.data.db.PluginCatalogDao
 import com.astrbot.android.data.db.PluginConfigSnapshotDao
 import com.astrbot.android.data.db.PluginInstallAggregateDao
+import com.astrbot.android.data.db.PluginStateEntryDao
 import com.astrbot.android.data.db.ProviderAggregateDao
 import com.astrbot.android.data.db.TtsVoiceAssetAggregateDao
 import com.astrbot.android.data.db.cron.CronJobDao
@@ -81,6 +82,11 @@ internal object DatabaseModule {
     fun providePluginConfigSnapshotDao(
         database: AstrBotDatabase,
     ): PluginConfigSnapshotDao = database.pluginConfigSnapshotDao()
+
+    @Provides
+    fun providePluginStateEntryDao(
+        database: AstrBotDatabase,
+    ): PluginStateEntryDao = database.pluginStateEntryDao()
 
     @Provides
     fun provideProviderAggregateDao(

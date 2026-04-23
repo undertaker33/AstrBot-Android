@@ -2,7 +2,7 @@ package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
 import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
-import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
+import com.astrbot.android.model.plugin.PluginTriggerContracts
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginInstallState
 import com.astrbot.android.model.plugin.PluginInstallStatus
@@ -61,7 +61,7 @@ class ExternalPluginRuntimeCatalog(
             }
             val supportedTriggers = binding.contract
                 ?.supportedTriggers
-                ?.filter(ExternalPluginTriggerPolicy::isOpen)
+                ?.filter(PluginTriggerContracts::isOnlineHostTrigger)
                 ?.toSet()
                 .orEmpty()
             if (supportedTriggers.isEmpty()) {

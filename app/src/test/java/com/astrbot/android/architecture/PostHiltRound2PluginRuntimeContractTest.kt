@@ -81,6 +81,37 @@ class PostHiltRound2PluginRuntimeContractTest {
         )
     }
 
+    @Test
+    fun production_plugin_runtime_store_providers_must_be_deleted_after_hilt_closure() {
+        val forbiddenDeclarations = listOf(
+            "object PluginRuntimeFailureStateStoreProvider",
+            "object PluginRuntimeScopedFailureStateStoreProvider",
+            "object PluginRuntimeScheduleStateStoreProvider",
+        )
+
+        val violations = buildList {
+            kotlinFilesUnder(mainRoot).forEach { file ->
+                val relativePath = mainRoot.relativize(file).toString().replace('\\', '/')
+                val text = file.readText()
+                forbiddenDeclarations.forEach { token ->
+                    if (text.contains(token)) {
+                        add("$relativePath contains $token")
+                    }
+                }
+            }
+        }
+
+        assertTrue(
+            "Plugin runtime store providers must not remain in production after Hilt closure: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    private fun kotlinFilesUnder(root: Path): Sequence<Path> =
+        java.nio.file.Files.walk(root).use { paths ->
+            paths.filter { path -> path.toString().endsWith(".kt") }.toList().asSequence()
+        }
+
     private fun detectProjectRoot(): Path {
         val cwd = Path.of("").toAbsolutePath()
         return when {

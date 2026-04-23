@@ -43,6 +43,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
 import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
@@ -99,13 +100,16 @@ internal object RuntimeServicesModule {
     @Singleton
     fun providePluginExecutionEngine(
         failureGuard: PluginFailureGuard,
+        scheduler: PluginRuntimeScheduler,
         logBus: PluginRuntimeLogBus,
     ): PluginExecutionEngine = PluginExecutionEngine(
         dispatcher = PluginRuntimeDispatcher(
             failureGuard = failureGuard,
+            scheduler = scheduler,
             logBus = logBus,
         ),
         failureGuard = failureGuard,
+        scheduler = scheduler,
         logBus = logBus,
     )
 

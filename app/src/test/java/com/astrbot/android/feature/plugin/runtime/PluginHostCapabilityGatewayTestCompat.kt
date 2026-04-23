@@ -3,7 +3,7 @@ package com.astrbot.android.feature.plugin.runtime
 internal fun createCompatPluginHostCapabilityGatewayFactory(): PluginHostCapabilityGatewayFactory {
     return PluginHostCapabilityGatewayFactory(
         resolver = DefaultPluginExecutionHostResolver(DefaultPluginExecutionHostOperations()),
-        hostActionExecutor = ExternalPluginHostActionExecutor(),
+        hostActionExecutor = testExternalPluginHostActionExecutor(),
     )
 }
 

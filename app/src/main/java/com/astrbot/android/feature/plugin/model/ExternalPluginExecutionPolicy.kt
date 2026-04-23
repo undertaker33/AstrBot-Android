@@ -1,29 +1,22 @@
 package com.astrbot.android.model.plugin
 
-enum class ExternalPluginTriggerAvailability {
-    OPEN_V1,
-    DECLARED_BUT_CLOSED,
-}
-
-object ExternalPluginTriggerPolicy {
-    private val openTriggers = setOf(
+object PluginTriggerContracts {
+    val onlineHostTriggers = setOf(
         PluginTriggerSource.OnPluginEntryClick,
         PluginTriggerSource.OnCommand,
         PluginTriggerSource.BeforeSendMessage,
         PluginTriggerSource.AfterModelResponse,
     )
 
-    fun availability(trigger: PluginTriggerSource): ExternalPluginTriggerAvailability {
-        return if (trigger in openTriggers) {
-            ExternalPluginTriggerAvailability.OPEN_V1
-        } else {
-            ExternalPluginTriggerAvailability.DECLARED_BUT_CLOSED
-        }
-    }
+    val residualCompatOnlyTriggers = setOf(
+        PluginTriggerSource.OnMessageReceived,
+        PluginTriggerSource.OnSchedule,
+        PluginTriggerSource.OnConversationEnter,
+    )
 
-    fun isOpen(trigger: PluginTriggerSource): Boolean {
-        return availability(trigger) == ExternalPluginTriggerAvailability.OPEN_V1
-    }
+    fun isOnlineHostTrigger(trigger: PluginTriggerSource): Boolean = trigger in onlineHostTriggers
+
+    fun isResidualCompatOnlyTrigger(trigger: PluginTriggerSource): Boolean = trigger in residualCompatOnlyTriggers
 }
 
 enum class ExternalPluginHostActionAvailability {

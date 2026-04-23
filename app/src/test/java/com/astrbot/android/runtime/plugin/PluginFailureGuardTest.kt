@@ -19,11 +19,14 @@ class PluginFailureGuardTest {
     fun failure_guard_records_error_summary_and_enters_suspension_after_reaching_failure_threshold() {
         val clock = TestClock(now = 5_000L)
         val guard = PluginFailureGuard(
+            store = InMemoryPluginFailureStateStore(),
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
             policy = PluginFailurePolicy(
                 maxConsecutiveFailures = 2,
                 suspensionWindowMillis = 300L,
             ),
             clock = { clock.now },
+            logBus = InMemoryPluginRuntimeLogBus(),
         )
 
         val afterFirstFailure = guard.recordFailure(
@@ -52,11 +55,14 @@ class PluginFailureGuardTest {
     fun failure_guard_recovers_after_suspension_window_expires_and_preserves_recent_failure_details() {
         val clock = TestClock(now = 10_000L)
         val guard = PluginFailureGuard(
+            store = InMemoryPluginFailureStateStore(),
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
             policy = PluginFailurePolicy(
                 maxConsecutiveFailures = 2,
                 suspensionWindowMillis = 200L,
             ),
             clock = { clock.now },
+            logBus = InMemoryPluginRuntimeLogBus(),
         )
         guard.recordFailure(
             pluginId = "plugin-b",
@@ -84,11 +90,14 @@ class PluginFailureGuardTest {
     @Test
     fun failure_guard_classifies_permission_and_payload_related_errors() {
         val guard = PluginFailureGuard(
+            store = InMemoryPluginFailureStateStore(),
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
             policy = PluginFailurePolicy(
                 maxConsecutiveFailures = 5,
                 suspensionWindowMillis = 1_000L,
             ),
             clock = { 1_000L },
+            logBus = InMemoryPluginRuntimeLogBus(),
         )
 
         val permissionFailure = guard.recordFailure(
@@ -108,11 +117,14 @@ class PluginFailureGuardTest {
     fun failure_guard_isolates_suspension_by_trigger_scope() {
         val clock = TestClock(now = 30_000L)
         val guard = PluginFailureGuard(
+            store = InMemoryPluginFailureStateStore(),
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
             policy = PluginFailurePolicy(
                 maxConsecutiveFailures = 2,
                 suspensionWindowMillis = 500L,
             ),
             clock = { clock.now },
+            logBus = InMemoryPluginRuntimeLogBus(),
         )
 
         guard.recordFailure(
@@ -223,6 +235,7 @@ class PluginFailureGuardTest {
         )
         val guard = PluginFailureGuard(
             store = failureStore,
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
             policy = PluginFailurePolicy(
                 maxConsecutiveFailures = 2,
                 suspensionWindowMillis = 100L,

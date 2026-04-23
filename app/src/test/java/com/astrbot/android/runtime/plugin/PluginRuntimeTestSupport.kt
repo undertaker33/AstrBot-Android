@@ -48,6 +48,52 @@ internal class TestClock(
     }
 }
 
+internal fun testPluginFailureGuard(
+    store: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
+    scopedStore: PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore(),
+    policy: PluginFailurePolicy = PluginFailurePolicy(),
+    clock: () -> Long = System::currentTimeMillis,
+    logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+): PluginFailureGuard = PluginFailureGuard(
+    store = store,
+    scopedStore = scopedStore,
+    policy = policy,
+    clock = clock,
+    logBus = logBus,
+)
+
+internal fun testPluginRuntimeScheduler(
+    store: PluginScheduleStateStore = InMemoryPluginScheduleStateStore(),
+    clock: () -> Long = System::currentTimeMillis,
+): PluginRuntimeScheduler = PluginRuntimeScheduler(
+    store = store,
+    clock = clock,
+)
+
+internal fun testPluginRuntimeDispatcher(
+    failureGuard: PluginFailureGuard = testPluginFailureGuard(),
+    clock: () -> Long = System::currentTimeMillis,
+    scheduler: PluginRuntimeScheduler = testPluginRuntimeScheduler(clock = clock),
+    policyResolver: (PluginRuntimePlugin, PluginTriggerSource) -> PluginSchedulePolicy = DefaultPluginSchedulePolicyResolver,
+    logBus: PluginRuntimeLogBus = failureGuard.logBus,
+): PluginRuntimeDispatcher = PluginRuntimeDispatcher(
+    failureGuard = failureGuard,
+    clock = clock,
+    scheduler = scheduler,
+    policyResolver = policyResolver,
+    logBus = logBus,
+)
+
+internal fun testExternalPluginHostActionExecutor(
+    failureGuard: PluginFailureGuard = testPluginFailureGuard(),
+    logBus: PluginRuntimeLogBus = failureGuard.logBus,
+    clock: () -> Long = System::currentTimeMillis,
+): ExternalPluginHostActionExecutor = ExternalPluginHostActionExecutor(
+    failureGuard = failureGuard,
+    logBus = logBus,
+    clock = clock,
+)
+
 internal fun runtimePlugin(
     pluginId: String,
     version: String = "1.0.0",

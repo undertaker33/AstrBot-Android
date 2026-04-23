@@ -33,6 +33,7 @@ import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import kotlinx.coroutines.CancellationException
@@ -269,6 +270,11 @@ internal class QqMessageRuntimeService(
             val llmEvent = message.toPluginMessageEvent(
                 trigger = PluginTriggerSource.BeforeSendMessage,
                 conversationId = preModelSession.originSessionId.ifBlank { preModelSession.id },
+                sessionUnifiedOrigin = MessageSessionRef(
+                    platformId = preModelSession.platformId,
+                    messageType = preModelSession.messageType,
+                    originSessionId = preModelSession.originSessionId,
+                ).unifiedOrigin,
                 botId = bot.id,
                 configProfileId = config.id,
                 personaId = persona?.id.orEmpty(),

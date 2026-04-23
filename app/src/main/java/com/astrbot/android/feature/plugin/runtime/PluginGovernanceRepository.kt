@@ -1,7 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
-import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
 import com.astrbot.android.model.plugin.PluginDiagnosticsSummary
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
@@ -45,11 +44,11 @@ data class PluginGovernanceReadModel(
 )
 
 class PluginGovernanceRepository(
-    private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
-    private val runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot = { PluginV2ActiveRuntimeSnapshot() },
-    private val failureStateStore: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
+    private val repositoryStatePort: PluginRepositoryStatePort,
+    private val runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot,
+    private val failureStateStore: PluginFailureStateStore,
     private val diagnosticsSnapshotProvider: () -> List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore::snapshot,
-    private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    private val logBus: PluginRuntimeLogBus,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val installRecordsFlow: Flow<List<PluginInstallRecord>> = repositoryStatePort.records
@@ -57,8 +56,8 @@ class PluginGovernanceRepository(
     constructor(
         installRecordsFlow: Flow<List<PluginInstallRecord>> = flowOf(emptyList()),
         findInstallRecord: (String) -> PluginInstallRecord?,
-        runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot = { PluginV2ActiveRuntimeSnapshot() },
-        failureStateStore: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
+        runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot,
+        failureStateStore: PluginFailureStateStore,
         diagnosticsSnapshotProvider: () -> List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore::snapshot,
         logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
         clock: () -> Long = System::currentTimeMillis,

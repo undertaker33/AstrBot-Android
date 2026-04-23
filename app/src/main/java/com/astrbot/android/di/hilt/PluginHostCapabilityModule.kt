@@ -4,8 +4,10 @@ import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostReso
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
+import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOperations
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostResolver
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.data.config.PluginHostConfigResolver
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -24,6 +26,15 @@ internal abstract class PluginHostCapabilityModule {
     ): PluginExecutionHostResolver
 
     companion object {
+        @Provides
+        @Singleton
+        @JvmStatic
+        fun provideDefaultPluginExecutionHostOperations(
+            hostConfigResolver: PluginHostConfigResolver,
+        ): DefaultPluginExecutionHostOperations = DefaultPluginExecutionHostOperations(
+            hostConfigResolver = hostConfigResolver,
+        )
+
         @Provides
         @Singleton
         @JvmStatic

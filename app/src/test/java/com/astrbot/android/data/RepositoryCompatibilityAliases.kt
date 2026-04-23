@@ -12,6 +12,7 @@ import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.RuntimeStatus
+import com.astrbot.android.model.plugin.PluginInstallRecord
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,15 +26,23 @@ val CronJobRepository = FeatureCronJobRepository
 val PluginRepository = FeaturePluginRepository
 val ResourceCenterRepository = FeatureResourceCenterRepository
 
-val NoOpPluginDataRemover = com.astrbot.android.feature.plugin.data.NoOpPluginDataRemover
-
 typealias PluginInstallStore = com.astrbot.android.feature.plugin.data.PluginInstallStore
-typealias PluginDataRemover = com.astrbot.android.feature.plugin.data.PluginDataRemover
-typealias PluginFileDataRemover = com.astrbot.android.feature.plugin.data.PluginFileDataRemover
 typealias PluginUninstallResult = com.astrbot.android.feature.plugin.data.PluginUninstallResult
 typealias PluginCatalogVersionGateResult = com.astrbot.android.feature.plugin.data.PluginCatalogVersionGateResult
 typealias PluginPackageInstallBlockedException =
     com.astrbot.android.feature.plugin.data.PluginPackageInstallBlockedException
+
+interface PluginDataRemover {
+    fun removePluginData(record: PluginInstallRecord)
+}
+
+object NoOpPluginDataRemover : PluginDataRemover {
+    override fun removePluginData(record: PluginInstallRecord) = Unit
+}
+
+class PluginFileDataRemover : PluginDataRemover {
+    override fun removePluginData(record: PluginInstallRecord) = Unit
+}
 
 typealias AppBackupRepository = com.astrbot.android.core.db.backup.AppBackupRepository
 typealias ChatCompletionService = com.astrbot.android.core.runtime.llm.ChatCompletionService

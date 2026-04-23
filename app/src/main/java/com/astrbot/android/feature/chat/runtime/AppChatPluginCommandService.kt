@@ -26,7 +26,6 @@ import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.plugin.ErrorResult
 import com.astrbot.android.model.plugin.ExternalPluginHostActionPolicy
 import com.astrbot.android.model.plugin.ExternalPluginMediaSourceResolver
-import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.NoOp
@@ -64,7 +63,7 @@ class AppChatPluginCommandService(
         personaId: String,
         languageTag: String,
     ): Boolean {
-        if (!content.startsWith("/") || !ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnCommand)) {
+        if (!content.startsWith("/")) {
             return false
         }
         val config = dependencies.resolveConfig(bot.configProfileId)
@@ -327,6 +326,14 @@ class AppChatPluginCommandService(
                 put("source", "app_chat")
                 put("trigger", trigger.wireValue)
                 put("sessionId", session.id)
+                put(
+                    "sessionUnifiedOrigin",
+                    MessageSessionRef(
+                        platformId = session.platformId,
+                        messageType = session.messageType,
+                        originSessionId = session.originSessionId,
+                    ).unifiedOrigin,
+                )
                 put("messageId", message.id)
                 put("providerId", provider?.id.orEmpty())
                 put("botId", bot?.id ?: session.botId)

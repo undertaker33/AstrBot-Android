@@ -23,7 +23,6 @@ import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.plugin.ErrorResult
 import com.astrbot.android.model.plugin.ExternalPluginHostActionPolicy
-import com.astrbot.android.model.plugin.ExternalPluginTriggerPolicy
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.MediaResult
 import com.astrbot.android.model.plugin.NoOp

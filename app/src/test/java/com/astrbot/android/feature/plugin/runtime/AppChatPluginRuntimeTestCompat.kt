@@ -28,14 +28,14 @@ internal object DefaultAppChatPluginRuntime : AppChatPluginRuntime, AppChatLlmPi
     }
 
     private fun runtime(): EngineBackedAppChatPluginRuntime {
-        val failureGuard = PluginFailureGuard(
+        val failureGuard = testPluginFailureGuard(
             store = InMemoryPluginFailureStateStore(),
             scopedStore = InMemoryPluginScopedFailureStateStore(),
         )
         return EngineBackedAppChatPluginRuntime(
             pluginProvider = PluginRuntimeCatalog::plugins,
             engine = PluginExecutionEngine(
-                dispatcher = PluginRuntimeDispatcher(
+                dispatcher = testPluginRuntimeDispatcher(
                     failureGuard = failureGuard,
                 ),
                 failureGuard = failureGuard,

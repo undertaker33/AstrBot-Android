@@ -43,6 +43,27 @@ class PluginExecutionProtocolModelsTest {
     }
 
     @Test
+    fun trigger_contracts_publish_phase3_online_and_residual_split() {
+        assertEquals(
+            setOf(
+                PluginTriggerSource.OnPluginEntryClick,
+                PluginTriggerSource.OnCommand,
+                PluginTriggerSource.BeforeSendMessage,
+                PluginTriggerSource.AfterModelResponse,
+            ),
+            PluginTriggerContracts.onlineHostTriggers,
+        )
+        assertEquals(
+            setOf(
+                PluginTriggerSource.OnMessageReceived,
+                PluginTriggerSource.OnSchedule,
+                PluginTriggerSource.OnConversationEnter,
+            ),
+            PluginTriggerContracts.residualCompatOnlyTriggers,
+        )
+    }
+
+    @Test
     fun host_action_whitelist_enum_covers_phase2_capabilities_with_stable_wire_values() {
         val enumClass = loadClass("com.astrbot.android.model.plugin.PluginHostAction")
         val enumConstants = enumClass.enumConstants ?: throw AssertionError("PluginHostAction must be an enum")

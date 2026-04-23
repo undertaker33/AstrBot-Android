@@ -44,9 +44,11 @@ import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCatalog
@@ -475,6 +477,9 @@ class QqOneBotBridgeServerTest {
         val sharedEngine = PluginExecutionEngine(
             dispatcher = PluginRuntimeDispatcher(
                 failureGuard = failureGuard,
+                scheduler = PluginRuntimeScheduler(
+                    store = InMemoryPluginScheduleStateStore(),
+                ),
                 logBus = sharedLogBus,
             ),
             failureGuard = failureGuard,

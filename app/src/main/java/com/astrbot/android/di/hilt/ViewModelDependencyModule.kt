@@ -8,12 +8,17 @@ import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
 import com.astrbot.android.feature.provider.runtime.DefaultProviderRuntimePort
 import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
 import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
+import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.presentation.bindings.PluginManagementBindings
 import com.astrbot.android.ui.viewmodel.DefaultPluginViewModelBindings
 import com.astrbot.android.ui.viewmodel.DefaultQQLoginViewModelBindings
 import com.astrbot.android.ui.viewmodel.PluginViewModelBindings
 import com.astrbot.android.ui.viewmodel.QQLoginViewModelBindings
+import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.qq.data.NapCatLoginRepository
 import com.astrbot.android.feature.qq.data.NapCatBridgeStateOwner
 import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
@@ -175,6 +180,12 @@ internal abstract class ViewModelDependencyModule {
 
     @Binds
     @Singleton
+    abstract fun bindPluginManagementBindings(
+        bindings: DefaultPluginViewModelBindings,
+    ): PluginManagementBindings
+
+    @Binds
+    @Singleton
     abstract fun bindQqLoginViewModelBindings(
         bindings: DefaultQQLoginViewModelBindings,
     ): QQLoginViewModelBindings
@@ -247,7 +258,17 @@ internal abstract class ViewModelDependencyModule {
 
     @Provides
     @Singleton
-    fun providePluginGovernanceRepository(): PluginGovernanceRepository = PluginGovernanceRepository()
+    fun providePluginGovernanceRepository(
+        repositoryStatePort: PluginRepositoryStatePort,
+        activeRuntimeStore: PluginV2ActiveRuntimeStore,
+        failureStateStore: PluginFailureStateStore,
+        logBus: PluginRuntimeLogBus,
+    ): PluginGovernanceRepository = PluginGovernanceRepository(
+        repositoryStatePort = repositoryStatePort,
+        runtimeSnapshotProvider = activeRuntimeStore::snapshot,
+        failureStateStore = failureStateStore,
+        logBus = logBus,
+    )
 
     @Provides
     @PluginGovernanceReadModels

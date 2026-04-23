@@ -1,11 +1,10 @@
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
+import com.astrbot.android.feature.plugin.data.state.InMemoryPluginStateStore
+import com.astrbot.android.feature.plugin.data.state.PluginStateScope
+import com.astrbot.android.feature.plugin.data.state.PluginStateStore
+import com.astrbot.android.feature.plugin.data.state.PluginStateValueCodec
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
-import com.astrbot.android.model.plugin.PluginStaticConfigJson
-import com.astrbot.android.model.plugin.PluginStaticConfigValue
-import com.astrbot.android.model.plugin.toStorageBoundary
-import java.io.File
 import org.json.JSONObject
 
 data class PluginV2BootstrapPluginMetadata(
@@ -16,10 +15,28 @@ data class PluginV2BootstrapPluginMetadata(
     val runtimeBootstrap: String,
 )
 
+data class PluginV2StructuredError(
+    val code: String,
+    val message: String,
+    val details: Map<String, String> = emptyMap(),
+)
+
+class PluginV2StorageAccessException(
+    val error: PluginV2StructuredError,
+) : IllegalStateException(
+    JSONObject().apply {
+        put("code", error.code)
+        put("message", error.message)
+        put("details", error.details)
+    }.toString(),
+)
+
 class PluginV2BootstrapHostApi(
     private val session: PluginV2RuntimeSession,
     private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    private val stateStore: PluginStateStore = InMemoryPluginStateStore(),
     private val clock: () -> Long = System::currentTimeMillis,
+    private var sessionUnifiedOriginProvider: () -> String? = { null },
 ) {
     fun registerMessageHandler(
         descriptor: MessageHandlerRegistrationInput,
@@ -190,76 +207,275 @@ class PluginV2BootstrapHostApi(
         }
     }
 
+    internal fun attachSessionUnifiedOriginProvider(
+        provider: () -> String?,
+    ) {
+        sessionUnifiedOriginProvider = provider
+    }
+
+    internal fun pluginStorageGet(
+        key: String,
+        defaultValue: Any? = null,
+    ): Any? = readStorageValue(
+        scope = PluginStateScope.plugin(),
+        key = key,
+        defaultValue = defaultValue,
+    )
+
+    internal fun pluginStorageSet(
+        key: String,
+        value: Any?,
+    ): Boolean {
+        writeStorageValue(
+            scope = PluginStateScope.plugin(),
+            key = key,
+            value = value,
+        )
+        return true
+    }
+
+    internal fun pluginStorageRemove(
+        key: String,
+    ): Boolean {
+        removeStorageValue(
+            scope = PluginStateScope.plugin(),
+            key = key,
+        )
+        return true
+    }
+
+    internal fun pluginStorageKeys(
+        prefix: String = "",
+    ): List<String> = listStorageKeys(
+        scope = PluginStateScope.plugin(),
+        prefix = prefix,
+    )
+
+    internal fun pluginStorageClear(
+        prefix: String = "",
+    ): Boolean {
+        clearStorageScope(
+            scope = PluginStateScope.plugin(),
+            prefix = prefix,
+        )
+        return true
+    }
+
+    internal fun sessionStorageGet(
+        key: String,
+        defaultValue: Any? = null,
+    ): Any? = readStorageValue(
+        scope = requireSessionStorageScope(),
+        key = key,
+        defaultValue = defaultValue,
+    )
+
+    internal fun sessionStorageSet(
+        key: String,
+        value: Any?,
+    ): Boolean {
+        writeStorageValue(
+            scope = requireSessionStorageScope(),
+            key = key,
+            value = value,
+        )
+        return true
+    }
+
+    internal fun sessionStorageRemove(
+        key: String,
+    ): Boolean {
+        removeStorageValue(
+            scope = requireSessionStorageScope(),
+            key = key,
+        )
+        return true
+    }
+
+    internal fun sessionStorageKeys(
+        prefix: String = "",
+    ): List<String> = listStorageKeys(
+        scope = requireSessionStorageScope(),
+        prefix = prefix,
+    )
+
+    internal fun sessionStorageClear(
+        prefix: String = "",
+    ): Boolean {
+        clearStorageScope(
+            scope = requireSessionStorageScope(),
+            prefix = prefix,
+        )
+        return true
+    }
+
     private fun loadMergedSettings(): Map<String, Any?> {
-        val installRecord = session.installRecord
-        val staticSchemaRelPath = session.packageContractSnapshot.config.staticSchema
-        if (staticSchemaRelPath.isBlank()) return emptyMap()
-
-        val extractedDir = installRecord.extractedDir
-        if (extractedDir.isBlank()) return emptyMap()
-
-        val schemaFile = File(extractedDir, staticSchemaRelPath)
-        if (!schemaFile.isFile) return emptyMap()
-
-        val rawJson = JSONObject(schemaFile.readText(Charsets.UTF_8))
-
-        val schema = try {
-            PluginStaticConfigJson.decodeSchema(rawJson)
-        } catch (_: Throwable) {
-            null
-        }
-
-        val defaults: Map<String, Any?> = if (schema != null && schema.fields.isNotEmpty()) {
-            schema.fields.associate { field ->
-                field.fieldKey to unwrapConfigValue(field.defaultValue)
-            }
-        } else {
-            extractDefaultsFromRawJson(rawJson)
-        }
-
-        val persisted = try {
-            if (schema != null && schema.fields.isNotEmpty()) {
-                val boundary = schema.toStorageBoundary()
-        val snapshot = FeaturePluginRepository.resolveConfigSnapshot(
-                    pluginId = installRecord.pluginId,
-                    boundary = boundary,
-                )
-                snapshot.coreValues.mapValues { (_, v) -> unwrapConfigValue(v) }
-            } else {
-                emptyMap()
-            }
-        } catch (_: Throwable) {
-            emptyMap()
-        }
-
-        return defaults + persisted
+        return PluginExecutionHostApi.resolve(session.installRecord.pluginId).mergedSettings
     }
 
-    private fun extractDefaultsFromRawJson(json: JSONObject): Map<String, Any?> {
-        val result = linkedMapOf<String, Any?>()
-        val keys = json.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            val fieldObj = json.optJSONObject(key) ?: continue
-            if (fieldObj.has("default")) {
-                val default = fieldObj.get("default")
-                result[key] = when (default) {
-                    is String, is Boolean, is Int, is Long, is Double, is Float -> default
-                    JSONObject.NULL -> null
-                    else -> default.toString()
-                }
-            }
+    private fun requireSessionStorageScope(): PluginStateScope {
+        val sessionUnifiedOrigin = sessionUnifiedOriginProvider()
+            ?.trim()
+            .orEmpty()
+        if (sessionUnifiedOrigin.isBlank()) {
+            throw PluginV2StorageAccessException(
+                PluginV2StructuredError(
+                    code = "missing_session_scope",
+                    message = "storage.session requires a current message session context.",
+                    details = linkedMapOf("scope" to "session"),
+                ),
+            )
         }
-        return result
+        return PluginStateScope.session(sessionUnifiedOrigin)
     }
 
-    private fun unwrapConfigValue(value: Any?): Any? {
-        return when (value) {
-            is PluginStaticConfigValue.StringValue -> value.value
-            is PluginStaticConfigValue.IntValue -> value.value
-            is PluginStaticConfigValue.FloatValue -> value.value
-            is PluginStaticConfigValue.BoolValue -> value.value
-            else -> null
+    private fun readStorageValue(
+        scope: PluginStateScope,
+        key: String,
+        defaultValue: Any?,
+    ): Any? {
+        val normalizedKey = normalizeStorageKey(key)
+        val storedValueJson = runStorageOperation(
+            code = "storage_read_failed",
+            fallbackMessage = "Failed to read storage value.",
+        ) {
+            stateStore.getValueJson(
+                pluginId = session.pluginId,
+                scope = scope,
+                key = normalizedKey,
+            )
+        }
+        if (storedValueJson == null) {
+            return defaultValue
+        }
+        return runStorageOperation(
+            code = "storage_decode_failed",
+            fallbackMessage = "Failed to decode stored value.",
+        ) {
+            PluginStateValueCodec.decode(storedValueJson)
+        }
+    }
+
+    private fun writeStorageValue(
+        scope: PluginStateScope,
+        key: String,
+        value: Any?,
+    ) {
+        val normalizedKey = normalizeStorageKey(key)
+        val valueJson = runStorageOperation(
+            code = "invalid_storage_value",
+            fallbackMessage = "Storage value must be JSON-serializable.",
+        ) {
+            PluginStateValueCodec.encode(value)
+        }
+        runStorageOperation(
+            code = "storage_write_failed",
+            fallbackMessage = "Failed to persist storage value.",
+        ) {
+            stateStore.putValueJson(
+                pluginId = session.pluginId,
+                scope = scope,
+                key = normalizedKey,
+                valueJson = valueJson,
+            )
+        }
+    }
+
+    private fun removeStorageValue(
+        scope: PluginStateScope,
+        key: String,
+    ) {
+        val normalizedKey = normalizeStorageKey(key)
+        runStorageOperation(
+            code = "storage_remove_failed",
+            fallbackMessage = "Failed to remove storage value.",
+        ) {
+            stateStore.remove(
+                pluginId = session.pluginId,
+                scope = scope,
+                key = normalizedKey,
+            )
+        }
+    }
+
+    private fun listStorageKeys(
+        scope: PluginStateScope,
+        prefix: String,
+    ): List<String> {
+        return runStorageOperation(
+            code = "storage_list_failed",
+            fallbackMessage = "Failed to list storage keys.",
+        ) {
+            stateStore.listKeys(
+                pluginId = session.pluginId,
+                scope = scope,
+                prefix = prefix.trim(),
+            )
+        }
+    }
+
+    private fun clearStorageScope(
+        scope: PluginStateScope,
+        prefix: String,
+    ) {
+        runStorageOperation(
+            code = "storage_clear_failed",
+            fallbackMessage = "Failed to clear storage scope.",
+        ) {
+            stateStore.clearScope(
+                pluginId = session.pluginId,
+                scope = scope,
+                prefix = prefix.trim(),
+            )
+        }
+    }
+
+    private fun normalizeStorageKey(
+        key: String,
+    ): String {
+        val normalized = key.trim()
+        if (normalized.isEmpty()) {
+            throw PluginV2StorageAccessException(
+                PluginV2StructuredError(
+                    code = "invalid_storage_key",
+                    message = "storage key must not be blank.",
+                ),
+            )
+        }
+        if (normalized.length > 128) {
+            throw PluginV2StorageAccessException(
+                PluginV2StructuredError(
+                    code = "invalid_storage_key",
+                    message = "storage key must be <= 128 characters.",
+                ),
+            )
+        }
+        return normalized
+    }
+
+    private fun <T> runStorageOperation(
+        code: String,
+        fallbackMessage: String,
+        block: () -> T,
+    ): T {
+        return try {
+            block()
+        } catch (error: PluginV2StorageAccessException) {
+            throw error
+        } catch (error: IllegalArgumentException) {
+            throw PluginV2StorageAccessException(
+                PluginV2StructuredError(
+                    code = code,
+                    message = error.message ?: fallbackMessage,
+                ),
+            )
+        } catch (error: IllegalStateException) {
+            throw PluginV2StorageAccessException(
+                PluginV2StructuredError(
+                    code = code,
+                    message = error.message ?: fallbackMessage,
+                ),
+            )
         }
     }
 

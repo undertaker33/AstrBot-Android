@@ -94,6 +94,11 @@ internal class QqPluginDispatchService(
             trigger = PluginTriggerSource.OnCommand,
             message = message,
             conversationId = session.pluginConversationId(),
+            sessionUnifiedOrigin = MessageSessionRef(
+                platformId = session.platformId,
+                messageType = session.messageType,
+                originSessionId = session.originSessionId,
+            ).unifiedOrigin,
             botId = bot.id,
             configProfileId = config.id,
             personaId = currentPersona?.id.orEmpty(),
@@ -208,6 +213,7 @@ internal class QqPluginDispatchService(
         message: IncomingQqMessage,
         materializedEvent: PluginMessageEvent? = null,
         conversationId: String? = null,
+        sessionUnifiedOrigin: String = "",
         botId: String = "",
         configProfileId: String = "",
         personaId: String = "",
@@ -219,6 +225,7 @@ internal class QqPluginDispatchService(
                     event = materializedEvent ?: message.toPluginMessageEvent(
                         trigger = trigger,
                         conversationId = conversationId,
+                        sessionUnifiedOrigin = sessionUnifiedOrigin,
                         botId = botId,
                         configProfileId = configProfileId,
                         personaId = personaId,
@@ -501,6 +508,7 @@ internal class QqPluginDispatchService(
 internal fun IncomingQqMessage.toPluginMessageEvent(
     trigger: PluginTriggerSource,
     conversationId: String? = null,
+    sessionUnifiedOrigin: String = "",
     botId: String = "",
     configProfileId: String = "",
     personaId: String = "",
@@ -531,6 +539,9 @@ internal fun IncomingQqMessage.toPluginMessageEvent(
             put("configProfileId", configProfileId)
             put("personaId", personaId)
             put("providerId", providerId)
+            if (sessionUnifiedOrigin.isNotBlank()) {
+                put("sessionUnifiedOrigin", sessionUnifiedOrigin)
+            }
         },
     )
 }

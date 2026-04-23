@@ -2,6 +2,8 @@ package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
 import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.data.state.InMemoryPluginStateStore
+import com.astrbot.android.feature.plugin.data.state.PluginStateStore
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
@@ -65,6 +67,7 @@ class PluginV2RuntimeLoader(
         store = store,
     ),
     private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
+    private val stateStore: PluginStateStore = InMemoryPluginStateStore(),
 ) {
     private val pluginLocks = ConcurrentHashMap<String, Mutex>()
 
@@ -234,6 +237,7 @@ class PluginV2RuntimeLoader(
                 PluginV2BootstrapHostApi(
                     session = handle.session,
                     logBus = logBus,
+                    stateStore = stateStore,
                     clock = clock,
                 ),
             )

@@ -22,8 +22,8 @@ class ExternalPluginHostActionExecutorTest {
     @Test
     fun executor_executes_send_message_when_action_is_open_whitelisted_and_granted() {
         var sentMessage = ""
-        val executor = ExternalPluginHostActionExecutor(
-            failureGuard = PluginFailureGuard(InMemoryPluginFailureStateStore()),
+        val executor = testExternalPluginHostActionExecutor(
+            failureGuard = testPluginFailureGuard(store = InMemoryPluginFailureStateStore()),
         )
 
         val result = executor.execute(
@@ -53,8 +53,8 @@ class ExternalPluginHostActionExecutorTest {
 
     @Test
     fun executor_rejects_action_when_it_is_not_open_for_v1() {
-        val executor = ExternalPluginHostActionExecutor(
-            failureGuard = PluginFailureGuard(InMemoryPluginFailureStateStore()),
+        val executor = testExternalPluginHostActionExecutor(
+            failureGuard = testPluginFailureGuard(store = InMemoryPluginFailureStateStore()),
         )
 
         val result = executor.execute(
@@ -76,10 +76,10 @@ class ExternalPluginHostActionExecutorTest {
 
     @Test
     fun executor_suspends_plugin_after_repeated_permission_failures() {
-        val failureGuard = PluginFailureGuard(
+        val failureGuard = testPluginFailureGuard(
             store = InMemoryPluginFailureStateStore(),
         )
-        val executor = ExternalPluginHostActionExecutor(
+        val executor = testExternalPluginHostActionExecutor(
             failureGuard = failureGuard,
         )
 
@@ -125,8 +125,8 @@ class ExternalPluginHostActionExecutorTest {
 
     @Test
     fun executor_explicitly_rejects_v2_tool_executor_usage() = runBlocking {
-        val executor = ExternalPluginHostActionExecutor(
-            failureGuard = PluginFailureGuard(InMemoryPluginFailureStateStore()),
+        val executor = testExternalPluginHostActionExecutor(
+            failureGuard = testPluginFailureGuard(store = InMemoryPluginFailureStateStore()),
         )
 
         val result = executor.asV2ToolExecutor().execute(

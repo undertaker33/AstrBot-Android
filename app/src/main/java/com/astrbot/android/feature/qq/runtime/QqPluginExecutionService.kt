@@ -8,6 +8,9 @@ import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
+import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
+import com.astrbot.android.feature.plugin.runtime.PluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginTriggerSource
@@ -37,6 +40,7 @@ internal class QqPluginExecutionService(
         pluginCatalog: () -> List<PluginRuntimePlugin>,
         failureStateStore: PluginFailureStateStore,
         scopedFailureStateStore: PluginScopedFailureStateStore,
+        scheduleStateStore: PluginScheduleStateStore = InMemoryPluginScheduleStateStore(),
         logBus: PluginRuntimeLogBus,
     ) : this(
         executeBatchBlock = { trigger, contextFactory ->
@@ -45,12 +49,17 @@ internal class QqPluginExecutionService(
                 scopedStore = scopedFailureStateStore,
                 logBus = logBus,
             )
+            val scheduler = PluginRuntimeScheduler(
+                store = scheduleStateStore,
+            )
             PluginExecutionEngine(
                 dispatcher = PluginRuntimeDispatcher(
                     failureGuard = failureGuard,
+                    scheduler = scheduler,
                     logBus = logBus,
                 ),
                 failureGuard = failureGuard,
+                scheduler = scheduler,
                 logBus = logBus,
             ).executeBatch(
                 trigger = trigger,

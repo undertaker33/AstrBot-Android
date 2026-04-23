@@ -1,5 +1,6 @@
 package com.astrbot.android.core.runtime.context
 
+import com.astrbot.android.core.runtime.tool.ToolJsonValueNormalizer
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.McpServerEntry
 import com.astrbot.android.model.ResourceCenterCompatibilitySnapshot
@@ -188,7 +189,7 @@ object RuntimeSkillProjectionResolver {
         val isTool = kind == ResourceCenterKind.TOOL || (kind == ResourceCenterKind.SKILL && skillKind == SkillResourceKind.TOOL)
         if (!isTool) return null
         val payload = mergedPayload(projection)
-        val inputSchema = payload.optJSONObject("inputSchema").toJsonLikeMap()
+        val inputSchema = ToolJsonValueNormalizer.normalizeObject(payload.optJSONObject("inputSchema"))
             .ifEmpty { mapOf("type" to "object") }
         return ToolSkillProjection(
             skillId = resourceId,
@@ -226,21 +227,4 @@ object RuntimeSkillProjectionResolver {
         return keys().asSequence().associateWith { key -> optString(key, "") }
     }
 
-    private fun JSONObject?.toJsonLikeMap(): Map<String, Any?> {
-        if (this == null) return emptyMap()
-        return keys().asSequence().associateWith { key -> normalizeJsonValue(opt(key)) }
-    }
-
-    private fun JSONArray.toJsonLikeList(): List<Any?> {
-        return (0 until length()).map { index -> normalizeJsonValue(opt(index)) }
-    }
-
-    private fun normalizeJsonValue(value: Any?): Any? {
-        return when (value) {
-            null, JSONObject.NULL -> null
-            is JSONObject -> value.toJsonLikeMap()
-            is JSONArray -> value.toJsonLikeList()
-            else -> value
-        }
-    }
 }

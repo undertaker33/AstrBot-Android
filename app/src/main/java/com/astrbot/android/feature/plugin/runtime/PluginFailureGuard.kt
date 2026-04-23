@@ -86,21 +86,6 @@ class PersistentPluginFailureStateStore(
     }
 }
 
-object PluginRuntimeFailureStateStoreProvider {
-    @Volatile
-    private var storeOverrideForTests: PluginFailureStateStore? = null
-
-    private val persistentStore: PluginFailureStateStore by lazy {
-        PersistentPluginFailureStateStore()
-    }
-
-    fun store(): PluginFailureStateStore = storeOverrideForTests ?: persistentStore
-
-    internal fun setStoreOverrideForTests(store: PluginFailureStateStore?) {
-        storeOverrideForTests = store
-    }
-}
-
 interface PluginScopedFailureStateStore {
     fun get(
         pluginId: String,
@@ -147,27 +132,12 @@ class InMemoryPluginScopedFailureStateStore : PluginScopedFailureStateStore {
     ): String = "$pluginId#${trigger.wireValue}"
 }
 
-object PluginRuntimeScopedFailureStateStoreProvider {
-    @Volatile
-    private var storeOverrideForTests: PluginScopedFailureStateStore? = null
-
-    private val sharedStore: PluginScopedFailureStateStore by lazy {
-        InMemoryPluginScopedFailureStateStore()
-    }
-
-    fun store(): PluginScopedFailureStateStore = storeOverrideForTests ?: sharedStore
-
-    internal fun setStoreOverrideForTests(store: PluginScopedFailureStateStore?) {
-        storeOverrideForTests = store
-    }
-}
-
 class PluginFailureGuard(
-    private val store: PluginFailureStateStore = InMemoryPluginFailureStateStore(),
-    private val scopedStore: PluginScopedFailureStateStore = InMemoryPluginScopedFailureStateStore(),
+    private val store: PluginFailureStateStore,
+    private val scopedStore: PluginScopedFailureStateStore,
     private val policy: PluginFailurePolicy = PluginFailurePolicy(),
     private val clock: () -> Long = System::currentTimeMillis,
-    internal val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
+    internal val logBus: PluginRuntimeLogBus,
 ) {
     fun snapshot(
         pluginId: String,

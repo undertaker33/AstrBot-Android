@@ -152,8 +152,7 @@ internal fun SupportSQLiteDatabase.createPluginConfigTablesV14() {
             pluginId TEXT NOT NULL PRIMARY KEY,
             coreConfigJson TEXT NOT NULL,
             extensionConfigJson TEXT NOT NULL,
-            updatedAt INTEGER NOT NULL,
-            FOREIGN KEY(pluginId) REFERENCES plugin_install_records(pluginId) ON DELETE CASCADE
+            updatedAt INTEGER NOT NULL
         )
         """.trimIndent(),
     )
@@ -172,6 +171,34 @@ internal fun SupportSQLiteDatabase.createPluginPackageContractTablesV16() {
             configSettingsSchema TEXT NOT NULL,
             FOREIGN KEY(pluginId) REFERENCES plugin_install_records(pluginId) ON DELETE CASCADE
         )
+        """.trimIndent(),
+    )
+}
+
+internal fun SupportSQLiteDatabase.createPluginStateTablesV21() {
+    execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS plugin_state_entries (
+            pluginId TEXT NOT NULL,
+            scopeKind TEXT NOT NULL,
+            scopeId TEXT NOT NULL,
+            `key` TEXT NOT NULL,
+            valueJson TEXT NOT NULL,
+            updatedAt INTEGER NOT NULL,
+            PRIMARY KEY(pluginId, scopeKind, scopeId, `key`)
+        )
+        """.trimIndent(),
+    )
+    execSQL(
+        """
+        CREATE INDEX IF NOT EXISTS index_plugin_state_entries_pluginId_scopeKind_scopeId
+        ON plugin_state_entries(pluginId, scopeKind, scopeId)
+        """.trimIndent(),
+    )
+    execSQL(
+        """
+        CREATE INDEX IF NOT EXISTS index_plugin_state_entries_pluginId_scopeKind_key
+        ON plugin_state_entries(pluginId, scopeKind, `key`)
         """.trimIndent(),
     )
 }

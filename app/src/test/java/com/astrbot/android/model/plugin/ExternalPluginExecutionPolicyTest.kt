@@ -10,15 +10,31 @@ import org.junit.Test
 class ExternalPluginExecutionPolicyTest {
 
     @Test
-    fun trigger_policy_opens_phase6_v1_external_triggers() {
-        assertTrue(ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnPluginEntryClick))
-        assertTrue(ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnCommand))
-        assertTrue(ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.BeforeSendMessage))
-        assertTrue(ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.AfterModelResponse))
-
-        assertFalse(ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnMessageReceived))
-        assertFalse(ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnSchedule))
-        assertFalse(ExternalPluginTriggerPolicy.isOpen(PluginTriggerSource.OnConversationEnter))
+    fun trigger_contracts_split_online_host_behaviors_from_residual_legacy_triggers() {
+        assertEquals(
+            setOf(
+                PluginTriggerSource.OnPluginEntryClick,
+                PluginTriggerSource.OnCommand,
+                PluginTriggerSource.BeforeSendMessage,
+                PluginTriggerSource.AfterModelResponse,
+            ),
+            PluginTriggerContracts.onlineHostTriggers,
+        )
+        assertEquals(
+            setOf(
+                PluginTriggerSource.OnMessageReceived,
+                PluginTriggerSource.OnSchedule,
+                PluginTriggerSource.OnConversationEnter,
+            ),
+            PluginTriggerContracts.residualCompatOnlyTriggers,
+        )
+        assertTrue(PluginTriggerContracts.isOnlineHostTrigger(PluginTriggerSource.OnPluginEntryClick))
+        assertTrue(PluginTriggerContracts.isOnlineHostTrigger(PluginTriggerSource.OnCommand))
+        assertTrue(PluginTriggerContracts.isOnlineHostTrigger(PluginTriggerSource.BeforeSendMessage))
+        assertTrue(PluginTriggerContracts.isOnlineHostTrigger(PluginTriggerSource.AfterModelResponse))
+        assertFalse(PluginTriggerContracts.isOnlineHostTrigger(PluginTriggerSource.OnMessageReceived))
+        assertFalse(PluginTriggerContracts.isOnlineHostTrigger(PluginTriggerSource.OnSchedule))
+        assertFalse(PluginTriggerContracts.isOnlineHostTrigger(PluginTriggerSource.OnConversationEnter))
     }
 
     @Test

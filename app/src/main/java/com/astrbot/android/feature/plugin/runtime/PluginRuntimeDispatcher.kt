@@ -58,16 +58,10 @@ data class PluginDispatchPlan(
     val skipped: List<PluginDispatchSkip>,
 )
 
-data class PluginLegacyDispatchAttempt(
-    val accepted: Boolean,
-    val reason: String = "",
-    val plan: PluginDispatchPlan? = null,
-)
-
 class PluginRuntimeDispatcher(
     private val failureGuard: PluginFailureGuard,
     private val clock: () -> Long = System::currentTimeMillis,
-    internal val scheduler: PluginRuntimeScheduler = PluginRuntimeScheduler(clock = clock),
+    internal val scheduler: PluginRuntimeScheduler,
     internal val policyResolver: (PluginRuntimePlugin, PluginTriggerSource) -> PluginSchedulePolicy = DefaultPluginSchedulePolicyResolver,
     internal val logBus: PluginRuntimeLogBus = failureGuard.logBus,
 ) {
@@ -75,54 +69,9 @@ class PluginRuntimeDispatcher(
         trigger: PluginTriggerSource,
         plugins: List<PluginRuntimePlugin>,
     ): PluginDispatchPlan {
-        return checkNotNull(
-            dispatchLegacy(
-                trigger = trigger,
-                plugins = plugins,
-            ).plan,
-        ) {
-            "Legacy dispatcher rejected a valid legacy trigger unexpectedly."
-        }
-    }
-
-    fun dispatchLegacy(
-        trigger: PluginTriggerSource?,
-        plugins: List<PluginRuntimePlugin>,
-        requestedStage: PluginExecutionStage? = null,
-    ): PluginLegacyDispatchAttempt {
-        val guardrailReason = when {
-            requestedStage != null -> requestedStage.guardrailReasonWireValue()
-            trigger == null -> "missing_legacy_trigger_source"
-            else -> ""
-        }
-        if (guardrailReason.isNotEmpty()) {
-            logBus.publish(
-                PluginRuntimeLogRecord(
-                    occurredAtEpochMillis = clock(),
-                    pluginId = LEGACY_DISPATCHER_PLUGIN_ID,
-                    trigger = trigger,
-                    category = PluginRuntimeLogCategory.Dispatcher,
-                    level = PluginRuntimeLogLevel.Warning,
-                    code = "legacy_dispatch_guardrail",
-                    message = "Legacy dispatcher only accepts legacy PluginTriggerSource entrypoints.",
-                    succeeded = false,
-                    metadata = buildMap {
-                        put("reason", guardrailReason)
-                        requestedStage?.let { stage -> put("requestedStage", stage.guardrailStageWireValue()) }
-                    },
-                ),
-            )
-            return PluginLegacyDispatchAttempt(
-                accepted = false,
-                reason = guardrailReason,
-            )
-        }
-        return PluginLegacyDispatchAttempt(
-            accepted = true,
-            plan = dispatchPlan(
-                trigger = checkNotNull(trigger),
-                plugins = plugins,
-            ),
+        return dispatchPlan(
+            trigger = trigger,
+            plugins = plugins,
         )
     }
 
@@ -212,9 +161,5 @@ class PluginRuntimeDispatcher(
             executable = executable,
             skipped = skipped,
         )
-    }
-
-    private companion object {
-        private const val LEGACY_DISPATCHER_PLUGIN_ID = "__legacy_dispatcher__"
     }
 }

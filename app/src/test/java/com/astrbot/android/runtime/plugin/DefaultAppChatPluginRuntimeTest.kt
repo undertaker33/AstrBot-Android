@@ -18,7 +18,7 @@ class DefaultAppChatPluginRuntimeTest {
         val sharedStore = InMemoryPluginFailureStateStore()
         val scopedStore = InMemoryPluginScopedFailureStateStore()
         val logBus = InMemoryPluginRuntimeLogBus()
-        val failureGuard = PluginFailureGuard(
+        val failureGuard = testPluginFailureGuard(
             store = sharedStore,
             scopedStore = scopedStore,
             logBus = logBus,
@@ -26,7 +26,7 @@ class DefaultAppChatPluginRuntimeTest {
         val runtime = EngineBackedAppChatPluginRuntime(
             pluginProvider = PluginRuntimeCatalog::plugins,
             engine = PluginExecutionEngine(
-                dispatcher = PluginRuntimeDispatcher(
+                dispatcher = testPluginRuntimeDispatcher(
                     failureGuard = failureGuard,
                     logBus = logBus,
                 ),

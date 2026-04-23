@@ -79,7 +79,7 @@ class AstrBotDatabaseSchemaContractTest {
 
     @Test
     fun latestMigration_targetsVersion20() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 20)
+        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 21)
     }
 
     @Test
@@ -113,6 +113,46 @@ class AstrBotDatabaseSchemaContractTest {
             AstrBotDatabase.allMigrations.any { migration ->
                 migration.startVersion == 19 && migration.endVersion == 20
             },
+        )
+    }
+
+    @Test
+    fun migrations_include20To21Step() {
+        assertTrue(
+            AstrBotDatabase.allMigrations.any { migration ->
+                migration.startVersion == 20 && migration.endVersion == 21
+            },
+        )
+    }
+
+    @Test
+    fun version21Schema_containsPluginStateEntries_and_configSnapshotsNoLongerCascadeFromInstallRecords() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/21.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/21.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v21 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "plugin_state_entries",
+            "scopeKind",
+            "scopeId",
+            "valueJson",
+            "index_plugin_state_entries_pluginId_scopeKind_scopeId",
+            "index_plugin_state_entries_pluginId_scopeKind_key",
+        ).forEach { token ->
+            assertTrue("Expected $token to exist in v21 schema", token in schema)
+        }
+
+        val pluginConfigSnapshotsSection = schema
+            .substringAfter("\"tableName\": \"plugin_config_snapshots\"")
+            .substringBefore("\"tableName\": \"plugin_state_entries\"")
+        assertTrue(
+            "plugin_config_snapshots should no longer cascade-delete from plugin_install_records in v21 schema",
+            "\"tableName\": \"plugin_config_snapshots\"" in schema &&
+                "\"foreignKeys\": []" in pluginConfigSnapshotsSection &&
+                "CASCADE" !in pluginConfigSnapshotsSection &&
+                "FOREIGN KEY" !in pluginConfigSnapshotsSection,
         )
     }
 
