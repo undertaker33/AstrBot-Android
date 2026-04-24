@@ -1323,12 +1323,8 @@ class PluginV2HostIngressTest {
         beforeInstall: () -> Unit = {},
         block: suspend () -> Unit,
     ) {
-        val botSnapshot = BotRepository.snapshotProfiles()
-        val selectedBotIdSnapshot = BotRepository.selectedBotId.value
-        val configSnapshot = ConfigRepository.snapshotProfiles()
-        val selectedConfigIdSnapshot = ConfigRepository.selectedProfileId.value
-        val providerSnapshot = ProviderRepository.snapshotProfiles()
-        val sessionSnapshot = ConversationRepository.snapshotSessions()
+        PluginRuntimeCompatRepositoryHarness.ensureInstalled()
+        val repositorySnapshot = PluginRuntimeCompatRepositoryHarness.captureSnapshot()
         val runtimeLogsSnapshot = RuntimeLogRepository.logs.value
         val runtimeContextDataPort = object : RuntimeContextDataPort {
             override fun resolveConfig(configProfileId: String) = ConfigRepository.resolve(configProfileId)
@@ -1358,14 +1354,13 @@ class PluginV2HostIngressTest {
             )
         }
         try {
-            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
-                InMemoryPluginScopedFailureStateStore(),
-            )
+            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(InMemoryPluginScopedFailureStateStore())
             beforeInstall()
-            BotRepository.restoreProfiles(listOf(bot), bot.id)
-            ConfigRepository.restoreProfiles(listOf(config), config.id)
-            ProviderRepository.restoreProfiles(providers)
-            ConversationRepository.restoreSessions(emptyList())
+            PluginRuntimeCompatRepositoryHarness.applyOneBotState(
+                bot = bot,
+                config = config,
+                providers = providers,
+            )
             QqOneBotBridgeServerTestAccess.primeRuntimeDependencies(
                 QqOneBotRuntimeDependencies(
                 botPort = CompatBotRepositoryPort(),
@@ -1410,10 +1405,7 @@ class PluginV2HostIngressTest {
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginV2LifecycleManagerProvider.setManagerOverrideForTests(null)
-            BotRepository.restoreProfiles(botSnapshot, selectedBotIdSnapshot)
-            ConfigRepository.restoreProfiles(configSnapshot, selectedConfigIdSnapshot)
-            ProviderRepository.restoreProfiles(providerSnapshot)
-            ConversationRepository.restoreSessions(sessionSnapshot)
+            PluginRuntimeCompatRepositoryHarness.restore(repositorySnapshot)
             RuntimeLogRepository.clear()
             runtimeLogsSnapshot.forEach(RuntimeLogRepository::append)
         }

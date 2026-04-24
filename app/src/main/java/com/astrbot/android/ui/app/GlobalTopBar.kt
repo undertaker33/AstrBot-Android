@@ -55,6 +55,7 @@ internal data class SecondaryTopBarStrings(
     val models: String,
     val runtime: String,
     val dataBackup: String,
+    val cronJobs: String,
     val configDetailDefaultSection: String,
 )
 
@@ -136,6 +137,7 @@ internal fun fallbackSecondaryTopBarSpecForRoute(
         AppDestination.Assets.route -> strings.assetManagement
         AppDestination.Models.route -> strings.models
         AppDestination.Runtime.route -> strings.runtime
+        AppDestination.CronJobs.route -> strings.cronJobs
         AppDestination.BackupHub.route,
         AppDestination.BotBackup.route,
         AppDestination.ModelBackup.route,

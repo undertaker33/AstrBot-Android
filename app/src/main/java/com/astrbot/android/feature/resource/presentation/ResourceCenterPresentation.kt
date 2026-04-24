@@ -6,6 +6,7 @@ import com.astrbot.android.feature.resource.presentation.ResourceCenterPresentat
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.CronJob
+import com.astrbot.android.model.CronJobExecutionRecord
 import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.ResourceCenterKind
 import com.astrbot.android.model.SkillResourceKind
@@ -71,6 +72,9 @@ data class CronJobListItemPresentation(
     val nextRunTime: Long,
     val lastRunAt: Long,
     val description: String,
+    val enabled: Boolean,
+    val runOnce: Boolean,
+    val status: String,
 )
 
 data class CronJobsPagePresentation(
@@ -79,6 +83,16 @@ data class CronJobsPagePresentation(
     val visibleJobs: List<CronJobListItemPresentation>,
     val canGoPrevious: Boolean,
     val canGoNext: Boolean,
+)
+
+data class CronJobRunPresentation(
+    val executionId: String,
+    val status: String,
+    val startedAt: Long,
+    val completedAt: Long,
+    val attempt: Int,
+    val trigger: String,
+    val summary: String,
 )
 
 data class RemoteMcpServerDraft(
@@ -334,6 +348,9 @@ internal fun buildCronJobsPresentation(
             nextRunTime = job.nextRunTime,
             lastRunAt = job.lastRunAt,
             description = job.description,
+            enabled = job.enabled,
+            runOnce = job.runOnce,
+            status = job.status,
         )
     }
     return CronJobsPagePresentation(
@@ -343,6 +360,24 @@ internal fun buildCronJobsPresentation(
         canGoPrevious = currentPage > 1,
         canGoNext = currentPage < totalPages,
     )
+}
+
+internal fun buildCronJobRunPresentations(
+    records: List<CronJobExecutionRecord>,
+): List<CronJobRunPresentation> {
+    return records.map { record ->
+        CronJobRunPresentation(
+            executionId = record.executionId,
+            status = record.status.ifBlank { "-" },
+            startedAt = record.startedAt,
+            completedAt = record.completedAt,
+            attempt = record.attempt,
+            trigger = record.trigger,
+            summary = record.deliverySummary
+                .ifBlank { record.errorMessage }
+                .ifBlank { record.errorCode },
+        )
+    }
 }
 
 private fun ResourceKind.matches(resource: ResourceCenterItem): Boolean {

@@ -193,6 +193,61 @@ class CronJobRunCoordinatorTest {
         assertEquals("SUCCEEDED", record.status)
         assertTrue(record.deliverySummary.contains("chat-1"))
     }
+
+    @Test
+    fun third_consecutive_failure_fuses_job_and_disables_retries() = runBlocking {
+        val repository = InMemoryCronJobRunRepository(
+            CronJob(
+                jobId = "job-fuse",
+                name = "Fuse me",
+                description = "Retry",
+                payloadJson = """{"target":{"platform":"app","conversation_id":"chat-1","bot_id":"bot-1","config_profile_id":"cfg-1","provider_id":"provider-1"},"note":"hello"}""",
+                enabled = true,
+                runOnce = false,
+                nextRunTime = 1_000L,
+            ),
+            initialRecords = listOf(
+                CronJobExecutionRecord(
+                    executionId = "exec-old-1",
+                    jobId = "job-fuse",
+                    status = "FAILED",
+                    startedAt = 2_000L,
+                    completedAt = 2_050L,
+                    errorCode = "provider_unavailable",
+                ),
+                CronJobExecutionRecord(
+                    executionId = "exec-old-2",
+                    jobId = "job-fuse",
+                    status = "FAILED",
+                    startedAt = 3_000L,
+                    completedAt = 3_050L,
+                    errorCode = "provider_unavailable",
+                ),
+            ),
+        )
+        val coordinator = CronJobRunCoordinator(
+            repository = repository,
+            executor = ScheduledTaskExecutor {
+                throw CronJobExecutionFailure(
+                    code = "provider_unavailable",
+                    retryable = true,
+                    message = "Provider unavailable",
+                )
+            },
+            scheduler = RecordingCronRescheduler(),
+            clock = SequenceClock(4_000L, 4_060L),
+            nextFireTime = { _, _, _ -> 0L },
+            executionIdGenerator = { "exec-new" },
+        )
+
+        val outcome = coordinator.runDueJob(jobId = "job-fuse", attempt = 3, trigger = "work_manager")
+
+        assertEquals(CronJobRunOutcome.Failed, outcome)
+        val fused = repository.updatedJobs.last()
+        assertEquals(false, fused.enabled)
+        assertEquals("unhealthy", fused.status)
+        assertEquals("Provider unavailable", fused.lastError)
+    }
 }
 
 private class SequenceClock(vararg values: Long) : () -> Long {
@@ -209,11 +264,12 @@ private class SequenceClock(vararg values: Long) : () -> Long {
 
 private class InMemoryCronJobRunRepository(
     initialJob: CronJob,
+    initialRecords: List<CronJobExecutionRecord> = emptyList(),
 ) : CronJobRepositoryPort {
     private val jobsById = linkedMapOf(initialJob.jobId to initialJob)
     private val jobsState = MutableStateFlow(listOf(initialJob))
     override val jobs: StateFlow<List<CronJob>> = jobsState
-    val records = mutableListOf<CronJobExecutionRecord>()
+    val records = initialRecords.toMutableList()
     val updatedJobs = mutableListOf<CronJob>()
     val deletedJobIds = mutableListOf<String>()
 

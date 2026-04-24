@@ -1,0 +1,67 @@
+# path | type | category | reason | expires
+#
+# category:
+# - temporary: legacy debt, must be migrated away
+# - permanent: allowed long-term, must be stateless and side-effect controlled
+# - permanent-candidate: can stay long-term only after removing global logger/static dependency
+#
+# Rules:
+# 1. Do not add directory-level allowlist entries.
+# 2. Do not use wildcards.
+# 3. Every new entry must explain why it is allowed and when it expires.
+# 4. temporary entries must decrease over time.
+# 5. permanent entries are only allowed for stateless constants, parser, formatter, mapper, or sealed state objects.
+
+core/common/logging/RuntimeLogRepository.kt | object | temporary | legacy global runtime log store; holds ring buffer and MutableStateFlow; migrate to injected RuntimeLogger and RuntimeLogStore | phase-2
+core/common/logging/AppLogger.kt | object | temporary | legacy logging facade over RuntimeLogRepository; forbid new usages and migrate callers to RuntimeLogger | phase-2
+core/common/logging/RuntimeLogCleanupRepository.kt | object | temporary | legacy global log cleanup store with direct file operations and companion constants; migrate cleanup workflow to injected log maintenance service | phase-2
+
+download/DownloadManager.kt | object | temporary | legacy AppDownloadManager delegate shim; uses volatile delegate installed by Hilt bootstrap; migrate callers to injected DownloadManager | phase-3
+
+core/runtime/container/ContainerBridgeController.kt | object | temporary | legacy global service starter; starts and stops ContainerBridgeService through static calls; migrate to injected RuntimeBridgeController | phase-6
+core/runtime/container/BridgeCommandRunner.kt | object | temporary | legacy shell command runner; executes commands and writes global logs; migrate to injected CommandRunner with timeout and fake implementation | phase-6
+
+core/db/backup/AppBackupRepository.kt | object | temporary | legacy global backup repository caches Context, backup directories, MutableStateFlow, and test data port override; migrate to injected backup services and stores | phase-6
+core/db/backup/ConversationBackupRepository.kt | object | temporary | legacy global conversation backup repository keeps Context-backed file state and mutable flows; migrate to injected conversation backup service | phase-6
+core/runtime/audio/VoiceCloneService.kt | object | temporary | legacy global voice clone network/file service with direct HTTP calls and RuntimeLogRepository logging; migrate to injected voice clone runtime port | phase-5
+core/runtime/llm/ChatCompletionService.kt | object | temporary | legacy global LLM runtime service with static initialization and mutable provider clients; migrate callers to injected LlmClientPort and provider runtime ports | phase-5
+core/runtime/llm/LlmMediaService.kt | object | temporary | legacy static media facade over ChatCompletionService; migrate callers to injected STT and TTS runtime ports | phase-5
+core/runtime/secret/AppSecretStore.kt | object | temporary | legacy process-wide encrypted secret store entry with manual Context initialization; migrate to injected secret store port | phase-6
+core/runtime/secret/RuntimeSecretRepository.kt | object | temporary | legacy global runtime secret repository with Context-backed initialization; migrate to injected RuntimeSecretStore | phase-6
+core/runtime/session/ConversationSessionLockManager.kt | object | temporary | legacy process-wide session mutex registry backed by ConcurrentHashMap; migrate to injected session lock coordinator | phase-6
+data/RuntimeCacheRepository.kt | object | temporary | legacy global runtime cache file repository with Context initialization; migrate to injected cache repository | phase-6
+
+feature/plugin/runtime/PluginV2RuntimeLoader.kt | object | temporary | legacy PluginV2RuntimeLoaderProvider with shared loader and test override; migrate to Hilt-provided PluginV2RuntimeLoader | phase-4
+
+data/db/AstrBotDatabase.kt | companion | temporary | legacy Room database manual singleton get(context); production code must use injected AstrBotDatabase | phase-4
+
+core/runtime/audio/TtsVoiceAssetRepository.kt | companion | temporary | legacy graphInstance static forwarding on top of Hilt singleton; migrate callers to injected TtsVoiceAssetRepository or TtsVoiceAssetStore | phase-5
+feature/plugin/data/FeaturePluginRepository.kt | companion | temporary | legacy plugin repository graphInstance and static records/catalog access; split into PluginInstallRepository, PluginCatalogRepository, PluginConfigRepository and UseCases | phase-4
+
+core/runtime/audio/SherpaOnnxAssetManager.kt | object | temporary | global asset manager with Context-based file/network operations and global logging; migrate to injected SherpaOnnxAssetService or narrow to stateless path helper | phase-5
+
+feature/bot/data/FeatureBotRepository.kt | object | temporary | legacy global bot repository delegate shim with volatile Hilt-installed store; migrate callers to BotRepositoryPort and remove static facade | phase-4
+feature/chat/data/FeatureConversationRepository.kt | object | temporary | legacy global conversation repository delegate shim with volatile Hilt-installed store; migrate callers to ConversationRepositoryPort | phase-4
+feature/config/data/FeatureConfigRepository.kt | object | temporary | legacy global config repository delegate shim with volatile Hilt-installed store; migrate callers to ConfigRepositoryPort | phase-4
+feature/cron/data/FeatureCronJobRepository.kt | object | temporary | legacy global cron repository delegate shim with volatile Hilt-installed store; migrate callers to CronJobUseCases and Cron scheduler ports | phase-4
+feature/persona/data/FeaturePersonaRepository.kt | object | temporary | legacy global persona repository delegate shim with volatile Hilt-installed store; migrate callers to PersonaRepositoryPort | phase-4
+feature/provider/data/FeatureProviderRepository.kt | object | temporary | legacy global provider repository delegate shim with volatile Hilt-installed store; migrate callers to ProviderRepositoryPort | phase-4
+feature/resource/data/FeatureResourceCenterRepository.kt | object | temporary | legacy global resource center repository delegate shim with volatile Hilt-installed store; migrate callers to ResourceCenterRepositoryPort | phase-4
+
+feature/cron/runtime/CronJobWorker.kt | companion | temporary | legacy CronJobExecutionBridge companion keeps volatile fallback instance for non-Hilt paths; migrate remaining fallback execution to injected ScheduledTaskExecutor | phase-6
+
+feature/plugin/model/PluginGovernanceModels.kt | object | temporary | legacy PluginLifecycleDiagnosticsStore keeps global synchronized diagnostic records; migrate diagnostics to injected plugin diagnostics store | phase-4
+feature/plugin/runtime/AppChatPluginRuntime.kt | object | temporary | legacy app chat plugin runtime static facade over plugin dispatch flow; migrate callers to injected plugin runtime ports | phase-4
+feature/plugin/runtime/PluginRuntimeLogBus.kt | object | temporary | legacy global plugin runtime log bus with process-wide flow state; migrate to Hilt-owned PluginRuntimeLogBus instance only | phase-4
+feature/plugin/runtime/PluginRuntimeLogCleanupRepository.kt | object | temporary | legacy global plugin log cleanup repository with direct file cleanup operations; migrate to injected plugin log maintenance service | phase-4
+feature/plugin/runtime/PluginV2ActiveRuntimeStore.kt | object | temporary | legacy global active plugin runtime store with process-wide mutable runtime state; migrate to Hilt-owned runtime store instance only | phase-4
+feature/plugin/runtime/PluginV2DispatchEngine.kt | object | temporary | legacy global plugin dispatch engine singleton; migrate call sites to injected PluginV2DispatchEngine | phase-4
+feature/plugin/runtime/PluginV2LifecycleManager.kt | object | temporary | legacy global plugin lifecycle manager singleton; migrate call sites to injected PluginV2LifecycleManager | phase-4
+
+feature/qq/data/NapCatLoginLocalStore.kt | object | temporary | legacy global NapCat login local store with static storage access; migrate to injected QQ login local store | phase-6
+feature/qq/data/NapCatLoginRepository.kt | object | temporary | legacy global NapCat login repository with mutable login state and runtime side effects; migrate to injected QQ login repository | phase-6
+feature/qq/data/NapCatLoginService.kt | object | temporary | legacy global NapCat login service with network/runtime side effects; migrate to injected QQ login service | phase-6
+feature/qq/runtime/QqSessionKeyFactory.kt | object | permanent | stateless mapper for QQ conversation session keys; pure string formatter with no global mutable state, Context cache, delegate, network, or database side effects | phase-6-review
+
+core/runtime/container/RootfsExtractor.kt | object | permanent-candidate | stateless archive extractor with explicit File parameters; may remain only after removing RuntimeLogRepository dependency or passing logger explicitly | phase-6-review
+core/runtime/container/DebPayloadExtractor.kt | object | permanent-candidate | stateless deb payload extractor with explicit File parameters; may remain only after removing RuntimeLogRepository dependency or passing logger explicitly | phase-6-review

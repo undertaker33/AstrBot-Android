@@ -16,6 +16,7 @@ data class ToolSourceContext(
     val contextLimitStrategy: String = "",
     val runtimePermissions: Map<String, Any?> = emptyMap(),
     val networkPolicy: Map<String, Any?> = emptyMap(),
+    val ingressTrigger: IngressTrigger = IngressTrigger.USER_MESSAGE,
 ) {
     companion object {
         fun fromConfigProfile(
@@ -26,6 +27,7 @@ data class ToolSourceContext(
             mcpServers: List<McpServerEntry> = config.mcpServers,
             promptSkills: List<PromptSkillProjection> = emptyList(),
             toolSkills: List<ToolSkillProjection> = emptyList(),
+            ingressTrigger: IngressTrigger = IngressTrigger.USER_MESSAGE,
         ): ToolSourceContext {
             return ToolSourceContext(
                 requestId = requestId,
@@ -38,6 +40,7 @@ data class ToolSourceContext(
                 toolSkills = toolSkills,
                 conversationId = conversationId,
                 contextLimitStrategy = config.contextLimitStrategy,
+                ingressTrigger = ingressTrigger,
             )
         }
     }

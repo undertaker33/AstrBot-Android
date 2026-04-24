@@ -1,6 +1,7 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
+import com.astrbot.android.feature.cron.domain.CronJobRunNowPort
 import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
@@ -9,12 +10,11 @@ import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.cron.runtime.CronExpressionParser
 import com.astrbot.android.feature.cron.runtime.CronJobScheduler
 import java.time.Instant
-import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
-import java.time.ZonedDateTime
 import java.util.UUID
 import javax.inject.Inject
+import javax.inject.Provider
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -42,16 +42,23 @@ class ActiveCapabilityRuntimeFacade(
     private val scheduler: CronSchedulerPort,
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+    private val naturalLanguageParser: ActiveCapabilityNaturalLanguageParser = ActiveCapabilityNaturalLanguageParser(),
+    private val runNowPort: CronJobRunNowPort? = null,
+    private val runNowPortProvider: () -> CronJobRunNowPort? = { runNowPort },
 ) {
     @Inject
     constructor(
         repository: CronJobRepositoryPort,
         scheduler: CronSchedulerPort,
+        naturalLanguageParser: ActiveCapabilityNaturalLanguageParser,
+        runNowPortProvider: Provider<CronJobRunNowPort>,
     ) : this(
         repository = repository,
         scheduler = scheduler,
         clock = { System.currentTimeMillis() },
         idGenerator = { UUID.randomUUID().toString() },
+        naturalLanguageParser = naturalLanguageParser,
+        runNowPortProvider = { runNowPortProvider.get() },
     )
 
     suspend fun createFutureTask(request: ActiveCapabilityCreateTaskRequest): ActiveCapabilityTaskCreation {
@@ -89,8 +96,25 @@ class ActiveCapabilityRuntimeFacade(
             logCreateFailure(failure.error, payloadSummary, hostRawText)
             return failure
         }
-        val cronExpression = schedule.cronExpression
-        val runAt = schedule.runAt
+        val adjustedSchedule = resolvePastSchedulePolicy(
+            schedule = schedule,
+            now = now,
+            timezone = timezone,
+            allowPastImmediate = request.payload.booleanValue("allow_past_immediate") ?: false,
+        )
+        if (adjustedSchedule == null) {
+            val failure = ActiveCapabilityTaskCreation.Failed(
+                ActiveCapabilityStructuredError(
+                    code = "past_schedule",
+                    message = "Scheduled task time is in the past. Set allow_past_immediate=true to run it immediately.",
+                    retryable = false,
+                ),
+            )
+            logCreateFailure(failure.error, payloadSummary, hostRawText)
+            return failure
+        }
+        val cronExpression = adjustedSchedule.cronExpression
+        val runAt = adjustedSchedule.runAt
         val runOnce = request.payload.booleanValue("run_once") ?: runAt.isNotBlank()
         val enabled = request.payload.booleanValue("enabled") ?: true
         val target = request.targetContext ?: ActiveCapabilityTargetContext.resolve(request)
@@ -135,7 +159,7 @@ class ActiveCapabilityRuntimeFacade(
             providerId = target.providerId,
             origin = target.origin,
             status = if (enabled) "scheduled" else "paused",
-            nextRunTime = schedule.nextRunTime,
+            nextRunTime = adjustedSchedule.nextRunTime,
             createdAt = now,
             updatedAt = now,
         )
@@ -143,7 +167,7 @@ class ActiveCapabilityRuntimeFacade(
         if (created.enabled) scheduler.schedule(created)
         AppLogger.append(
             "ActiveCapability: create_future_task success jobId=${created.jobId} " +
-                "nextRun=${created.nextRunTime.toIsoStringOrBlank()} source=${schedule.source} " +
+                "nextRun=${created.nextRunTime.toIsoStringOrBlank()} source=${adjustedSchedule.source} " +
                 "payload=$payloadSummary rawText=${hostRawText.toQuotedLogValue()}",
         )
         return ActiveCapabilityTaskCreation.Created(created)
@@ -208,6 +232,140 @@ class ActiveCapabilityRuntimeFacade(
         }
     }
 
+    suspend fun updateFutureTask(payload: Map<String, Any?>): JSONObject {
+        val jobId = payload.stringValue("job_id")
+        if (jobId.isBlank()) {
+            return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "missing_job_id",
+                    message = "'job_id' is required to update a task.",
+                    missingFields = listOf("job_id"),
+                ),
+            )
+        }
+        val existing = repository.getByJobId(jobId)
+            ?: return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "not_found",
+                    message = "Task with job_id '$jobId' not found.",
+                ),
+            )
+
+        val now = clock()
+        val updated = repository.update(existing.applyConservativeUpdates(payload, now))
+        if (updated.enabled) {
+            scheduler.schedule(updated)
+        } else {
+            scheduler.cancel(updated.jobId)
+        }
+        return updated.toManagementJson()
+    }
+
+    suspend fun pauseFutureTask(jobId: String): JSONObject {
+        if (jobId.isBlank()) {
+            return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "missing_job_id",
+                    message = "'job_id' is required to pause a task.",
+                    missingFields = listOf("job_id"),
+                ),
+            )
+        }
+        val existing = repository.getByJobId(jobId)
+            ?: return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "not_found",
+                    message = "Task with job_id '$jobId' not found.",
+                ),
+            )
+        val updated = repository.update(
+            existing.copy(
+                enabled = false,
+                status = "paused",
+                updatedAt = clock(),
+            ),
+        )
+        scheduler.cancel(jobId)
+        return updated.toManagementJson()
+    }
+
+    suspend fun resumeFutureTask(jobId: String): JSONObject {
+        if (jobId.isBlank()) {
+            return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "missing_job_id",
+                    message = "'job_id' is required to resume a task.",
+                    missingFields = listOf("job_id"),
+                ),
+            )
+        }
+        val existing = repository.getByJobId(jobId)
+            ?: return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "not_found",
+                    message = "Task with job_id '$jobId' not found.",
+                ),
+            )
+        val updated = repository.update(
+            existing.copy(
+                enabled = true,
+                status = "scheduled",
+                updatedAt = clock(),
+            ),
+        )
+        scheduler.schedule(updated)
+        return updated.toManagementJson()
+    }
+
+    suspend fun listFutureTaskRuns(jobId: String, limit: Int = 5): JSONObject {
+        if (jobId.isBlank()) {
+            return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "missing_job_id",
+                    message = "'job_id' is required to list task runs.",
+                    missingFields = listOf("job_id"),
+                ),
+            )
+        }
+        val normalizedLimit = limit.coerceIn(1, 50)
+        val runs = repository.listRecentExecutionRecords(jobId, normalizedLimit)
+        return JSONObject().apply {
+            put("success", true)
+            put("job_id", jobId)
+            put("count", runs.size)
+            put("runs", JSONArray().apply {
+                runs.forEach { record -> put(record.toJson()) }
+            })
+        }
+    }
+
+    suspend fun runFutureTaskNow(jobId: String): JSONObject {
+        if (jobId.isBlank()) {
+            return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "missing_job_id",
+                    message = "'job_id' is required to run a task now.",
+                    missingFields = listOf("job_id"),
+                ),
+            )
+        }
+        val result = runNowPortProvider()?.runNow(jobId)
+            ?: return structuredErrorJson(
+                ActiveCapabilityStructuredError(
+                    code = "run_now_unavailable",
+                    message = "No scheduled task runner is available in this runtime.",
+                    retryable = false,
+                ),
+            )
+        return JSONObject().apply {
+            put("success", result.success)
+            put("job_id", jobId)
+            put("status", result.status)
+            put("message", result.message)
+            if (result.errorCode.isNotBlank()) put("error_code", result.errorCode)
+        }
+    }
+
     fun creationToJson(result: ActiveCapabilityTaskCreation): JSONObject {
         return when (result) {
             is ActiveCapabilityTaskCreation.Created -> result.job.toCreatedJson()
@@ -257,6 +415,69 @@ class ActiveCapabilityRuntimeFacade(
             put("provider_id", providerId)
             put("origin", origin)
         }
+    }
+
+    private fun CronJob.toManagementJson(): JSONObject {
+        return JSONObject().apply {
+            put("success", true)
+            put("job_id", jobId)
+            put("name", name)
+            put("enabled", enabled)
+            put("status", status)
+            put("next_run_time", nextRunTime.toIsoStringOrBlank())
+            put("updated_at", updatedAt.toIsoStringOrBlank())
+        }
+    }
+
+    private fun CronJob.applyConservativeUpdates(payload: Map<String, Any?>, now: Long): CronJob {
+        val requestedStatus = payload.stringValue("status")
+        val requestedEnabled = payload.booleanValue("enabled")
+        val effectiveEnabled = when {
+            requestedEnabled != null -> requestedEnabled
+            requestedStatus.equals("paused", ignoreCase = true) -> false
+            requestedStatus.equals("scheduled", ignoreCase = true) -> true
+            requestedStatus.equals("enabled", ignoreCase = true) -> true
+            else -> enabled
+        }
+        val effectiveStatus = when {
+            requestedStatus.isNotBlank() -> normalizeTaskStatus(requestedStatus, effectiveEnabled)
+            !effectiveEnabled -> "paused"
+            status == "paused" && effectiveEnabled -> "scheduled"
+            else -> status
+        }
+        val updatedRunAt = payload.stringValue("run_at")
+        val updatedCron = payload.stringValue("cron_expression")
+        val updatedTimezone = payload.stringValue("timezone")
+        val updatedNote = payload.stringValue("note")
+        val updatedPayload = updatePayloadJson(
+            source = payloadJson,
+            note = updatedNote,
+            runAt = updatedRunAt,
+            cronExpression = updatedCron,
+            timezone = updatedTimezone,
+            enabled = payload.containsKey("enabled") || requestedStatus.isNotBlank(),
+            enabledValue = effectiveEnabled,
+        )
+        val effectiveTimezone = updatedTimezone.ifBlank { timezone }
+        val nextRun = when {
+            updatedRunAt.isNotBlank() -> parseRunAtCandidate(updatedRunAt, now, effectiveTimezone)?.nextRunTime
+            updatedCron.isNotBlank() -> CronExpressionParser.nextFireTime(updatedCron, now, effectiveTimezone)
+            else -> nextRunTime
+        }
+        return copy(
+            name = payload.stringValue("name").ifBlank { name },
+            description = updatedNote.ifBlank { description },
+            enabled = effectiveEnabled,
+            status = effectiveStatus,
+            cronExpression = updatedCron.ifBlank {
+                if (updatedRunAt.isNotBlank()) "" else cronExpression
+            },
+            timezone = effectiveTimezone,
+            payloadJson = updatedPayload,
+            runOnce = if (updatedRunAt.isNotBlank()) true else runOnce,
+            nextRunTime = nextRun ?: nextRunTime,
+            updatedAt = now,
+        )
     }
 
     private fun CronJobExecutionRecord.toJson(): JSONObject {
@@ -343,40 +564,27 @@ class ActiveCapabilityRuntimeFacade(
         now: Long,
         timezone: String,
     ): ResolvedSchedule? {
-        val normalized = text.trim()
-        if (normalized.isBlank()) return null
-        val zone = ZoneId.of(timezone)
-        val nowAtZone = Instant.ofEpochMilli(now).atZone(zone)
-
-        relativeDelayMatchers.firstNotNullOfOrNull { matcher ->
-            matcher(normalized, nowAtZone)
-        }?.let { inferredAt ->
-            return inferredAt.toResolvedSchedule()
-        }
-
-        inferTomorrowSchedule(normalized, nowAtZone)?.let { inferredAt ->
-            return inferredAt.toResolvedSchedule()
-        }
-
-        return null
+        return naturalLanguageParser.inferRunAt(text, now, timezone)?.toResolvedSchedule()
     }
 
-    private fun inferTomorrowSchedule(
-        text: String,
-        nowAtZone: ZonedDateTime,
-    ): ZonedDateTime? {
-        val mentionsTomorrow = listOf("鏄庡ぉ", "鏄庢棭", "鏄庢櫄", "tomorrow").any { token ->
-            text.contains(token, ignoreCase = true)
-        }
-        if (!mentionsTomorrow) return null
-        val targetTime = when {
-            text.contains("鏄庢櫄") || text.contains("鏅氫笂") || text.contains("浠婃櫄") || text.contains("evening", ignoreCase = true) -> LocalTime.of(20, 0)
-            text.contains("涓崍") || text.contains("noon", ignoreCase = true) -> LocalTime.of(12, 0)
-            text.contains("涓嬪崍") || text.contains("afternoon", ignoreCase = true) -> LocalTime.of(15, 0)
-            text.contains("鏃╀笂") || text.contains("涓婂崍") || text.contains("鏄庢棭") || text.contains("morning", ignoreCase = true) -> LocalTime.of(9, 0)
-            else -> LocalTime.of(9, 0)
-        }
-        return nowAtZone.plusDays(1).with(targetTime)
+    private fun resolvePastSchedulePolicy(
+        schedule: ResolvedSchedule,
+        now: Long,
+        timezone: String,
+        allowPastImmediate: Boolean,
+    ): ResolvedSchedule? {
+        if (schedule.nextRunTime >= now) return schedule
+        if (!allowPastImmediate) return null
+        val immediateRunAt = Instant.ofEpochMilli(now)
+            .atZone(ZoneId.of(timezone))
+            .toOffsetDateTime()
+            .toString()
+        return schedule.copy(
+            cronExpression = "",
+            runAt = immediateRunAt,
+            nextRunTime = now,
+            source = "${schedule.source}:past_immediate",
+        )
     }
 
     private fun logCreateFailure(
@@ -399,50 +607,7 @@ private data class ResolvedSchedule(
     val source: String,
 )
 
-private val relativeDelayMatchers: List<(String, ZonedDateTime) -> ZonedDateTime?> = listOf(
-    { text, now ->
-        Regex("([零一二两俩三四五六七八九十百\\d]+)\\s*(分钟|min|mins|minute|minutes)后?", RegexOption.IGNORE_CASE)
-            .find(text)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toFlexibleLong()
-            ?.let(now::plusMinutes)
-    },
-    { text, now ->
-        Regex("([零一二两俩三四五六七八九十百\\d]+)\\s*(小时|hr|hrs|hour|hours)后?", RegexOption.IGNORE_CASE)
-            .find(text)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toFlexibleLong()
-            ?.let(now::plusHours)
-    },
-    { text, now ->
-        Regex("([零一二两俩三四五六七八九十百\\d]+)\\s*(天|day|days)后?", RegexOption.IGNORE_CASE)
-            .find(text)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toFlexibleLong()
-            ?.let(now::plusDays)
-    },
-    { text, now ->
-        Regex("in\\s+(\\d+)\\s*(min|mins|minute|minutes)", RegexOption.IGNORE_CASE)
-            .find(text)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
-            ?.let(now::plusMinutes)
-    },
-    { text, now ->
-        Regex("in\\s+(\\d+)\\s*(hr|hrs|hour|hours)", RegexOption.IGNORE_CASE)
-            .find(text)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
-            ?.let(now::plusHours)
-    },
-)
-
-private fun ZonedDateTime.toResolvedSchedule(): ResolvedSchedule {
+private fun java.time.ZonedDateTime.toResolvedSchedule(): ResolvedSchedule {
     return ResolvedSchedule(
         cronExpression = "",
         runAt = toOffsetDateTime().toString(),
@@ -464,6 +629,7 @@ object ActiveCapabilityToolSchemas {
                 "session" to mapOf("type" to "string", "description" to "Backward-compatible conversation/session id; usually auto-filled from the current runtime context."),
                 "timezone" to mapOf("type" to "string", "description" to "IANA timezone, for example Asia/Shanghai."),
                 "enabled" to mapOf("type" to "boolean", "description" to "Whether the task should be scheduled immediately."),
+                "allow_past_immediate" to mapOf("type" to "boolean", "description" to "If true, a past one-time schedule is accepted and runs immediately."),
                 "platform" to mapOf("type" to "string", "description" to "Runtime platform; usually auto-filled from the current runtime context."),
                 "conversation_id" to mapOf("type" to "string", "description" to "Target conversation id; usually auto-filled from the current runtime context."),
                 "bot_id" to mapOf("type" to "string", "description" to "Target bot id; usually auto-filled from the current runtime context."),
@@ -585,38 +751,40 @@ private fun String?.toQuotedLogValue(): String {
     return this?.replace('\n', ' ')?.take(160)?.let { "\"$it\"" } ?: "null"
 }
 
-private fun String.toFlexibleLong(): Long? {
-    return toLongOrNull() ?: toSimpleChineseNumber()
-}
-
-private fun String.toSimpleChineseNumber(): Long? {
-    val normalized = trim()
-    if (normalized.isEmpty()) return null
-    val digitMap = mapOf(
-        '零' to 0,
-        '一' to 1,
-        '二' to 2,
-        '两' to 2,
-        '俩' to 2,
-        '三' to 3,
-        '四' to 4,
-        '五' to 5,
-        '六' to 6,
-        '七' to 7,
-        '八' to 8,
-        '九' to 9,
-    )
-    if (normalized == "十") return 10L
-    if ('十' in normalized) {
-        val parts = normalized.split('十', limit = 2)
-        val tens = parts[0].takeIf { it.isNotEmpty() }?.singleOrNull()?.let(digitMap::get) ?: 1
-        val ones = parts.getOrNull(1)?.takeIf { it.isNotEmpty() }?.singleOrNull()?.let(digitMap::get) ?: 0
-        return (tens * 10 + ones).toLong()
-    }
-    return normalized.singleOrNull()?.let(digitMap::get)?.toLong()
-}
-
 private fun Long.toIsoStringOrBlank(): String {
     return if (this > 0L) java.time.Instant.ofEpochMilli(this).toString() else ""
+}
+
+private fun normalizeTaskStatus(status: String, enabled: Boolean): String {
+    return when (status.trim().lowercase()) {
+        "pause",
+        "paused",
+        -> "paused"
+        "resume",
+        "resumed",
+        "enable",
+        "enabled",
+        "scheduled",
+        -> "scheduled"
+        else -> status.trim().ifBlank { if (enabled) "scheduled" else "paused" }
+    }
+}
+
+private fun updatePayloadJson(
+    source: String,
+    note: String,
+    runAt: String,
+    cronExpression: String,
+    timezone: String,
+    enabled: Boolean,
+    enabledValue: Boolean,
+): String {
+    val json = runCatching { JSONObject(source) }.getOrDefault(JSONObject())
+    if (note.isNotBlank()) json.put("note", note)
+    if (runAt.isNotBlank()) json.put("run_at", runAt)
+    if (cronExpression.isNotBlank()) json.put("cron_expression", cronExpression)
+    if (timezone.isNotBlank()) json.put("timezone", timezone)
+    if (enabled) json.put("enabled", enabledValue)
+    return json.toString()
 }
 

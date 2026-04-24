@@ -5,7 +5,6 @@ import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
 import com.astrbot.android.core.runtime.context.DefaultRuntimeContextResolverPort
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
-import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
 import com.astrbot.android.core.runtime.llm.HiltLlmProviderProbePort
 import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
 import com.astrbot.android.core.runtime.audio.TencentSilkEncoder
@@ -20,10 +19,14 @@ import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.cron.data.FeatureCronSchedulerPortAdapter
 import com.astrbot.android.feature.cron.domain.ActiveCapabilityTaskPort
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
+import com.astrbot.android.feature.cron.domain.CronJobRunNowPort
 import com.astrbot.android.feature.cron.domain.CronSchedulerPort
+import com.astrbot.android.feature.cron.runtime.CoordinatorCronJobRunNowPort
 import com.astrbot.android.feature.cron.runtime.CronJobRunCoordinator
 import com.astrbot.android.feature.cron.runtime.CronRuntimeService
 import com.astrbot.android.feature.cron.runtime.CronRescheduler
+import com.astrbot.android.feature.cron.runtime.DefaultScheduledMessageDeliveryPort
+import com.astrbot.android.feature.cron.runtime.ScheduledMessageDeliveryPort
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskExecutor
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeExecutor
@@ -49,6 +52,8 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityNaturalLanguageLexicon
+import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityNaturalLanguageParser
 import com.astrbot.android.feature.plugin.runtime.toolsource.FutureToolSourceContextResolver
 import com.astrbot.android.feature.plugin.runtime.toolsource.FutureToolSourceRegistry
 import com.astrbot.android.feature.plugin.runtime.toolsource.PortBackedFutureToolSourceContextResolver
@@ -78,7 +83,7 @@ internal object RuntimeServicesModule {
     @Singleton
     fun provideLlmClientPort(
         @ApplicationContext appContext: Context,
-    ): LlmClientPort = ChatCompletionServiceLlmClient(appContext)
+    ): LlmClientPort = com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient(appContext)
 
     @Provides
     @Singleton
@@ -170,24 +175,32 @@ internal object RuntimeServicesModule {
     fun provideScheduledTaskRuntimeDependencies(
         llmClientPort: LlmClientPort,
         botPort: BotRepositoryPort,
-        conversationPort: ConversationRepositoryPort,
         orchestrator: RuntimeLlmOrchestratorPort,
         runtimeContextResolverPort: RuntimeContextResolverPort,
-        qqScheduledMessageSender: QqScheduledMessageSender,
+        deliveryPort: ScheduledMessageDeliveryPort,
         appChatPluginRuntime: AppChatPluginRuntime,
         hostCapabilityGateway: PluginHostCapabilityGateway,
     ): ScheduledTaskRuntimeDependencies {
         return ScheduledTaskRuntimeDependencies(
             llmClient = llmClientPort,
             botPort = botPort,
-            conversationPort = conversationPort,
             orchestrator = orchestrator,
             runtimeContextResolverPort = runtimeContextResolverPort,
-            qqScheduledMessageSender = qqScheduledMessageSender,
+            deliveryPort = deliveryPort,
             appChatPluginRuntime = appChatPluginRuntime as AppChatLlmPipelineRuntime,
             hostCapabilityGateway = hostCapabilityGateway,
         )
     }
+
+    @Provides
+    @Singleton
+    fun provideScheduledMessageDeliveryPort(
+        conversationPort: ConversationRepositoryPort,
+        qqScheduledMessageSender: QqScheduledMessageSender,
+    ): ScheduledMessageDeliveryPort = DefaultScheduledMessageDeliveryPort(
+        conversationPort = conversationPort,
+        qqScheduledMessageSender = qqScheduledMessageSender,
+    )
 
     @Provides
     @Singleton
@@ -213,9 +226,27 @@ internal object RuntimeServicesModule {
 
     @Provides
     @Singleton
+    fun provideActiveCapabilityNaturalLanguageLexicon(
+        @ApplicationContext appContext: Context,
+    ): ActiveCapabilityNaturalLanguageLexicon =
+        ActiveCapabilityNaturalLanguageLexicon.fromResources(appContext)
+
+    @Provides
+    @Singleton
+    fun provideActiveCapabilityNaturalLanguageParser(
+        lexicon: ActiveCapabilityNaturalLanguageLexicon,
+    ): ActiveCapabilityNaturalLanguageParser = ActiveCapabilityNaturalLanguageParser(lexicon)
+
+    @Provides
+    @Singleton
     fun provideActiveCapabilityTaskPort(
         runtimeService: CronRuntimeService,
     ): ActiveCapabilityTaskPort = runtimeService
+
+    @Provides
+    fun provideCronJobRunNowPort(
+        port: CoordinatorCronJobRunNowPort,
+    ): CronJobRunNowPort = port
 
     @Provides
     fun provideCronRescheduler(

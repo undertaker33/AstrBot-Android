@@ -16,4 +16,8 @@ class FeatureCronSchedulerPortAdapter(
     override fun cancel(jobId: String) {
         CronJobScheduler.cancelJob(appContext, jobId)
     }
+
+    override fun cancelAll() {
+        CronJobScheduler.cancelAll(appContext)
+    }
 }

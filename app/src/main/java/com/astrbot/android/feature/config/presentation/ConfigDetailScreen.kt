@@ -555,12 +555,6 @@ private fun ConfigDetailContent(
                                 checked = webSearchEnabled,
                                 onCheckedChange = { webSearchEnabled = it },
                             )
-                            ConfigToggleField(
-                                title = stringResource(R.string.config_proactive_title),
-                                subtitle = stringResource(R.string.config_proactive_desc),
-                                checked = proactiveEnabled,
-                                onCheckedChange = { proactiveEnabled = it },
-                            )
                         }
                     }
             }

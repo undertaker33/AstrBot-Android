@@ -1,6 +1,8 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
+import com.astrbot.android.feature.cron.domain.CronJobRunNowPort
+import com.astrbot.android.feature.cron.domain.CronJobRunNowResult
 import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.CronJob
@@ -227,6 +229,83 @@ class ActiveCapabilityRuntimeFacadeTest {
     }
 
     @Test
+    fun create_future_task_infers_common_chinese_daypart_schedules() = runBlocking {
+        val now = OffsetDateTime.parse("2026-04-18T10:00:00+08:00").toInstant().toEpochMilli()
+        val cases = listOf(
+            "明天早上提醒我开会" to "2026-04-19T09:00:00+08:00",
+            "明天中午提醒我吃饭" to "2026-04-19T12:00:00+08:00",
+            "明天下午提醒我提交报告" to "2026-04-19T15:00:00+08:00",
+            "明天晚上提醒我复盘" to "2026-04-19T20:00:00+08:00",
+            "今晚提醒我喝水" to "2026-04-18T20:00:00+08:00",
+            "后天提醒我检查任务" to "2026-04-20T09:00:00+08:00",
+            "下午三点提醒我开会" to "2026-04-18T15:00:00+08:00",
+        )
+
+        cases.forEachIndexed { index, (rawText, expectedTime) ->
+            val result = createTaskFromRawText(rawText = rawText, now = now, jobId = "job-daypart-$index")
+
+            assertCreatedAt(result, expectedTime)
+        }
+    }
+
+    @Test
+    fun create_future_task_infers_half_hour_and_one_and_half_hour_delays() = runBlocking {
+        val now = OffsetDateTime.parse("2026-04-18T10:00:00+08:00").toInstant().toEpochMilli()
+
+        assertCreatedAt(
+            createTaskFromRawText(rawText = "半小时后提醒我喝水", now = now, jobId = "job-half"),
+            "2026-04-18T10:30:00+08:00",
+        )
+        assertCreatedAt(
+            createTaskFromRawText(rawText = "一个半小时后提醒我出门", now = now, jobId = "job-one-half"),
+            "2026-04-18T11:30:00+08:00",
+        )
+    }
+
+    @Test
+    fun create_future_task_rejects_past_schedule_by_default() = runBlocking {
+        val now = OffsetDateTime.parse("2026-04-18T16:00:00+08:00").toInstant().toEpochMilli()
+
+        val result = createTaskFromRawText(rawText = "下午三点提醒我喝水", now = now, jobId = "job-past")
+
+        assertTrue(result is ActiveCapabilityTaskCreation.Failed)
+        val failed = result as ActiveCapabilityTaskCreation.Failed
+        assertEquals("past_schedule", failed.error.code)
+        assertFalse(failed.error.retryable)
+    }
+
+    @Test
+    fun create_future_task_allows_past_schedule_as_immediate_when_explicitly_requested() = runBlocking {
+        val now = OffsetDateTime.parse("2026-04-18T16:00:00+08:00").toInstant().toEpochMilli()
+        val repository = InMemoryActiveCapabilityTaskRepository()
+        val scheduler = RecordingActiveCapabilityScheduler()
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = repository,
+            scheduler = scheduler,
+            clock = { now },
+            idGenerator = { "job-immediate" },
+        )
+
+        val result = facade.createFutureTask(
+            ActiveCapabilityCreateTaskRequest(
+                payload = targetPayload() + mapOf(
+                    "note" to "提醒我喝水",
+                    "run_at" to "2026-04-18T15:00:00+08:00",
+                    "timezone" to "Asia/Shanghai",
+                    "allow_past_immediate" to true,
+                ),
+                metadata = null,
+                toolSourceContext = null,
+            ),
+        )
+
+        assertTrue(result is ActiveCapabilityTaskCreation.Created)
+        val created = result as ActiveCapabilityTaskCreation.Created
+        assertEquals(now, created.job.nextRunTime)
+        assertEquals(created.job, scheduler.scheduled.single())
+    }
+
+    @Test
     fun create_future_task_normalizes_legacy_onebot_platform_to_runtime_platform() = runBlocking {
         val repository = InMemoryActiveCapabilityTaskRepository()
         val scheduler = RecordingActiveCapabilityScheduler()
@@ -306,18 +385,248 @@ class ActiveCapabilityRuntimeFacadeTest {
             },
         )
     }
+
+    private suspend fun createTaskFromRawText(
+        rawText: String,
+        now: Long,
+        jobId: String,
+    ): ActiveCapabilityTaskCreation {
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = InMemoryActiveCapabilityTaskRepository(),
+            scheduler = RecordingActiveCapabilityScheduler(),
+            clock = { now },
+            idGenerator = { jobId },
+        )
+        return facade.createFutureTask(
+            ActiveCapabilityCreateTaskRequest(
+                payload = targetPayload() + mapOf(
+                    "note" to "提醒事项",
+                    "timezone" to "Asia/Shanghai",
+                ),
+                metadata = mapOf("__host" to mapOf("rawText" to rawText)),
+                toolSourceContext = null,
+            ),
+        )
+    }
+
+    @Test
+    fun pause_and_resume_future_task_updates_repository_and_scheduler() = runBlocking {
+        val initialJob = CronJob(jobId = "job-1", name = "Water", enabled = true, status = "scheduled")
+        val repository = InMemoryActiveCapabilityTaskRepository(initialJobs = listOf(initialJob))
+        val scheduler = RecordingActiveCapabilityScheduler()
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = repository,
+            scheduler = scheduler,
+            clock = { 10_000L },
+        )
+
+        val paused = facade.pauseFutureTask("job-1")
+
+        assertTrue(paused.getBoolean("success"))
+        assertEquals("job-1", paused.getString("job_id"))
+        assertEquals(false, paused.getBoolean("enabled"))
+        assertEquals("paused", paused.getString("status"))
+        assertEquals(listOf("job-1"), scheduler.cancelled)
+
+        val resumed = facade.resumeFutureTask("job-1")
+
+        assertTrue(resumed.getBoolean("success"))
+        assertEquals("job-1", resumed.getString("job_id"))
+        assertEquals(true, resumed.getBoolean("enabled"))
+        assertEquals("scheduled", resumed.getString("status"))
+        assertEquals(listOf("job-1"), scheduler.scheduled.map { it.jobId })
+    }
+
+    @Test
+    fun list_future_task_runs_returns_recent_execution_records() = runBlocking {
+        val records = listOf(
+            CronJobExecutionRecord(
+                executionId = "run-1",
+                jobId = "job-1",
+                status = "FAILED",
+                errorCode = "delivery_failed",
+                errorMessage = "QQ offline",
+            ),
+            CronJobExecutionRecord(
+                executionId = "run-2",
+                jobId = "job-1",
+                status = "SUCCEEDED",
+                deliverySummary = """{"delivered_message_count":1}""",
+            ),
+        )
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = InMemoryActiveCapabilityTaskRepository(executionRecords = records),
+            scheduler = RecordingActiveCapabilityScheduler(),
+        )
+
+        val listed = facade.listFutureTaskRuns(jobId = "job-1", limit = 2)
+
+        assertTrue(listed.getBoolean("success"))
+        assertEquals("job-1", listed.getString("job_id"))
+        assertEquals(2, listed.getInt("count"))
+        assertEquals("run-1", listed.getJSONArray("runs").getJSONObject(0).getString("execution_id"))
+        assertEquals("run-2", listed.getJSONArray("runs").getJSONObject(1).getString("execution_id"))
+    }
+
+    @Test
+    fun update_future_task_updates_conservative_fields_and_reschedules_enabled_job() = runBlocking {
+        val initialJob = CronJob(
+            jobId = "job-1",
+            name = "Old name",
+            description = "Old note",
+            cronExpression = "0 9 * * *",
+            timezone = "Asia/Shanghai",
+            payloadJson = JSONObject()
+                .put("note", "Old note")
+                .put("timezone", "Asia/Shanghai")
+                .toString(),
+            enabled = true,
+            status = "scheduled",
+            nextRunTime = 1L,
+        )
+        val repository = InMemoryActiveCapabilityTaskRepository(initialJobs = listOf(initialJob))
+        val scheduler = RecordingActiveCapabilityScheduler()
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = repository,
+            scheduler = scheduler,
+            clock = { 10_000L },
+        )
+
+        val updated = facade.updateFutureTask(
+            mapOf(
+                "job_id" to "job-1",
+                "name" to "Updated name",
+                "note" to "Updated note",
+                "cron_expression" to "0 10 * * *",
+                "timezone" to "UTC",
+            ),
+        )
+
+        assertTrue(updated.getBoolean("success"))
+        assertEquals("job-1", updated.getString("job_id"))
+        assertEquals("Updated name", updated.getString("name"))
+        assertEquals("scheduled", updated.getString("status"))
+        val stored = repository.created.single()
+        assertEquals("Updated name", stored.name)
+        assertEquals("Updated note", stored.description)
+        assertEquals("0 10 * * *", stored.cronExpression)
+        assertEquals("UTC", stored.timezone)
+        assertTrue(stored.enabled)
+        assertEquals(stored, scheduler.scheduled.single())
+        assertTrue(scheduler.cancelled.isEmpty())
+        val payload = JSONObject(stored.payloadJson)
+        assertEquals("Updated note", payload.getString("note"))
+        assertEquals("UTC", payload.getString("timezone"))
+    }
+
+    @Test
+    fun update_future_task_can_pause_with_status_without_breaking_pause_resume_semantics() = runBlocking {
+        val initialJob = CronJob(jobId = "job-1", enabled = true, status = "scheduled")
+        val repository = InMemoryActiveCapabilityTaskRepository(initialJobs = listOf(initialJob))
+        val scheduler = RecordingActiveCapabilityScheduler()
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = repository,
+            scheduler = scheduler,
+            clock = { 10_000L },
+        )
+
+        val updated = facade.updateFutureTask(
+            mapOf(
+                "job_id" to "job-1",
+                "status" to "paused",
+            ),
+        )
+
+        assertTrue(updated.getBoolean("success"))
+        assertEquals(false, updated.getBoolean("enabled"))
+        assertEquals("paused", updated.getString("status"))
+        assertEquals(listOf("job-1"), scheduler.cancelled)
+        assertTrue(scheduler.scheduled.isEmpty())
+    }
+
+    @Test
+    fun run_future_task_now_delegates_to_injected_runner_and_returns_structured_json() = runBlocking {
+        val runner = RecordingRunNowPort(
+            CronJobRunNowResult(
+                success = true,
+                status = "succeeded",
+                message = "Run completed.",
+            ),
+        )
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = InMemoryActiveCapabilityTaskRepository(),
+            scheduler = RecordingActiveCapabilityScheduler(),
+            runNowPort = runner,
+        )
+
+        val result = facade.runFutureTaskNow("job-1")
+
+        assertTrue(result.getBoolean("success"))
+        assertEquals("job-1", result.getString("job_id"))
+        assertEquals("succeeded", result.getString("status"))
+        assertEquals("Run completed.", result.getString("message"))
+        assertEquals(listOf("job-1"), runner.requestedJobIds)
+    }
+
+    @Test
+    fun run_future_task_now_returns_structured_error_when_job_id_is_missing() = runBlocking {
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = InMemoryActiveCapabilityTaskRepository(),
+            scheduler = RecordingActiveCapabilityScheduler(),
+        )
+
+        val result = facade.runFutureTaskNow("")
+
+        assertEquals(false, result.getBoolean("success"))
+        assertEquals("missing_job_id", result.getString("error_code"))
+    }
+
+    private fun assertCreatedAt(
+        result: ActiveCapabilityTaskCreation,
+        expectedOffsetDateTime: String,
+    ) {
+        assertTrue(result is ActiveCapabilityTaskCreation.Created)
+        val created = result as ActiveCapabilityTaskCreation.Created
+        assertEquals(
+            OffsetDateTime.parse(expectedOffsetDateTime).toInstant().toEpochMilli(),
+            created.job.nextRunTime,
+        )
+    }
+
+    private fun targetPayload(): Map<String, Any?> {
+        return mapOf(
+            "platform" to RuntimePlatform.APP_CHAT.wireValue,
+            "conversation_id" to "conversation-1",
+            "bot_id" to "bot-1",
+            "config_profile_id" to "cfg-1",
+            "provider_id" to "provider-1",
+        )
+    }
 }
 
-private class InMemoryActiveCapabilityTaskRepository : CronJobRepositoryPort {
-    val created = mutableListOf<CronJob>()
-    override val jobs: StateFlow<List<CronJob>> = MutableStateFlow(emptyList())
+private class InMemoryActiveCapabilityTaskRepository(
+    initialJobs: List<CronJob> = emptyList(),
+    private val executionRecords: List<CronJobExecutionRecord> = emptyList(),
+) : CronJobRepositoryPort {
+    val created = initialJobs.toMutableList()
+    val updated = mutableListOf<CronJob>()
+    override val jobs: StateFlow<List<CronJob>> = MutableStateFlow(initialJobs)
 
     override suspend fun create(job: CronJob): CronJob {
         created += job
         return job
     }
 
-    override suspend fun update(job: CronJob): CronJob = job
+    override suspend fun update(job: CronJob): CronJob {
+        updated += job
+        val index = created.indexOfFirst { it.jobId == job.jobId }
+        if (index >= 0) {
+            created[index] = job
+        } else {
+            created += job
+        }
+        return job
+    }
 
     override suspend fun delete(jobId: String) = Unit
 
@@ -335,7 +644,9 @@ private class InMemoryActiveCapabilityTaskRepository : CronJobRepositoryPort {
 
     override suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord = record
 
-    override suspend fun listRecentExecutionRecords(jobId: String, limit: Int): List<CronJobExecutionRecord> = emptyList()
+    override suspend fun listRecentExecutionRecords(jobId: String, limit: Int): List<CronJobExecutionRecord> {
+        return executionRecords.filter { it.jobId == jobId }.takeLast(limit)
+    }
 
     override suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? = null
 }
@@ -350,5 +661,18 @@ private class RecordingActiveCapabilityScheduler : CronSchedulerPort {
 
     override fun cancel(jobId: String) {
         cancelled += jobId
+    }
+
+    override fun cancelAll() = Unit
+}
+
+private class RecordingRunNowPort(
+    private val result: CronJobRunNowResult,
+) : CronJobRunNowPort {
+    val requestedJobIds = mutableListOf<String>()
+
+    override suspend fun runNow(jobId: String): CronJobRunNowResult {
+        requestedJobIds += jobId
+        return result
     }
 }

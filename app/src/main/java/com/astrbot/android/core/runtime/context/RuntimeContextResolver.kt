@@ -76,7 +76,11 @@ object RuntimeContextResolver {
             ?: event.conversationId
         val session = dataPort.session(effectiveSessionId)
         val contextWindow = resolveContextWindow(config)
-        val messageWindow = session.messages.takeLast(contextWindow)
+        val messageWindow = if (event.trigger == IngressTrigger.SCHEDULED_TASK) {
+            emptyList()
+        } else {
+            session.messages.takeLast(contextWindow)
+        }
 
         val personaToolSnapshot = persona?.let { resolvedPersona ->
             PersonaToolEnablementSnapshot(
@@ -106,6 +110,7 @@ object RuntimeContextResolver {
             mcpServers = mcpServers,
             promptSkills = promptSkills,
             toolSkills = toolSkills,
+            ingressTrigger = event.trigger,
         )
 
         return ResolvedRuntimeContext(

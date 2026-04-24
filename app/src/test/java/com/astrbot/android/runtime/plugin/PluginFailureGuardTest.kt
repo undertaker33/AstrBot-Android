@@ -1,6 +1,5 @@
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnostic
 import com.astrbot.android.model.plugin.PluginFailureCategory
 import com.astrbot.android.model.plugin.PluginFailureState
@@ -8,6 +7,7 @@ import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -154,19 +154,32 @@ class PluginFailureGuardTest {
 
     @Test
     fun persistent_failure_store_round_trips_through_plugin_repository() {
-        val record = samplePluginInstallRecord(
+        var record: com.astrbot.android.model.plugin.PluginInstallRecord? = samplePluginInstallRecord(
             pluginId = "plugin-persistent",
             version = "1.0.0",
             lastUpdatedAt = 100L,
         )
-        installPluginRepositoryForTest(
-            records = listOf(record),
-            initialized = true,
-            now = 200L,
+        val store = PersistentPluginFailureStateStore(
+            findState = { pluginId ->
+                record
+                    ?.takeIf { current -> current.pluginId == pluginId }
+                    ?.failureState
+            },
+            updateState = { pluginId, failureState ->
+                record = record
+                    ?.takeIf { current -> current.pluginId == pluginId }
+                    ?.withFailureState(failureState)
+                    ?: record
+            },
+            clearState = { pluginId ->
+                record = record
+                    ?.takeIf { current -> current.pluginId == pluginId }
+                    ?.withFailureState(PluginFailureState.none())
+                    ?: record
+            },
         )
-        val store = PersistentPluginFailureStateStore()
         val snapshot = PluginFailureSnapshot(
-            pluginId = record.pluginId,
+            pluginId = requireNotNull(record).pluginId,
             consecutiveFailureCount = 2,
             lastFailureAtEpochMillis = 150L,
             lastErrorSummary = "socket timeout",
@@ -177,7 +190,7 @@ class PluginFailureGuardTest {
 
         store.put(snapshot)
 
-        assertEquals(snapshot, store.get(record.pluginId))
+        assertEquals(snapshot, store.get(requireNotNull(record).pluginId))
         assertEquals(
             PluginFailureState(
                 consecutiveFailureCount = 2,
@@ -185,7 +198,7 @@ class PluginFailureGuardTest {
                 lastErrorSummary = "socket timeout",
                 suspendedUntilEpochMillis = 300L,
             ),
-            PluginRepository.findByPluginId(record.pluginId)?.failureState,
+            record?.failureState,
         )
     }
 
@@ -196,12 +209,11 @@ class PluginFailureGuardTest {
             version = "1.0.0",
             lastUpdatedAt = 10L,
         )
-        installPluginRepositoryForTest(
-            records = listOf(record),
-            initialized = false,
-            now = 20L,
+        val store = PersistentPluginFailureStateStore(
+            findState = { _ -> null },
+            updateState = { _, _ -> Unit },
+            clearState = { _ -> Unit },
         )
-        val store = PersistentPluginFailureStateStore()
         val snapshot = PluginFailureSnapshot(
             pluginId = record.pluginId,
             consecutiveFailureCount = 1,
@@ -228,11 +240,7 @@ class PluginFailureGuardTest {
         val clock = TestClock(now = 1_000L)
         val bus = InMemoryPluginRuntimeLogBus(capacity = 32)
         val failureStore = InMemoryPluginFailureStateStore()
-        installPluginRepositoryForTest(
-            records = listOf(samplePluginV2InstallRecord(pluginId = pluginId)),
-            initialized = true,
-            now = clock.now,
-        )
+        val installRecords = listOf(samplePluginV2InstallRecord(pluginId = pluginId))
         val guard = PluginFailureGuard(
             store = failureStore,
             scopedStore = InMemoryPluginScopedFailureStateStore(),
@@ -244,7 +252,10 @@ class PluginFailureGuardTest {
             logBus = bus,
         )
         val repository = PluginGovernanceRepository(
-            findInstallRecord = PluginRepository::findByPluginId,
+            installRecordsFlow = flowOf(installRecords),
+            findInstallRecord = { requestedPluginId ->
+                installRecords.firstOrNull { record -> record.pluginId == requestedPluginId }
+            },
             runtimeSnapshotProvider = { PluginV2ActiveRuntimeSnapshot() },
             failureStateStore = failureStore,
             diagnosticsSnapshotProvider = { emptyList() },
@@ -315,11 +326,7 @@ class PluginFailureGuardTest {
                 occurredAtEpochMillis = 4_950L,
             ),
         )
-        installPluginRepositoryForTest(
-            records = listOf(samplePluginV2InstallRecord(pluginId = pluginId)),
-            initialized = true,
-            now = clock.now,
-        )
+        val installRecords = listOf(samplePluginV2InstallRecord(pluginId = pluginId))
         bus.publish(
             PluginRuntimeLogRecord(
                 occurredAtEpochMillis = 4_960L,
@@ -340,7 +347,10 @@ class PluginFailureGuardTest {
         )
 
         val repository = PluginGovernanceRepository(
-            findInstallRecord = PluginRepository::findByPluginId,
+            installRecordsFlow = flowOf(installRecords),
+            findInstallRecord = { requestedPluginId ->
+                installRecords.firstOrNull { record -> record.pluginId == requestedPluginId }
+            },
             runtimeSnapshotProvider = { PluginV2ActiveRuntimeSnapshot() },
             failureStateStore = failureStore,
             diagnosticsSnapshotProvider = { lifecycleDiagnostics },
@@ -493,4 +503,26 @@ class PluginFailureGuardTest {
             },
         )
     }
+}
+
+private fun com.astrbot.android.model.plugin.PluginInstallRecord.withFailureState(
+    failureState: PluginFailureState,
+): com.astrbot.android.model.plugin.PluginInstallRecord {
+    return com.astrbot.android.model.plugin.PluginInstallRecord.restoreFromPersistedState(
+        manifestSnapshot = manifestSnapshot,
+        source = source,
+        packageContractSnapshot = packageContractSnapshot,
+        permissionSnapshot = permissionSnapshot,
+        compatibilityState = compatibilityState,
+        uninstallPolicy = uninstallPolicy,
+        enabled = enabled,
+        failureState = failureState,
+        catalogSourceId = catalogSourceId,
+        installedPackageUrl = installedPackageUrl,
+        lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
+        installedAt = installedAt,
+        lastUpdatedAt = lastUpdatedAt,
+        localPackagePath = localPackagePath,
+        extractedDir = extractedDir,
+    )
 }

@@ -10,9 +10,11 @@ import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
 import com.astrbot.android.feature.cron.domain.CronTaskCreateRequest
 import com.astrbot.android.feature.cron.domain.CronTaskCreateResult
 import com.astrbot.android.feature.cron.presentation.CronJobsPresentationController
+import com.astrbot.android.feature.cron.runtime.CronExpressionParser
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.CronJob
+import com.astrbot.android.model.CronJobExecutionRecord
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.ZoneId
+import java.time.OffsetDateTime
 
 @HiltViewModel
 internal class CronJobsViewModel @Inject constructor(
@@ -43,11 +46,58 @@ internal class CronJobsViewModel @Inject constructor(
     /** Tracks whether the create/edit dialog is showing. */
     val editingJob = mutableStateOf<CronJob?>(null)
     val showCreateDialog = mutableStateOf(false)
+    val runHistoryState = mutableStateOf(CronJobRunHistoryUiState())
 
     fun toggleEnabled(job: CronJob) {
         viewModelScope.launch(Dispatchers.IO) {
             controller.toggleEnabled(job)
         }
+    }
+
+    fun pauseJob(jobId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            controller.pauseJob(jobId)
+        }
+    }
+
+    fun resumeJob(jobId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            controller.resumeJob(jobId)
+        }
+    }
+
+    fun showRuns(job: CronJob) {
+        runHistoryState.value = CronJobRunHistoryUiState(
+            jobId = job.jobId,
+            jobName = job.name.ifBlank { job.jobId },
+            loading = true,
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                controller.listRuns(job.jobId, limit = CronJobRunHistoryLimit)
+            }.onSuccess { records ->
+                runHistoryState.value = CronJobRunHistoryUiState(
+                    jobId = job.jobId,
+                    jobName = job.name.ifBlank { job.jobId },
+                    runs = records,
+                    loading = false,
+                )
+            }.onFailure { error ->
+                AppLogger.append(
+                    "CronJobsViewModel listRuns failed: ${error.message ?: error.javaClass.simpleName}",
+                )
+                runHistoryState.value = CronJobRunHistoryUiState(
+                    jobId = job.jobId,
+                    jobName = job.name.ifBlank { job.jobId },
+                    loading = false,
+                    errorMessage = error.message ?: error.javaClass.simpleName,
+                )
+            }
+        }
+    }
+
+    fun dismissRuns() {
+        runHistoryState.value = CronJobRunHistoryUiState()
     }
 
     fun deleteJob(jobId: String) {
@@ -68,6 +118,32 @@ internal class CronJobsViewModel @Inject constructor(
             runOnce = draft.runOnce,
             targetContext = draft.toTargetContext(selectedBot),
         )
+    }
+
+    fun updateJob(
+        existing: CronJob,
+        draft: CronJobEditorDraft,
+        selectedBot: BotProfile,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val timezone = ZoneId.systemDefault().id
+                val now = System.currentTimeMillis()
+                val nextRunTime = resolveCronJobEditorNextRunTime(draft, now, timezone)
+                val updated = draft.toUpdatedCronJob(
+                    existing = existing,
+                    selectedBot = selectedBot,
+                    timezone = timezone,
+                    nextRunTime = nextRunTime,
+                    updatedAt = now,
+                )
+                controller.updateJob(updated)
+            }.onFailure { error ->
+                AppLogger.append(
+                    "CronJobsViewModel updateJob failed: ${error.message ?: error.javaClass.simpleName}",
+                )
+            }
+        }
     }
 
     fun createJob(
@@ -114,6 +190,31 @@ internal class CronJobsViewModel @Inject constructor(
                     origin = "ui",
                 )
             }
+    }
+}
+
+internal const val CronJobRunHistoryLimit = 10
+
+internal data class CronJobRunHistoryUiState(
+    val jobId: String = "",
+    val jobName: String = "",
+    val runs: List<CronJobExecutionRecord> = emptyList(),
+    val loading: Boolean = false,
+    val errorMessage: String = "",
+) {
+    val visible: Boolean = jobId.isNotBlank()
+}
+
+internal fun resolveCronJobEditorNextRunTime(
+    draft: CronJobEditorDraft,
+    now: Long,
+    timezone: String,
+): Long {
+    val runAt = draft.runAt.trim()
+    return if (runAt.isNotBlank()) {
+        OffsetDateTime.parse(runAt).toInstant().toEpochMilli()
+    } else {
+        CronExpressionParser.nextFireTime(draft.cronExpression.trim(), now, timezone)
     }
 }
 

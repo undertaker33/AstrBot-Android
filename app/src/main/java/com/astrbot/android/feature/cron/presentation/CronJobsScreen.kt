@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -27,6 +29,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -56,6 +59,7 @@ import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.app.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.app.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.common.SubPageScaffold
+import com.astrbot.android.ui.navigation.AppDestination
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTargetContext
 import java.time.Instant
@@ -70,9 +74,11 @@ internal fun CronJobsScreen(
     val jobs by viewModel.jobs.collectAsState()
     val botProfiles by viewModel.botProfiles.collectAsState()
     val selectedBotId by viewModel.selectedBotId.collectAsState()
+    val runHistoryState by viewModel.runHistoryState
     val defaultTargetContext = viewModel.defaultTargetContext()
 
     SubPageScaffold(
+        route = AppDestination.CronJobs.route,
         title = stringResource(R.string.cron_jobs_title),
         onBack = onBack,
     ) { innerPadding ->
@@ -84,6 +90,15 @@ internal fun CronJobsScreen(
             onCreateJob = { draft, selectedBot ->
                 viewModel.createJob(draft, selectedBot)
             },
+            onUpdateJob = { job, draft, selectedBot ->
+                viewModel.updateJob(job, draft, selectedBot)
+            },
+            onPauseJob = viewModel::pauseJob,
+            onResumeJob = viewModel::resumeJob,
+            onDeleteJob = viewModel::deleteJob,
+            onShowRuns = viewModel::showRuns,
+            runHistoryState = runHistoryState,
+            onDismissRuns = viewModel::dismissRuns,
             modifier = Modifier.padding(innerPadding),
         )
     }
@@ -104,6 +119,13 @@ internal fun CronJobsContent(
     botProfiles: List<BotProfile> = emptyList(),
     selectedBotId: String = "",
     onCreateJob: (CronJobEditorDraft, BotProfile) -> Unit = { _, _ -> },
+    onUpdateJob: (CronJob, CronJobEditorDraft, BotProfile) -> Unit = { _, _, _ -> },
+    onPauseJob: (String) -> Unit = {},
+    onResumeJob: (String) -> Unit = {},
+    onDeleteJob: (String) -> Unit = {},
+    onShowRuns: (CronJob) -> Unit = {},
+    runHistoryState: CronJobRunHistoryUiState = CronJobRunHistoryUiState(),
+    onDismissRuns: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var requestedPage by rememberSaveable { mutableStateOf(1) }
@@ -111,7 +133,11 @@ internal fun CronJobsContent(
     var pageJumpDraft by rememberSaveable { mutableStateOf("") }
     var pageJumpHasError by rememberSaveable { mutableStateOf(false) }
     var showCreateDialog by rememberSaveable { mutableStateOf(false) }
+    var editingJobId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingDeleteJobId by rememberSaveable { mutableStateOf<String?>(null) }
     val page = buildCronJobsPresentation(jobs = jobs, requestedPage = requestedPage)
+    val editingJob = jobs.firstOrNull { it.jobId == editingJobId }
+    val pendingDeleteJob = jobs.firstOrNull { it.jobId == pendingDeleteJobId }
 
     LaunchedEffect(jobs.size) {
         requestedPage = buildCronJobsPresentation(jobs = jobs, requestedPage = requestedPage).currentPage
@@ -119,6 +145,7 @@ internal fun CronJobsContent(
 
     if (showCreateDialog) {
         CreateCronJobDialog(
+            initialJob = null,
             initialTargetContext = defaultTargetContext,
             botProfiles = botProfiles,
             initialSelectedBotId = selectedBotId,
@@ -128,6 +155,50 @@ internal fun CronJobsContent(
                 requestedPage = Int.MAX_VALUE
                 showCreateDialog = false
             },
+        )
+    }
+
+    if (editingJob != null) {
+        CreateCronJobDialog(
+            initialJob = editingJob,
+            initialTargetContext = defaultTargetContext,
+            botProfiles = botProfiles,
+            initialSelectedBotId = editingJob.botId.ifBlank { selectedBotId },
+            onDismiss = { editingJobId = null },
+            onCreate = { draft, selectedBot ->
+                onUpdateJob(editingJob, draft, selectedBot)
+                editingJobId = null
+            },
+        )
+    }
+
+    if (pendingDeleteJob != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteJobId = null },
+            title = { Text(stringResource(R.string.cron_delete_confirm_title)) },
+            text = { Text(stringResource(R.string.cron_delete_confirm_message, pendingDeleteJob.name)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteJob(pendingDeleteJob.jobId)
+                        pendingDeleteJobId = null
+                    },
+                ) {
+                    Text(stringResource(R.string.cron_action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteJobId = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
+    if (runHistoryState.visible) {
+        CronJobRunsDialog(
+            state = runHistoryState,
+            onDismiss = onDismissRuns,
         )
     }
 
@@ -259,6 +330,18 @@ internal fun CronJobsContent(
                         CronJobCard(
                             job = job,
                             backgroundColor = if (index % 2 == 0) MonochromeUi.cardBackground else MonochromeUi.cardAltBackground,
+                            onEdit = { editingJobId = job.jobId },
+                            onPauseResume = {
+                                if (job.enabled) {
+                                    onPauseJob(job.jobId)
+                                } else {
+                                    onResumeJob(job.jobId)
+                                }
+                            },
+                            onDelete = { pendingDeleteJobId = job.jobId },
+                            onRuns = {
+                                jobs.firstOrNull { it.jobId == job.jobId }?.let(onShowRuns)
+                            },
                         )
                     }
                 }
@@ -269,21 +352,23 @@ internal fun CronJobsContent(
 
 @Composable
 private fun CreateCronJobDialog(
+    initialJob: CronJob?,
     initialTargetContext: ActiveCapabilityTargetContext,
     botProfiles: List<BotProfile>,
     initialSelectedBotId: String,
     onDismiss: () -> Unit,
     onCreate: (CronJobEditorDraft, BotProfile) -> Unit,
 ) {
-    val initialDraft = CronJobEditorDraft.fromTargetContext(initialTargetContext)
-    var name by rememberSaveable { mutableStateOf("") }
-    var note by rememberSaveable { mutableStateOf("") }
-    var cronExpression by rememberSaveable { mutableStateOf("") }
-    var runAt by rememberSaveable { mutableStateOf("") }
-    var runOnce by rememberSaveable { mutableStateOf(false) }
-    var platform by rememberSaveable { mutableStateOf(initialDraft.platform) }
-    var conversationId by rememberSaveable { mutableStateOf(initialDraft.conversationId) }
-    var selectedBotId by rememberSaveable {
+    val initialDraft = initialJob?.let(CronJobEditorDraft::fromCronJob)
+        ?: CronJobEditorDraft.fromTargetContext(initialTargetContext)
+    var name by rememberSaveable(initialJob?.jobId) { mutableStateOf(initialDraft.name) }
+    var note by rememberSaveable(initialJob?.jobId) { mutableStateOf(initialDraft.note) }
+    var cronExpression by rememberSaveable(initialJob?.jobId) { mutableStateOf(initialDraft.cronExpression) }
+    var runAt by rememberSaveable(initialJob?.jobId) { mutableStateOf(initialDraft.runAt) }
+    var runOnce by rememberSaveable(initialJob?.jobId) { mutableStateOf(initialDraft.runOnce) }
+    var platform by rememberSaveable(initialJob?.jobId) { mutableStateOf(initialDraft.platform) }
+    var conversationId by rememberSaveable(initialJob?.jobId) { mutableStateOf(initialDraft.conversationId) }
+    var selectedBotId by rememberSaveable(initialJob?.jobId) {
         mutableStateOf(
             initialDraft.selectedBotId.ifBlank { initialSelectedBotId }.ifBlank { botProfiles.firstOrNull()?.id.orEmpty() },
         )
@@ -308,7 +393,13 @@ private fun CreateCronJobDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.cron_create_title)) },
+        title = {
+            Text(
+                stringResource(
+                    if (initialJob == null) R.string.cron_create_title else R.string.cron_edit_title,
+                ),
+            )
+        },
         text = {
             Column(
                 modifier = Modifier
@@ -412,7 +503,7 @@ private fun CreateCronJobDialog(
                 },
                 enabled = draft.canSubmit() && selectedBot != null,
             ) {
-                Text(stringResource(R.string.cron_create_confirm))
+                Text(stringResource(if (initialJob == null) R.string.cron_create_confirm else R.string.cron_edit_confirm))
             }
         },
         dismissButton = {
@@ -427,6 +518,10 @@ private fun CreateCronJobDialog(
 private fun CronJobCard(
     job: CronJobListItemPresentation,
     backgroundColor: androidx.compose.ui.graphics.Color,
+    onEdit: () -> Unit,
+    onPauseResume: () -> Unit,
+    onDelete: () -> Unit,
+    onRuns: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -461,11 +556,105 @@ private fun CronJobCard(
                 value = formatTimestampOrUnavailable(job.lastRunAt),
             )
             CronJobInfoRow(
+                label = stringResource(R.string.cron_jobs_field_status),
+                value = job.status.ifBlank { if (job.enabled) "scheduled" else "paused" },
+            )
+            CronJobInfoRow(
                 label = stringResource(R.string.cron_jobs_field_description),
                 value = job.description.ifBlank { stringResource(R.string.common_not_available) },
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onRuns) {
+                    Text(stringResource(R.string.cron_action_runs))
+                }
+                TextButton(onClick = onPauseResume) {
+                    Text(stringResource(if (job.enabled) R.string.cron_action_pause else R.string.cron_action_resume))
+                }
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        imageVector = Icons.Outlined.Edit,
+                        contentDescription = stringResource(R.string.cron_action_edit),
+                    )
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = stringResource(R.string.cron_action_delete),
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun CronJobRunsDialog(
+    state: CronJobRunHistoryUiState,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.cron_runs_title, state.jobName)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                when {
+                    state.loading -> Text(
+                        text = stringResource(R.string.cron_runs_loading),
+                        color = MonochromeUi.textSecondary,
+                    )
+                    state.errorMessage.isNotBlank() -> Text(
+                        text = stringResource(R.string.cron_runs_error, state.errorMessage),
+                        color = MonochromeUi.textSecondary,
+                    )
+                    state.runs.isEmpty() -> Text(
+                        text = stringResource(R.string.cron_runs_empty),
+                        color = MonochromeUi.textSecondary,
+                    )
+                    else -> buildCronJobRunPresentations(state.runs).forEach { run ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = stringResource(R.string.cron_runs_status_line, run.status, run.attempt),
+                                color = MonochromeUi.textPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.cron_runs_time_line,
+                                    formatTimestampOrUnavailable(run.startedAt),
+                                    formatTimestampOrUnavailable(run.completedAt),
+                                ),
+                                color = MonochromeUi.textSecondary,
+                                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            )
+                            if (run.summary.isNotBlank()) {
+                                Text(
+                                    text = run.summary,
+                                    color = MonochromeUi.textPrimary,
+                                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.common_close))
+            }
+        },
+    )
 }
 
 @Composable

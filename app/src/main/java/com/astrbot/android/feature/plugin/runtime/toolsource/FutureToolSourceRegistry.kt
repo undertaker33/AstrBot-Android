@@ -181,6 +181,8 @@ private object EmptyCronSchedulerPort : com.astrbot.android.feature.cron.domain.
     override fun schedule(job: com.astrbot.android.model.CronJob) = Unit
 
     override fun cancel(jobId: String) = Unit
+
+    override fun cancelAll() = Unit
 }
 
 private class EmptyCronJobRepositoryPort : com.astrbot.android.feature.cron.domain.CronJobRepositoryPort {

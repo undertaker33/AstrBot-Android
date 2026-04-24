@@ -7,12 +7,10 @@ import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
-import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.MessageType
@@ -21,10 +19,9 @@ import com.astrbot.android.model.plugin.PluginTriggerSource
 internal data class ScheduledTaskRuntimeDependencies(
     val llmClient: LlmClientPort,
     val botPort: BotRepositoryPort,
-    val conversationPort: ConversationRepositoryPort,
     val orchestrator: RuntimeLlmOrchestratorPort,
     val runtimeContextResolverPort: RuntimeContextResolverPort,
-    val qqScheduledMessageSender: QqScheduledMessageSender,
+    val deliveryPort: ScheduledMessageDeliveryPort,
     val appChatPluginRuntime: AppChatLlmPipelineRuntime,
     val hostCapabilityGateway: PluginHostCapabilityGateway,
 )
@@ -35,7 +32,6 @@ internal object ScheduledTaskRuntimeExecutor {
         context: CronJobExecutionContext,
         runtimeDependencies: ScheduledTaskRuntimeDependencies,
     ): CronJobDeliverySummary {
-        val conversationPort = runtimeDependencies.conversationPort
         val note = context.note.trim().ifBlank { context.description.trim() }
         if (note.isBlank()) {
             throw CronJobExecutionFailure(
@@ -60,19 +56,12 @@ internal object ScheduledTaskRuntimeExecutor {
             "Scheduled task config mismatch for job=${context.jobId}: bot=${bot.id} config=${bot.configProfileId} payload=${context.configProfileId}"
         }
 
-        val userMessageId = conversationPort.appendMessage(
-            sessionId = conversationId,
-            role = "user",
+        val scheduledTaskMessage = ConversationMessage(
+            id = "cron:${context.jobId}",
+            role = "scheduled_task",
             content = note,
+            timestamp = System.currentTimeMillis(),
         )
-        val userMessage = conversationPort.session(conversationId).messages
-            .firstOrNull { it.id == userMessageId }
-            ?: ConversationMessage(
-                id = userMessageId,
-                role = "user",
-                content = note,
-                timestamp = System.currentTimeMillis(),
-            )
 
         val ingressEvent = RuntimeIngressEvent(
             platform = platform,
@@ -113,13 +102,11 @@ internal object ScheduledTaskRuntimeExecutor {
         )
 
         val callbacks = ScheduledTaskLlmCallbacksFactory(
-            conversationPort = conversationPort,
+            deliveryPort = runtimeDependencies.deliveryPort,
             providerInvocationService = ScheduledTaskProviderInvocationService(runtimeDependencies.llmClient),
-            qqScheduledMessageSender = runtimeDependencies.qqScheduledMessageSender,
             hostCapabilityGateway = runtimeDependencies.hostCapabilityGateway,
         ).create(
             context = context,
-            platform = platform,
             conversationId = conversationId,
             bot = bot,
         )
@@ -128,7 +115,7 @@ internal object ScheduledTaskRuntimeExecutor {
             ctx = resolvedContext,
             llmRuntime = runtimeDependencies.appChatPluginRuntime,
             callbacks = callbacks,
-            userMessage = userMessage,
+            userMessage = scheduledTaskMessage,
         )
         if (deliveryResult is PluginV2HostLlmDeliveryResult.SendFailed) {
             error(deliveryResult.sendResult.errorSummary.ifBlank { "scheduled_task_send_failed" })

@@ -16,4 +16,9 @@ class AndroidCronSchedulerPort(
         val context = contextProvider() ?: return
         CronJobScheduler.cancelJob(context, jobId)
     }
+
+    override fun cancelAll() {
+        val context = contextProvider() ?: return
+        CronJobScheduler.cancelAll(context)
+    }
 }

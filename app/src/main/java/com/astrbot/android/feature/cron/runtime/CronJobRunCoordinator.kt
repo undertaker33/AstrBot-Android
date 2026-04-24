@@ -72,6 +72,8 @@ class CronJobRunCoordinator(
     private val nextFireTime: (String, Long, String) -> Long = CronExpressionParser::nextFireTime,
     private val executionIdGenerator: () -> String = { UUID.randomUUID().toString() },
 ) {
+    private val failureFuseThreshold = 3
+
     suspend fun runDueJob(
         jobId: String,
         attempt: Int,
@@ -120,7 +122,7 @@ class CronJobRunCoordinator(
         } catch (error: Throwable) {
             val completedAt = clock()
             val failure = error.toExecutionFailure()
-            repository.updateExecutionRecord(
+            val failedRecord = repository.updateExecutionRecord(
                 runningRecord.copy(
                     status = "FAILED",
                     completedAt = completedAt,
@@ -129,15 +131,18 @@ class CronJobRunCoordinator(
                     errorMessage = failure.message.orEmpty(),
                 ),
             )
+            val consecutiveFailures = consecutiveFailureCount(job.jobId, failedRecord)
+            val fused = consecutiveFailures >= failureFuseThreshold
             repository.update(
                 job.copy(
-                    status = "failed",
+                    enabled = if (fused) false else job.enabled,
+                    status = if (fused) "unhealthy" else "failed",
                     lastRunAt = startedAt,
                     lastError = failure.message.orEmpty(),
                     updatedAt = completedAt,
                 ),
             )
-            if (failure.retryable) CronJobRunOutcome.Retry else CronJobRunOutcome.Failed
+            if (!fused && failure.retryable) CronJobRunOutcome.Retry else CronJobRunOutcome.Failed
         }
     }
 
@@ -168,6 +173,16 @@ class CronJobRunCoordinator(
                 cause = this,
             )
         }
+    }
+
+    private suspend fun consecutiveFailureCount(
+        jobId: String,
+        currentRecord: CronJobExecutionRecord,
+    ): Int {
+        val recentRecords = (repository.listRecentExecutionRecords(jobId, failureFuseThreshold) + currentRecord)
+            .distinctBy(CronJobExecutionRecord::executionId)
+            .sortedByDescending(CronJobExecutionRecord::startedAt)
+        return recentRecords.takeWhile { record -> record.status == "FAILED" }.size
     }
 }
 

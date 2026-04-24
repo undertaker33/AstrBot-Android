@@ -45,6 +45,7 @@ object PromptAssembler {
             parts += "Current local time: ${now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))}."
         }
 
+        scheduledTaskGuidance(ctx)?.let(parts::add)
         hostCapabilityGuidance(ctx.ingressEvent.trigger)?.let(parts::add)
 
         return parts.joinToString("\n\n").ifBlank { null }
@@ -115,12 +116,41 @@ object PromptAssembler {
     private fun hostCapabilityGuidance(trigger: IngressTrigger?): String? {
         val reminderRoutingRule = "When the user asks to remind, schedule a follow-up, set a timer, or repeat a task later, prefer create_future_task. Use web_search only when the user explicitly asks how reminders work, about reminder apps, or for related information/news."
         return if (trigger == IngressTrigger.SCHEDULED_TASK) {
-            listOf(
-                reminderRoutingRule,
-                "This turn was triggered by a scheduled task. It is not a normal chat turn. Do not greet, do not add filler, and do the scheduled work first. If this task exists to remind, notify, or follow up with the user, you must send the reminder now and must not silently suppress it.",
-            ).joinToString("\n\n")
+            "This turn was triggered by a scheduled task. It is not a normal chat turn. Do not greet, do not add filler, and do the scheduled work first. If this task exists to remind, notify, or follow up with the user, you must send the reminder now and must not silently suppress it."
         } else {
             reminderRoutingRule
         }
+    }
+
+    private fun scheduledTaskGuidance(ctx: ResolvedRuntimeContext): String? {
+        if (ctx.ingressEvent.trigger != IngressTrigger.SCHEDULED_TASK) return null
+        val task = extractScheduledTaskPayload(ctx.ingressEvent.rawPlatformPayload)
+        val note = task["note"].orEmpty().ifBlank { ctx.ingressEvent.text.trim() }
+        val name = task["name"].orEmpty()
+        val jobId = task["jobId"].orEmpty().ifBlank { ctx.ingressEvent.messageId.removePrefix("cron:") }
+        val runAt = task["runAt"].orEmpty()
+        val origin = task["origin"].orEmpty()
+        return buildString {
+            appendLine("Scheduled task scheduler metadata:")
+            appendLine("- job_id: ${jobId.ifBlank { "unknown" }}")
+            if (name.isNotBlank()) appendLine("- name: $name")
+            if (runAt.isNotBlank()) appendLine("- run_at: $runAt")
+            if (origin.isNotBlank()) appendLine("- origin: $origin")
+            if (note.isNotBlank()) appendLine("- note: $note")
+            appendLine()
+            append("The note above is scheduler metadata, not as a new user message. ")
+            append("Execute the scheduled task now in the assistant voice. ")
+            append("If the task is a reminder or follow-up, remind the user now. ")
+            append("You must not create another scheduled task for this same note unless the scheduler metadata explicitly asks for rescheduling.")
+        }
+    }
+
+    private fun extractScheduledTaskPayload(payload: Any?): Map<String, String> {
+        val root = payload as? Map<*, *> ?: return emptyMap()
+        val task = root["scheduledTask"] as? Map<*, *> ?: return emptyMap()
+        return task.mapNotNull { (key, value) ->
+            val normalizedKey = key as? String ?: return@mapNotNull null
+            normalizedKey to value.toString()
+        }.toMap()
     }
 }

@@ -1,8 +1,6 @@
 package com.astrbot.android.feature.cron.runtime
 
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
-import com.astrbot.android.core.runtime.context.RuntimePlatform
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
 import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
@@ -13,20 +11,17 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
-import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
 
 internal class ScheduledTaskLlmCallbacksFactory(
-    private val conversationPort: ConversationRepositoryPort,
+    private val deliveryPort: ScheduledMessageDeliveryPort,
     private val providerInvocationService: ScheduledTaskProviderInvocationService,
-    private val qqScheduledMessageSender: QqScheduledMessageSender,
     private val hostCapabilityGateway: PluginHostCapabilityGateway,
 ) {
     fun create(
         context: CronJobExecutionContext,
-        platform: RuntimePlatform,
         conversationId: String,
         bot: BotProfile,
     ): PlatformLlmCallbacks {
@@ -54,31 +49,22 @@ internal class ScheduledTaskLlmCallbacksFactory(
             }
 
             override suspend fun sendReply(prepared: PluginV2HostPreparedReply): PluginV2HostSendResult {
-                return if (platform == RuntimePlatform.QQ_ONEBOT) {
-                    qqScheduledMessageSender.sendScheduledMessage(
+                return deliveryPort.deliver(
+                    ScheduledMessageDeliveryRequest(
+                        platform = context.platform,
                         conversationId = conversationId,
                         text = prepared.text,
                         attachments = prepared.attachments,
                         botId = bot.id,
-                    ).toHostSendResult()
-                } else {
-                    PluginV2HostSendResult(success = true)
-                }
+                    ),
+                ).toHostSendResult()
             }
 
             override suspend fun persistDeliveredReply(
                 prepared: PluginV2HostPreparedReply,
                 sendResult: PluginV2HostSendResult,
                 pipelineResult: PluginV2LlmPipelineResult,
-            ) {
-                if (!sendResult.success) return
-                conversationPort.appendMessage(
-                    sessionId = conversationId,
-                    role = "assistant",
-                    content = prepared.text,
-                    attachments = prepared.attachments,
-                )
-            }
+            ) = Unit
 
             override suspend fun invokeProvider(
                 request: PluginProviderRequest,
@@ -105,11 +91,11 @@ internal class ScheduledTaskLlmCallbacksFactory(
         }
     }
 
-    private fun com.astrbot.android.feature.qq.runtime.OneBotSendResult.toHostSendResult(): PluginV2HostSendResult {
+    private fun ScheduledMessageDeliveryResult.toHostSendResult(): PluginV2HostSendResult {
         return PluginV2HostSendResult(
             success = success,
             receiptIds = receiptIds,
-            errorSummary = errorSummary,
+            errorSummary = errorSummary.ifBlank { errorCode },
         )
     }
 }

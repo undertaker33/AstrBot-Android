@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.settings
 
 import com.astrbot.android.model.CronJob
+import com.astrbot.android.model.CronJobExecutionRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -36,6 +37,38 @@ class CronJobsPresentationTest {
         assertEquals(1_734_000_001_000L, item.lastRunAt)
         assertEquals("Task 1 description", item.description)
         assertEquals("0 9 * * *", item.cronExpression)
+    }
+
+    @Test
+    fun `cron job run presentation prefers delivery summary then error detail`() {
+        val presentations = buildCronJobRunPresentations(
+            listOf(
+                CronJobExecutionRecord(
+                    executionId = "run-1",
+                    jobId = "job-1",
+                    status = "succeeded",
+                    startedAt = 10L,
+                    completedAt = 20L,
+                    attempt = 1,
+                    trigger = "scheduled",
+                    deliverySummary = "Delivered to app chat",
+                    errorMessage = "ignored",
+                ),
+                CronJobExecutionRecord(
+                    executionId = "run-2",
+                    jobId = "job-1",
+                    status = "failed",
+                    attempt = 2,
+                    errorCode = "delivery_failed",
+                    errorMessage = "Conversation missing",
+                ),
+            ),
+        )
+
+        assertEquals("run-1", presentations[0].executionId)
+        assertEquals("Delivered to app chat", presentations[0].summary)
+        assertEquals("Conversation missing", presentations[1].summary)
+        assertEquals(2, presentations[1].attempt)
     }
 
     @Test

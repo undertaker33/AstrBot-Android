@@ -109,6 +109,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = hiltViewModel()) {
             models = context.getString(R.string.nav_models),
             runtime = context.getString(R.string.settings_runtime_title),
             dataBackup = context.getString(R.string.backup_data_title),
+            cronJobs = context.getString(R.string.cron_jobs_title),
             configDetailDefaultSection = context.getString(ConfigSection.ModelSettings.titleRes),
         )
     }
