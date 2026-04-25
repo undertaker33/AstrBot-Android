@@ -100,6 +100,27 @@ class FeatureFirstBoundaryContractTest {
         )
     }
 
+    @Test
+    fun production_code_does_not_wire_native_search_providers() {
+        val violations = kotlinFilesUnder("")
+            .filterNot { file ->
+                mainRoot.relativize(file).toString().replace('\\', '/').startsWith("core/runtime/search/native/")
+            }
+            .mapNotNull { file ->
+                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                if (file.readText().contains("com.astrbot.android.core.runtime.search.native")) {
+                    "$relative imports native search provider"
+                } else {
+                    null
+                }
+            }
+
+        assertTrue(
+            "Production code must not wire model-native search providers: $violations",
+            violations.isEmpty(),
+        )
+    }
+
     private fun kotlinFilesUnder(relativeRoot: String): List<Path> {
         val root = mainRoot.resolve(relativeRoot)
         return Files.walk(root).use { stream ->

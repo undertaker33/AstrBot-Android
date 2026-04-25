@@ -3,6 +3,8 @@ package com.astrbot.android.core.runtime.context
 import com.astrbot.android.model.SkillEntry
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import com.astrbot.android.core.runtime.search.WebSearchTriggerIntent
+import com.astrbot.android.core.runtime.search.WebSearchTriggerRules
 
 /**
  * Assembles the final system prompt from a [ResolvedRuntimeContext].
@@ -46,7 +48,7 @@ object PromptAssembler {
         }
 
         scheduledTaskGuidance(ctx)?.let(parts::add)
-        hostCapabilityGuidance(ctx.ingressEvent.trigger)?.let(parts::add)
+        hostCapabilityGuidance(ctx)?.let(parts::add)
 
         return parts.joinToString("\n\n").ifBlank { null }
     }
@@ -64,7 +66,7 @@ object PromptAssembler {
         val parts = mutableListOf<String>()
         personaPrompt?.trim()?.takeIf { it.isNotBlank() }?.let(parts::add)
         assembleSkillBlocks(skills)?.let(parts::add)
-        hostCapabilityGuidance(null)?.let(parts::add)
+        hostCapabilityGuidance(trigger = null)?.let(parts::add)
         if (realWorldTimeAwarenessEnabled) {
             val now = ZonedDateTime.now()
             parts += "Current local time: ${now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))}."
@@ -113,12 +115,38 @@ object PromptAssembler {
         }
     }
 
-    private fun hostCapabilityGuidance(trigger: IngressTrigger?): String? {
+    private fun hostCapabilityGuidance(ctx: ResolvedRuntimeContext): String? {
+        val realtimeGuidance = if (ctx.webSearchEnabled) {
+            realtimeSearchGuidance(ctx.ingressEvent.text)
+        } else {
+            null
+        }
+        return hostCapabilityGuidance(ctx.ingressEvent.trigger, realtimeGuidance)
+    }
+
+    private fun hostCapabilityGuidance(
+        trigger: IngressTrigger?,
+        realtimeGuidance: String? = null,
+    ): String? {
         val reminderRoutingRule = "When the user asks to remind, schedule a follow-up, set a timer, or repeat a task later, prefer create_future_task. Use web_search only when the user explicitly asks how reminders work, about reminder apps, or for related information/news."
-        return if (trigger == IngressTrigger.SCHEDULED_TASK) {
+        val baseGuidance = if (trigger == IngressTrigger.SCHEDULED_TASK) {
             "This turn was triggered by a scheduled task. It is not a normal chat turn. Do not greet, do not add filler, and do the scheduled work first. If this task exists to remind, notify, or follow up with the user, you must send the reminder now and must not silently suppress it."
         } else {
             reminderRoutingRule
+        }
+        return listOfNotNull(baseGuidance, realtimeGuidance).joinToString("\n")
+    }
+
+    private fun realtimeSearchGuidance(text: String): String? {
+        val trigger = WebSearchTriggerRules.evaluate(text)
+        return when (trigger.intent) {
+            WebSearchTriggerIntent.NEWS ->
+                "The latest user message matches a news/current-events intent. You must call web_search before answering. The host may send the factual news summary directly from tool results. After tool results are available, Do not repeat news items, dates, sources, or URLs. Provide only a brief evaluation or commentary on the confirmed news in the configured persona, and do not invent new facts."
+            WebSearchTriggerIntent.WEATHER ->
+                "The latest user message asks for weather or other live conditions. You must call web_search before answering and base the answer only on returned sources."
+            WebSearchTriggerIntent.REALTIME ->
+                "The latest user message appears to require current or live information. Prefer calling web_search before answering; do not invent fresh facts without sources."
+            WebSearchTriggerIntent.NONE -> null
         }
     }
 

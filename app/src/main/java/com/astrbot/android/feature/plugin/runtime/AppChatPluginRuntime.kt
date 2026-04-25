@@ -33,10 +33,22 @@ internal data class PluginV2HostPreparedReply(
     val text: String,
     val attachments: List<ConversationAttachment> = emptyList(),
     val deliveredEntries: List<PluginV2AfterSentView.DeliveredEntry> = emptyList(),
+    val deliveryTags: Set<String> = emptySet(),
 )
 
 internal fun interface PluginV2FollowupSender {
     fun send(text: String, attachments: List<ConversationAttachment>): PluginV2HostSendResult
+}
+
+internal data class PluginV2ToolResultDeliveryRequest(
+    val event: PluginMessageEvent,
+    val descriptor: PluginToolDescriptor,
+    val args: PluginToolArgs,
+    val result: PluginToolResult,
+)
+
+internal fun interface PluginV2ToolResultDeliveryHandler {
+    suspend fun handle(request: PluginV2ToolResultDeliveryRequest): PluginToolResult
 }
 
 internal data class PluginV2HostSendResult(
@@ -52,6 +64,7 @@ internal data class PluginV2HostLlmDeliveryRequest(
     val platformInstanceKey: String,
     val hostCapabilityGateway: PluginHostCapabilityGateway,
     val followupSender: PluginV2FollowupSender? = null,
+    val toolResultDeliveryHandler: PluginV2ToolResultDeliveryHandler? = null,
     val prepareReply: suspend (PluginV2LlmPipelineResult) -> PluginV2HostPreparedReply,
     val sendReply: suspend (PluginV2HostPreparedReply) -> PluginV2HostSendResult,
     val persistDeliveredReply: suspend (

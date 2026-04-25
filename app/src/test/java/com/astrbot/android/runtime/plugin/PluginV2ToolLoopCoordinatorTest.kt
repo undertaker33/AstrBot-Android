@@ -209,6 +209,117 @@ class PluginV2ToolLoopCoordinatorTest {
     }
 
     @Test
+    fun tool_result_delivery_handler_can_replace_tool_message_before_next_provider_call() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        val seenRequests = CopyOnWriteArrayList<PluginProviderRequest>()
+        val providerCalls = AtomicInteger(0)
+        val deliveredResults = CopyOnWriteArrayList<String>()
+
+        val coordinator = PluginV2LlmPipelineCoordinator(
+            dispatchEngine = PluginV2DispatchEngine(logBus = logBus, clock = { 1L }),
+            toolExecutor = PluginV2ToolExecutor { args ->
+                PluginToolResult(
+                    toolCallId = args.toolCallId,
+                    requestId = args.requestId,
+                    toolId = args.toolId,
+                    status = PluginToolResultStatus.SUCCESS,
+                    text = "raw web search facts",
+                    structuredContent = linkedMapOf(
+                        "query" to "today news",
+                        "results" to listOf(
+                            linkedMapOf(
+                                "title" to "Headline",
+                                "snippet" to "Confirmed fact.",
+                                "source" to "Example News",
+                                "index" to 1,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            logBus = logBus,
+            clock = { 1L },
+            requestIdFactory = { "req-web-search-direct-news" },
+        )
+
+        coordinator.runPreSendStages(
+            input = pipelineInput(
+                event = sampleMessageEvent(rawText = "today news"),
+                streamingMode = PluginV2StreamingMode.NON_STREAM,
+            ) { request, _ ->
+                seenRequests += request
+                when (providerCalls.incrementAndGet()) {
+                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            toolCalls = listOf(
+                                PluginLlmToolCall(
+                                    toolCallId = "call_web_search",
+                                    toolName = "web_search",
+                                    arguments = linkedMapOf("query" to "today news"),
+                                ),
+                            ),
+                        ),
+                    )
+
+                    else -> {
+                        val toolText = request.messages
+                            .last { it.role == PluginProviderMessageRole.TOOL }
+                            .parts
+                            .filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+                            .joinToString("\n") { it.text }
+                        assertTrue(toolText.contains("raw web search facts"))
+                        assertTrue(toolText.contains("Do not repeat the news items"))
+                        assertTrue(toolText.contains("Only provide a brief evaluation"))
+                        PluginV2ProviderInvocationResult.NonStreaming(
+                            PluginLlmResponse(
+                                requestId = request.requestId,
+                                providerId = request.selectedProviderId,
+                                modelId = request.selectedModelId,
+                                text = "commentary only",
+                            ),
+                        )
+                    }
+                }
+            },
+            snapshot = snapshotOf(
+                llmFixture(
+                    pluginId = "com.example.tool.loop.direct.news",
+                    logBus = logBus,
+                ) { hostApi ->
+                    hostApi.registerTool(
+                        descriptor = PluginToolDescriptor(
+                            pluginId = "com.example.tool.loop.direct.news",
+                            name = "web_search",
+                            description = "search the web",
+                            visibility = PluginToolVisibility.LLM_VISIBLE,
+                            sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                            inputSchema = linkedMapOf("type" to "object"),
+                        ),
+                        handler = PluginV2CallbackHandle {},
+                    )
+                },
+            ),
+            toolResultDeliveryHandler = PluginV2ToolResultDeliveryHandler { request ->
+                deliveredResults += request.result.text.orEmpty()
+                PluginToolResult(
+                    toolCallId = request.result.toolCallId,
+                    requestId = request.result.requestId,
+                    toolId = request.result.toolId,
+                    status = request.result.status,
+                    text = request.result.text + "\n\nDo not repeat the news items. Only provide a brief evaluation.",
+                    structuredContent = request.result.structuredContent,
+                    metadata = request.result.metadata,
+                )
+            },
+        )
+
+        assertEquals(listOf("raw web search facts"), deliveredResults.toList())
+    }
+
+    @Test
     fun repeated_web_search_tool_rounds_preserve_assistant_tool_adjacency_across_reinjection() = runBlocking {
         val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
         val seenRequests = CopyOnWriteArrayList<PluginProviderRequest>()

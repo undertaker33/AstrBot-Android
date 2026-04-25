@@ -13,6 +13,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFac
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
 import com.astrbot.android.feature.plugin.runtime.PluginV2FollowupSender
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
@@ -20,6 +21,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
+import com.astrbot.android.feature.plugin.runtime.PluginV2ToolResultDeliveryRequest
 import com.astrbot.android.feature.qq.domain.IncomingQqMessage
 import com.astrbot.android.feature.qq.domain.QqConversationPort
 import com.astrbot.android.feature.qq.domain.QqPlatformConfigPort
@@ -68,6 +70,7 @@ internal class QqMessageRuntimeService(
             return QqRuntimeResult.Ignored("Bot auto reply disabled")
         }
         val config = configPort.resolve(bot.configProfileId)
+        logConfigBindingMismatchIfNeeded(bot, config)
         val replyDecision = evaluateReplyPolicy(message, bot, config)
         if (!replyDecision.shouldReply) {
             if (replyDecision.shouldLogInfo) {
@@ -499,6 +502,16 @@ internal class QqMessageRuntimeService(
                 )
             }
 
+            override suspend fun handleToolResult(
+                request: PluginV2ToolResultDeliveryRequest,
+            ): PluginToolResult {
+                return streamingReplyService.deliverNewsSearchResultIfNeeded(
+                    message = message,
+                    toolName = request.descriptor.name,
+                    result = request.result,
+                )
+            }
+
             override suspend fun invokeProvider(
                 request: PluginProviderRequest,
                 mode: com.astrbot.android.model.plugin.PluginV2StreamingMode,
@@ -547,6 +560,22 @@ internal class QqMessageRuntimeService(
         return listOf(bot.id, message.messageType.wireValue, message.groupIdOrBlank, message.senderId)
             .filter(String::isNotBlank)
             .joinToString(":")
+    }
+
+    private fun logConfigBindingMismatchIfNeeded(bot: BotProfile, config: ConfigProfile) {
+        val selectedConfigId = configPort.selectedProfileId.value
+        val selectedConfigMismatch = selectedConfigId.isNotBlank() && selectedConfigId != config.id
+        val providerMismatch = bot.defaultProviderId.isNotBlank() &&
+            config.defaultChatProviderId.isNotBlank() &&
+            bot.defaultProviderId != config.defaultChatProviderId
+        if (selectedConfigMismatch || providerMismatch) {
+            log(
+                "QQ config binding mismatch: bot=${bot.id} botConfig=${bot.configProfileId} " +
+                    "selectedConfig=${selectedConfigId.ifBlank { "-" }} " +
+                    "configDefaultProvider=${config.defaultChatProviderId.ifBlank { "none" }} " +
+                    "botDefaultProvider=${bot.defaultProviderId.ifBlank { "none" }}",
+            )
+        }
     }
 
     private fun buildSessionId(

@@ -60,8 +60,9 @@ object RuntimeContextResolver {
         val chatProviders = dataPort.listProviders()
             .filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
 
-        val effectiveProviderId = overrideProviderId
-            ?: bot.defaultProviderId
+        val effectiveProviderId = config.defaultChatProviderId
+            .ifBlank { overrideProviderId.orEmpty() }
+            .ifBlank { bot.defaultProviderId }
         val provider = chatProviders.firstOrNull { it.id == effectiveProviderId }
             ?: chatProviders.firstOrNull()
             ?: error("No enabled chat provider available")

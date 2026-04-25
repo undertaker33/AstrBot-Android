@@ -34,9 +34,9 @@ internal class QqRuntimeProfileResolver(
         val providers = availableChatProviders()
         val config = configPort.resolve(bot.configProfileId)
         val preferredIds = listOf(
-            preferredProviderId,
-            bot.defaultProviderId,
             config.defaultChatProviderId,
+            bot.defaultProviderId,
+            preferredProviderId,
         ).filter(String::isNotBlank)
         return preferredIds.firstNotNullOfOrNull { preferredId ->
             providers.firstOrNull { provider -> provider.id == preferredId }

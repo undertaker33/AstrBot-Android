@@ -2,6 +2,7 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.di.hilt.TtsVoiceAssets
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
@@ -16,8 +17,10 @@ import com.astrbot.android.model.chat.ConversationAttachment
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @HiltViewModel
 class ConfigViewModel @Inject constructor(
@@ -43,6 +46,12 @@ class ConfigViewModel @Inject constructor(
     fun save(profile: ConfigProfile) {
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             configRepository.save(profile)
+            val visibleProfile = waitForVisibleSavedProfile(profile)
+            if (visibleProfile != null) {
+                syncSelectedBotBinding(visibleProfile)
+            } else {
+                AppLogger.append("Config bot binding sync skipped: saved config not visible id=${profile.id}")
+            }
         }
     }
 
@@ -76,5 +85,51 @@ class ConfigViewModel @Inject constructor(
             voiceId = voiceId,
             readBracketedContent = readBracketedContent,
         )
+    }
+
+    private suspend fun syncSelectedBotBinding(profile: ConfigProfile) {
+        if (profile.id.isBlank()) {
+            return
+        }
+        val selectedBot = botRepository.bots.value.firstOrNull { bot ->
+            bot.id == botRepository.selectedBotId.value
+        } ?: run {
+            AppLogger.append("Config bot binding sync skipped: selected bot not found config=${profile.id}")
+            return
+        }
+        val updated = selectedBot.copy(
+            configProfileId = profile.id,
+            defaultProviderId = profile.defaultChatProviderId,
+        )
+        if (updated != selectedBot) {
+            botRepository.save(updated)
+            AppLogger.append(
+                "Config bot binding sync requested: bot=${updated.id} config=${updated.configProfileId} " +
+                    "provider=${updated.defaultProviderId.ifBlank { "none" }}",
+            )
+        } else {
+            AppLogger.append(
+                "Config bot binding already current: bot=${selectedBot.id} config=${selectedBot.configProfileId} " +
+                    "provider=${selectedBot.defaultProviderId.ifBlank { "none" }}",
+            )
+        }
+    }
+
+    private suspend fun waitForVisibleSavedProfile(profile: ConfigProfile): ConfigProfile? {
+        if (profile.id.isBlank()) {
+            return null
+        }
+        return withTimeoutOrNull(CONFIG_SAVE_VISIBILITY_TIMEOUT_MS) {
+            configRepository.profiles.first { profiles ->
+                profiles.any { candidate ->
+                    candidate.id == profile.id &&
+                        candidate.defaultChatProviderId == profile.defaultChatProviderId
+                }
+            }.first { candidate -> candidate.id == profile.id }
+        }
+    }
+
+    private companion object {
+        private const val CONFIG_SAVE_VISIBILITY_TIMEOUT_MS = 5_000L
     }
 }

@@ -1,7 +1,13 @@
 package com.astrbot.android.feature.qq.runtime
 
 import com.astrbot.android.core.runtime.llm.LlmResponseSegmenter
+import com.astrbot.android.core.runtime.search.WebSearchTriggerIntent
+import com.astrbot.android.core.runtime.search.WebSearchTriggerRules
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
+import com.astrbot.android.feature.plugin.runtime.PluginProviderMessagePartDto
+import com.astrbot.android.feature.plugin.runtime.PluginProviderMessageRole
+import com.astrbot.android.feature.plugin.runtime.PluginToolResult
+import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
@@ -54,9 +60,15 @@ internal class QqStreamingReplyService(
                 decoratingHandlers = result.decoratingRunResult.appliedHandlerIds,
             ),
         )
+        val deliveryTags = if (result.hasDirectNewsDelivery()) {
+            setOf(NEWS_COMMENTARY_FOLLOWUP_TAG)
+        } else {
+            emptySet()
+        }
         return PluginV2HostPreparedReply(
             text = outboundText,
             attachments = outboundAttachments,
+            deliveryTags = deliveryTags,
             deliveredEntries = listOf(
                 com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView.DeliveredEntry(
                     entryId = result.admission.messageIds.firstOrNull().orEmpty().ifBlank { "assistant" },
@@ -84,6 +96,15 @@ internal class QqStreamingReplyService(
                 config = config,
             )
         } else if (
+            prepared.attachments.isEmpty() &&
+            WebSearchTriggerRules.evaluate(message.text).intent == WebSearchTriggerIntent.NEWS &&
+            NEWS_COMMENTARY_FOLLOWUP_TAG !in prepared.deliveryTags
+        ) {
+            sendNewsReplyWithOutcome(
+                message = message,
+                response = prepared.text,
+            )
+        } else if (
             streamingMode != PluginV2StreamingMode.NON_STREAM &&
             prepared.attachments.isEmpty()
         ) {
@@ -99,6 +120,53 @@ internal class QqStreamingReplyService(
                 attachments = prepared.attachments,
             )
         }
+    }
+
+    fun deliverNewsSearchResultIfNeeded(
+        message: IncomingQqMessage,
+        toolName: String,
+        result: PluginToolResult,
+    ): PluginToolResult {
+        if (toolName != WEB_SEARCH_TOOL_NAME) return result
+        if (result.status != PluginToolResultStatus.SUCCESS) return result
+        if (WebSearchTriggerRules.evaluate(message.text).intent != WebSearchTriggerIntent.NEWS) return result
+
+        val factText = QqNewsReplyFormatter.formatSearchResultFacts(result.structuredContent)
+        val sendResult = sendNewsReplyWithOutcome(
+            message = message,
+            response = factText,
+        )
+        log(
+            "QQ news facts direct delivery: target=${message.conversationId} success=${sendResult.success} " +
+                "chars=${factText.length}",
+        )
+        return rewriteNewsSearchResultForCommentary(
+            result = result,
+            factText = factText,
+            sent = sendResult.success,
+        )
+    }
+
+    private fun sendNewsReplyWithOutcome(
+        message: IncomingQqMessage,
+        response: String,
+    ): PluginV2HostSendResult {
+        val segments = QqNewsReplyFormatter.formatSegments(response)
+        if (segments.isEmpty()) {
+            return sendReplyWithOutcome(message, response)
+        }
+        log(
+            "QQ news reply segmented: target=${message.conversationId} segments=${segments.size} chars=${response.length}",
+        )
+        val receiptIds = mutableListOf<String>()
+        for (segment in segments) {
+            val sendResult = sendReplyWithOutcome(message, segment)
+            if (!sendResult.success) {
+                return sendResult
+            }
+            receiptIds += sendResult.receiptIds
+        }
+        return PluginV2HostSendResult(success = true, receiptIds = receiptIds)
     }
 
     fun buildVoiceReplyAttachments(
@@ -256,6 +324,53 @@ internal class QqStreamingReplyService(
         }
     }
 
+    private fun PluginV2LlmPipelineResult.hasDirectNewsDelivery(): Boolean {
+        return finalRequest.messages.any { message ->
+            message.role == PluginProviderMessageRole.TOOL &&
+                message.parts
+                    .filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+                    .any { part -> NEWS_DIRECT_DELIVERY_MARKER in part.text }
+        }
+    }
+
+    private fun rewriteNewsSearchResultForCommentary(
+        result: PluginToolResult,
+        factText: String,
+        sent: Boolean,
+    ): PluginToolResult {
+        val originalText = result.text.orEmpty()
+        val rewrittenText = buildString {
+            if (originalText.isNotBlank()) {
+                appendLine(originalText)
+                appendLine()
+            }
+            appendLine(NEWS_DIRECT_DELIVERY_MARKER)
+            appendLine("The factual news summary has already been sent to the user by the host.")
+            appendLine("Direct delivery status: ${if (sent) "sent" else "failed"}.")
+            appendLine("Sent summary:")
+            appendLine(factText)
+            appendLine()
+            appendLine("Do not repeat the news items, sources, dates, URLs, or numeric details.")
+            append("Only provide a brief evaluation or commentary in the configured persona. ")
+            append("If the summary says no confirmed news was found, evaluate that uncertainty and do not invent facts.")
+        }.trim()
+        val metadata = buildMap<String, Any?> {
+            result.metadata?.let(::putAll)
+            put("direct_news_delivery", sent)
+            put("commentary_only_followup", true)
+        }
+        return PluginToolResult(
+            toolCallId = result.toolCallId,
+            requestId = result.requestId,
+            toolId = result.toolId,
+            status = result.status,
+            errorCode = result.errorCode,
+            text = rewrittenText,
+            structuredContent = result.structuredContent,
+            metadata = metadata,
+        )
+    }
+
     private fun List<PluginMessageEventResult.Attachment>.toConversationAttachments(): List<ConversationAttachment> {
         return mapIndexed { index, attachment ->
             ConversationAttachment(
@@ -267,7 +382,10 @@ internal class QqStreamingReplyService(
         }
     }
 
-    private companion object {
+    companion object {
+        internal const val NEWS_COMMENTARY_FOLLOWUP_TAG = "news_commentary_followup"
+        private const val WEB_SEARCH_TOOL_NAME = "web_search"
+        private const val NEWS_DIRECT_DELIVERY_MARKER = "[host_direct_news_delivery]"
         private const val KEYWORD_BLOCK_NOTICE = "你的消息或者大模型的响应中包含不适当的内容，已被屏蔽。"
     }
 }

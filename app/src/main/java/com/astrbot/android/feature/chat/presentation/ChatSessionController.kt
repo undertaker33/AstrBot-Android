@@ -35,6 +35,12 @@ class ChatSessionController(
     }
 
     fun selectProvider(state: ChatUiState, providerId: String): ChatUiState {
+        val bot = selectedBot(state.selectedBotId)
+        if (bot != null) {
+            val config = dependencies.resolveConfig(bot.configProfileId)
+            dependencies.saveConfig(config.copy(defaultChatProviderId = providerId))
+            dependencies.saveBot(bot.copy(defaultProviderId = providerId))
+        }
         val updatedState = state.copy(selectedProviderId = providerId, error = "")
         dependencies.log("Chat provider selected: ${providerId.ifBlank { "none" }}")
         syncSessionBindings(
@@ -148,14 +154,14 @@ class ChatSessionController(
         val enabledProviders = dependencies.providers.value.filter { provider ->
             provider.enabled && ProviderCapability.CHAT in provider.capabilities
         }
-        if (!preferredProviderId.isNullOrBlank() && enabledProviders.any { it.id == preferredProviderId }) {
-            return preferredProviderId
-        }
         val configProviderId = fallbackBot
             ?.configProfileId
             ?.let { dependencies.resolveConfig(it).defaultChatProviderId }
         if (!configProviderId.isNullOrBlank() && enabledProviders.any { it.id == configProviderId }) {
             return configProviderId
+        }
+        if (!preferredProviderId.isNullOrBlank() && enabledProviders.any { it.id == preferredProviderId }) {
+            return preferredProviderId
         }
         return enabledProviders.firstOrNull()?.id.orEmpty()
     }

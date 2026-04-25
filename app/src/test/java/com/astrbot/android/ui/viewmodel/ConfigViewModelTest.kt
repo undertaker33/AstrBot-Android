@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -77,30 +78,130 @@ class ConfigViewModelTest {
         assertEquals(listOf("my-special-config"), deleteService.deleteConfigProfileIds)
     }
 
-    private class FakeConfigPort : ConfigRepositoryPort {
-        override val profiles: StateFlow<List<ConfigProfile>> =
-            MutableStateFlow(listOf(ConfigProfile(id = "config-1"), ConfigProfile(id = "config-2")))
-        override val selectedProfileId: StateFlow<String> = MutableStateFlow("config-1")
+    @Test
+    fun save_selected_config_rebinds_selected_bot_after_saved_config_is_visible() = runTest(dispatcher) {
+        val configPort = FakeConfigPort(
+            selectedProfileId = "config-qwen",
+            profiles = listOf(
+                ConfigProfile(id = "config-qwen", defaultChatProviderId = "deepseek-chat"),
+                ConfigProfile(id = "config-deepseek", defaultChatProviderId = "deepseek-chat"),
+            ),
+            exposeSavesOnlyAfterEmit = true,
+        )
+        val botPort = FakeBotPort(
+            configPort = configPort,
+            bots = listOf(
+                BotProfile(
+                    id = "bot-1",
+                    displayName = "QQ Bot",
+                    configProfileId = "config-deepseek",
+                    defaultProviderId = "deepseek-chat",
+                ),
+            ),
+            selectedBotId = "bot-1",
+        )
+        val viewModel = ConfigViewModel(
+            configRepository = configPort,
+            providerRepository = FakeProviderPort(),
+            botRepository = botPort,
+            ttsVoiceAssetsFlow = MutableStateFlow(emptyList()),
+            phase3DataTransactionService = FakePhase3DataTransactionService(),
+            llmProviderProbePort = FakeLlmProviderProbePort(),
+        )
+
+        viewModel.save(ConfigProfile(id = "config-qwen", defaultChatProviderId = "qwen-chat"))
+
+        runCurrent()
+        assertTrue("bot must wait until saved config is visible before rebinding", botPort.savedProfiles.isEmpty())
+        assertEquals(listOf(ConfigProfile(id = "config-qwen", defaultChatProviderId = "qwen-chat")), configPort.savedProfiles)
+
+        configPort.emitSavedProfiles()
+        advanceUntilIdle()
+        assertEquals("config-qwen", botPort.savedProfiles.single().configProfileId)
+        assertEquals("qwen-chat", botPort.savedProfiles.single().defaultProviderId)
+    }
+
+    @Test
+    fun save_rebinds_selected_bot_even_when_selected_config_flow_lags_behind_save() = runTest(dispatcher) {
+        val configPort = FakeConfigPort(
+            selectedProfileId = "config-deepseek",
+            profiles = listOf(
+                ConfigProfile(id = "config-qwen", defaultChatProviderId = "deepseek-chat"),
+                ConfigProfile(id = "config-deepseek", defaultChatProviderId = "deepseek-chat"),
+            ),
+            exposeSavesOnlyAfterEmit = true,
+        )
+        val botPort = FakeBotPort(
+            configPort = configPort,
+            bots = listOf(
+                BotProfile(
+                    id = "bot-1",
+                    displayName = "QQ Bot",
+                    configProfileId = "config-deepseek",
+                    defaultProviderId = "deepseek-chat",
+                ),
+            ),
+            selectedBotId = "bot-1",
+        )
+        val viewModel = ConfigViewModel(
+            configRepository = configPort,
+            providerRepository = FakeProviderPort(),
+            botRepository = botPort,
+            ttsVoiceAssetsFlow = MutableStateFlow(emptyList()),
+            phase3DataTransactionService = FakePhase3DataTransactionService(),
+            llmProviderProbePort = FakeLlmProviderProbePort(),
+        )
+
+        viewModel.save(ConfigProfile(id = "config-qwen", defaultChatProviderId = "qwen-chat"))
+        runCurrent()
+        configPort.emitSavedProfiles()
+        advanceUntilIdle()
+
+        assertEquals("config-qwen", botPort.savedProfiles.single().configProfileId)
+        assertEquals("qwen-chat", botPort.savedProfiles.single().defaultProviderId)
+    }
+
+    private class FakeConfigPort(
+        selectedProfileId: String = "config-1",
+        profiles: List<ConfigProfile> = listOf(ConfigProfile(id = "config-1"), ConfigProfile(id = "config-2")),
+        private val exposeSavesOnlyAfterEmit: Boolean = false,
+    ) : ConfigRepositoryPort {
+        private val mutableProfiles = MutableStateFlow(profiles)
+        override val profiles: StateFlow<List<ConfigProfile>> = mutableProfiles
+        override val selectedProfileId: StateFlow<String> = MutableStateFlow(selectedProfileId)
 
         val directDeleteIds = mutableListOf<String>()
+        val savedProfiles = mutableListOf<ConfigProfile>()
 
         override fun snapshotProfiles(): List<ConfigProfile> = profiles.value
 
         override fun create(name: String): ConfigProfile = ConfigProfile(id = "new-config", name = name)
 
-        override fun resolve(profileId: String): ConfigProfile {
-            return profiles.value.firstOrNull { it.id == profileId } ?: ConfigProfile(id = profileId)
+        override fun resolve(id: String): ConfigProfile {
+            return profiles.value.firstOrNull { it.id == id } ?: ConfigProfile(id = id)
         }
 
         override fun resolveExistingId(id: String?): String = id ?: selectedProfileId.value
 
-        override suspend fun save(profile: ConfigProfile) = Unit
-
-        override suspend fun delete(profileId: String) {
-            directDeleteIds += profileId
+        override suspend fun save(profile: ConfigProfile) {
+            savedProfiles += profile
+            if (!exposeSavesOnlyAfterEmit) {
+                emitSavedProfiles()
+            }
         }
 
-        override suspend fun select(profileId: String) = Unit
+        override suspend fun delete(id: String) {
+            directDeleteIds += id
+        }
+
+        override suspend fun select(id: String) = Unit
+
+        fun emitSavedProfiles() {
+            val savedById = savedProfiles.associateBy { it.id }
+            mutableProfiles.value = mutableProfiles.value.map { profile ->
+                savedById[profile.id] ?: profile
+            }
+        }
     }
 
     private class FakeProviderPort : ProviderRepositoryPort {
@@ -125,9 +226,14 @@ class ConfigViewModelTest {
         override suspend fun delete(id: String) = Unit
     }
 
-    private class FakeBotPort : BotRepositoryPort {
-        override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(emptyList())
-        override val selectedBotId: StateFlow<String> = MutableStateFlow("bot-1")
+    private class FakeBotPort(
+        bots: List<BotProfile> = emptyList(),
+        selectedBotId: String = "bot-1",
+        private val configPort: ConfigRepositoryPort? = null,
+    ) : BotRepositoryPort {
+        override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(bots)
+        override val selectedBotId: StateFlow<String> = MutableStateFlow(selectedBotId)
+        val savedProfiles = mutableListOf<BotProfile>()
 
         override fun currentBot(): BotProfile = BotProfile(id = "bot-1", displayName = "Bot")
 
@@ -135,7 +241,17 @@ class ConfigViewModelTest {
 
         override fun create(name: String): BotProfile = BotProfile(id = "created-bot", displayName = name)
 
-        override suspend fun save(profile: BotProfile) = Unit
+        override suspend fun save(profile: BotProfile) {
+            val configDefaultProviderId = configPort
+                ?.resolve(profile.configProfileId)
+                ?.defaultChatProviderId
+                .orEmpty()
+            savedProfiles += if (configDefaultProviderId.isBlank()) {
+                profile
+            } else {
+                profile.copy(defaultProviderId = configDefaultProviderId)
+            }
+        }
 
         override suspend fun create(profile: BotProfile) = Unit
 

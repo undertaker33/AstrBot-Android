@@ -57,6 +57,9 @@ internal class DefaultRuntimeLlmOrchestrator : RuntimeLlmOrchestratorPort {
             platformInstanceKey = callbacks.platformInstanceKey,
             hostCapabilityGateway = callbacks.hostCapabilityGateway,
             followupSender = callbacks.followupSender,
+            toolResultDeliveryHandler = PluginV2ToolResultDeliveryHandler { request ->
+                callbacks.handleToolResult(request)
+            },
             prepareReply = { pipelineResult -> callbacks.prepareReply(pipelineResult) },
             sendReply = { prepared -> callbacks.sendReply(prepared) },
             persistDeliveredReply = { prepared, sendResult, pipelineResult ->

@@ -6,6 +6,7 @@ fun ProviderCapability.displayLabel(): String {
         ProviderCapability.STT -> "STT"
         ProviderCapability.TTS -> "TTS"
         ProviderCapability.AGENT_EXECUTOR -> "Agent Executor"
+        ProviderCapability.SEARCH -> "Search"
     }
 }
 
@@ -28,6 +29,10 @@ fun ProviderType.displayLabel(): String {
         ProviderType.SHERPA_ONNX_TTS -> "Sherpa ONNX TTS"
         ProviderType.DIFY -> "Dify"
         ProviderType.BAILIAN_APP -> "Alibaba Bailian App"
+        ProviderType.TAVILY_SEARCH -> "Tavily Search"
+        ProviderType.BRAVE_SEARCH -> "Brave Search"
+        ProviderType.BOCHA_SEARCH -> "BoCha Search"
+        ProviderType.BAIDU_AI_SEARCH -> "Baidu AI Search"
         ProviderType.ANTHROPIC -> "Anthropic"
         ProviderType.CUSTOM -> "Custom"
     }
@@ -50,6 +55,12 @@ fun ProviderType.defaultCapability(): ProviderCapability {
         ProviderType.DIFY,
         ProviderType.BAILIAN_APP,
         -> ProviderCapability.AGENT_EXECUTOR
+
+        ProviderType.TAVILY_SEARCH,
+        ProviderType.BRAVE_SEARCH,
+        ProviderType.BOCHA_SEARCH,
+        ProviderType.BAIDU_AI_SEARCH,
+        -> ProviderCapability.SEARCH
 
         else -> ProviderCapability.CHAT
     }

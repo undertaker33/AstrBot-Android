@@ -55,6 +55,7 @@ internal class PluginV2ToolLoopCoordinator(
         assistantText: String,
         toolCalls: List<PluginLlmToolCall>,
         snapshot: PluginV2ActiveRuntimeSnapshot,
+        toolResultDeliveryHandler: PluginV2ToolResultDeliveryHandler? = null,
     ): PluginV2ToolLoopRunResult {
         var nextRequest = baseRequest
         val executedToolNames = mutableListOf<String>()
@@ -224,6 +225,42 @@ internal class PluginV2ToolLoopCoordinator(
             )
             frozenResult = sanitizeAndFreezeToolResult(previousFrozen = frozenResult, candidate = respondPayload.result)
             respondPayload.replaceResult(frozenResult)
+            if (toolResultDeliveryHandler != null) {
+                frozenResult = runCatching {
+                    toolResultDeliveryHandler.handle(
+                        PluginV2ToolResultDeliveryRequest(
+                            event = event,
+                            descriptor = descriptor,
+                            args = frozenArgs,
+                            result = frozenResult,
+                        ),
+                    )
+                }.map { deliveredResult ->
+                    sanitizeAndFreezeToolResult(
+                        previousFrozen = frozenResult,
+                        candidate = deliveredResult,
+                    )
+                }.getOrElse { error ->
+                    error.rethrowIfCancellation()
+                    logBus.publishToolDiagnosticRecord(
+                        pluginId = descriptor.pluginId,
+                        occurredAtEpochMillis = clock(),
+                        level = PluginRuntimeLogLevel.Error,
+                        code = "tool_result_delivery_failed",
+                        requestId = frozenArgs.requestId,
+                        stage = PluginV2InternalStage.LlmToolRespond.name,
+                        outcome = "FAILED",
+                        toolId = descriptor.toolId,
+                        toolCallId = frozenArgs.toolCallId,
+                        sourceKind = descriptor.sourceKind,
+                        metadata = mapOf(
+                            "reason" to (error.message ?: error.javaClass.simpleName),
+                        ),
+                    )
+                    frozenResult
+                }
+                respondPayload.replaceResult(frozenResult)
+            }
             publishToolDiagnostic(
                 code = if (frozenResult.status == PluginToolResultStatus.SUCCESS) {
                     PluginV2ToolDiagnosticCodes.LLM_TOOL_COMPLETED

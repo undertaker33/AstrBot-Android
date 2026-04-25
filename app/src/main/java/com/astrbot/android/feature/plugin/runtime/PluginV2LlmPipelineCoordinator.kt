@@ -149,6 +149,7 @@ internal class PluginV2LlmPipelineCoordinator(
             runPreSendStages(
                 input = request.pipelineInput,
                 snapshot = snapshot,
+                toolResultDeliveryHandler = request.toolResultDeliveryHandler,
             )
         }.getOrElse { error ->
             error.rethrowIfCancellation()
@@ -240,6 +241,7 @@ internal class PluginV2LlmPipelineCoordinator(
     suspend fun runPreSendStages(
         input: PluginV2LlmPipelineInput,
         snapshot: PluginV2ActiveRuntimeSnapshot = snapshotProvider(),
+        toolResultDeliveryHandler: PluginV2ToolResultDeliveryHandler? = null,
     ): PluginV2LlmPipelineResult {
         val admission = LlmPipelineAdmission(
             requestId = requestIdFactory(),
@@ -373,6 +375,7 @@ internal class PluginV2LlmPipelineCoordinator(
                 assistantText = finalResponse.text,
                 toolCalls = frozenToolCalls,
                 snapshot = snapshot,
+                toolResultDeliveryHandler = toolResultDeliveryHandler,
             )
             currentRequest = toolLoopRun.nextRequest
         }

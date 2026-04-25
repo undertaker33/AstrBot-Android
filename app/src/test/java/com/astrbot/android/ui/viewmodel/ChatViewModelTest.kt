@@ -153,6 +153,65 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun init_uses_config_provider_over_stale_restored_session_provider() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(
+                ConversationSession(
+                    id = "session-restored",
+                    title = "Restored",
+                    botId = "bot-1",
+                    providerId = "deepseek-chat",
+                    personaId = "",
+                    maxContextMessages = 12,
+                    messages = emptyList(),
+                ),
+            ),
+            bots = listOf(defaultBot(id = "bot-1", defaultProviderId = "deepseek-chat")),
+            providers = listOf(
+                defaultChatProvider("deepseek-chat"),
+                defaultChatProvider("qwen-chat"),
+            ),
+            config = ConfigProfile(
+                id = "config-default",
+                defaultChatProviderId = "qwen-chat",
+            ),
+        )
+
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+
+        assertEquals("qwen-chat", viewModel.uiState.value.selectedProviderId)
+        assertTrue(deps.bindingUpdates.any { it.sessionId == "session-restored" && it.providerId == "qwen-chat" })
+    }
+
+    @Test
+    fun select_provider_updates_config_authority_and_projection_bindings() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession(botId = "bot-1", providerId = "deepseek-chat")),
+            bots = listOf(defaultBot(id = "bot-1", defaultProviderId = "deepseek-chat")),
+            providers = listOf(
+                defaultChatProvider("deepseek-chat"),
+                defaultChatProvider("qwen-chat"),
+            ),
+            config = ConfigProfile(
+                id = "config-default",
+                defaultChatProviderId = "deepseek-chat",
+            ),
+        )
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.selectProvider("qwen-chat")
+        advanceUntilIdle()
+
+        assertEquals("qwen-chat", viewModel.uiState.value.selectedProviderId)
+        assertEquals("qwen-chat", deps.savedConfigs.single().defaultChatProviderId)
+        assertEquals("qwen-chat", deps.savedBots.single().defaultProviderId)
+        assertTrue(deps.bindingUpdates.any { it.sessionId == "chat-main" && it.providerId == "qwen-chat" })
+    }
+
+    @Test
     fun send_message_without_available_provider_does_not_append_messages() = runTest(dispatcher) {
         val deps = FakeChatDependencies(
             sessions = listOf(defaultSession()),
@@ -1171,10 +1230,10 @@ class ChatViewModelTest {
         override val defaultSessionId: String = "chat-main"
         override val defaultSessionTitle: String = "Default session"
         override val defaultAppChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime
-        override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(bots)
+        override val bots: MutableStateFlow<List<BotProfile>> = MutableStateFlow(bots)
         override val selectedBotId: StateFlow<String> = MutableStateFlow(bots.firstOrNull()?.id ?: "qq-main")
         override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(providers)
-        override val configProfiles: StateFlow<List<ConfigProfile>> = MutableStateFlow(listOf(config))
+        override val configProfiles: MutableStateFlow<List<ConfigProfile>> = MutableStateFlow(listOf(config))
         override val sessions: MutableStateFlow<List<ConversationSession>> = MutableStateFlow(sessions)
         override val personas: StateFlow<List<PersonaProfile>> = MutableStateFlow(emptyList())
         private val runtimeContextDataPort = object : RuntimeContextDataPort {
@@ -1208,6 +1267,8 @@ class ChatViewModelTest {
         )
 
         val bindingUpdates = mutableListOf<BindingUpdate>()
+        val savedConfigs = mutableListOf<ConfigProfile>()
+        val savedBots = mutableListOf<BotProfile>()
         val appendedMessages = mutableListOf<ConversationMessage>()
         val loggedMessages = mutableListOf<String>()
         val signalLog = mutableListOf<String>()
@@ -1329,11 +1390,23 @@ class ChatViewModelTest {
             signalLog += "title:$sessionId:$title"
         }
 
-        override fun resolveConfig(profileId: String): ConfigProfile = config
+        override fun resolveConfig(profileId: String): ConfigProfile {
+            return configProfiles.value.firstOrNull { it.id == profileId } ?: config
+        }
 
-        override fun saveConfig(profile: ConfigProfile) = Unit
+        override fun saveConfig(profile: ConfigProfile) {
+            savedConfigs += profile
+            configProfiles.value = configProfiles.value.map {
+                if (it.id == profile.id) profile else it
+            }.ifEmpty { listOf(profile) }
+        }
 
-        override fun saveBot(profile: BotProfile) = Unit
+        override fun saveBot(profile: BotProfile) {
+            savedBots += profile
+            bots.value = bots.value.map {
+                if (it.id == profile.id) profile else it
+            }.ifEmpty { listOf(profile) }
+        }
 
         override fun saveProvider(profile: ProviderProfile) = Unit
 
@@ -1944,12 +2017,13 @@ class ChatViewModelTest {
     private fun defaultSession(
         id: String = "chat-main",
         botId: String = "qq-main",
+        providerId: String = "",
     ): ConversationSession {
         return ConversationSession(
             id = id,
             title = "Default session",
             botId = botId,
-            providerId = "",
+            providerId = providerId,
             personaId = "",
             maxContextMessages = 12,
             messages = emptyList(),

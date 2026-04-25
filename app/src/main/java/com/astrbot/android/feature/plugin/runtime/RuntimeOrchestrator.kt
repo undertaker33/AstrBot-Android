@@ -63,6 +63,10 @@ internal interface PlatformLlmCallbacks {
         pipelineResult: PluginV2LlmPipelineResult,
     )
 
+    suspend fun handleToolResult(
+        request: PluginV2ToolResultDeliveryRequest,
+    ): PluginToolResult = request.result
+
     suspend fun invokeProvider(
         request: PluginProviderRequest,
         mode: PluginV2StreamingMode,

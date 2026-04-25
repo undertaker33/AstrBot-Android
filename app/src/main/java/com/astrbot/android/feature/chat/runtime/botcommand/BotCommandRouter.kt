@@ -231,6 +231,8 @@ object BotCommandRouter {
                     provider.name.equals(argument, ignoreCase = true))
         } ?: return handled(BotCommandResources.providerNotFound(argument, context.languageTag))
 
+        context.updateConfig(context.config.copy(defaultChatProviderId = target.id))
+        context.updateBot(context.bot.copy(defaultProviderId = target.id))
         context.updateSessionBindings(
             target.id,
             context.currentPersona?.id ?: context.session.personaId,

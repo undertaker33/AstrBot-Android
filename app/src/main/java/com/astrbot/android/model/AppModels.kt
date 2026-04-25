@@ -5,6 +5,7 @@ enum class ProviderCapability {
     STT,
     TTS,
     AGENT_EXECUTOR,
+    SEARCH,
 }
 
 enum class ProviderType {
@@ -25,6 +26,10 @@ enum class ProviderType {
     SHERPA_ONNX_TTS,
     DIFY,
     BAILIAN_APP,
+    TAVILY_SEARCH,
+    BRAVE_SEARCH,
+    BOCHA_SEARCH,
+    BAIDU_AI_SEARCH,
     ANTHROPIC,
     CUSTOM,
 }

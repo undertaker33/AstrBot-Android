@@ -46,6 +46,30 @@ class PromptAssemblerTest {
     }
 
     @Test
+    fun assemble_for_news_query_injects_required_web_search_guidance() {
+        val ctx = resolveWithFakeDataPort(
+            event = RuntimeIngressEvent(
+                platform = RuntimePlatform.APP_CHAT,
+                conversationId = "conversation-1",
+                messageId = "message-1",
+                sender = SenderInfo(userId = "user-1"),
+                messageType = MessageType.OtherMessage,
+                text = "今天新闻有哪些",
+                trigger = IngressTrigger.USER_MESSAGE,
+            ),
+            messages = emptyList(),
+        )
+
+        val prompt = PromptAssembler.assemble(ctx)
+
+        assertTrue(prompt!!.contains("must call web_search"))
+        assertTrue(prompt.contains("news"))
+        assertTrue(prompt.contains("factual news summary"))
+        assertTrue(prompt.contains("evaluation"))
+        assertTrue(prompt.contains("Do not repeat"))
+    }
+
+    @Test
     fun assemble_for_scheduled_task_includes_task_note_as_metadata_not_user_text() {
         val ctx = resolveWithFakeDataPort(
             event = scheduledEvent(

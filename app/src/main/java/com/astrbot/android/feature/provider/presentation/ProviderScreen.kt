@@ -821,6 +821,7 @@ private fun ProviderEditorDialog(
                     ProviderCapability.STT -> stringResource(R.string.provider_edit_stt)
                     ProviderCapability.TTS -> stringResource(R.string.provider_edit_tts)
                     ProviderCapability.AGENT_EXECUTOR -> stringResource(R.string.provider_edit_agent)
+                    ProviderCapability.SEARCH -> "Edit search provider"
                 },
             )
         },
@@ -1369,6 +1370,7 @@ private fun ProviderEditorDialog(
                             ProviderCapability.STT -> stringResource(R.string.provider_placeholder_stt)
                             ProviderCapability.TTS -> stringResource(R.string.provider_placeholder_tts)
                             ProviderCapability.AGENT_EXECUTOR -> stringResource(R.string.provider_placeholder_agent)
+                            ProviderCapability.SEARCH -> "Search providers are used by web_search fallback and do not appear in chat provider selection."
                             ProviderCapability.CHAT -> ""
                         },
                         color = MonochromeUi.textSecondary,
@@ -1562,6 +1564,10 @@ private fun createEmptyProvider(type: ProviderType): ProviderProfile {
         ProviderType.SHERPA_ONNX_TTS -> ""
         ProviderType.DIFY -> "https://api.dify.ai/v1"
         ProviderType.BAILIAN_APP -> "https://dashscope.aliyuncs.com/api/v1"
+        ProviderType.TAVILY_SEARCH -> "https://api.tavily.com"
+        ProviderType.BRAVE_SEARCH -> "https://api.search.brave.com"
+        ProviderType.BOCHA_SEARCH -> "https://api.bochaai.com"
+        ProviderType.BAIDU_AI_SEARCH -> ""
         ProviderType.ANTHROPIC,
         ProviderType.CUSTOM,
         -> ""
@@ -1584,6 +1590,10 @@ private fun createEmptyProvider(type: ProviderType): ProviderProfile {
         ProviderType.SHERPA_ONNX_TTS -> "kokoro"
         ProviderType.DIFY -> "chat-app"
         ProviderType.BAILIAN_APP -> "application-id"
+        ProviderType.TAVILY_SEARCH -> ""
+        ProviderType.BRAVE_SEARCH -> ""
+        ProviderType.BOCHA_SEARCH -> ""
+        ProviderType.BAIDU_AI_SEARCH -> ""
         ProviderType.ANTHROPIC,
         ProviderType.CUSTOM,
         -> ""

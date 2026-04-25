@@ -169,7 +169,7 @@ class FutureToolSourceRegistry @Inject constructor(
                 ),
                 contextStrategyToolSourceProvider = ContextStrategyToolSourceProvider(contextResolver = resolver),
                 webSearchToolSourceProvider = WebSearchToolSourceProvider(
-                    transport = EmptyRuntimeNetworkTransport,
+                    searchPort = EmptyUnifiedSearchPort,
                     contextResolver = resolver,
                 ),
             )
@@ -220,23 +220,11 @@ private class EmptyCronJobRepositoryPort : com.astrbot.android.feature.cron.doma
     ): com.astrbot.android.model.CronJobExecutionRecord? = null
 }
 
-private object EmptyRuntimeNetworkTransport : com.astrbot.android.core.runtime.network.RuntimeNetworkTransport {
-    override suspend fun execute(
-        request: com.astrbot.android.core.runtime.network.RuntimeNetworkRequest,
-    ): com.astrbot.android.core.runtime.network.RuntimeNetworkResponse {
-        throw UnsupportedOperationException("Empty FutureToolSourceRegistry does not support network transport")
-    }
-
-    override fun openStream(
-        request: com.astrbot.android.core.runtime.network.RuntimeNetworkRequest,
-    ): kotlinx.coroutines.flow.Flow<String> {
-        throw UnsupportedOperationException("Empty FutureToolSourceRegistry does not support network transport")
-    }
-
-    override fun openSse(
-        request: com.astrbot.android.core.runtime.network.RuntimeNetworkRequest,
-    ): kotlinx.coroutines.flow.Flow<com.astrbot.android.core.runtime.network.SseEvent> {
-        throw UnsupportedOperationException("Empty FutureToolSourceRegistry does not support network transport")
+private object EmptyUnifiedSearchPort : com.astrbot.android.core.runtime.search.UnifiedSearchPort {
+    override suspend fun search(
+        request: com.astrbot.android.core.runtime.search.UnifiedSearchRequest,
+    ): com.astrbot.android.core.runtime.search.UnifiedSearchResponse {
+        throw UnsupportedOperationException("Empty FutureToolSourceRegistry does not support web search")
     }
 }
 
