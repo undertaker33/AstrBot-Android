@@ -8,6 +8,8 @@ import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.context.StreamingModeResolver
 import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
+import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentFallbackResponder
+import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentGuardContext
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
@@ -59,6 +61,7 @@ internal class QqMessageRuntimeService(
     private val pluginDispatchService: QqPluginDispatchService,
     private val streamingReplyService: QqStreamingReplyService,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val scheduledTaskFallbackResponder: ScheduledTaskIntentFallbackResponder? = null,
     private val executeLegacyPluginsDuringLlmDispatch: Boolean = true,
     private val log: (String) -> Unit = {},
 ) : QqRuntimePort {
@@ -356,6 +359,11 @@ internal class QqMessageRuntimeService(
                 wantsTts = wantsTts,
                 ttsProvider = ttsProvider,
                 streamingMode = streamingMode,
+                userText = llmEvent.workingText.ifBlank { finalPromptContent },
+                runtimeContext = runtimeContext,
+                bot = bot,
+                persona = persona,
+                provider = provider,
             )
             val deliveryAttempt = runCatching {
                 orchestrator.dispatchLlm(
@@ -431,6 +439,11 @@ internal class QqMessageRuntimeService(
         wantsTts: Boolean,
         ttsProvider: ProviderProfile?,
         streamingMode: com.astrbot.android.model.plugin.PluginV2StreamingMode,
+        userText: String,
+        runtimeContext: ResolvedRuntimeContext,
+        bot: BotProfile,
+        persona: PersonaProfile?,
+        provider: ProviderProfile,
     ): PlatformLlmCallbacks {
         return object : PlatformLlmCallbacks {
             override val platformInstanceKey: String = message.selfId.ifBlank { "onebot" }
@@ -469,8 +482,29 @@ internal class QqMessageRuntimeService(
             override suspend fun prepareReply(
                 result: PluginV2LlmPipelineResult,
             ): PluginV2HostPreparedReply {
+                val effectiveResult = scheduledTaskFallbackResponder?.applyFallbackIfNeeded(
+                    userText = userText,
+                    context = ScheduledTaskIntentGuardContext(
+                        proactiveEnabled = config.proactiveEnabled,
+                        platform = RuntimePlatform.QQ_ONEBOT.wireValue,
+                        conversationId = runtimeContext.conversationId,
+                        botId = bot.id,
+                        configProfileId = config.id,
+                        personaId = persona?.id.orEmpty(),
+                        providerId = provider.id,
+                    ),
+                    pipelineResult = result,
+                    invokeProvider = { followupRequest ->
+                        providerInvoker.invoke(
+                            request = followupRequest,
+                            mode = com.astrbot.android.model.plugin.PluginV2StreamingMode.NON_STREAM,
+                            ctx = runtimeContext,
+                            config = config,
+                        )
+                    },
+                ) ?: result
                 return streamingReplyService.prepareReply(
-                    result = result,
+                    result = effectiveResult,
                     sessionId = sessionId,
                     config = config,
                     wantsTts = wantsTts,

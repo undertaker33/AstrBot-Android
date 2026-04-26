@@ -25,7 +25,9 @@ class ActiveCapabilityToolSourceProviderTest {
             facade = ActiveCapabilityRuntimeFacade(
                 repository = InMemoryActiveCapabilityTaskRepositoryForProvider(),
                 scheduler = RecordingActiveCapabilitySchedulerForProvider(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             ),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             contextResolver = noopContextResolverForProvider,
         )
 
@@ -55,7 +57,9 @@ class ActiveCapabilityToolSourceProviderTest {
             facade = ActiveCapabilityRuntimeFacade(
                 repository = InMemoryActiveCapabilityTaskRepositoryForProvider(),
                 scheduler = RecordingActiveCapabilitySchedulerForProvider(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             ),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             contextResolver = noopContextResolverForProvider,
         )
 
@@ -100,8 +104,10 @@ class ActiveCapabilityToolSourceProviderTest {
             facade = ActiveCapabilityRuntimeFacade(
                 repository = repository,
                 scheduler = RecordingActiveCapabilitySchedulerForProvider(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
                 clock = { 10_000L },
             ),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             contextResolver = noopContextResolverForProvider,
         )
 
@@ -136,8 +142,10 @@ class ActiveCapabilityToolSourceProviderTest {
             facade = ActiveCapabilityRuntimeFacade(
                 repository = InMemoryActiveCapabilityTaskRepositoryForProvider(),
                 scheduler = RecordingActiveCapabilitySchedulerForProvider(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
                 runNowPort = runner,
             ),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             contextResolver = noopContextResolverForProvider,
         )
 

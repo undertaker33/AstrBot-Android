@@ -1,0 +1,8 @@
+<resources>
+    <string name="web_search_prompt_news_guidance">针对当前信息，请使用宿主提供的 %1$s 工具。不要编造最新事实、日期、来源、URL、天气、价格、日程或新闻。如果搜索结果为空、偏题或失败，请说明信息无法确认。最新用户消息匹配新闻/时事意图。回答前必须调用 %1$s。宿主可能会直接根据工具结果向用户发送事实新闻摘要。工具结果可用后，不要复述新闻条目、日期、来源或 URL；只按当前人格对已确认新闻给出简短评价或评论。</string>
+    <string name="web_search_prompt_weather_guidance">针对当前信息，请使用宿主提供的 %1$s 工具。不要编造最新事实、日期、来源、URL、天气、价格、日程或新闻。如果搜索结果为空、偏题或失败，请说明信息无法确认。最新用户消息询问天气或其他实时状态。回答前必须调用 %1$s，并且只能基于返回来源作答。</string>
+    <string name="web_search_prompt_realtime_guidance">针对当前信息，请使用宿主提供的 %1$s 工具。不要编造最新事实、日期、来源、URL、天气、价格、日程或新闻。如果搜索结果为空、偏题或失败，请说明信息无法确认。最新用户消息看起来需要当前或实时信息；回答前优先调用 %1$s。</string>
+    <string name="web_search_prompt_direct_delivery_status_sent">已发送</string>
+    <string name="web_search_prompt_direct_delivery_status_failed">发送失败</string>
+    <string name="web_search_prompt_news_direct_delivery_commentary">事实新闻摘要已经由宿主发送给用户。\n直发状态：%1$s。\n已发送摘要：\n%2$s\n\n不要复述新闻条目、来源、日期、URL 或数字细节。只按当前人格给出简短评价或评论。如果摘要说明没有找到可确认新闻，请评价这种不确定性，不要编造事实。</string>
+</resources>

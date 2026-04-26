@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.feature.resource.data
 
 import com.astrbot.android.data.db.ConfigAggregateDao

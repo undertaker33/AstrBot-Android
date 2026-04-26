@@ -820,6 +820,7 @@ object AppBackupRepository {
             .put("imageCaptionTextEnabled", profile.imageCaptionTextEnabled)
             .put("webSearchEnabled", profile.webSearchEnabled)
             .put("proactiveEnabled", profile.proactiveEnabled)
+            .put("includeScheduledTaskConversationContext", profile.includeScheduledTaskConversationContext)
             .put("ttsVoiceId", profile.ttsVoiceId)
             .put("imageCaptionPrompt", profile.imageCaptionPrompt)
             .put("adminUids", JSONArray(profile.adminUids))

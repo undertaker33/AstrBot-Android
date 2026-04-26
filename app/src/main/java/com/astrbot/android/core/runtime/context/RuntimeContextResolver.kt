@@ -82,6 +82,20 @@ object RuntimeContextResolver {
         } else {
             session.messages.takeLast(contextWindow)
         }
+        val scheduledTaskContextWindow = if (
+            event.trigger == IngressTrigger.SCHEDULED_TASK &&
+            config.includeScheduledTaskConversationContext
+        ) {
+            session.messages
+                .filter { message ->
+                    message.role == "user" || message.role == "assistant"
+                }
+                .filterNot { message -> message.content.isBlank() }
+                .takeLast(contextWindow.coerceAtLeast(0))
+                .toList()
+        } else {
+            emptyList()
+        }
 
         val personaToolSnapshot = persona?.let { resolvedPersona ->
             PersonaToolEnablementSnapshot(
@@ -124,6 +138,7 @@ object RuntimeContextResolver {
             availableProviders = chatProviders,
             conversationId = event.conversationId,
             messageWindow = messageWindow,
+            scheduledTaskContextWindow = scheduledTaskContextWindow,
             contextPolicy = ContextPolicy(
                 strategy = config.contextLimitStrategy,
                 maxTurns = config.maxContextTurns,

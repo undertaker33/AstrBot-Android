@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.data
 
 import com.astrbot.android.feature.config.data.FeatureConfigRepository

@@ -30,6 +30,7 @@ data class ResolvedRuntimeContext(
     // ── Conversation ──
     val conversationId: String,
     val messageWindow: List<ConversationMessage>,
+    val scheduledTaskContextWindow: List<ConversationMessage> = emptyList(),
 
     // ── Context strategy ──
     val contextPolicy: ContextPolicy,

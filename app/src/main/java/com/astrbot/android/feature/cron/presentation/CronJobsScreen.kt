@@ -1,6 +1,9 @@
 package com.astrbot.android.ui.settings
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -35,14 +38,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -65,6 +69,7 @@ import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityTar
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun CronJobsScreen(
@@ -104,6 +109,7 @@ internal fun CronJobsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun CronJobsContent(
     jobs: List<CronJob>,
@@ -136,11 +142,31 @@ internal fun CronJobsContent(
     var editingJobId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDeleteJobId by rememberSaveable { mutableStateOf<String?>(null) }
     val page = buildCronJobsPresentation(jobs = jobs, requestedPage = requestedPage)
+    val pagerState = rememberPagerState(
+        initialPage = (page.currentPage - 1).coerceAtLeast(0),
+        pageCount = { page.totalPages },
+    )
+    val coroutineScope = rememberCoroutineScope()
+    val pagerCurrentPage = (pagerState.currentPage + 1).coerceIn(1, page.totalPages)
     val editingJob = jobs.firstOrNull { it.jobId == editingJobId }
     val pendingDeleteJob = jobs.firstOrNull { it.jobId == pendingDeleteJobId }
 
     LaunchedEffect(jobs.size) {
         requestedPage = buildCronJobsPresentation(jobs = jobs, requestedPage = requestedPage).currentPage
+    }
+
+    LaunchedEffect(page.currentPage, page.totalPages) {
+        val targetPageIndex = (page.currentPage - 1).coerceIn(0, page.totalPages - 1)
+        if (pagerState.currentPage != targetPageIndex) {
+            pagerState.scrollToPage(targetPageIndex)
+        }
+    }
+
+    LaunchedEffect(pagerState, page.totalPages) {
+        snapshotFlow { pagerState.currentPage }
+            .collect { pageIndex ->
+                requestedPage = (pageIndex + 1).coerceIn(1, page.totalPages)
+            }
     }
 
     if (showCreateDialog) {
@@ -230,9 +256,11 @@ internal fun CronJobsContent(
                     onClick = {
                         val targetPage = pageJumpDraft.trim().toIntOrNull()
                         if (targetPage != null && targetPage in 1..page.totalPages) {
-                            requestedPage = targetPage
                             pageJumpHasError = false
                             showPageJumpDialog = false
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(targetPage - 1)
+                            }
                         } else {
                             pageJumpHasError = true
                         }
@@ -249,103 +277,118 @@ internal fun CronJobsContent(
         )
     }
 
-    Scaffold(
-        containerColor = MonochromeUi.pageBackground,
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showCreateDialog = true },
-                modifier = Modifier
-                    .navigationBarsPadding()
-                    .padding(end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
-                    .testTag("cron-jobs-add-fab"),
-                containerColor = MonochromeUi.actionFabBackground,
-                contentColor = MonochromeUi.actionFabContent,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Add,
-                    contentDescription = stringResource(R.string.cron_jobs_add_content_description),
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MonochromeUi.pageBackground),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f),
+                pageSpacing = 12.dp,
+                userScrollEnabled = page.totalPages > 1,
+            ) { pageIndex ->
+                val pageForIndex = buildCronJobsPresentation(
+                    jobs = jobs,
+                    requestedPage = pageIndex + 1,
                 )
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (pageForIndex.visibleJobs.isEmpty()) {
+                        item {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 180.dp),
+                                color = MonochromeUi.cardBackground,
+                                shape = MonochromeUi.radiusCard,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.cron_jobs_empty_hint),
+                                        color = MonochromeUi.textSecondary,
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        itemsIndexed(
+                            items = pageForIndex.visibleJobs,
+                            key = { _, job -> job.jobId },
+                        ) { index, job ->
+                            CronJobCard(
+                                job = job,
+                                backgroundColor = if (index % 2 == 0) MonochromeUi.cardBackground else MonochromeUi.cardAltBackground,
+                                onEdit = { editingJobId = job.jobId },
+                                onPauseResume = {
+                                    if (job.enabled) {
+                                        onPauseJob(job.jobId)
+                                    } else {
+                                        onResumeJob(job.jobId)
+                                    }
+                                },
+                                onDelete = { pendingDeleteJobId = job.jobId },
+                                onRuns = {
+                                    jobs.firstOrNull { it.jobId == job.jobId }?.let(onShowRuns)
+                                },
+                            )
+                        }
+                    }
+                }
             }
-        },
-        bottomBar = {
             SettingsPagerBar(
-                currentPage = page.currentPage,
+                currentPage = pagerCurrentPage,
                 totalPages = page.totalPages,
-                canGoPrevious = page.canGoPrevious,
-                canGoNext = page.canGoNext,
-                onPrevious = { requestedPage = (page.currentPage - 1).coerceAtLeast(1) },
-                onNext = { requestedPage = (page.currentPage + 1).coerceAtMost(page.totalPages) },
+                canGoPrevious = pagerCurrentPage > 1,
+                canGoNext = pagerCurrentPage < page.totalPages,
+                onPrevious = {
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage((pagerCurrentPage - 2).coerceAtLeast(0))
+                    }
+                },
+                onNext = {
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(pagerCurrentPage.coerceAtMost(page.totalPages - 1))
+                    }
+                },
                 onJump = {
-                    pageJumpDraft = page.currentPage.toString()
+                    pageJumpDraft = pagerCurrentPage.toString()
                     pageJumpHasError = false
                     showPageJumpDialog = true
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                    .padding(vertical = 16.dp),
             )
-        },
-    ) { scaffoldPadding ->
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(scaffoldPadding)
-                .background(MonochromeUi.pageBackground),
+        }
+        FloatingActionButton(
+            onClick = { showCreateDialog = true },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
+                .testTag("cron-jobs-add-fab"),
+            containerColor = MonochromeUi.actionFabBackground,
+            contentColor = MonochromeUi.actionFabContent,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (page.visibleJobs.isEmpty()) {
-                    item {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 180.dp),
-                            color = MonochromeUi.cardBackground,
-                            shape = MonochromeUi.radiusCard,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(24.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.cron_jobs_empty_hint),
-                                    color = MonochromeUi.textSecondary,
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    itemsIndexed(
-                        items = page.visibleJobs,
-                        key = { _, job -> job.jobId },
-                    ) { index, job ->
-                        CronJobCard(
-                            job = job,
-                            backgroundColor = if (index % 2 == 0) MonochromeUi.cardBackground else MonochromeUi.cardAltBackground,
-                            onEdit = { editingJobId = job.jobId },
-                            onPauseResume = {
-                                if (job.enabled) {
-                                    onPauseJob(job.jobId)
-                                } else {
-                                    onResumeJob(job.jobId)
-                                }
-                            },
-                            onDelete = { pendingDeleteJobId = job.jobId },
-                            onRuns = {
-                                jobs.firstOrNull { it.jobId == job.jobId }?.let(onShowRuns)
-                            },
-                        )
-                    }
-                }
-            }
+            Icon(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = stringResource(R.string.cron_jobs_add_content_description),
+            )
         }
     }
 }
@@ -529,32 +572,40 @@ private fun CronJobCard(
         shape = MonochromeUi.radiusCard,
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            Text(
-                text = job.name,
-                color = MonochromeUi.textPrimary,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            CronJobInfoRow(
-                label = stringResource(R.string.cron_jobs_field_cron),
-                value = job.cronExpression,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = job.name,
+                    modifier = Modifier.weight(1f),
+                    color = MonochromeUi.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                CronJobTypePill(runOnce = job.runOnce)
+            }
             CronJobInfoRow(
                 label = stringResource(R.string.cron_jobs_field_session),
                 value = job.conversationId.ifBlank { stringResource(R.string.common_not_available) },
             )
-            CronJobInfoRow(
-                label = stringResource(R.string.cron_jobs_field_next_run),
-                value = formatTimestampOrUnavailable(job.nextRunTime),
-            )
-            CronJobInfoRow(
-                label = stringResource(R.string.cron_jobs_field_last_run),
-                value = formatTimestampOrUnavailable(job.lastRunAt),
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CronJobInfoRow(
+                    label = stringResource(R.string.cron_jobs_field_next_run),
+                    value = formatTimestampOrUnavailable(job.nextRunTime),
+                    modifier = Modifier.weight(1f),
+                )
+                CronJobInfoRow(
+                    label = stringResource(R.string.cron_jobs_field_last_run),
+                    value = formatTimestampOrUnavailable(job.lastRunAt),
+                    modifier = Modifier.weight(1f),
+                )
+            }
             CronJobInfoRow(
                 label = stringResource(R.string.cron_jobs_field_status),
                 value = job.status.ifBlank { if (job.enabled) "scheduled" else "paused" },
@@ -588,6 +639,24 @@ private fun CronJobCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CronJobTypePill(runOnce: Boolean) {
+    Surface(
+        color = MonochromeUi.inputBackground,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp),
+    ) {
+        Text(
+            text = stringResource(
+                if (runOnce) R.string.cron_jobs_type_once else R.string.cron_jobs_type_repeating,
+            ),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            color = MonochromeUi.textSecondary,
+            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
     }
 }
 
@@ -722,8 +791,12 @@ private fun BotSelectionField(
 private fun CronJobInfoRow(
     label: String,
     value: String,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
         Text(
             text = label,
             color = MonochromeUi.textSecondary,

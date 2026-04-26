@@ -9,6 +9,7 @@ import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.cron.runtime.CronExpressionParser
 import com.astrbot.android.feature.cron.runtime.CronJobScheduler
+import com.astrbot.android.feature.cron.runtime.ActiveCapabilityPromptStrings
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -43,6 +44,7 @@ class ActiveCapabilityRuntimeFacade(
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     private val naturalLanguageParser: ActiveCapabilityNaturalLanguageParser = ActiveCapabilityNaturalLanguageParser(),
+    private val promptStrings: ActiveCapabilityPromptStrings,
     private val runNowPort: CronJobRunNowPort? = null,
     private val runNowPortProvider: () -> CronJobRunNowPort? = { runNowPort },
 ) {
@@ -51,6 +53,7 @@ class ActiveCapabilityRuntimeFacade(
         repository: CronJobRepositoryPort,
         scheduler: CronSchedulerPort,
         naturalLanguageParser: ActiveCapabilityNaturalLanguageParser,
+        promptStrings: ActiveCapabilityPromptStrings,
         runNowPortProvider: Provider<CronJobRunNowPort>,
     ) : this(
         repository = repository,
@@ -58,12 +61,13 @@ class ActiveCapabilityRuntimeFacade(
         clock = { System.currentTimeMillis() },
         idGenerator = { UUID.randomUUID().toString() },
         naturalLanguageParser = naturalLanguageParser,
+        promptStrings = promptStrings,
         runNowPortProvider = { runNowPortProvider.get() },
     )
 
     suspend fun createFutureTask(request: ActiveCapabilityCreateTaskRequest): ActiveCapabilityTaskCreation {
         val now = clock()
-        val name = request.payload.stringValue("name").ifBlank { "Unnamed Task" }
+        val name = request.payload.stringValue("name").ifBlank { promptStrings.defaultTaskName }
         val note = request.payload.stringValue("note")
         val hostRawText = request.metadata.hostRawText()
         val payloadSummary = request.payload.toCompactLogString()
@@ -71,7 +75,7 @@ class ActiveCapabilityRuntimeFacade(
             val failure = ActiveCapabilityTaskCreation.Failed(
                 ActiveCapabilityStructuredError(
                     code = "missing_note",
-                    message = "'note' is required for a future task and should describe the reminder or future action.",
+                    message = promptStrings.missingNoteMessage,
                     missingFields = listOf("note"),
                     retryable = false,
                 ),
@@ -89,7 +93,7 @@ class ActiveCapabilityRuntimeFacade(
             val failure = ActiveCapabilityTaskCreation.Failed(
                 ActiveCapabilityStructuredError(
                     code = "invalid_schedule",
-                    message = "Either 'cron_expression' or 'run_at' must be provided. Relative time expressions such as '5 minutes later' are only supported when they can be inferred from the current request.",
+                    message = promptStrings.invalidScheduleMessage,
                     retryable = false,
                 ),
             )
@@ -106,7 +110,7 @@ class ActiveCapabilityRuntimeFacade(
             val failure = ActiveCapabilityTaskCreation.Failed(
                 ActiveCapabilityStructuredError(
                     code = "past_schedule",
-                    message = "Scheduled task time is in the past. Set allow_past_immediate=true to run it immediately.",
+                    message = promptStrings.pastScheduleMessage,
                     retryable = false,
                 ),
             )
@@ -115,7 +119,11 @@ class ActiveCapabilityRuntimeFacade(
         }
         val cronExpression = adjustedSchedule.cronExpression
         val runAt = adjustedSchedule.runAt
-        val runOnce = request.payload.booleanValue("run_once") ?: runAt.isNotBlank()
+        val runOnce = when {
+            cronExpression.isNotBlank() -> false
+            runAt.isNotBlank() -> true
+            else -> request.payload.booleanValue("run_once") ?: false
+        }
         val enabled = request.payload.booleanValue("enabled") ?: true
         val target = request.targetContext ?: ActiveCapabilityTargetContext.resolve(request)
         val missingFields = target.missingRequiredFields()
@@ -124,7 +132,7 @@ class ActiveCapabilityRuntimeFacade(
             val failure = ActiveCapabilityTaskCreation.Failed(
                 ActiveCapabilityStructuredError(
                     code = "missing_context",
-                    message = "Scheduled task target is incomplete: ${missingFields.joinToString()}",
+                    message = promptStrings.missingContextMessage(missingFields.joinToString()),
                     missingFields = missingFields,
                     retryable = false,
                 ),
@@ -178,7 +186,7 @@ class ActiveCapabilityRuntimeFacade(
             return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "missing_job_id",
-                    message = "'job_id' is required to delete a task.",
+                    message = promptStrings.deleteMissingJobIdMessage,
                     missingFields = listOf("job_id"),
                 ),
             )
@@ -187,7 +195,7 @@ class ActiveCapabilityRuntimeFacade(
             ?: return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "not_found",
-                    message = "Task with job_id '$jobId' not found.",
+                    message = promptStrings.taskNotFoundMessage(jobId),
                 ),
             )
         repository.delete(jobId)
@@ -238,7 +246,7 @@ class ActiveCapabilityRuntimeFacade(
             return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "missing_job_id",
-                    message = "'job_id' is required to update a task.",
+                    message = promptStrings.updateMissingJobIdMessage,
                     missingFields = listOf("job_id"),
                 ),
             )
@@ -247,7 +255,7 @@ class ActiveCapabilityRuntimeFacade(
             ?: return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "not_found",
-                    message = "Task with job_id '$jobId' not found.",
+                    message = promptStrings.taskNotFoundMessage(jobId),
                 ),
             )
 
@@ -266,7 +274,7 @@ class ActiveCapabilityRuntimeFacade(
             return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "missing_job_id",
-                    message = "'job_id' is required to pause a task.",
+                    message = promptStrings.pauseMissingJobIdMessage,
                     missingFields = listOf("job_id"),
                 ),
             )
@@ -275,7 +283,7 @@ class ActiveCapabilityRuntimeFacade(
             ?: return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "not_found",
-                    message = "Task with job_id '$jobId' not found.",
+                    message = promptStrings.taskNotFoundMessage(jobId),
                 ),
             )
         val updated = repository.update(
@@ -294,7 +302,7 @@ class ActiveCapabilityRuntimeFacade(
             return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "missing_job_id",
-                    message = "'job_id' is required to resume a task.",
+                    message = promptStrings.resumeMissingJobIdMessage,
                     missingFields = listOf("job_id"),
                 ),
             )
@@ -303,7 +311,7 @@ class ActiveCapabilityRuntimeFacade(
             ?: return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "not_found",
-                    message = "Task with job_id '$jobId' not found.",
+                    message = promptStrings.taskNotFoundMessage(jobId),
                 ),
             )
         val updated = repository.update(
@@ -322,7 +330,7 @@ class ActiveCapabilityRuntimeFacade(
             return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "missing_job_id",
-                    message = "'job_id' is required to list task runs.",
+                    message = promptStrings.listRunsMissingJobIdMessage,
                     missingFields = listOf("job_id"),
                 ),
             )
@@ -344,7 +352,7 @@ class ActiveCapabilityRuntimeFacade(
             return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "missing_job_id",
-                    message = "'job_id' is required to run a task now.",
+                    message = promptStrings.runNowMissingJobIdMessage,
                     missingFields = listOf("job_id"),
                 ),
             )
@@ -353,7 +361,7 @@ class ActiveCapabilityRuntimeFacade(
             ?: return structuredErrorJson(
                 ActiveCapabilityStructuredError(
                     code = "run_now_unavailable",
-                    message = "No scheduled task runner is available in this runtime.",
+                    message = promptStrings.runNowUnavailableMessage,
                     retryable = false,
                 ),
             )
@@ -474,7 +482,11 @@ class ActiveCapabilityRuntimeFacade(
             },
             timezone = effectiveTimezone,
             payloadJson = updatedPayload,
-            runOnce = if (updatedRunAt.isNotBlank()) true else runOnce,
+            runOnce = when {
+                updatedRunAt.isNotBlank() -> true
+                updatedCron.isNotBlank() -> false
+                else -> runOnce
+            },
             nextRunTime = nextRun ?: nextRunTime,
             updatedAt = now,
         )
@@ -617,26 +629,26 @@ private fun java.time.ZonedDateTime.toResolvedSchedule(): ResolvedSchedule {
 }
 
 object ActiveCapabilityToolSchemas {
-    fun createFutureTaskSchema(): Map<String, Any?> {
+    fun createFutureTaskSchema(strings: ActiveCapabilityPromptStrings? = null): Map<String, Any?> {
         return mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "run_once" to mapOf("type" to "boolean", "description" to "Run the task only once."),
-                "name" to mapOf("type" to "string", "description" to "Optional short title for the task."),
-                "note" to mapOf("type" to "string", "description" to "Core instruction for the reminder, timed follow-up, or future action."),
-                "cron_expression" to mapOf("type" to "string", "description" to "Cron expression for recurring tasks."),
-                "run_at" to mapOf("type" to "string", "description" to "ISO 8601 datetime for one-time execution."),
-                "session" to mapOf("type" to "string", "description" to "Backward-compatible conversation/session id; usually auto-filled from the current runtime context."),
-                "timezone" to mapOf("type" to "string", "description" to "IANA timezone, for example Asia/Shanghai."),
-                "enabled" to mapOf("type" to "boolean", "description" to "Whether the task should be scheduled immediately."),
-                "allow_past_immediate" to mapOf("type" to "boolean", "description" to "If true, a past one-time schedule is accepted and runs immediately."),
-                "platform" to mapOf("type" to "string", "description" to "Runtime platform; usually auto-filled from the current runtime context."),
-                "conversation_id" to mapOf("type" to "string", "description" to "Target conversation id; usually auto-filled from the current runtime context."),
-                "bot_id" to mapOf("type" to "string", "description" to "Target bot id; usually auto-filled from the current runtime context."),
-                "config_profile_id" to mapOf("type" to "string", "description" to "Target config profile id; usually auto-filled from the current runtime context."),
-                "persona_id" to mapOf("type" to "string", "description" to "Optional persona id override; usually auto-filled from the current runtime context."),
-                "provider_id" to mapOf("type" to "string", "description" to "Target provider id; usually auto-filled from the current runtime context."),
-                "origin" to mapOf("type" to "string", "description" to "Creator origin, for example tool, api, or ui."),
+                "run_once" to mapOf("type" to "boolean", "description" to strings?.schemaCreateRunOnceDescription.orEmpty()),
+                "name" to mapOf("type" to "string", "description" to strings?.schemaCreateNameDescription.orEmpty()),
+                "note" to mapOf("type" to "string", "description" to strings?.schemaCreateNoteDescription.orEmpty()),
+                "cron_expression" to mapOf("type" to "string", "description" to strings?.schemaCreateCronExpressionDescription.orEmpty()),
+                "run_at" to mapOf("type" to "string", "description" to strings?.schemaCreateRunAtDescription.orEmpty()),
+                "session" to mapOf("type" to "string", "description" to strings?.schemaCreateSessionDescription.orEmpty()),
+                "timezone" to mapOf("type" to "string", "description" to strings?.schemaCreateTimezoneDescription.orEmpty()),
+                "enabled" to mapOf("type" to "boolean", "description" to strings?.schemaCreateEnabledDescription.orEmpty()),
+                "allow_past_immediate" to mapOf("type" to "boolean", "description" to strings?.schemaCreateAllowPastImmediateDescription.orEmpty()),
+                "platform" to mapOf("type" to "string", "description" to strings?.schemaCreatePlatformDescription.orEmpty()),
+                "conversation_id" to mapOf("type" to "string", "description" to strings?.schemaCreateConversationIdDescription.orEmpty()),
+                "bot_id" to mapOf("type" to "string", "description" to strings?.schemaCreateBotIdDescription.orEmpty()),
+                "config_profile_id" to mapOf("type" to "string", "description" to strings?.schemaCreateConfigProfileIdDescription.orEmpty()),
+                "persona_id" to mapOf("type" to "string", "description" to strings?.schemaCreatePersonaIdDescription.orEmpty()),
+                "provider_id" to mapOf("type" to "string", "description" to strings?.schemaCreateProviderIdDescription.orEmpty()),
+                "origin" to mapOf("type" to "string", "description" to strings?.schemaCreateOriginDescription.orEmpty()),
             ),
             "required" to listOf("note"),
         )

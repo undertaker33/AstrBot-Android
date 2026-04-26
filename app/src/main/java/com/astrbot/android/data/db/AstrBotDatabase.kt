@@ -19,6 +19,7 @@ import com.astrbot.android.data.db.core.migration17To18
 import com.astrbot.android.data.db.core.migration18To19
 import com.astrbot.android.data.db.core.migration19To20
 import com.astrbot.android.data.db.core.migration20To21
+import com.astrbot.android.data.db.core.migration21To22
 import com.astrbot.android.data.db.resource.ConfigResourceProjectionEntity
 import com.astrbot.android.data.db.resource.ResourceCenterDao
 import com.astrbot.android.data.db.resource.ResourceCenterItemEntity
@@ -66,7 +67,7 @@ import com.astrbot.android.data.db.resource.ResourceCenterItemEntity
         ResourceCenterItemEntity::class,
         ConfigResourceProjectionEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -264,6 +265,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
                         imageCaptionTextEnabled INTEGER NOT NULL,
                         webSearchEnabled INTEGER NOT NULL,
                         proactiveEnabled INTEGER NOT NULL,
+                        includeScheduledTaskConversationContext INTEGER NOT NULL,
                         ttsVoiceId TEXT NOT NULL,
                         imageCaptionPrompt TEXT NOT NULL,
                         adminUidsJson TEXT NOT NULL,
@@ -355,9 +357,10 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration16To17,
             migration17To18,
             migration18To19,
-            migration19To20,
-            migration20To21,
-        )
+        migration19To20,
+        migration20To21,
+        migration21To22,
+    )
 
         fun get(context: Context): AstrBotDatabase {
             return instance ?: synchronized(this) {

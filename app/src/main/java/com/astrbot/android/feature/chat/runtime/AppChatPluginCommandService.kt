@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.AppStrings

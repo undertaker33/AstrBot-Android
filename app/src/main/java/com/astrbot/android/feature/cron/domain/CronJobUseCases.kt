@@ -66,7 +66,7 @@ class CronJobUseCases(
                 success = false,
                 status = "failed",
                 errorCode = "missing_job_id",
-                message = "'job_id' is required to run a task now.",
+                message = "missing_job_id",
             )
         }
         return runNowPort?.runNow(jobId)
@@ -74,7 +74,7 @@ class CronJobUseCases(
                 success = false,
                 status = "unavailable",
                 errorCode = "run_now_unavailable",
-                message = "No scheduled task runner is available in this runtime.",
+                message = "run_now_unavailable",
             )
     }
 

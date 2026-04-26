@@ -10,15 +10,15 @@ import org.junit.Test
 class CronJobsPresentationTest {
 
     @Test
-    fun `cron jobs page shows five items per page`() {
+    fun `cron jobs page shows two items per page`() {
         val presentation = buildCronJobsPresentation(
             jobs = sampleJobs(6),
             requestedPage = 1,
         )
 
         assertEquals(1, presentation.currentPage)
-        assertEquals(2, presentation.totalPages)
-        assertEquals(listOf("job-1", "job-2", "job-3", "job-4", "job-5"), presentation.visibleJobs.map { it.jobId })
+        assertEquals(3, presentation.totalPages)
+        assertEquals(listOf("job-1", "job-2"), presentation.visibleJobs.map { it.jobId })
         assertFalse(presentation.canGoPrevious)
         assertTrue(presentation.canGoNext)
     }
@@ -78,8 +78,8 @@ class CronJobsPresentationTest {
             requestedPage = 99,
         )
 
-        assertEquals(2, presentation.currentPage)
-        assertEquals(listOf("job-6"), presentation.visibleJobs.map { it.jobId })
+        assertEquals(3, presentation.currentPage)
+        assertEquals(listOf("job-5", "job-6"), presentation.visibleJobs.map { it.jobId })
         assertTrue(presentation.canGoPrevious)
         assertFalse(presentation.canGoNext)
     }

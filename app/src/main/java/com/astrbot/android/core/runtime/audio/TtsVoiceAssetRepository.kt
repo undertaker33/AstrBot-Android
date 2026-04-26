@@ -1,3 +1,5 @@
+@file:Suppress("UNUSED_PARAMETER")
+
 package com.astrbot.android.core.runtime.audio
 
 import kotlinx.coroutines.flow.collect

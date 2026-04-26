@@ -4,6 +4,8 @@ import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.di.ProductionRuntimeContextDataPort
+import com.astrbot.android.core.runtime.search.WebSearchPromptStringProvider
+import com.astrbot.android.core.runtime.search.WebSearchTriggerIntent
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
@@ -27,6 +29,8 @@ class PromptAssemblerTest {
         )
 
         assertTrue(prompt!!.contains("create_future_task"))
+        assertTrue(prompt.contains("must call create_future_task"))
+        assertTrue(prompt.contains("Do not claim a reminder"))
         assertTrue(prompt.contains("web_search"))
         assertTrue(prompt.contains("remind"))
     }
@@ -37,7 +41,7 @@ class PromptAssemblerTest {
             event = scheduledEvent(),
             messages = emptyList(),
         )
-        val prompt = PromptAssembler.assemble(ctx)
+        val prompt = PromptAssembler.assemble(ctx, webSearchPromptStrings = TestWebSearchPromptStrings)
 
         assertTrue(prompt!!.contains("scheduled task"))
         assertTrue(prompt.contains("not a normal chat turn"))
@@ -54,19 +58,22 @@ class PromptAssemblerTest {
                 messageId = "message-1",
                 sender = SenderInfo(userId = "user-1"),
                 messageType = MessageType.OtherMessage,
-                text = "今天新闻有哪些",
+                text = "today news",
                 trigger = IngressTrigger.USER_MESSAGE,
             ),
             messages = emptyList(),
         )
 
-        val prompt = PromptAssembler.assemble(ctx)
+        val prompt = PromptAssembler.assemble(
+            ctx,
+            webSearchPromptStrings = TestWebSearchPromptStrings,
+        )
 
         assertTrue(prompt!!.contains("must call web_search"))
         assertTrue(prompt.contains("news"))
         assertTrue(prompt.contains("factual news summary"))
         assertTrue(prompt.contains("evaluation"))
-        assertTrue(prompt.contains("Do not repeat"))
+        assertTrue(prompt.contains("do not repeat news items"))
     }
 
     @Test
@@ -297,5 +304,26 @@ class PromptAssemblerTest {
             trigger = trigger,
             rawPlatformPayload = rawPlatformPayload,
         )
+    }
+
+    private object TestWebSearchPromptStrings : WebSearchPromptStringProvider {
+        override fun guidanceFor(intent: WebSearchTriggerIntent): String? {
+            return when (intent) {
+                WebSearchTriggerIntent.NEWS ->
+                    "The latest user message matches a news intent. You must call web_search before answering. " +
+                        "The host may send the factual news summary directly from tool results. " +
+                        "After tool results are available, do not repeat news items. " +
+                        "Provide only a brief evaluation in the configured persona."
+                WebSearchTriggerIntent.WEATHER ->
+                    "The latest user message asks for weather. You must call web_search before answering."
+                WebSearchTriggerIntent.REALTIME -> "Prefer calling web_search before answering."
+                WebSearchTriggerIntent.NONE -> null
+            }
+        }
+
+        override fun newsDirectDeliveryCommentary(
+            factText: String,
+            sent: Boolean,
+        ): String = "Do not repeat the news items. Only provide a brief evaluation. $factText $sent"
     }
 }

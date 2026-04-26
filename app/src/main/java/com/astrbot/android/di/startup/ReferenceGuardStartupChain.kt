@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.di.startup
 
 import com.astrbot.android.core.common.profile.PersonaReferenceGuard

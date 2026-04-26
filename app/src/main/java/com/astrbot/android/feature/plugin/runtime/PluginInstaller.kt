@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION", "UNUSED_PARAMETER")
+
 package com.astrbot.android.feature.plugin.runtime
 
 import android.content.Context

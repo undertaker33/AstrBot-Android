@@ -7,6 +7,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentFallbackResponder
 import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import javax.inject.Inject
 import kotlin.coroutines.CoroutineContext
@@ -40,6 +41,7 @@ internal class AppChatRuntimeServiceFactory @Inject constructor(
     private val providerInvocationServiceFactory: AppChatProviderInvocationServiceFactory,
     private val preparedReplyServiceFactory: AppChatPreparedReplyServiceFactory,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val scheduledTaskFallbackResponder: ScheduledTaskIntentFallbackResponder,
 ) {
     fun create(
         chatDependencies: ChatViewModelRuntimeBindings,
@@ -59,6 +61,7 @@ internal class AppChatRuntimeServiceFactory @Inject constructor(
                 ioDispatcher = ioDispatcher,
             ),
             gatewayFactory = gatewayFactory,
+            scheduledTaskFallbackResponder = scheduledTaskFallbackResponder,
         )
     }
 }

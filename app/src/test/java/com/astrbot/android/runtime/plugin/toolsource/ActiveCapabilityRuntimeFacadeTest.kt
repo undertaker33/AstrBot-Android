@@ -36,6 +36,7 @@ class ActiveCapabilityRuntimeFacadeTest {
             "session",
             "timezone",
             "enabled",
+            "allow_past_immediate",
             "platform",
             "conversation_id",
             "bot_id",
@@ -51,12 +52,81 @@ class ActiveCapabilityRuntimeFacadeTest {
     }
 
     @Test
+    fun create_future_task_with_cron_expression_creates_recurring_task_by_default() = runBlocking {
+        val now = OffsetDateTime.parse("2026-04-26T18:49:23+08:00").toInstant().toEpochMilli()
+        val repository = InMemoryActiveCapabilityTaskRepository()
+        val scheduler = RecordingActiveCapabilityScheduler()
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = repository,
+            scheduler = scheduler,
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
+            clock = { now },
+            idGenerator = { "job-recurring" },
+        )
+
+        val result = facade.createFutureTask(
+            ActiveCapabilityCreateTaskRequest(
+                payload = targetPayload() + mapOf(
+                    "name" to "Daily water",
+                    "note" to "Drink water",
+                    "cron_expression" to "0 8 * * *",
+                    "timezone" to "Asia/Shanghai",
+                ),
+                metadata = null,
+                toolSourceContext = null,
+            ),
+        )
+
+        assertTrue(result is ActiveCapabilityTaskCreation.Created)
+        val created = result as ActiveCapabilityTaskCreation.Created
+        assertFalse(created.job.runOnce)
+        assertEquals("0 8 * * *", created.job.cronExpression)
+        assertEquals(
+            OffsetDateTime.parse("2026-04-27T08:00:00+08:00").toInstant().toEpochMilli(),
+            created.job.nextRunTime,
+        )
+        assertEquals(created.job, repository.created.single())
+        assertEquals(created.job, scheduler.scheduled.single())
+    }
+
+    @Test
+    fun create_future_task_with_cron_expression_stays_recurring_even_if_run_once_is_true() = runBlocking {
+        val now = OffsetDateTime.parse("2026-04-26T18:49:23+08:00").toInstant().toEpochMilli()
+        val facade = ActiveCapabilityRuntimeFacade(
+            repository = InMemoryActiveCapabilityTaskRepository(),
+            scheduler = RecordingActiveCapabilityScheduler(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
+            clock = { now },
+            idGenerator = { "job-recurring" },
+        )
+
+        val result = facade.createFutureTask(
+            ActiveCapabilityCreateTaskRequest(
+                payload = targetPayload() + mapOf(
+                    "note" to "Drink water",
+                    "cron_expression" to "0 8 * * *",
+                    "run_once" to true,
+                    "timezone" to "Asia/Shanghai",
+                ),
+                metadata = null,
+                toolSourceContext = null,
+            ),
+        )
+
+        assertTrue(result is ActiveCapabilityTaskCreation.Created)
+        val created = result as ActiveCapabilityTaskCreation.Created
+        assertFalse(created.job.runOnce)
+        assertEquals("0 8 * * *", created.job.cronExpression)
+    }
+
+    @Test
     fun create_future_task_auto_fills_target_context_from_runtime_metadata_and_session_alias() = runBlocking {
         val repository = InMemoryActiveCapabilityTaskRepository()
         val scheduler = RecordingActiveCapabilityScheduler()
         val facade = ActiveCapabilityRuntimeFacade(
             repository = repository,
             scheduler = scheduler,
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 1_000L },
             idGenerator = { "job-1" },
         )
@@ -122,6 +192,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = InMemoryActiveCapabilityTaskRepository(),
             scheduler = RecordingActiveCapabilityScheduler(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 1_000L },
             idGenerator = { "job-1" },
         )
@@ -157,6 +228,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = InMemoryActiveCapabilityTaskRepository(),
             scheduler = RecordingActiveCapabilityScheduler(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 1_000L },
             idGenerator = { "job-1" },
         )
@@ -187,6 +259,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = repository,
             scheduler = scheduler,
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { now },
             idGenerator = { "job-relative" },
         )
@@ -282,6 +355,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = repository,
             scheduler = scheduler,
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { now },
             idGenerator = { "job-immediate" },
         )
@@ -312,6 +386,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = repository,
             scheduler = scheduler,
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 1_000L },
             idGenerator = { "job-onebot" },
         )
@@ -355,6 +430,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = InMemoryActiveCapabilityTaskRepository(),
             scheduler = RecordingActiveCapabilityScheduler(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 1_000L },
             idGenerator = { "job-1" },
         )
@@ -394,6 +470,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = InMemoryActiveCapabilityTaskRepository(),
             scheduler = RecordingActiveCapabilityScheduler(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { now },
             idGenerator = { jobId },
         )
@@ -417,6 +494,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = repository,
             scheduler = scheduler,
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 10_000L },
         )
 
@@ -457,6 +535,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = InMemoryActiveCapabilityTaskRepository(executionRecords = records),
             scheduler = RecordingActiveCapabilityScheduler(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
         )
 
         val listed = facade.listFutureTaskRuns(jobId = "job-1", limit = 2)
@@ -489,6 +568,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = repository,
             scheduler = scheduler,
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 10_000L },
         )
 
@@ -511,6 +591,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         assertEquals("Updated note", stored.description)
         assertEquals("0 10 * * *", stored.cronExpression)
         assertEquals("UTC", stored.timezone)
+        assertFalse(stored.runOnce)
         assertTrue(stored.enabled)
         assertEquals(stored, scheduler.scheduled.single())
         assertTrue(scheduler.cancelled.isEmpty())
@@ -527,6 +608,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = repository,
             scheduler = scheduler,
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 10_000L },
         )
 
@@ -556,6 +638,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = InMemoryActiveCapabilityTaskRepository(),
             scheduler = RecordingActiveCapabilityScheduler(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             runNowPort = runner,
         )
 
@@ -573,6 +656,7 @@ class ActiveCapabilityRuntimeFacadeTest {
         val facade = ActiveCapabilityRuntimeFacade(
             repository = InMemoryActiveCapabilityTaskRepository(),
             scheduler = RecordingActiveCapabilityScheduler(),
+            promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
         )
 
         val result = facade.runFutureTaskNow("")

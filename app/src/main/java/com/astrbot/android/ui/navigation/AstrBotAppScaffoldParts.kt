@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.ui.navigation
 
 import androidx.compose.ui.unit.dp

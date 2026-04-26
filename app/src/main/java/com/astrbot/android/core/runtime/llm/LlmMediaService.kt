@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.core.runtime.llm
 
 import com.astrbot.android.model.ProviderProfile

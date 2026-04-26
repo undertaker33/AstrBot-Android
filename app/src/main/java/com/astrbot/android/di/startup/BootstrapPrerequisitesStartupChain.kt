@@ -1,3 +1,5 @@
+@file:Suppress("UNUSED_PARAMETER")
+
 package com.astrbot.android.di.startup
 
 import android.app.Application

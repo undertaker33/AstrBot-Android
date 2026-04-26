@@ -308,10 +308,6 @@
     <string name="me_card_assets_subtitle">Download or clear optional runtime assets such as TTS conversion support</string>
     <string name="me_card_backup_title">Data Backup</string>
     <string name="me_card_backup_subtitle">Back up and restore bots, models, personas, conversations, and configs</string>
-    <string name="me_card_cron_title">Scheduled Tasks</string>
-    <string name="me_card_cron_subtitle">Create and manage scheduled tasks and proactive capabilities</string>
-    <string name="cron_jobs_title">Scheduled Tasks</string>
-    <string name="cron_jobs_subtitle">View scheduled tasks and proactive capabilities</string>
     <string name="me_card_resource_center_title">Resource Center</string>
     <string name="me_card_resource_center_subtitle">Manage MCP and Skill resources, and review host tool capabilities</string>
     <string name="resource_center_title">Resource Center</string>
@@ -368,51 +364,6 @@
     <string name="host_tool_send_notification_description">Post a host notification from the runtime.</string>
     <string name="host_tool_open_host_page_title">Open Host Page</string>
     <string name="host_tool_open_host_page_description">Open a host page route from a tool invocation.</string>
-    <string name="cron_jobs_empty_hint">No scheduled tasks yet.</string>
-    <string name="cron_empty_hint">No scheduled tasks yet.</string>
-    <string name="cron_jobs_field_cron">Cron</string>
-    <string name="cron_jobs_field_session">Conversation ID</string>
-    <string name="cron_jobs_field_next_run">Next run</string>
-    <string name="cron_jobs_field_last_run">Last run</string>
-    <string name="cron_jobs_field_status">Status</string>
-    <string name="cron_jobs_field_description">Description</string>
-    <string name="cron_label_next_run">Next run: %1$s</string>
-    <string name="cron_label_run_once">Run once</string>
-    <string name="cron_label_status">Status: %1$s</string>
-    <string name="cron_jobs_add_content_description">Create scheduled task</string>
-    <string name="cron_create_title">Create scheduled task</string>
-    <string name="cron_field_name">Task name</string>
-    <string name="cron_field_note">Task description / instruction</string>
-    <string name="cron_field_cron_expression">Cron expression (recurring)</string>
-    <string name="cron_field_run_at">Run at (ISO 8601, one-time)</string>
-    <string name="cron_field_run_once">Run once</string>
-    <string name="cron_field_platform">Target platform</string>
-    <string name="cron_field_conversation_id">Conversation ID</string>
-    <string name="cron_field_bot_id">Bot ID</string>
-    <string name="cron_field_config_profile_id">Config profile ID</string>
-    <string name="cron_field_persona_id">Persona ID</string>
-    <string name="cron_field_provider_id">Provider ID</string>
-    <string name="cron_platform_app_chat">In-app chat</string>
-    <string name="cron_platform_qq_onebot">QQ</string>
-    <string name="cron_create_confirm">Create</string>
-    <string name="cron_create_cancel">Cancel</string>
-    <string name="cron_edit_title">Edit scheduled task</string>
-    <string name="cron_edit_confirm">Save</string>
-    <string name="cron_action_edit">Edit</string>
-    <string name="cron_action_delete">Delete</string>
-    <string name="cron_action_enable">Enable</string>
-    <string name="cron_action_disable">Disable</string>
-    <string name="cron_action_pause">Pause</string>
-    <string name="cron_action_resume">Resume</string>
-    <string name="cron_action_runs">Runs</string>
-    <string name="cron_runs_title">%1$s runs</string>
-    <string name="cron_runs_loading">Loading runs…</string>
-    <string name="cron_runs_empty">No execution records yet.</string>
-    <string name="cron_runs_error">Unable to load runs: %1$s</string>
-    <string name="cron_runs_status_line">%1$s · attempt %2$d</string>
-    <string name="cron_runs_time_line">Started %1$s · completed %2$s</string>
-    <string name="cron_delete_confirm_title">Delete scheduled task?</string>
-    <string name="cron_delete_confirm_message">This removes %1$s and cancels any pending schedule.</string>
     <string name="me_cache_cleanup_title">Runtime Cache Cleanup</string>
     <string name="me_cache_cleanup_subtitle">Clear downloads, temp audio, apt archives, and QQ logs</string>
     <string name="me_cache_cleanup_action">Clear cache now</string>
@@ -890,6 +841,8 @@
     <string name="config_web_search_desc">Enable web search tools for this config profile.</string>
     <string name="config_proactive_title">Scheduled tasks</string>
     <string name="config_proactive_desc">Allow the runtime to create and manage scheduled reminders and future tasks.</string>
+    <string name="config_scheduled_task_context_title">Use chat context for scheduled tasks</string>
+    <string name="config_scheduled_task_context_desc">Include recent conversation as read-only background when a scheduled task wakes. This may use extra tokens.</string>
     <string name="config_placeholder_round_three"></string>
     <string name="config_placeholder_round_four"></string>
     <string name="config_placeholder_automation"></string>
@@ -1023,59 +976,10 @@
     <string name="plugin_trigger_on_plugin_entry_click">On plugin entry click</string>
     <string name="plugin_trigger_on_command">On command</string>
     <string name="plugin_trigger_on_conversation_enter">On conversation enter</string>
-    <string name="cron_field_bot">Bot</string>
-    <string name="cron_field_bot_no_options">No bots available</string>
 
     <string name="plugin_deep_link_repository_title">Add plugin repository?</string>
     <string name="plugin_deep_link_install_title">Install plugin package?</string>
     <string name="plugin_deep_link_confirm_message">External link requested this plugin action:\n%1$s\nContinue only if you trust the source.</string>
     <string name="plugin_deep_link_confirm_action">Continue</string>
     <string name="plugin_deep_link_cancel_action">Cancel</string>
-
-    <string-array name="active_capability_nl_tomorrow_tokens">
-        <item>tomorrow</item>
-        <item>明天</item>
-        <item>明早</item>
-        <item>明晚</item>
-    </string-array>
-    <string-array name="active_capability_nl_day_after_tomorrow_tokens">
-        <item>day after tomorrow</item>
-        <item>后天</item>
-    </string-array>
-    <string-array name="active_capability_nl_tonight_tokens">
-        <item>tonight</item>
-        <item>今晚</item>
-    </string-array>
-    <string-array name="active_capability_nl_morning_tokens">
-        <item>morning</item>
-        <item>早上</item>
-        <item>上午</item>
-        <item>明早</item>
-    </string-array>
-    <string-array name="active_capability_nl_noon_tokens">
-        <item>noon</item>
-        <item>中午</item>
-    </string-array>
-    <string-array name="active_capability_nl_afternoon_tokens">
-        <item>afternoon</item>
-        <item>下午</item>
-    </string-array>
-    <string-array name="active_capability_nl_evening_tokens">
-        <item>evening</item>
-        <item>晚上</item>
-        <item>晚间</item>
-        <item>明晚</item>
-    </string-array>
-    <string-array name="active_capability_nl_half_hour_tokens">
-        <item>half an hour later</item>
-        <item>in half an hour</item>
-        <item>半小时后</item>
-        <item>半个小时后</item>
-    </string-array>
-    <string-array name="active_capability_nl_one_and_half_hour_tokens">
-        <item>one and a half hours later</item>
-        <item>in one and a half hours</item>
-        <item>一个半小时后</item>
-        <item>一小时半后</item>
-    </string-array>
 </resources>

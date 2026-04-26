@@ -333,7 +333,7 @@ internal fun buildResourceCompatibilitySnapshotPresentation(
 internal fun buildCronJobsPresentation(
     jobs: List<CronJob>,
     requestedPage: Int,
-    pageSize: Int = 5,
+    pageSize: Int = 2,
 ): CronJobsPagePresentation {
     require(pageSize > 0) { "pageSize must be greater than 0." }
     val totalPages = maxOf(1, (jobs.size + pageSize - 1) / pageSize)

@@ -112,6 +112,7 @@ class PluginV2ToolLoopCoordinatorTest {
         )
 
         assertEquals(listOf("alpha", "beta"), executed.toList())
+        assertEquals(listOf("alpha", "beta"), result.executedToolNames)
         assertEquals("final-assistant", result.sendableResult.text)
     }
 
@@ -141,6 +142,7 @@ class PluginV2ToolLoopCoordinatorTest {
             input = pipelineInput(
                 event = sampleMessageEvent(rawText = "search AstrBot news"),
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
+                systemPrompt = "Base persona instruction.",
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
@@ -191,6 +193,7 @@ class PluginV2ToolLoopCoordinatorTest {
         )
 
         val second = seenRequests[1]
+        assertEquals("Base persona instruction.", second.systemPrompt)
         val assistant = second.messages[second.messages.size - 2]
         assertEquals(PluginProviderMessageRole.ASSISTANT, assistant.role)
         assertTrue(assistant.parts.isEmpty())
@@ -1639,6 +1642,7 @@ class PluginV2ToolLoopCoordinatorTest {
     private fun pipelineInput(
         event: PluginMessageEvent,
         streamingMode: PluginV2StreamingMode,
+        systemPrompt: String? = null,
         invokeProvider: suspend (PluginProviderRequest, PluginV2StreamingMode) -> PluginV2ProviderInvocationResult,
     ): PluginV2LlmPipelineInput {
         return PluginV2LlmPipelineInput(
@@ -1652,6 +1656,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ),
             selectedProviderId = "provider-a",
             selectedModelId = "model-a-1",
+            systemPrompt = systemPrompt,
             messages = listOf(
                 PluginProviderMessageDto(
                     role = PluginProviderMessageRole.USER,

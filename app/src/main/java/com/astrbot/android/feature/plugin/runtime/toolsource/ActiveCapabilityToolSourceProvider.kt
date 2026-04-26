@@ -7,6 +7,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceKind
 import com.astrbot.android.feature.plugin.runtime.PluginToolVisibility
+import com.astrbot.android.feature.cron.runtime.ActiveCapabilityPromptStrings
 import javax.inject.Inject
 
 /**
@@ -18,6 +19,7 @@ import javax.inject.Inject
  */
 class ActiveCapabilityToolSourceProvider @Inject constructor(
     private val facade: ActiveCapabilityRuntimeFacade,
+    private val promptStrings: ActiveCapabilityPromptStrings,
     override val contextResolver: FutureToolSourceContextResolver,
 ) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY
@@ -64,9 +66,9 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                     "proactive_disabled"
                 },
                 detailMessage = if (context.toolSourceContext.ingressTrigger == IngressTrigger.SCHEDULED_TASK) {
-                    "Active capability tools are hidden while a scheduled task is being delivered."
+                    promptStrings.activeCapabilityHiddenDuringScheduledTask
                 } else {
-                    "Proactive capability is disabled in this config profile."
+                    promptStrings.proactiveCapabilityDisabled
                 },
             )
         }
@@ -107,7 +109,7 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                     toolId = request.args.toolId,
                     status = PluginToolResultStatus.ERROR,
                     errorCode = "active_capability_error",
-                    text = "Error: ${e.message}",
+                    text = promptStrings.activeCapabilityToolError(e.message.orEmpty()),
                 ),
             )
         }
@@ -190,15 +192,15 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 ownerId = ownerId,
                 sourceRef = "create_future_task",
-                displayName = "Schedule Future Task",
+                displayName = promptStrings.createFutureTaskDisplayName,
             ),
             descriptor = PluginToolDescriptor(
                 pluginId = ownerId,
                 name = "create_future_task",
-                description = "Schedule reminders, timed follow-ups, and future proactive actions. Provide note as the core instruction, with cron_expression for recurring or run_at (ISO 8601) for one-time tasks.",
+                description = promptStrings.createFutureTaskDescription,
                 visibility = PluginToolVisibility.LLM_VISIBLE,
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
-                inputSchema = ActiveCapabilityToolSchemas.createFutureTaskSchema(),
+                inputSchema = ActiveCapabilityToolSchemas.createFutureTaskSchema(promptStrings),
             ),
         )
     }
@@ -210,18 +212,18 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 ownerId = ownerId,
                 sourceRef = "delete_future_task",
-                displayName = "Cancel Future Task",
+                displayName = promptStrings.deleteFutureTaskDisplayName,
             ),
             descriptor = PluginToolDescriptor(
                 pluginId = ownerId,
                 name = "delete_future_task",
-                description = "Cancel and delete a previously scheduled future task.",
+                description = promptStrings.deleteFutureTaskDescription,
                 visibility = PluginToolVisibility.LLM_VISIBLE,
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 inputSchema = mapOf(
                     "type" to "object",
                     "properties" to mapOf(
-                        "job_id" to mapOf("type" to "string", "description" to "The job_id of the task to cancel"),
+                        "job_id" to mapOf("type" to "string", "description" to promptStrings.schemaJobIdCancelDescription),
                     ),
                     "required" to listOf("job_id"),
                 ),
@@ -236,12 +238,12 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 ownerId = ownerId,
                 sourceRef = "list_future_tasks",
-                displayName = "List Future Tasks",
+                displayName = promptStrings.listFutureTasksDisplayName,
             ),
             descriptor = PluginToolDescriptor(
                 pluginId = ownerId,
                 name = "list_future_tasks",
-                description = "List all scheduled future tasks with status, next run time, and execution summary.",
+                description = promptStrings.listFutureTasksDescription,
                 visibility = PluginToolVisibility.LLM_VISIBLE,
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 inputSchema = mapOf("type" to "object"),
@@ -252,16 +254,16 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
     private fun buildPauseTaskBinding(): ToolSourceDescriptorBinding {
         return taskByIdBinding(
             sourceRef = "pause_future_task",
-            displayName = "Pause Future Task",
-            description = "Pause a scheduled future task without deleting it.",
+            displayName = promptStrings.pauseFutureTaskDisplayName,
+            description = promptStrings.pauseFutureTaskDescription,
         )
     }
 
     private fun buildResumeTaskBinding(): ToolSourceDescriptorBinding {
         return taskByIdBinding(
             sourceRef = "resume_future_task",
-            displayName = "Resume Future Task",
-            description = "Resume a paused scheduled future task.",
+            displayName = promptStrings.resumeFutureTaskDisplayName,
+            description = promptStrings.resumeFutureTaskDescription,
         )
     }
 
@@ -272,19 +274,19 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 ownerId = ownerId,
                 sourceRef = "list_future_task_runs",
-                displayName = "List Future Task Runs",
+                displayName = promptStrings.listFutureTaskRunsDisplayName,
             ),
             descriptor = PluginToolDescriptor(
                 pluginId = ownerId,
                 name = "list_future_task_runs",
-                description = "List recent execution records for a scheduled future task.",
+                description = promptStrings.listFutureTaskRunsDescription,
                 visibility = PluginToolVisibility.LLM_VISIBLE,
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 inputSchema = mapOf(
                     "type" to "object",
                     "properties" to mapOf(
-                        "job_id" to mapOf("type" to "string", "description" to "The job_id of the task."),
-                        "limit" to mapOf("type" to "number", "description" to "Maximum number of recent runs to return."),
+                        "job_id" to mapOf("type" to "string", "description" to promptStrings.schemaJobIdDescription),
+                        "limit" to mapOf("type" to "number", "description" to promptStrings.schemaRunsLimitDescription),
                     ),
                     "required" to listOf("job_id"),
                 ),
@@ -299,25 +301,25 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 ownerId = ownerId,
                 sourceRef = "update_future_task",
-                displayName = "Update Future Task",
+                displayName = promptStrings.updateFutureTaskDisplayName,
             ),
             descriptor = PluginToolDescriptor(
                 pluginId = ownerId,
                 name = "update_future_task",
-                description = "Update conservative fields on a scheduled future task without changing its target context.",
+                description = promptStrings.updateFutureTaskDescription,
                 visibility = PluginToolVisibility.LLM_VISIBLE,
                 sourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY,
                 inputSchema = mapOf(
                     "type" to "object",
                     "properties" to mapOf(
-                        "job_id" to mapOf("type" to "string", "description" to "The job_id of the task."),
-                        "name" to mapOf("type" to "string", "description" to "Updated short title."),
-                        "note" to mapOf("type" to "string", "description" to "Updated task instruction."),
-                        "enabled" to mapOf("type" to "boolean", "description" to "Whether the task is enabled."),
-                        "status" to mapOf("type" to "string", "description" to "Updated task status, for example scheduled or paused."),
-                        "run_at" to mapOf("type" to "string", "description" to "Updated ISO 8601 one-time run time."),
-                        "cron_expression" to mapOf("type" to "string", "description" to "Updated cron expression for recurring tasks."),
-                        "timezone" to mapOf("type" to "string", "description" to "Updated IANA timezone."),
+                        "job_id" to mapOf("type" to "string", "description" to promptStrings.schemaJobIdDescription),
+                        "name" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedShortTitleDescription),
+                        "note" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedTaskInstructionDescription),
+                        "enabled" to mapOf("type" to "boolean", "description" to promptStrings.schemaTaskEnabledDescription),
+                        "status" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedTaskStatusDescription),
+                        "run_at" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedRunAtDescription),
+                        "cron_expression" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedCronExpressionDescription),
+                        "timezone" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedTimezoneDescription),
                     ),
                     "required" to listOf("job_id"),
                 ),
@@ -328,8 +330,8 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
     private fun buildRunTaskNowBinding(): ToolSourceDescriptorBinding {
         return taskByIdBinding(
             sourceRef = "run_future_task_now",
-            displayName = "Run Future Task Now",
-            description = "Run a scheduled future task immediately through the injected scheduled task runner.",
+            displayName = promptStrings.runFutureTaskNowDisplayName,
+            description = promptStrings.runFutureTaskNowDescription,
         )
     }
 
@@ -355,7 +357,7 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 inputSchema = mapOf(
                     "type" to "object",
                     "properties" to mapOf(
-                        "job_id" to mapOf("type" to "string", "description" to "The job_id of the task."),
+                        "job_id" to mapOf("type" to "string", "description" to promptStrings.schemaJobIdDescription),
                     ),
                     "required" to listOf("job_id"),
                 ),

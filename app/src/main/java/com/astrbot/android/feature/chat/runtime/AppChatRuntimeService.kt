@@ -27,6 +27,8 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentFallbackResponder
+import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentGuardContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
@@ -45,6 +47,7 @@ internal class AppChatRuntimeService(
     private val providerInvocationService: AppChatProviderInvocationService,
     private val preparedReplyService: AppChatPreparedReplyService,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val scheduledTaskFallbackResponder: ScheduledTaskIntentFallbackResponder? = null,
 ) : AppChatRuntimePort {
 
     override fun send(request: AppChatRequest): Flow<AppChatRuntimeEvent> = flow {
@@ -106,8 +109,29 @@ internal class AppChatRuntimeService(
                 override suspend fun prepareReply(
                     result: PluginV2LlmPipelineResult,
                 ): PluginV2HostPreparedReply {
+                    val effectiveResult = scheduledTaskFallbackResponder?.applyFallbackIfNeeded(
+                        userText = userMessage.content,
+                        context = ScheduledTaskIntentGuardContext(
+                            proactiveEnabled = config?.proactiveEnabled == true,
+                            platform = RuntimePlatform.APP_CHAT.wireValue,
+                            conversationId = session.originSessionId.ifBlank { session.id },
+                            botId = bot.id,
+                            configProfileId = config?.id ?: bot.configProfileId,
+                            personaId = session.personaId,
+                            providerId = provider.id,
+                        ),
+                        pipelineResult = result,
+                        invokeProvider = { followupRequest ->
+                            providerInvocationService.invokeProvider(
+                                request = followupRequest,
+                                mode = PluginV2StreamingMode.NON_STREAM,
+                                config = config,
+                                ctx = runtimeContext,
+                            )
+                        },
+                    ) ?: result
                     return preparedReplyService.prepareReply(
-                        result = result,
+                        result = effectiveResult,
                         wantsTts = wantsTts,
                         ttsProvider = ttsProvider,
                         ttsConfig = config,

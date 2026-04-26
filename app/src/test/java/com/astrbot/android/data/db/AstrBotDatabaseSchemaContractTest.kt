@@ -79,7 +79,7 @@ class AstrBotDatabaseSchemaContractTest {
 
     @Test
     fun latestMigration_targetsVersion20() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 21)
+        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 22)
     }
 
     @Test
@@ -122,6 +122,29 @@ class AstrBotDatabaseSchemaContractTest {
             AstrBotDatabase.allMigrations.any { migration ->
                 migration.startVersion == 20 && migration.endVersion == 21
             },
+        )
+    }
+
+    @Test
+    fun migrations_include21To22Step() {
+        assertTrue(
+            AstrBotDatabase.allMigrations.any { migration ->
+                migration.startVersion == 21 && migration.endVersion == 22
+            },
+        )
+    }
+
+    @Test
+    fun version22Schema_containsScheduledTaskConversationContextFlag() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/22.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/22.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v22 was not found")
+        val schema = schemaFile.readText()
+
+        assertTrue(
+            "Expected includeScheduledTaskConversationContext to exist in v22 schema",
+            "includeScheduledTaskConversationContext" in schema,
         )
     }
 

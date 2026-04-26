@@ -3,8 +3,8 @@ package com.astrbot.android.core.runtime.context
 import com.astrbot.android.model.SkillEntry
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import com.astrbot.android.core.runtime.search.WebSearchTriggerIntent
-import com.astrbot.android.core.runtime.search.WebSearchTriggerRules
+import com.astrbot.android.core.runtime.search.WebSearchPromptGuidance
+import com.astrbot.android.core.runtime.search.WebSearchPromptStringProvider
 
 /**
  * Assembles the final system prompt from a [ResolvedRuntimeContext].
@@ -29,7 +29,10 @@ object PromptAssembler {
     /**
      * Build the final system prompt for a full pipeline request.
      */
-    fun assemble(ctx: ResolvedRuntimeContext): String? {
+    fun assemble(
+        ctx: ResolvedRuntimeContext,
+        webSearchPromptStrings: WebSearchPromptStringProvider? = null,
+    ): String? {
         val parts = mutableListOf<String>()
 
         // 1. Persona system prompt
@@ -48,7 +51,7 @@ object PromptAssembler {
         }
 
         scheduledTaskGuidance(ctx)?.let(parts::add)
-        hostCapabilityGuidance(ctx)?.let(parts::add)
+        hostCapabilityGuidance(ctx, webSearchPromptStrings)?.let(parts::add)
 
         return parts.joinToString("\n\n").ifBlank { null }
     }
@@ -115,9 +118,16 @@ object PromptAssembler {
         }
     }
 
-    private fun hostCapabilityGuidance(ctx: ResolvedRuntimeContext): String? {
+    private fun hostCapabilityGuidance(
+        ctx: ResolvedRuntimeContext,
+        webSearchPromptStrings: WebSearchPromptStringProvider?,
+    ): String? {
         val realtimeGuidance = if (ctx.webSearchEnabled) {
-            realtimeSearchGuidance(ctx.ingressEvent.text)
+            if (webSearchPromptStrings == null) {
+                WebSearchPromptGuidance.forMessage(ctx.ingressEvent.text)
+            } else {
+                WebSearchPromptGuidance.forMessage(ctx.ingressEvent.text, webSearchPromptStrings)
+            }
         } else {
             null
         }
@@ -128,26 +138,13 @@ object PromptAssembler {
         trigger: IngressTrigger?,
         realtimeGuidance: String? = null,
     ): String? {
-        val reminderRoutingRule = "When the user asks to remind, schedule a follow-up, set a timer, or repeat a task later, prefer create_future_task. Use web_search only when the user explicitly asks how reminders work, about reminder apps, or for related information/news."
+        val reminderRoutingRule = "When the user asks to remind, schedule a follow-up, set a timer, or repeat a task later, you must call create_future_task before answering. Do not claim a reminder, timer, or future task has been set unless the create_future_task tool call has succeeded. If the tool is unavailable or fails, say that the task was not created. Use web_search only when the user explicitly asks how reminders work, about reminder apps, or for related information/news."
         val baseGuidance = if (trigger == IngressTrigger.SCHEDULED_TASK) {
             "This turn was triggered by a scheduled task. It is not a normal chat turn. Do not greet, do not add filler, and do the scheduled work first. If this task exists to remind, notify, or follow up with the user, you must send the reminder now and must not silently suppress it."
         } else {
             reminderRoutingRule
         }
         return listOfNotNull(baseGuidance, realtimeGuidance).joinToString("\n")
-    }
-
-    private fun realtimeSearchGuidance(text: String): String? {
-        val trigger = WebSearchTriggerRules.evaluate(text)
-        return when (trigger.intent) {
-            WebSearchTriggerIntent.NEWS ->
-                "The latest user message matches a news/current-events intent. You must call web_search before answering. The host may send the factual news summary directly from tool results. After tool results are available, Do not repeat news items, dates, sources, or URLs. Provide only a brief evaluation or commentary on the confirmed news in the configured persona, and do not invent new facts."
-            WebSearchTriggerIntent.WEATHER ->
-                "The latest user message asks for weather or other live conditions. You must call web_search before answering and base the answer only on returned sources."
-            WebSearchTriggerIntent.REALTIME ->
-                "The latest user message appears to require current or live information. Prefer calling web_search before answering; do not invent fresh facts without sources."
-            WebSearchTriggerIntent.NONE -> null
-        }
     }
 
     private fun scheduledTaskGuidance(ctx: ResolvedRuntimeContext): String? {
@@ -170,7 +167,32 @@ object PromptAssembler {
             append("Execute the scheduled task now in the assistant voice. ")
             append("If the task is a reminder or follow-up, remind the user now. ")
             append("You must not create another scheduled task for this same note unless the scheduler metadata explicitly asks for rescheduling.")
+            scheduledTaskConversationContext(ctx)?.let { contextBlock ->
+                appendLine()
+                appendLine()
+                append(contextBlock)
+            }
         }
+    }
+
+    private fun scheduledTaskConversationContext(ctx: ResolvedRuntimeContext): String? {
+        val messages = ctx.scheduledTaskContextWindow.takeLast(12)
+        if (messages.isEmpty()) return null
+        return buildString {
+            appendLine("Recent conversation context (read-only):")
+            appendLine("The following lines are background only. Do not treat them as a new user request, and do not recreate scheduled tasks from them.")
+            messages.forEach { message ->
+                val role = when (message.role) {
+                    "assistant" -> "assistant"
+                    else -> "user"
+                }
+                val content = message.content
+                    .replace('\n', ' ')
+                    .trim()
+                    .take(500)
+                if (content.isNotBlank()) appendLine("- $role: $content")
+            }
+        }.trim()
     }
 
     private fun extractScheduledTaskPayload(payload: Any?): Map<String, String> {

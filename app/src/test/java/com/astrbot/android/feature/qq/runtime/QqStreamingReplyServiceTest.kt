@@ -6,6 +6,8 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
 import com.astrbot.android.feature.qq.domain.IncomingQqMessage
 import com.astrbot.android.feature.qq.domain.QqReplyPayload
+import com.astrbot.android.core.runtime.search.WebSearchPromptStringProvider
+import com.astrbot.android.core.runtime.search.WebSearchTriggerIntent
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
@@ -33,6 +35,7 @@ class QqStreamingReplyServiceTest {
                 },
             ),
             synthesizeSpeech = { _, _, _, _ -> error("unused") },
+            webSearchPromptStrings = TestWebSearchPromptStrings,
         )
         val prepared = PluginV2HostPreparedReply(
             text = listOf(
@@ -71,6 +74,7 @@ class QqStreamingReplyServiceTest {
                 },
             ),
             synthesizeSpeech = { _, _, _, _ -> error("unused") },
+            webSearchPromptStrings = TestWebSearchPromptStrings,
         )
         val original = PluginToolResult(
             toolCallId = "call-1",
@@ -149,5 +153,17 @@ class QqStreamingReplyServiceTest {
             messageType = MessageType.FriendMessage,
             rawPayload = "{}",
         )
+    }
+
+    private object TestWebSearchPromptStrings : WebSearchPromptStringProvider {
+        override fun guidanceFor(intent: WebSearchTriggerIntent): String? = null
+
+        override fun newsDirectDeliveryCommentary(
+            factText: String,
+            sent: Boolean,
+        ): String {
+            return "Do not repeat the news items. Only provide a brief evaluation. " +
+                "Sent summary:\n$factText\nsent=$sent"
+        }
     }
 }

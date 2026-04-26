@@ -22,15 +22,15 @@ data class ActiveCapabilityNaturalLanguageLexicon(
     companion object {
         fun default(): ActiveCapabilityNaturalLanguageLexicon {
             return ActiveCapabilityNaturalLanguageLexicon(
-                tomorrowTokens = listOf("明天", "明早", "明晚", "tomorrow"),
-                dayAfterTomorrowTokens = listOf("后天", "day after tomorrow"),
-                tonightTokens = listOf("今晚", "tonight"),
-                morningTokens = listOf("早上", "上午", "明早", "morning"),
-                noonTokens = listOf("中午", "noon"),
-                afternoonTokens = listOf("下午", "afternoon"),
-                eveningTokens = listOf("晚上", "晚间", "明晚", "evening"),
-                halfHourTokens = listOf("半小时后", "半个小时后", "half an hour later", "in half an hour"),
-                oneAndHalfHourTokens = listOf("一个半小时后", "一小时半后", "one and a half hours later", "in one and a half hours"),
+                tomorrowTokens = listOf("\u660e\u5929", "\u660e\u65e9", "\u660e\u665a", "tomorrow"),
+                dayAfterTomorrowTokens = listOf("\u540e\u5929", "day after tomorrow"),
+                tonightTokens = listOf("\u4eca\u665a", "tonight"),
+                morningTokens = listOf("\u65e9\u4e0a", "\u4e0a\u5348", "\u660e\u65e9", "morning"),
+                noonTokens = listOf("\u4e2d\u5348", "noon"),
+                afternoonTokens = listOf("\u4e0b\u5348", "afternoon"),
+                eveningTokens = listOf("\u665a\u4e0a", "\u665a\u95f4", "\u660e\u665a", "evening"),
+                halfHourTokens = listOf("\u534a\u5c0f\u65f6\u540e", "\u534a\u4e2a\u5c0f\u65f6\u540e", "half an hour later", "in half an hour"),
+                oneAndHalfHourTokens = listOf("\u4e00\u4e2a\u534a\u5c0f\u65f6\u540e", "\u4e00\u5c0f\u65f6\u534a\u540e", "one and a half hours later", "in one and a half hours"),
             )
         }
 
@@ -65,6 +65,7 @@ class ActiveCapabilityNaturalLanguageParser(
         val nowAtZone = Instant.ofEpochMilli(now).atZone(zone)
 
         inferRelativeDelay(normalized, nowAtZone)?.let { return it }
+        inferMinuteOfHour(normalized, nowAtZone)?.let { return it }
         inferSpecificDayTime(normalized, nowAtZone)?.let { return it }
         return inferDaypart(normalized, nowAtZone)
     }
@@ -106,6 +107,20 @@ class ActiveCapabilityNaturalLanguageParser(
         return now.plusDays(dayOffset).with(LocalTime.of(adjustedHour, 0))
     }
 
+    private fun inferMinuteOfHour(
+        text: String,
+        now: ZonedDateTime,
+    ): ZonedDateTime? {
+        val minute = minuteOfHourRegex.find(text)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.takeIf { it in 0..59 }
+            ?: return null
+        val candidate = now.withMinute(minute).withSecond(0).withNano(0)
+        return if (candidate.isAfter(now)) candidate else candidate.plusHours(1)
+    }
+
     private fun inferDaypart(
         text: String,
         now: ZonedDateTime,
@@ -134,6 +149,7 @@ class ActiveCapabilityNaturalLanguageParser(
 }
 
 private val chineseHourRegex = Regex("(上午|早上|中午|下午|晚上|今晚|明天|明早|明晚|后天)?\\s*([零一二两俩三四五六七八九十\\d]{1,3})\\s*点")
+private val minuteOfHourRegex = Regex("(?:到|等到)?\\s*([0-5]?\\d)\\s*分(?:的时候|钟)?", RegexOption.IGNORE_CASE)
 private val englishPmRegex = Regex("\\b(\\d{1,2})\\s*(pm|p\\.m\\.)\\b", RegexOption.IGNORE_CASE)
 
 private val relativeDelayMatchers: List<(String, ZonedDateTime) -> ZonedDateTime?> = listOf(

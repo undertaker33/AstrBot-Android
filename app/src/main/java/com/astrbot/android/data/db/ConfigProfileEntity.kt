@@ -21,6 +21,7 @@ data class ConfigProfileEntity(
     val imageCaptionTextEnabled: Boolean,
     val webSearchEnabled: Boolean,
     val proactiveEnabled: Boolean,
+    val includeScheduledTaskConversationContext: Boolean,
     val ttsVoiceId: String,
     val sessionIsolationEnabled: Boolean,
     val wakeWordsAdminOnlyEnabled: Boolean,

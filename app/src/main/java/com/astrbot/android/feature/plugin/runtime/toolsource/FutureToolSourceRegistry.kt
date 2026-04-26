@@ -8,6 +8,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolSourceBridge
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceKind
 import com.astrbot.android.core.runtime.context.RuntimePlatform
+import com.astrbot.android.feature.cron.runtime.EmptyActiveCapabilityPromptStrings
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -164,7 +165,9 @@ class FutureToolSourceRegistry @Inject constructor(
                     facade = ActiveCapabilityRuntimeFacade(
                         repository = EmptyCronJobRepositoryPort(),
                         scheduler = EmptyCronSchedulerPort,
+                        promptStrings = EmptyActiveCapabilityPromptStrings(),
                     ),
+                    promptStrings = EmptyActiveCapabilityPromptStrings(),
                     contextResolver = resolver,
                 ),
                 contextStrategyToolSourceProvider = ContextStrategyToolSourceProvider(contextResolver = resolver),

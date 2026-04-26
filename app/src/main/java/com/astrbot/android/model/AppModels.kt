@@ -111,6 +111,7 @@ data class ConfigProfile(
     val imageCaptionTextEnabled: Boolean = false,
     val webSearchEnabled: Boolean = false,
     val proactiveEnabled: Boolean = false,
+    val includeScheduledTaskConversationContext: Boolean = false,
     val ttsVoiceId: String = "",
     val imageCaptionPrompt: String = "Describe the image in detail before sending it to the chat model.",
     val adminUids: List<String> = emptyList(),

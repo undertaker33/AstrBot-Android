@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.feature.qq.data
 
 import com.astrbot.android.feature.bot.data.FeatureBotRepository

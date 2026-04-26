@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.di
 
 import com.astrbot.android.core.db.backup.AppBackupDataPort

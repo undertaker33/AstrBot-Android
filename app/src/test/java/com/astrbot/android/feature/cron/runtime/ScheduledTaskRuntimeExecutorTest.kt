@@ -52,7 +52,7 @@ import org.junit.Test
 
 class ScheduledTaskRuntimeExecutorTest {
     @Test
-    fun execute_uses_scheduled_task_message_without_persisting_note_as_user_message() = runBlocking {
+    fun execute_uses_scheduled_task_message_without_persisting_note_as_user_message_or_context_when_disabled() = runBlocking {
         val bot = BotProfile(
             id = "bot-1",
             displayName = "Bot",
@@ -113,7 +113,80 @@ class ScheduledTaskRuntimeExecutorTest {
         assertEquals("scheduled_task", orchestrator.userMessageRole)
         assertEquals("cron:job-1", orchestrator.userMessageId)
         assertTrue(orchestrator.messageWindowContents.isEmpty())
+        assertTrue(orchestrator.systemPrompt.orEmpty().contains("半小时后提醒我喝水").not())
         assertFalse(conversationPort.appendedRoles.contains("user"))
+    }
+
+    @Test
+    fun execute_includes_read_only_conversation_context_when_config_enabled() = runBlocking {
+        val bot = BotProfile(
+            id = "bot-1",
+            displayName = "Bot",
+            defaultProviderId = "provider-1",
+            configProfileId = "config-1",
+        )
+        val conversationPort = RecordingConversationPort(
+            session = ConversationSession(
+                id = "chat-1",
+                title = "Chat",
+                botId = bot.id,
+                personaId = "",
+                providerId = "provider-1",
+                maxContextMessages = 10,
+                messages = listOf(
+                    ConversationMessage(
+                        id = "old-user",
+                        role = "user",
+                        content = "我刚刚运动完，容易忘记喝水",
+                        timestamp = 1L,
+                    ),
+                    ConversationMessage(
+                        id = "old-assistant",
+                        role = "assistant",
+                        content = "那我待会提醒你补水。",
+                        timestamp = 2L,
+                    ),
+                ),
+            ),
+        )
+        val orchestrator = RecordingOrchestrator()
+
+        ScheduledTaskRuntimeExecutor.execute(
+            context = CronJobExecutionContext(
+                jobId = "job-1",
+                name = "喝水提醒",
+                description = "提醒用户喝水",
+                jobType = "active_agent",
+                note = "提醒用户该喝水了",
+                sessionId = "chat-1",
+                platform = "app",
+                conversationId = "chat-1",
+                botId = bot.id,
+                configProfileId = "config-1",
+                personaId = "",
+                providerId = "provider-1",
+                origin = "active_capability",
+                runOnce = true,
+                runAt = "2026-04-24T11:30:00+08:00",
+            ),
+            runtimeDependencies = ScheduledTaskRuntimeDependencies(
+                llmClient = FakeLlmClient(),
+                botPort = FakeBotPort(bot),
+                orchestrator = orchestrator,
+                runtimeContextResolverPort = FakeRuntimeContextResolverPort(
+                    conversationPort,
+                    includeScheduledTaskConversationContext = true,
+                ),
+                deliveryPort = FakeScheduledMessageDeliveryPort(),
+                appChatPluginRuntime = ThrowingAppChatLlmPipelineRuntime,
+                hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
+            ),
+        )
+
+        assertTrue(orchestrator.messageWindowContents.isEmpty())
+        assertTrue(orchestrator.systemPrompt.orEmpty().contains("Recent conversation context"))
+        assertTrue(orchestrator.systemPrompt.orEmpty().contains("我刚刚运动完"))
+        assertTrue(orchestrator.systemPrompt.orEmpty().contains("read-only"))
     }
 
 }
@@ -122,6 +195,7 @@ private class RecordingOrchestrator : RuntimeLlmOrchestratorPort {
     var userMessageRole: String = ""
     var userMessageId: String = ""
     var messageWindowContents: List<String> = emptyList()
+    var systemPrompt: String? = null
 
     override suspend fun dispatchLlm(
         ctx: ResolvedRuntimeContext,
@@ -133,6 +207,7 @@ private class RecordingOrchestrator : RuntimeLlmOrchestratorPort {
         userMessageRole = userMessage.role
         userMessageId = userMessage.id
         messageWindowContents = ctx.messageWindow.map { it.content }
+        systemPrompt = com.astrbot.android.core.runtime.context.SystemPromptBuilder.build(ctx)
         return sentResult(
             conversationId = ctx.conversationId,
             messageId = userMessage.id,
@@ -275,6 +350,7 @@ private class RecordingConversationPort(
 
 private class FakeRuntimeContextResolverPort(
     private val conversationPort: ConversationRepositoryPort,
+    private val includeScheduledTaskConversationContext: Boolean = false,
 ) : RuntimeContextResolverPort {
     private val provider = ProviderProfile(
         id = "provider-1",
@@ -290,6 +366,7 @@ private class FakeRuntimeContextResolverPort(
         name = "Config",
         defaultChatProviderId = provider.id,
         proactiveEnabled = true,
+        includeScheduledTaskConversationContext = includeScheduledTaskConversationContext,
     )
 
     override fun resolve(

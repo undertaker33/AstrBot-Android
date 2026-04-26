@@ -143,6 +143,7 @@ internal fun SupportSQLiteDatabase.resetSchemaToV9() {
             imageCaptionTextEnabled INTEGER NOT NULL,
             webSearchEnabled INTEGER NOT NULL,
             proactiveEnabled INTEGER NOT NULL,
+            includeScheduledTaskConversationContext INTEGER NOT NULL,
             ttsVoiceId TEXT NOT NULL,
             sessionIsolationEnabled INTEGER NOT NULL,
             wakeWordsAdminOnlyEnabled INTEGER NOT NULL,

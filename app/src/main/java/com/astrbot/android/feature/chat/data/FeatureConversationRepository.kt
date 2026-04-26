@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.feature.chat.data
 
 import com.astrbot.android.core.common.logging.AppLogger

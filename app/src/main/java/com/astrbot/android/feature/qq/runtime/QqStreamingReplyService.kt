@@ -3,6 +3,8 @@ package com.astrbot.android.feature.qq.runtime
 import com.astrbot.android.core.runtime.llm.LlmResponseSegmenter
 import com.astrbot.android.core.runtime.search.WebSearchTriggerIntent
 import com.astrbot.android.core.runtime.search.WebSearchTriggerRules
+import com.astrbot.android.core.runtime.search.AndroidWebSearchPromptStringProvider
+import com.astrbot.android.core.runtime.search.WebSearchPromptStringProvider
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
 import com.astrbot.android.feature.plugin.runtime.PluginProviderMessagePartDto
 import com.astrbot.android.feature.plugin.runtime.PluginProviderMessageRole
@@ -23,6 +25,7 @@ internal class QqStreamingReplyService(
     private val replySender: QqReplySender,
     private val synthesizeSpeech: (ProviderProfile, String, String, Boolean) -> ConversationAttachment,
     private val log: (String) -> Unit = {},
+    private val webSearchPromptStrings: WebSearchPromptStringProvider = AndroidWebSearchPromptStringProvider(),
 ) {
     fun prepareReply(
         result: PluginV2LlmPipelineResult,
@@ -348,14 +351,7 @@ internal class QqStreamingReplyService(
                 appendLine()
             }
             appendLine(NEWS_DIRECT_DELIVERY_MARKER)
-            appendLine("The factual news summary has already been sent to the user by the host.")
-            appendLine("Direct delivery status: ${if (sent) "sent" else "failed"}.")
-            appendLine("Sent summary:")
-            appendLine(factText)
-            appendLine()
-            appendLine("Do not repeat the news items, sources, dates, URLs, or numeric details.")
-            append("Only provide a brief evaluation or commentary in the configured persona. ")
-            append("If the summary says no confirmed news was found, evaluate that uncertainty and do not invent facts.")
+            append(webSearchPromptStrings.newsDirectDeliveryCommentary(factText = factText, sent = sent))
         }.trim()
         val metadata = buildMap<String, Any?> {
             result.metadata?.let(::putAll)

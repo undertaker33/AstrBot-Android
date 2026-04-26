@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.feature.cron.data
 
 import kotlinx.coroutines.flow.collect

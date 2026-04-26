@@ -1,3 +1,5 @@
+@file:Suppress("UNUSED_PARAMETER")
+
 package com.astrbot.android.feature.qq.runtime
 
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime

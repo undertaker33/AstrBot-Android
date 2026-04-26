@@ -140,6 +140,7 @@ internal fun JSONObject.toConfigProfile(): ConfigProfile {
         imageCaptionTextEnabled = optBoolean("imageCaptionTextEnabled", false),
         webSearchEnabled = optBoolean("webSearchEnabled", false),
         proactiveEnabled = optBoolean("proactiveEnabled", false),
+        includeScheduledTaskConversationContext = optBoolean("includeScheduledTaskConversationContext", false),
         ttsVoiceId = optString("ttsVoiceId"),
         imageCaptionPrompt = optString("imageCaptionPrompt"),
         adminUids = optJSONArray("adminUids").jsonStringList(),

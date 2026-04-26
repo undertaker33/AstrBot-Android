@@ -424,3 +424,14 @@ internal val migration20To21 = object : Migration(20, 21) {
         db.createPluginStateTablesV21()
     }
 }
+
+internal val migration21To22 = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            ALTER TABLE config_profiles
+            ADD COLUMN includeScheduledTaskConversationContext INTEGER NOT NULL DEFAULT 0
+            """.trimIndent(),
+        )
+    }
+}

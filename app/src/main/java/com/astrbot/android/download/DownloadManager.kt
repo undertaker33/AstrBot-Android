@@ -1,3 +1,5 @@
+@file:Suppress("UNUSED_PARAMETER")
+
 package com.astrbot.android.download
 
 import kotlinx.coroutines.flow.collect

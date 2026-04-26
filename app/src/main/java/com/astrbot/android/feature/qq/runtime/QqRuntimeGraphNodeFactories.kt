@@ -1,6 +1,7 @@
 package com.astrbot.android.feature.qq.runtime
 
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
+import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentFallbackResponder
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
@@ -88,6 +89,7 @@ internal class QqMessageRuntimeServiceFactory @Inject constructor(
     private val runtimeContextResolverPort: com.astrbot.android.core.runtime.context.RuntimeContextResolverPort,
     private val providerInvoker: DefaultQqProviderInvoker,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
+    private val scheduledTaskFallbackResponder: ScheduledTaskIntentFallbackResponder,
 ) {
     fun create(
         replySender: QqReplySender,
@@ -123,6 +125,7 @@ internal class QqMessageRuntimeServiceFactory @Inject constructor(
             pluginDispatchService = pluginDispatchService,
             streamingReplyService = streamingReplyService,
             gatewayFactory = gatewayFactory,
+            scheduledTaskFallbackResponder = scheduledTaskFallbackResponder,
             executeLegacyPluginsDuringLlmDispatch = executeLegacyPluginsDuringLlmDispatch,
             log = log,
         )

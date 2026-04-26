@@ -235,6 +235,9 @@ private fun ConfigDetailContent(
     var imageCaptionTextEnabled by remember(profile.id) { mutableStateOf(profile.imageCaptionTextEnabled) }
     var webSearchEnabled by remember(profile.id) { mutableStateOf(profile.webSearchEnabled) }
     var proactiveEnabled by remember(profile.id) { mutableStateOf(profile.proactiveEnabled) }
+    var includeScheduledTaskConversationContext by remember(profile.id) {
+        mutableStateOf(profile.includeScheduledTaskConversationContext)
+    }
     var ttsVoiceId by remember(profile.id) { mutableStateOf(profile.ttsVoiceId) }
     var isPreviewingVoice by remember(profile.id) { mutableStateOf(false) }
     var imageCaptionPrompt by remember(profile.id) { mutableStateOf(profile.imageCaptionPrompt) }
@@ -783,6 +786,12 @@ private fun ConfigDetailContent(
                             checked = proactiveEnabled,
                             onCheckedChange = { proactiveEnabled = it },
                         )
+                        ConfigToggleField(
+                            title = stringResource(R.string.config_scheduled_task_context_title),
+                            subtitle = stringResource(R.string.config_scheduled_task_context_desc),
+                            checked = includeScheduledTaskConversationContext,
+                            onCheckedChange = { includeScheduledTaskConversationContext = it },
+                        )
                     }
                 }
             }
@@ -884,6 +893,7 @@ private fun ConfigDetailContent(
                         imageCaptionTextEnabled = imageCaptionTextEnabled,
                         webSearchEnabled = webSearchEnabled,
                         proactiveEnabled = proactiveEnabled,
+                        includeScheduledTaskConversationContext = includeScheduledTaskConversationContext,
                         ttsVoiceId = ttsVoiceId.trim(),
                         imageCaptionPrompt = imageCaptionPrompt.trim(),
                         adminUids = adminUids,

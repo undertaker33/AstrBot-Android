@@ -110,6 +110,7 @@ internal data class PluginV2LlmPipelineResult(
     val sendableResult: PluginMessageEventResult,
     val hookInvocationTrace: List<String>,
     val decoratingRunResult: PluginV2EventResultCoordinator.DecoratingRunResult,
+    val executedToolNames: List<String> = emptyList(),
 )
 
 internal class PluginV2LlmPipelineCoordinator(
@@ -275,6 +276,7 @@ internal class PluginV2LlmPipelineCoordinator(
         var responseHookTrace: List<String>
         var toolRoundCount = 0
         val maxToolRounds = 8
+        val executedToolNames = mutableListOf<String>()
 
         while (true) {
             val requestPayload = PluginV2LlmRequestPayload(
@@ -377,6 +379,7 @@ internal class PluginV2LlmPipelineCoordinator(
                 snapshot = snapshot,
                 toolResultDeliveryHandler = toolResultDeliveryHandler,
             )
+            executedToolNames += toolLoopRun.executedToolNames
             currentRequest = toolLoopRun.nextRequest
         }
 
@@ -440,6 +443,7 @@ internal class PluginV2LlmPipelineCoordinator(
             sendableResult = decoratingRun.finalResult,
             hookInvocationTrace = hookTrace.toList(),
             decoratingRunResult = decoratingRun,
+            executedToolNames = executedToolNames.toList(),
         )
     }
 

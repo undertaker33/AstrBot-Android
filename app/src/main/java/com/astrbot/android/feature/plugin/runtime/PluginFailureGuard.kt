@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.feature.plugin.data.FeaturePluginRepository

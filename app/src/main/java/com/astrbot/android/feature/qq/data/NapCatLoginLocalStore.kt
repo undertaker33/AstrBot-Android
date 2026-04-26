@@ -1,3 +1,5 @@
+@file:Suppress("UNUSED_PARAMETER")
+
 package com.astrbot.android.feature.qq.data
 
 import com.astrbot.android.data.parseLegacySavedQqAccounts

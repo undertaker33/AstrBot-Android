@@ -25,6 +25,8 @@ import com.astrbot.android.feature.cron.runtime.CoordinatorCronJobRunNowPort
 import com.astrbot.android.feature.cron.runtime.CronJobRunCoordinator
 import com.astrbot.android.feature.cron.runtime.CronRuntimeService
 import com.astrbot.android.feature.cron.runtime.CronRescheduler
+import com.astrbot.android.feature.cron.runtime.ActiveCapabilityPromptStrings
+import com.astrbot.android.feature.cron.runtime.AndroidActiveCapabilityPromptStrings
 import com.astrbot.android.feature.cron.runtime.DefaultScheduledMessageDeliveryPort
 import com.astrbot.android.feature.cron.runtime.ScheduledMessageDeliveryPort
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskExecutor
@@ -236,6 +238,11 @@ internal object RuntimeServicesModule {
     fun provideActiveCapabilityNaturalLanguageParser(
         lexicon: ActiveCapabilityNaturalLanguageLexicon,
     ): ActiveCapabilityNaturalLanguageParser = ActiveCapabilityNaturalLanguageParser(lexicon)
+
+    @Provides
+    fun provideActiveCapabilityPromptStrings(
+        strings: AndroidActiveCapabilityPromptStrings,
+    ): ActiveCapabilityPromptStrings = strings
 
     @Provides
     @Singleton
