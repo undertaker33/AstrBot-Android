@@ -1,0 +1,4 @@
+# path | import | owner | target | reason | expires | issue
+#
+# Keep this empty unless an existing file has a precise, temporary exception.
+# No wildcards, directory entries, or broad package imports.

@@ -1,0 +1,28 @@
+# path | symbol | owner | target | reason | expires | issue
+#
+# Rules:
+# 1. Entries must be exact production Kotlin file paths relative to app/src/main/java/com/astrbot/android.
+# 2. Do not add directory-level allowlist entries.
+# 3. Do not use wildcards.
+# 4. owner, target, reason, expires, and issue must be non-empty.
+
+data/LegacyStructuredStateImport.kt | FeatureConfigRepository | architecture-worker-b | ConfigRepositoryPort migration | legacy import bridge still reads config static facade during structured state import | phase-4 | phase-1-governance
+di/BackupDataPorts.kt | NapCatLoginRepository | architecture-worker-b | QqLoginRepositoryPort migration | backup data port still snapshots QQ login state through legacy static facade | phase-6 | phase-1-governance
+di/hilt/PluginProvisioningModule.kt | FeaturePluginRepository | architecture-worker-b | plugin repository Hilt provisioning cleanup | provisioning still installs plugin repository store through legacy facade bridge | phase-4 | phase-1-governance
+di/hilt/presentation/QqViewModelBindingsModule.kt | NapCatLoginRepository | architecture-worker-b | QqLoginRepositoryPort migration | view model dependency binding still exposes legacy QQ login repository during Hilt closure | phase-6 | phase-1-governance
+feature/bot/data/FeatureBotRepository.kt | FeatureConfigRepository | architecture-worker-b | BotRepositoryPort and ConfigRepositoryPort decoupling | legacy bot repository still consults config static facade for binding fallback cleanup | phase-4 | phase-1-governance
+feature/chat/data/FeatureConversationRepositoryPortAdapter.kt | FeatureConversationRepository | architecture-worker-b | ConversationRepositoryPort constant extraction | port adapter still reads default session constant from legacy static facade | phase-4 | phase-1-governance
+feature/chat/runtime/AppChatPluginCommandService.kt | FeaturePluginRepository | architecture-worker-b | plugin runtime storage port migration | app chat plugin command path still resolves plugin storage through legacy repository app context | phase-4 | phase-1-governance
+feature/plugin/presentation/PluginViewModel.kt | FeaturePluginRepository | architecture-worker-b | plugin presentation controller port migration | plugin view model still imports legacy plugin repository during presentation migration | phase-4 | phase-1-governance
+feature/plugin/runtime/PluginFailureGuard.kt | FeaturePluginRepository | architecture-worker-b | plugin failure state port migration | plugin failure guard still updates records through legacy plugin repository facade | phase-4 | phase-1-governance
+feature/plugin/runtime/PluginInstaller.kt | FeaturePluginRepository | architecture-worker-b | plugin installer port migration | plugin installer still writes install records through legacy plugin repository facade | phase-4 | phase-1-governance
+feature/qq/data/FeatureQqConversationPortAdapter.kt | FeatureConversationRepository | architecture-worker-b | QQ conversation port migration | QQ conversation adapter still delegates to app chat legacy conversation facade | phase-4 | phase-1-governance
+feature/qq/data/FeatureQqPlatformConfigPortAdapter.kt | FeatureBotRepository | architecture-worker-b | QQ platform config port migration | QQ platform config adapter still reads selected bot through legacy bot facade | phase-4 | phase-1-governance
+feature/qq/data/FeatureQqPlatformConfigPortAdapter.kt | FeatureConfigRepository | architecture-worker-b | QQ platform config port migration | QQ platform config adapter still imports legacy config facade while resolving bot config | phase-4 | phase-1-governance
+feature/qq/data/NapCatBridgeRepository.kt | NapCatLoginRepository | architecture-worker-b | QQ bridge login port migration | bridge repository still records login updates through legacy NapCat login facade | phase-6 | phase-1-governance
+feature/qq/data/NapCatLoginLocalStore.kt | NapCatLoginRepository | architecture-worker-b | QQ login local store migration | local store bootstrap still hydrates legacy NapCat login repository facade from persisted state | phase-6 | phase-1-governance
+feature/qq/presentation/QQLoginViewModel.kt | NapCatLoginRepository | architecture-worker-b | QQ login presentation port migration | QQ login view model still calls legacy NapCat login facade directly | phase-6 | phase-1-governance
+feature/settings/presentation/BackupScreen.kt | AppBackupRepository | architecture-worker-b | backup presentation port migration | backup screen still calls legacy app backup facade during restore/export flow | phase-6 | phase-1-governance
+feature/settings/presentation/BackupScreen.kt | ConversationBackupRepository | architecture-worker-b | conversation backup presentation port migration | backup screen still calls legacy conversation backup facade during restore/export flow | phase-6 | phase-1-governance
+ui/common/AssetScreens.kt | RuntimeCacheRepository | architecture-worker-b | runtime cache UI port migration | legacy asset screen still imports static runtime cache facade | phase-6 | phase-1-governance
+ui/settings/SettingsHubScreen.kt | RuntimeCacheRepository | architecture-worker-b | runtime cache settings port migration | settings hub still calls static runtime cache facade for cache cleanup actions | phase-6 | phase-1-governance

@@ -1,0 +1,21 @@
+# symbol | kind | owner | target | reason | expires | issue
+#
+# Rules:
+# 1. Every top-level class-like symbol in AppModels.kt must appear exactly once.
+# 2. Do not leave empty fields.
+# 3. target is the future feature-first owner path, not a guarantee that the file already exists.
+# 4. Use owner app-models-review when phase 2 must confirm the final module owner.
+
+BotRuntimeState | data class | feature-qq | feature/qq/domain/model/BotRuntimeState.kt | QQ and NapCat bridge runtime status is owned by QQ runtime domain | phase2-model-owner-review | app-models-review
+NapCatBridgeConfig | data class | feature-qq | feature/qq/domain/model/NapCatBridgeConfig.kt | NapCat bridge configuration belongs to QQ runtime ownership | phase2-model-owner-review | app-models-review
+RuntimeStatus | enum class | feature-qq | feature/qq/domain/model/RuntimeStatus.kt | Current enum is used by NapCat runtime state; phase 2 can split if other runtimes reuse it | phase2-model-owner-review | app-models-review
+NapCatRuntimeState | data class | feature-qq | feature/qq/domain/model/NapCatRuntimeState.kt | NapCat runtime progress and health state belongs to QQ runtime ownership | phase2-model-owner-review | app-models-review
+RuntimeAssetId | enum class | core-runtime | core/runtime/assets/model/RuntimeAssetId.kt | Runtime asset identity is shared runtime catalog state | phase2-model-owner-review | app-models-review
+RuntimeAssetCatalogItem | data class | core-runtime | core/runtime/assets/model/RuntimeAssetCatalogItem.kt | Runtime asset catalog item is shared runtime asset metadata | phase2-model-owner-review | app-models-review
+RuntimeAssetEntryState | data class | core-runtime | core/runtime/assets/model/RuntimeAssetEntryState.kt | Runtime asset entry installation state belongs with runtime asset ownership | phase2-model-owner-review | app-models-review
+RuntimeAssetState | data class | core-runtime | core/runtime/assets/model/RuntimeAssetState.kt | Runtime asset screen state is backed by runtime asset ownership | phase2-model-owner-review | app-models-review
+ClonedVoiceBinding | data class | core-runtime | core/runtime/audio/model/ClonedVoiceBinding.kt | Voice clone provider binding belongs with runtime audio model ownership | phase2-model-owner-review | app-models-review
+TtsVoiceReferenceClip | data class | core-runtime | core/runtime/audio/model/TtsVoiceReferenceClip.kt | TTS reference clip metadata belongs with runtime audio asset ownership | phase2-model-owner-review | app-models-review
+TtsVoiceReferenceAsset | data class | core-runtime | core/runtime/audio/model/TtsVoiceReferenceAsset.kt | TTS reference asset metadata belongs with runtime audio asset ownership | phase2-model-owner-review | app-models-review
+SavedQqAccount | data class | feature-qq | feature/qq/domain/model/SavedQqAccount.kt | Saved QQ login account state belongs to QQ login ownership | phase2-model-owner-review | app-models-review
+NapCatLoginState | data class | feature-qq | feature/qq/domain/model/NapCatLoginState.kt | NapCat login state belongs to QQ login ownership | phase2-model-owner-review | app-models-review

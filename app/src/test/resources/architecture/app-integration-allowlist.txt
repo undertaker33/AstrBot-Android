@@ -1,0 +1,12 @@
+# path | rule | owner | target | reason | expires | issue
+#
+# Exact existing DI wiring debt only. Do not add wildcards or directory entries.
+
+di/hilt/RuntimeServicesModule.kt | provider-lines:provideQqOneBotRuntimeDependencies | worker-c | app-integration-wiring | QQ runtime dependency closure still has a broad Hilt provider; split into smaller dependency factories after phase-1 guardrail lands | phase-2 | phase-1-governance
+di/hilt/DefaultChatViewModelRuntimeBindings.kt | repository-mutation:ConversationRepository.deleteSession | worker-c | app-integration-wiring | legacy chat ViewModel bindings still expose repository delete lambda directly; move behind feature use case port | phase-2 | phase-1-governance
+di/hilt/DefaultChatViewModelRuntimeBindings.kt | repository-mutation:ConfigRepository.save | worker-c | app-integration-wiring | legacy chat ViewModel bindings still expose config save lambda directly; move behind feature use case port | phase-2 | phase-1-governance
+di/hilt/DefaultChatViewModelRuntimeBindings.kt | repository-mutation:BotRepository.save | worker-c | app-integration-wiring | legacy chat ViewModel bindings still expose bot save lambda directly; move behind feature use case port | phase-2 | phase-1-governance
+di/hilt/DefaultChatViewModelRuntimeBindings.kt | repository-mutation:ProviderRepository.save | worker-c | app-integration-wiring | legacy chat ViewModel bindings still expose provider save lambda directly; move behind feature use case port | phase-2 | phase-1-governance
+di/hilt/ViewModelDependencyModule.kt | repository-mutation:repository.saveProviderBinding | worker-c | app-integration-wiring | legacy asset ViewModel bindings still expose repository binding save lambda directly; move behind asset use case port | phase-2 | phase-1-governance
+di/hilt/ViewModelDependencyModule.kt | repository-mutation:repository.deleteReferenceClip | worker-c | app-integration-wiring | legacy asset ViewModel bindings still expose repository delete lambda directly; move behind asset use case port | phase-2 | phase-1-governance
+di/hilt/ViewModelDependencyModule.kt | repository-mutation:repository.deleteBinding | worker-c | app-integration-wiring | legacy asset ViewModel bindings still expose repository delete lambda directly; move behind asset use case port | phase-2 | phase-1-governance

@@ -1,0 +1,17 @@
+# path | forbiddenImport | owner | target | reason | expires | issue
+#
+# Rules:
+# 1. Entries must be exact production Kotlin file paths relative to app/src/main/java/com/astrbot/android.
+# 2. forbiddenImport must be the exact import line.
+# 3. Do not add directory-level allowlist entries.
+# 4. Do not use wildcards.
+# 5. owner, target, reason, expires, and issue must be non-empty.
+
+feature/bot/data/FeatureBotRepository.kt | import com.astrbot.android.feature.config.data.FeatureConfigRepository | architecture-worker-b | BotRepositoryPort and ConfigRepositoryPort decoupling | bot data still reaches config data facade for legacy binding migration | phase-4 | phase-1-governance
+feature/bot/data/FeatureBotRepository.kt | import com.astrbot.android.feature.config.data.FeatureConfigRepositoryStore | architecture-worker-b | BotRepositoryStore dependency inversion | bot data store still depends directly on config data store during selected config binding cleanup | phase-4 | phase-1-governance
+feature/chat/data/FeatureConversationRepository.kt | import com.astrbot.android.feature.bot.data.FeatureBotRepositoryStore | architecture-worker-b | ConversationRepositoryPort decoupling | conversation data still depends on bot data store for legacy bot binding projection | phase-4 | phase-1-governance
+feature/chat/runtime/AppChatPluginCommandService.kt | import com.astrbot.android.feature.plugin.data.PluginStoragePaths | architecture-worker-b | PluginStoragePathPort extraction | app chat runtime still imports plugin data storage path helper | phase-4 | phase-1-governance
+feature/qq/data/FeatureQqConversationPortAdapter.kt | import com.astrbot.android.feature.chat.data.FeatureConversationRepository | architecture-worker-b | QQ conversation port migration | QQ data adapter still imports app chat data facade for conversation delivery | phase-4 | phase-1-governance
+feature/qq/data/FeatureQqPlatformConfigPortAdapter.kt | import com.astrbot.android.feature.bot.data.FeatureBotRepository | architecture-worker-b | QQ platform config port migration | QQ data adapter still imports bot data facade for selected bot lookup | phase-4 | phase-1-governance
+feature/qq/data/FeatureQqPlatformConfigPortAdapter.kt | import com.astrbot.android.feature.config.data.FeatureConfigRepository | architecture-worker-b | QQ platform config port migration | QQ data adapter still imports config data facade for selected config lookup | phase-4 | phase-1-governance
+feature/qq/runtime/QqOneBotBridgeServer.kt | import com.astrbot.android.feature.plugin.data.PluginStoragePaths | architecture-worker-b | PluginStoragePathPort extraction | QQ runtime still imports plugin data storage path helper for media path resolution | phase-4 | phase-1-governance

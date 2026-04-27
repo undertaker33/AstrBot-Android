@@ -36,13 +36,13 @@ import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.core.runtime.llm.SttProbeResult
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
-import com.astrbot.android.feature.qq.data.FeatureQqConversationPortAdapter
 import com.astrbot.android.feature.qq.data.FeatureQqPlatformConfigPortAdapter
 import com.astrbot.android.runtime.IncomingMessageEvent
 import com.astrbot.android.testsupport.CompatBotRepositoryPort
 import com.astrbot.android.testsupport.CompatConfigRepositoryPort
 import com.astrbot.android.testsupport.CompatPersonaRepositoryPort
 import com.astrbot.android.testsupport.CompatProviderRepositoryPort
+import com.astrbot.android.testsupport.CompatQqConversationPort
 import com.astrbot.android.feature.qq.runtime.QqOneBotBridgeServer
 import com.astrbot.android.feature.qq.runtime.QqOneBotBridgeServerTestAccess
 import com.astrbot.android.feature.qq.runtime.QqPluginDispatchService
@@ -1367,7 +1367,7 @@ class PluginV2HostIngressTest {
                 configPort = CompatConfigRepositoryPort(),
                 personaPort = CompatPersonaRepositoryPort(),
                 providerPort = CompatProviderRepositoryPort(),
-                conversationPort = FeatureQqConversationPortAdapter(),
+                conversationPort = CompatQqConversationPort(),
                 platformConfigPort = FeatureQqPlatformConfigPortAdapter(),
                 orchestrator = DefaultRuntimeLlmOrchestrator(),
                     runtimeContextResolverPort = runtimeContextResolverPort,

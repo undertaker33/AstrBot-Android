@@ -1,4 +1,4 @@
-@file:Suppress("DEPRECATION", "UNUSED_PARAMETER")
+@file:Suppress("UNUSED_PARAMETER")
 
 package com.astrbot.android.feature.plugin.runtime
 

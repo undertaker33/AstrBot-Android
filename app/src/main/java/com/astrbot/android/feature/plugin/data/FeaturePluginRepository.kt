@@ -1,4 +1,3 @@
-@file:Suppress("DEPRECATION")
 
 package com.astrbot.android.feature.plugin.data
 
@@ -118,6 +117,52 @@ class PluginPackageInstallBlockedException(
     val validationIssues: List<PluginPackageValidationIssue>,
     message: String,
 ) : IllegalStateException(message)
+
+object PluginCatalogVersionGate {
+    fun evaluate(
+        version: PluginCatalogVersion,
+        hostVersion: String,
+        supportedProtocolVersion: Int = FeaturePluginRepository.SUPPORTED_PROTOCOL_VERSION,
+    ): PluginCatalogVersionGateResult {
+        val minHostVersionSatisfied = version.minHostVersion.isBlank() ||
+            compareVersions(hostVersion, version.minHostVersion) >= 0
+        val maxHostVersionSatisfied = version.maxHostVersion.isBlank() ||
+            compareVersions(hostVersion, version.maxHostVersion) <= 0
+        val compatibilityState = PluginCompatibilityState.fromChecks(
+            protocolSupported = version.protocolVersion == supportedProtocolVersion,
+            minHostVersionSatisfied = minHostVersionSatisfied,
+            maxHostVersionSatisfied = maxHostVersionSatisfied,
+            notes = buildCompatibilityNotes(
+                hostVersion = hostVersion,
+                version = version,
+                supportedProtocolVersion = supportedProtocolVersion,
+            ),
+        )
+        return PluginCatalogVersionGateResult(
+            compatibilityState = compatibilityState,
+            installable = compatibilityState.status == PluginCompatibilityStatus.COMPATIBLE,
+        )
+    }
+
+    private fun buildCompatibilityNotes(
+        hostVersion: String,
+        version: PluginCatalogVersion,
+        supportedProtocolVersion: Int,
+    ): String {
+        val notes = mutableListOf<String>()
+        unsupportedProtocolCompatibilityNote(
+            protocolVersion = version.protocolVersion,
+            supportedProtocolVersion = supportedProtocolVersion,
+        )?.let(notes::add)
+        if (compareVersions(hostVersion, version.minHostVersion) < 0) {
+            notes += "Host version $hostVersion is below required minimum ${version.minHostVersion}."
+        }
+        if (version.maxHostVersion.isNotBlank() && compareVersions(hostVersion, version.maxHostVersion) > 0) {
+            notes += "Host version $hostVersion exceeds supported maximum ${version.maxHostVersion}."
+        }
+        return notes.joinToString(separator = " ")
+    }
+}
 
 @Deprecated("Use PluginRepositoryPort from feature/plugin/domain. Direct access will be removed.")
 @Suppress("DEPRECATION")
@@ -661,22 +706,10 @@ class FeaturePluginRepository @Inject constructor(
         version: PluginCatalogVersion,
         hostVersion: String,
     ): PluginCatalogVersionGateResult {
-        val minHostVersionSatisfied = version.minHostVersion.isBlank() ||
-            compareVersions(hostVersion, version.minHostVersion) >= 0
-        val maxHostVersionSatisfied = version.maxHostVersion.isBlank() ||
-            compareVersions(hostVersion, version.maxHostVersion) <= 0
-        val compatibilityState = PluginCompatibilityState.fromChecks(
-            protocolSupported = version.protocolVersion == SUPPORTED_PROTOCOL_VERSION,
-            minHostVersionSatisfied = minHostVersionSatisfied,
-            maxHostVersionSatisfied = maxHostVersionSatisfied,
-            notes = buildCompatibilityNotes(
-                hostVersion = hostVersion,
-                version = version,
-            ),
-        )
-        return PluginCatalogVersionGateResult(
-            compatibilityState = compatibilityState,
-            installable = compatibilityState.status == PluginCompatibilityStatus.COMPATIBLE,
+        return PluginCatalogVersionGate.evaluate(
+            version = version,
+            hostVersion = hostVersion,
+            supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
         )
     }
 
@@ -715,33 +748,13 @@ class FeaturePluginRepository @Inject constructor(
     fun buildLocalPackageInstallBlockedException(
         validation: PluginPackageValidationResult,
     ): PluginPackageInstallBlockedException {
-        return PluginPackageInstallBlockedException(
-            installable = validation.installable,
-            compatibilityState = validation.compatibilityState,
-            validationIssues = validation.validationIssues,
-            message = describeLocalPackageInstallFailure(
-                compatibilityState = validation.compatibilityState,
-                validationIssues = validation.validationIssues,
-            ),
-        )
+        return createLocalPackageInstallBlockedException(validation)
     }
 
     fun buildLocalPackageInstallBlockedException(
         error: Throwable,
     ): PluginPackageInstallBlockedException {
-        val issue = PluginPackageValidationIssue(
-            code = "package_validation_failed",
-            message = error.message ?: "Plugin package validation failed.",
-        )
-        return PluginPackageInstallBlockedException(
-            installable = false,
-            compatibilityState = PluginCompatibilityState.unknown(),
-            validationIssues = listOf(issue),
-            message = describeLocalPackageInstallFailure(
-                compatibilityState = PluginCompatibilityState.unknown(),
-                validationIssues = listOf(issue),
-            ),
-        )
+        return createLocalPackageInstallBlockedException(error)
     }
 
     private fun calculatePermissionDiff(
@@ -787,24 +800,6 @@ class FeaturePluginRepository @Inject constructor(
             .map { line -> line.trim() }
             .firstOrNull { line -> line.isNotBlank() }
             .orEmpty()
-    }
-
-    private fun buildCompatibilityNotes(
-        hostVersion: String,
-        version: PluginCatalogVersion,
-    ): String {
-        val notes = mutableListOf<String>()
-        unsupportedProtocolCompatibilityNote(
-            protocolVersion = version.protocolVersion,
-            supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
-        )?.let(notes::add)
-        if (compareVersions(hostVersion, version.minHostVersion) < 0) {
-            notes += "Host version $hostVersion is below required minimum ${version.minHostVersion}."
-        }
-        if (version.maxHostVersion.isNotBlank() && compareVersions(hostVersion, version.maxHostVersion) > 0) {
-            notes += "Host version $hostVersion exceeds supported maximum ${version.maxHostVersion}."
-        }
-        return notes.joinToString(separator = " ")
     }
 
     private fun describeLocalPackageInstallFailure(
@@ -1020,7 +1015,11 @@ class FeaturePluginRepository @Inject constructor(
             version: PluginCatalogVersion,
             hostVersion: String,
         ): PluginCatalogVersionGateResult {
-            return requireInstance().evaluateCatalogVersion(version, hostVersion)
+            return PluginCatalogVersionGate.evaluate(
+                version = version,
+                hostVersion = hostVersion,
+                supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
+            )
         }
 
         fun evaluateCatalogVersion(
@@ -1028,14 +1027,21 @@ class FeaturePluginRepository @Inject constructor(
             hostVersion: String,
             supportedProtocolVersion: Int,
         ): PluginCatalogVersionGateResult {
-            return requireInstance().evaluateCatalogVersion(version, hostVersion, supportedProtocolVersion)
+            return PluginCatalogVersionGate.evaluate(
+                version = version,
+                hostVersion = hostVersion,
+                supportedProtocolVersion = supportedProtocolVersion,
+            )
         }
 
         fun validateLocalPackage(
             packageFile: File,
             hostVersion: String,
         ): PluginPackageValidationResult {
-            return requireInstance().validateLocalPackage(packageFile, hostVersion)
+            return PluginPackageValidator(
+                hostVersion = hostVersion,
+                supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
+            ).validate(packageFile)
         }
 
         fun validateLocalPackage(
@@ -1043,21 +1049,73 @@ class FeaturePluginRepository @Inject constructor(
             hostVersion: String,
             supportedProtocolVersion: Int,
         ): PluginPackageValidationResult {
-            return requireInstance().validateLocalPackage(packageFile, hostVersion, supportedProtocolVersion)
+            return PluginPackageValidator(
+                hostVersion = hostVersion,
+                supportedProtocolVersion = supportedProtocolVersion,
+            ).validate(packageFile)
         }
 
         fun buildLocalPackageInstallBlockedException(
             validation: PluginPackageValidationResult,
         ): PluginPackageInstallBlockedException {
-            return requireInstance().buildLocalPackageInstallBlockedException(validation)
+            return createLocalPackageInstallBlockedException(validation)
         }
 
         fun buildLocalPackageInstallBlockedException(
             error: Throwable,
         ): PluginPackageInstallBlockedException {
-            return requireInstance().buildLocalPackageInstallBlockedException(error)
+            return createLocalPackageInstallBlockedException(error)
         }
     }
+}
+
+internal fun createLocalPackageInstallBlockedException(
+    validation: PluginPackageValidationResult,
+): PluginPackageInstallBlockedException {
+    return PluginPackageInstallBlockedException(
+        installable = validation.installable,
+        compatibilityState = validation.compatibilityState,
+        validationIssues = validation.validationIssues,
+        message = describeLocalPackageInstallFailure(
+            compatibilityState = validation.compatibilityState,
+            validationIssues = validation.validationIssues,
+        ),
+    )
+}
+
+internal fun createLocalPackageInstallBlockedException(
+    error: Throwable,
+): PluginPackageInstallBlockedException {
+    val issue = PluginPackageValidationIssue(
+        code = "package_validation_failed",
+        message = error.message ?: "Plugin package validation failed.",
+    )
+    return PluginPackageInstallBlockedException(
+        installable = false,
+        compatibilityState = PluginCompatibilityState.unknown(),
+        validationIssues = listOf(issue),
+        message = describeLocalPackageInstallFailure(
+            compatibilityState = PluginCompatibilityState.unknown(),
+            validationIssues = listOf(issue),
+        ),
+    )
+}
+
+private fun describeLocalPackageInstallFailure(
+    compatibilityState: PluginCompatibilityState,
+    validationIssues: List<PluginPackageValidationIssue>,
+): String {
+    validationIssues.firstOrNull { it.code == "legacy_contract" }?.let { issue ->
+        return normalizePackageValidationIssueMessage(issue)
+    }
+    if (compatibilityState.protocolSupported == false && compatibilityState.notes.isNotBlank()) {
+        return compatibilityState.notes
+    }
+    validationIssues.firstOrNull()?.let { issue ->
+        return normalizePackageValidationIssueMessage(issue)
+    }
+    return compatibilityState.notes.takeIf(String::isNotBlank)
+        ?: "Plugin package is not installable."
 }
 
 @Suppress("DEPRECATION")

@@ -2,6 +2,7 @@ package com.astrbot.android.architecture
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.charset.StandardCharsets.UTF_8
 import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readLines
@@ -25,6 +26,15 @@ class GlobalSingletonAllowlistContractTest {
         "permanent",
         "permanent-candidate",
     )
+
+    private val ownerPattern =
+        Regex("""^(feature-[a-z0-9-]+|core-[a-z0-9-]+|download|app-shell|app-integration)$""")
+
+    private val issuePattern =
+        Regex("""^(ARCH-DEBT-[A-Za-z0-9_-]+|#[0-9]+|GH-[0-9]+)$""")
+
+    private val vagueTargetPattern =
+        Regex("""^(remove[-\s]?later|cleanup|legacy|temp(?:orary)?|todo|tbd|none|n/?a)$""", RegexOption.IGNORE_CASE)
 
     private val suspiciousCompanionTokens = listOf(
         "@Volatile",
@@ -70,11 +80,20 @@ class GlobalSingletonAllowlistContractTest {
             entry.path.isBlank() ||
                 entry.type !in allowedTypes ||
                 entry.category !in allowedCategories ||
+                entry.owner.isBlank() ||
+                !ownerPattern.matches(entry.owner) ||
+                entry.target.isBlank() ||
+                vagueTargetPattern.matches(entry.target.trim()) ||
                 entry.reason.isBlank() ||
                 entry.expires.isBlank() ||
+                entry.issue.isBlank() ||
+                !issuePattern.matches(entry.issue) ||
                 entry.path.contains("*") ||
                 entry.path.endsWith("/") ||
-                entry.path.startsWith("/")
+                entry.path.startsWith("/") ||
+                entry.path.startsWith("\\") ||
+                Regex("""^[A-Za-z]:[\\/].*""").matches(entry.path) ||
+                !entry.path.endsWith(".kt")
         }
 
         assertTrue(
@@ -139,7 +158,7 @@ class GlobalSingletonAllowlistContractTest {
     fun production_business_objects_must_be_explicitly_allowlisted() {
         val violations = kotlinFilesUnder(mainRoot)
             .filter { file ->
-                val text = file.readText()
+                val text = file.readText(UTF_8)
                 containsBusinessObjectDeclaration(text)
             }
             .map(::relativePath)
@@ -155,7 +174,7 @@ class GlobalSingletonAllowlistContractTest {
     fun production_suspicious_companion_objects_must_be_explicitly_allowlisted() {
         val violations = kotlinFilesUnder(mainRoot)
             .filter { file ->
-                val text = file.readText()
+                val text = file.readText(UTF_8)
                 containsSuspiciousCompanionObject(text)
             }
             .map(::relativePath)
@@ -170,7 +189,7 @@ class GlobalSingletonAllowlistContractTest {
     @Test
     fun production_code_must_not_add_new_graph_instance_singletons() {
         val violations = kotlinFilesUnder(mainRoot)
-            .filter { file -> file.readText().contains("graphInstance") }
+            .filter { file -> file.readText(UTF_8).contains("graphInstance") }
             .map(::relativePath)
             .filterNot { path -> allowlist.containsPath(path) }
 
@@ -184,7 +203,7 @@ class GlobalSingletonAllowlistContractTest {
     fun production_code_must_not_add_new_delegate_singletons() {
         val violations = kotlinFilesUnder(mainRoot)
             .filter { file ->
-                val text = file.readText()
+                val text = file.readText(UTF_8)
                 containsVolatileDelegate(text)
             }
             .map(::relativePath)
@@ -199,7 +218,7 @@ class GlobalSingletonAllowlistContractTest {
     @Test
     fun production_code_must_not_add_new_manual_database_singleton_access() {
         val violations = kotlinFilesUnder(mainRoot)
-            .filter { file -> file.readText().contains("AstrBotDatabase.get(") }
+            .filter { file -> file.readText(UTF_8).contains("AstrBotDatabase.get(") }
             .map(::relativePath)
             .filterNot { path -> path == "data/db/AstrBotDatabase.kt" }
 
@@ -266,21 +285,24 @@ class GlobalSingletonAllowlistContractTest {
             return SingletonAllowlist(emptyList())
         }
 
-        val entries = allowlistFile.readLines()
+        val entries = allowlistFile.readLines(UTF_8)
             .asSequence()
             .map { line -> line.trim() }
             .filter { line -> line.isNotBlank() && !line.startsWith("#") }
             .mapIndexed { index, line ->
                 val parts = line.split("|").map { part -> part.trim() }
-                require(parts.size == 5) {
+                require(parts.size == 8) {
                     "Invalid singleton allowlist entry at line ${index + 1}: $line"
                 }
                 SingletonAllowlistEntry(
                     path = parts[0],
                     type = parts[1],
                     category = parts[2],
-                    reason = parts[3],
-                    expires = parts[4],
+                    owner = parts[3],
+                    target = parts[4],
+                    reason = parts[5],
+                    expires = parts[6],
+                    issue = parts[7],
                 )
             }
             .toList()
@@ -325,8 +347,11 @@ class GlobalSingletonAllowlistContractTest {
         val path: String,
         val type: String,
         val category: String,
+        val owner: String,
+        val target: String,
         val reason: String,
         val expires: String,
+        val issue: String,
     )
 
     private companion object {

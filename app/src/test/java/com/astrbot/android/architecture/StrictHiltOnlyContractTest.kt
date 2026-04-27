@@ -219,17 +219,23 @@ class StrictHiltOnlyContractTest {
 
     @Test
     fun runtime_hilt_modules_must_wire_scheduler_and_governance_repository_explicitly() {
-        val runtimeServicesText = mainRoot.resolve("di/hilt/RuntimeServicesModule.kt").readText()
+        val runtimeServicesText = listOf(
+            "di/hilt/RuntimeServicesModule.kt",
+            "di/hilt/runtime/PluginRuntimeServicesModule.kt",
+        ).joinToString("\n") { relativePath -> mainRoot.resolve(relativePath).readText() }
         assertTrue(
-            "RuntimeServicesModule must inject PluginRuntimeScheduler into PluginExecutionEngine wiring.",
+            "Runtime Hilt modules must inject PluginRuntimeScheduler into PluginExecutionEngine wiring.",
             runtimeServicesText.contains("scheduler: PluginRuntimeScheduler"),
         )
         assertTrue(
-            "RuntimeServicesModule must thread the injected scheduler into PluginRuntimeDispatcher.",
+            "Runtime Hilt modules must thread the injected scheduler into PluginRuntimeDispatcher.",
             runtimeServicesText.contains("scheduler = scheduler"),
         )
 
-        val viewModelModuleText = mainRoot.resolve("di/hilt/ViewModelDependencyModule.kt").readText()
+        val viewModelModuleText = listOf(
+            "di/hilt/ViewModelDependencyModule.kt",
+            "di/hilt/presentation/PluginViewModelBindingsModule.kt",
+        ).joinToString("\n") { relativePath -> mainRoot.resolve(relativePath).readText() }
         val requiredTokens = listOf(
             "repositoryStatePort: PluginRepositoryStatePort",
             "activeRuntimeStore: PluginV2ActiveRuntimeStore",
@@ -239,7 +245,7 @@ class StrictHiltOnlyContractTest {
         )
         val missingTokens = requiredTokens.filterNot(viewModelModuleText::contains)
         assertTrue(
-            "ViewModelDependencyModule must build PluginGovernanceRepository from explicit Hilt-owned ports: $missingTokens",
+            "ViewModel Hilt modules must build PluginGovernanceRepository from explicit Hilt-owned ports: $missingTokens",
             missingTokens.isEmpty(),
         )
         assertTrue(

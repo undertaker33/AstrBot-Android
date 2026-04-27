@@ -1,4 +1,3 @@
-@file:Suppress("DEPRECATION")
 
 package com.astrbot.android.feature.config.data
 

@@ -8,18 +8,6 @@ enum class ExternalPluginExecutionBindingStatus {
     INVALID_CONTRACT,
 }
 
-enum class ExternalPluginRuntimeKind(
-    val wireValue: String,
-) {
-    JsQuickJs("js_quickjs");
-
-    companion object {
-        fun fromWireValue(value: String): ExternalPluginRuntimeKind? {
-            return entries.firstOrNull { it.wireValue == value }
-        }
-    }
-}
-
 data class ExternalPluginExecutionEntryPoint(
     val runtimeKind: ExternalPluginRuntimeKind,
     val path: String,

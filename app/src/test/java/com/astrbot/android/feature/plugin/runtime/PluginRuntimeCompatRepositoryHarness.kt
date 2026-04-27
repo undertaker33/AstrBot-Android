@@ -50,12 +50,17 @@ import com.astrbot.android.data.db.resource.ResourceCenterDao
 import com.astrbot.android.data.db.resource.ResourceCenterItemEntity
 import com.astrbot.android.data.db.resource.toEntity
 import com.astrbot.android.data.db.toWriteModel
+import com.astrbot.android.feature.bot.data.FeatureBotRepository
 import com.astrbot.android.feature.bot.data.FeatureBotRepositoryStore
+import com.astrbot.android.feature.chat.data.FeatureConversationRepository
+import com.astrbot.android.feature.chat.data.FeatureConversationRepositoryStore
 import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.feature.config.data.FeatureConfigRepositoryStore
-import com.astrbot.android.feature.chat.data.FeatureConversationRepositoryStore
+import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepositoryStore
+import com.astrbot.android.feature.provider.data.FeatureProviderRepository
 import com.astrbot.android.feature.provider.data.FeatureProviderRepositoryStore
+import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository
 import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepositoryStore
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -89,7 +94,8 @@ internal object PluginRuntimeCompatRepositoryHarness {
     private lateinit var resourceCenterStore: FeatureResourceCenterRepositoryStore
 
     fun ensureInstalled() {
-        if (installed) return
+        if (installed && ownsInstalledStores()) return
+        installed = false
 
         configDao = InMemoryConfigAggregateDao(
             initialProfiles = listOf(
@@ -162,6 +168,16 @@ internal object PluginRuntimeCompatRepositoryHarness {
         }
 
         installed = true
+    }
+
+    fun ownsInstalledStores(): Boolean {
+        if (!installed || !::configStore.isInitialized) return false
+        return ownsDelegate(FeatureConfigRepository, configStore) &&
+            ownsDelegate(FeatureBotRepository, botStore) &&
+            ownsDelegate(FeatureProviderRepository, providerStore) &&
+            ownsDelegate(FeaturePersonaRepository, personaStore) &&
+            ownsDelegate(FeatureConversationRepository, conversationStore) &&
+            ownsDelegate(FeatureResourceCenterRepository, resourceCenterStore)
     }
 
     fun captureSnapshot(): CompatRepositorySnapshot {
@@ -249,6 +265,14 @@ private fun waitUntil(
         Thread.sleep(10)
     }
     error(message)
+}
+
+private fun ownsDelegate(repositoryFacade: Any, expectedStore: Any): Boolean {
+    return runCatching {
+        val field = repositoryFacade::class.java.getDeclaredField("delegate")
+        field.isAccessible = true
+        field.get(repositoryFacade) === expectedStore
+    }.getOrDefault(false)
 }
 
 private class ImmediateAppPreferenceDao(initialValue: String?) : AppPreferenceDao {
@@ -600,6 +624,7 @@ private class InMemoryResourceCenterDao : ResourceCenterDao {
 
     override suspend fun deleteResource(resourceId: String) {
         resources.value = resources.value.filterNot { entity -> entity.resourceId == resourceId }
+        projections.value = projections.value.filterNot { entity -> entity.resourceId == resourceId }
     }
 
     override suspend fun upsertProjection(entity: ConfigResourceProjectionEntity) {

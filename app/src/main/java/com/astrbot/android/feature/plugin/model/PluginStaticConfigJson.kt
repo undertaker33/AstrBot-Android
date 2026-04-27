@@ -37,8 +37,9 @@ object PluginStaticConfigJson {
             if (field.obviousHint) {
                 put("obvious_hint", true)
             }
-            if (field.defaultValue != null) {
-                put("default", encodeDefaultValue(field.defaultValue))
+            val defaultValue = field.defaultValue
+            if (defaultValue != null) {
+                put("default", encodeDefaultValue(defaultValue))
             }
             if (field.invisible) {
                 put("invisible", true)

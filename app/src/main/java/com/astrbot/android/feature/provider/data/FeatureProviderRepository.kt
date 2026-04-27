@@ -1,4 +1,3 @@
-@file:Suppress("DEPRECATION")
 
 package com.astrbot.android.feature.provider.data
 
@@ -115,6 +114,10 @@ class FeatureProviderRepositoryStore @Inject constructor(
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _providers = MutableStateFlow(defaultProviders())
+    private val legacyMojibakeOpenAiPatterns = listOf(
+        "\u9390\u7535\u9426\uff1f",
+        "\u95fb\u5ea3\u6578\u9862\u5a47\u60c1",
+    )
 
     val providers: StateFlow<List<ProviderProfile>> = _providers.asStateFlow()
 
@@ -291,11 +294,6 @@ class FeatureProviderRepositoryStore @Inject constructor(
         )
     }
 
-    private val legacyMojibakeOpenAiPatterns = listOf(
-        "\u9390\u7535\u9426\uff1f",
-        "\u95fb\u5ea3\u6578\u9862\u5a47\u60c1",
-    )
-
     private fun normalizeProvider(provider: ProviderProfile): ProviderProfile {
         val normalizedName = when {
             provider.id == "openai-chat" && provider.name.isBlank() -> "OpenAI Chat"
@@ -307,10 +305,10 @@ class FeatureProviderRepositoryStore @Inject constructor(
         return provider.copy(
             name = normalizedName,
             model = normalizedModel,
-            capabilities = provider.capabilities.ifEmpty { setOf(provider.providerType.defaultCapability()) },
+            capabilities = provider.capabilities.orEmpty().ifEmpty { setOf(provider.providerType.defaultCapability()) },
             multimodalRuleSupport = inferMultimodalRuleSupport(provider.providerType, normalizedModel),
             nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(provider.providerType, normalizedModel),
-            ttsVoiceOptions = provider.ttsVoiceOptions.map(String::trim).filter(String::isNotBlank).distinct(),
+            ttsVoiceOptions = provider.ttsVoiceOptions.orEmpty().map(String::trim).filter(String::isNotBlank).distinct(),
         )
     }
 

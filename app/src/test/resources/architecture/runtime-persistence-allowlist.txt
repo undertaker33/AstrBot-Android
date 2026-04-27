@@ -1,0 +1,8 @@
+# path | import | owner | target | reason | expires | issue
+#
+# Exact existing runtime persistence debt only. Do not add wildcards or directory entries.
+
+core/runtime/audio/TtsVoiceAssetRepository.kt | com.astrbot.android.data.db.TtsVoiceAssetAggregate | worker-c | runtime-persistence-boundary | legacy voice asset runtime still maps Room aggregate directly; migrate behind injected data port | phase-2 | phase-1-governance
+core/runtime/audio/TtsVoiceAssetRepository.kt | com.astrbot.android.data.db.TtsVoiceAssetAggregateDao | worker-c | runtime-persistence-boundary | legacy voice asset runtime still owns DAO access directly; migrate behind injected data port | phase-2 | phase-1-governance
+core/runtime/audio/TtsVoiceAssetRepository.kt | com.astrbot.android.data.db.toModel | worker-c | runtime-persistence-boundary | legacy voice asset runtime still uses DB mapper directly; migrate mapping into data layer | phase-2 | phase-1-governance
+core/runtime/audio/TtsVoiceAssetRepository.kt | com.astrbot.android.data.db.toWriteModel | worker-c | runtime-persistence-boundary | legacy voice asset runtime still uses DB write mapper directly; migrate mapping into data layer | phase-2 | phase-1-governance

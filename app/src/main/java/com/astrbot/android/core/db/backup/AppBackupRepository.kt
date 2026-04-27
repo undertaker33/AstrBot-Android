@@ -97,6 +97,10 @@ object AppBackupRepository {
         dataPortOverrideForTests = dataPort
     }
 
+    internal fun hasDataPortOverrideForTests(): Boolean {
+        return dataPortOverrideForTests != null
+    }
+
     suspend fun createBackup(trigger: String = "manual"): Result<AppBackupItem> = withContext(Dispatchers.IO) {
         runCatching {
             val manifest = buildManifest(trigger)

@@ -1,0 +1,26 @@
+package com.astrbot.android.feature.cron.domain.model
+
+data class CronJob(
+    val jobId: String = "",
+    val name: String = "",
+    val description: String = "",
+    val jobType: String = "active_agent",
+    val cronExpression: String = "",
+    val timezone: String = "",
+    val payloadJson: String = "{}",
+    val enabled: Boolean = true,
+    val runOnce: Boolean = false,
+    val platform: String = "",
+    val conversationId: String = "",
+    val botId: String = "",
+    val configProfileId: String = "",
+    val personaId: String = "",
+    val providerId: String = "",
+    val origin: String = "",
+    val status: String = "scheduled",
+    val lastRunAt: Long = 0L,
+    val nextRunTime: Long = 0L,
+    val lastError: String = "",
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+)

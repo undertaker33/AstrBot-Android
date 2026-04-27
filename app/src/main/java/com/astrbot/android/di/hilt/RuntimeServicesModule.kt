@@ -1,64 +1,23 @@
 package com.astrbot.android.di.hilt
 
-import android.content.Context
-import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
-import com.astrbot.android.core.runtime.context.DefaultRuntimeContextResolverPort
-import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
-import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
-import com.astrbot.android.core.runtime.llm.HiltLlmProviderProbePort
-import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
 import com.astrbot.android.core.runtime.audio.TencentSilkEncoder
-import com.astrbot.android.di.ProductionContainerBridgeStatePort
-import com.astrbot.android.di.ProductionRuntimeContextDataPort
-import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
+import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
-import com.astrbot.android.feature.cron.data.FeatureCronSchedulerPortAdapter
-import com.astrbot.android.feature.cron.domain.ActiveCapabilityTaskPort
-import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
-import com.astrbot.android.feature.cron.domain.CronJobRunNowPort
-import com.astrbot.android.feature.cron.domain.CronSchedulerPort
-import com.astrbot.android.feature.cron.runtime.CoordinatorCronJobRunNowPort
-import com.astrbot.android.feature.cron.runtime.CronJobRunCoordinator
-import com.astrbot.android.feature.cron.runtime.CronRuntimeService
-import com.astrbot.android.feature.cron.runtime.CronRescheduler
-import com.astrbot.android.feature.cron.runtime.ActiveCapabilityPromptStrings
-import com.astrbot.android.feature.cron.runtime.AndroidActiveCapabilityPromptStrings
-import com.astrbot.android.feature.cron.runtime.DefaultScheduledMessageDeliveryPort
-import com.astrbot.android.feature.cron.runtime.ScheduledMessageDeliveryPort
-import com.astrbot.android.feature.cron.runtime.ScheduledTaskExecutor
-import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
-import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeExecutor
-import com.astrbot.android.feature.cron.runtime.WorkManagerCronRescheduler
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
-import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
-import com.astrbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
-import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
-import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
-import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
+import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.astrbot.android.feature.plugin.runtime.PluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
 import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
-import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
-import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
-import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityNaturalLanguageLexicon
-import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityNaturalLanguageParser
-import com.astrbot.android.feature.plugin.runtime.toolsource.FutureToolSourceContextResolver
-import com.astrbot.android.feature.plugin.runtime.toolsource.FutureToolSourceRegistry
-import com.astrbot.android.feature.plugin.runtime.toolsource.PortBackedFutureToolSourceContextResolver
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
 import com.astrbot.android.feature.qq.domain.QqPlatformConfigPort
@@ -73,7 +32,6 @@ import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -83,193 +41,9 @@ internal object RuntimeServicesModule {
 
     @Provides
     @Singleton
-    fun provideLlmClientPort(
-        @ApplicationContext appContext: Context,
-    ): LlmClientPort = com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient(appContext)
-
-    @Provides
-    @Singleton
-    fun provideLlmProviderProbePort(
-        @ApplicationContext appContext: Context,
-    ): LlmProviderProbePort = HiltLlmProviderProbePort(appContext)
-
-    @Provides
-    @Singleton
-    fun provideRuntimeLlmOrchestratorPort(): RuntimeLlmOrchestratorPort = DefaultRuntimeLlmOrchestrator()
-
-    @Provides
-    @Singleton
-    fun providePluginHostCapabilityGateway(
-        gatewayFactory: PluginHostCapabilityGatewayFactory,
-    ): PluginHostCapabilityGateway = gatewayFactory.create()
-
-    @Provides
-    @Singleton
-    fun providePluginExecutionEngine(
-        failureGuard: PluginFailureGuard,
-        scheduler: PluginRuntimeScheduler,
-        logBus: PluginRuntimeLogBus,
-    ): PluginExecutionEngine = PluginExecutionEngine(
-        dispatcher = PluginRuntimeDispatcher(
-            failureGuard = failureGuard,
-            scheduler = scheduler,
-            logBus = logBus,
-        ),
-        failureGuard = failureGuard,
-        scheduler = scheduler,
-        logBus = logBus,
-    )
-
-    @Provides
-    @Singleton
-    fun provideExternalPluginRuntimeCatalog(
-        repositoryStatePort: PluginRepositoryStatePort,
-    ): ExternalPluginRuntimeCatalog = ExternalPluginRuntimeCatalog(
-        repositoryStatePort = repositoryStatePort,
-    )
-
-    @Provides
-    @Singleton
-    fun provideAppChatPluginRuntime(
-        pluginCatalog: ExternalPluginRuntimeCatalog,
-        engine: PluginExecutionEngine,
-        hostCapabilityGateway: PluginHostCapabilityGateway,
-        activeRuntimeStore: PluginV2ActiveRuntimeStore,
-        pluginV2DispatchEngine: PluginV2DispatchEngine,
-        pluginV2LifecycleManager: PluginV2LifecycleManager,
-        logBus: PluginRuntimeLogBus,
-        futureToolSourceRegistry: FutureToolSourceRegistry,
-    ): AppChatPluginRuntime = EngineBackedAppChatPluginRuntime(
-        pluginCatalog,
-        engine,
-        hostCapabilityGateway,
-        activeRuntimeStore,
-        pluginV2DispatchEngine,
-        logBus,
-        pluginV2LifecycleManager,
-        futureToolSourceRegistry,
-    )
-
-    @Provides
-    @Singleton
-    fun provideRuntimeContextDataPort(): RuntimeContextDataPort = ProductionRuntimeContextDataPort
-
-    @Provides
-    @Singleton
-    fun provideContainerBridgeStatePort(
-        bridgeStatePort: ProductionContainerBridgeStatePort,
-    ): ContainerBridgeStatePort = bridgeStatePort
-
-    @Provides
-    @Singleton
-    fun provideRuntimeContextResolverPort(
-        resolver: DefaultRuntimeContextResolverPort,
-    ): RuntimeContextResolverPort = resolver
-
-    @Provides
-    @Singleton
     fun provideQqProviderInvoker(
         llmClientPort: LlmClientPort,
     ): DefaultQqProviderInvoker = DefaultQqProviderInvoker(llmClientPort)
-
-    @Provides
-    @Singleton
-    fun provideScheduledTaskRuntimeDependencies(
-        llmClientPort: LlmClientPort,
-        botPort: BotRepositoryPort,
-        orchestrator: RuntimeLlmOrchestratorPort,
-        runtimeContextResolverPort: RuntimeContextResolverPort,
-        deliveryPort: ScheduledMessageDeliveryPort,
-        appChatPluginRuntime: AppChatPluginRuntime,
-        hostCapabilityGateway: PluginHostCapabilityGateway,
-    ): ScheduledTaskRuntimeDependencies {
-        return ScheduledTaskRuntimeDependencies(
-            llmClient = llmClientPort,
-            botPort = botPort,
-            orchestrator = orchestrator,
-            runtimeContextResolverPort = runtimeContextResolverPort,
-            deliveryPort = deliveryPort,
-            appChatPluginRuntime = appChatPluginRuntime as AppChatLlmPipelineRuntime,
-            hostCapabilityGateway = hostCapabilityGateway,
-        )
-    }
-
-    @Provides
-    @Singleton
-    fun provideScheduledMessageDeliveryPort(
-        conversationPort: ConversationRepositoryPort,
-        qqScheduledMessageSender: QqScheduledMessageSender,
-    ): ScheduledMessageDeliveryPort = DefaultScheduledMessageDeliveryPort(
-        conversationPort = conversationPort,
-        qqScheduledMessageSender = qqScheduledMessageSender,
-    )
-
-    @Provides
-    @Singleton
-    fun provideScheduledTaskExecutor(
-        dependencies: ScheduledTaskRuntimeDependencies,
-    ): ScheduledTaskExecutor {
-        return ScheduledTaskExecutor { context ->
-            ScheduledTaskRuntimeExecutor.execute(context, dependencies)
-        }
-    }
-
-    @Provides
-    @Singleton
-    fun provideFutureToolSourceContextResolver(
-        resolver: PortBackedFutureToolSourceContextResolver,
-    ): FutureToolSourceContextResolver = resolver
-
-    @Provides
-    @Singleton
-    fun provideCronSchedulerPort(
-        @ApplicationContext appContext: Context,
-    ): CronSchedulerPort = FeatureCronSchedulerPortAdapter(appContext)
-
-    @Provides
-    @Singleton
-    fun provideActiveCapabilityNaturalLanguageLexicon(
-        @ApplicationContext appContext: Context,
-    ): ActiveCapabilityNaturalLanguageLexicon =
-        ActiveCapabilityNaturalLanguageLexicon.fromResources(appContext)
-
-    @Provides
-    @Singleton
-    fun provideActiveCapabilityNaturalLanguageParser(
-        lexicon: ActiveCapabilityNaturalLanguageLexicon,
-    ): ActiveCapabilityNaturalLanguageParser = ActiveCapabilityNaturalLanguageParser(lexicon)
-
-    @Provides
-    fun provideActiveCapabilityPromptStrings(
-        strings: AndroidActiveCapabilityPromptStrings,
-    ): ActiveCapabilityPromptStrings = strings
-
-    @Provides
-    @Singleton
-    fun provideActiveCapabilityTaskPort(
-        runtimeService: CronRuntimeService,
-    ): ActiveCapabilityTaskPort = runtimeService
-
-    @Provides
-    fun provideCronJobRunNowPort(
-        port: CoordinatorCronJobRunNowPort,
-    ): CronJobRunNowPort = port
-
-    @Provides
-    fun provideCronRescheduler(
-        @ApplicationContext appContext: Context,
-    ): CronRescheduler = WorkManagerCronRescheduler(appContext)
-
-    @Provides
-    fun provideCronJobRunCoordinator(
-        repository: CronJobRepositoryPort,
-        scheduler: CronRescheduler,
-        executor: ScheduledTaskExecutor,
-    ): CronJobRunCoordinator = CronJobRunCoordinator(
-        repository = repository,
-        scheduler = scheduler,
-        executor = executor,
-    )
 
     @Provides
     @Singleton

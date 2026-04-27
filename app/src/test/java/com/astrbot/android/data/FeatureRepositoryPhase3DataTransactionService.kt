@@ -1,7 +1,10 @@
 package com.astrbot.android.data
 
+import kotlinx.coroutines.delay
+
 internal object FeatureRepositoryPhase3DataTransactionService {
     suspend fun deleteConfigProfile(profileId: String) {
+        waitForConfigRestore(profileId)
         val profiles = ConfigRepository.profiles.value
         if (profiles.size <= 1) return
         val fallbackId = if (ConfigRepository.selectedProfileId.value == profileId) {
@@ -21,6 +24,13 @@ internal object FeatureRepositoryPhase3DataTransactionService {
         } catch (error: Throwable) {
             ConversationRepository.restoreSessions(sessionSnapshot)
             throw error
+        }
+    }
+
+    private suspend fun waitForConfigRestore(profileId: String) {
+        repeat(50) {
+            if (ConfigRepository.profiles.value.any { it.id == profileId }) return
+            delay(10)
         }
     }
 }

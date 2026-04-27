@@ -1,0 +1,27 @@
+package com.astrbot.android.feature.provider.domain.model
+
+enum class ProviderType {
+    OPENAI_COMPATIBLE,
+    DEEPSEEK,
+    GEMINI,
+    OLLAMA,
+    QWEN,
+    ZHIPU,
+    XAI,
+    WHISPER_API,
+    XINFERENCE_STT,
+    BAILIAN_STT,
+    SHERPA_ONNX_STT,
+    OPENAI_TTS,
+    BAILIAN_TTS,
+    MINIMAX_TTS,
+    SHERPA_ONNX_TTS,
+    DIFY,
+    BAILIAN_APP,
+    TAVILY_SEARCH,
+    BRAVE_SEARCH,
+    BOCHA_SEARCH,
+    BAIDU_AI_SEARCH,
+    ANTHROPIC,
+    CUSTOM,
+}

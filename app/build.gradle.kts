@@ -90,7 +90,7 @@ val prepareFilteredAssets by tasks.registering(Sync::class) {
 
 android {
     namespace = "com.astrbot.android"
-    compileSdk = 34
+    compileSdk = 36
 
     signingConfigs {
         if (hasReleaseSigning) {
@@ -106,9 +106,9 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         minSdk = 29
-        targetSdk = 34
-        versionCode = 62
-        versionName = "0.8.5"
+        targetSdk = 36
+        versionCode = 63
+        versionName = "0.8.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -218,6 +218,15 @@ dependencies {
     val quickJsVersion = "3.2.3"
     val roomVersion = "2.6.1"
     val androidxHiltVersion = "1.2.0"
+
+    implementation(project(":core:common"))
+    implementation(project(":feature:bot:api"))
+    implementation(project(":feature:config:api"))
+    implementation(project(":feature:cron:api"))
+    implementation(project(":feature:persona:api"))
+    implementation(project(":feature:plugin:api"))
+    implementation(project(":feature:provider:api"))
+    implementation(project(":feature:resource:api"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")

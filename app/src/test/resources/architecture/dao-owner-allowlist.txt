@@ -1,0 +1,6 @@
+# path | dao | owner | target | reason | expires | issue
+#
+# Exact existing cross-owner DAO imports only. Do not add wildcards or directory entries.
+
+feature/qq/data/NapCatLoginLocalStore.kt | SavedQqAccountDao | worker-c | dao-owner-boundary | QQ login local store owns saved QQ account persistence but DAO name is not Qq-prefixed yet; rename or wrap through QQ data port | phase-2 | phase-1-governance
+feature/resource/data/FeatureResourceCenterRepository.kt | ConfigAggregateDao | worker-c | dao-owner-boundary | resource center still projects legacy config MCP/skill fields from config DAO; migrate projection behind config/resource port | phase-2 | phase-1-governance

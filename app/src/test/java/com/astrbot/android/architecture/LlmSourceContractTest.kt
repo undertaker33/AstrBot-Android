@@ -61,6 +61,7 @@ class LlmSourceContractTest {
             "core/runtime/llm/ChatCompletionServiceLlmClient.kt",
             "core/runtime/llm/HiltLlmProviderProbePort.kt",
             "core/runtime/llm/LlmMediaService.kt",
+            "di/hilt/runtime/LlmRuntimeModule.kt",
         )
 
         val violations = kotlinFilesUnder(".").flatMap { file ->
@@ -84,6 +85,7 @@ class LlmSourceContractTest {
     fun production_code_must_not_directly_new_default_runtime_orchestrator_outside_hilt_module() {
         val allowedFiles = setOf(
             "di/hilt/RuntimeServicesModule.kt",
+            "di/hilt/runtime/LlmRuntimeModule.kt",
             "feature/plugin/runtime/DefaultRuntimeLlmOrchestrator.kt",
         )
 
