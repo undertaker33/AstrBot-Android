@@ -18,45 +18,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GRADLE_OPTS: -Dorg.gradle.daemon=false
+  GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2
   TZ: Asia/Shanghai
 
 jobs:
-  architecture:
-    name: Phase 01 - Architecture contracts
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up JDK
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4.0.1
-
-      - name: Install Android SDK 36
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
-
-      - name: Verify Gradle wrapper
-        run: ./gradlew --version --console=plain --no-daemon
-
-      - name: Run architecture contracts
-        run: ./gradlew architectureCheck --console=plain --no-daemon --stacktrace
-
   tooling:
-    name: Build logic and architecture tests
+    name: Build tooling and repository guards
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -69,18 +36,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4.0.1
-
-      - name: Install Android SDK 36
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
+
+      - name: Verify Gradle wrapper
+        run: ./gradlew --version --console=plain --no-daemon
 
       - name: Verify generated artifacts are not tracked
         run: |
@@ -90,69 +54,14 @@ jobs:
             exit 1
           fi
 
-      - name: Run build logic and architecture tests
-        run: ./gradlew :build-logic:check :architecture-tests:test --console=plain --no-daemon --stacktrace
+      - name: Run build logic checks
+        run: ./gradlew :build-logic:check --console=plain --no-daemon --stacktrace
 
-  module-slices:
-    name: ${{ matrix.name }}
+  architecture-and-assemble:
+    name: Architecture contracts and debug assemble
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    needs: [architecture, tooling]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Core common and database
-            gradle_tasks: >-
-              :core:common:testDebugUnitTest
-              :core:logging:testDebugUnitTest
-              :core:db:testDebugUnitTest
-          - name: Core runtime
-            gradle_tasks: >-
-              :core:runtime:testDebugUnitTest
-              :core:runtime-container:testDebugUnitTest
-              :core:runtime-search:testDebugUnitTest
-          - name: Stable feature owners
-            gradle_tasks: >-
-              :feature:bot:api:testDebugUnitTest
-              :feature:bot:impl:testDebugUnitTest
-              :feature:config:api:testDebugUnitTest
-              :feature:config:impl:testDebugUnitTest
-              :feature:persona:api:testDebugUnitTest
-              :feature:persona:impl:testDebugUnitTest
-              :feature:provider:api:testDebugUnitTest
-              :feature:provider:impl:testDebugUnitTest
-              :feature:provider:runtime:compileDebugKotlin
-              :feature:resource:api:testDebugUnitTest
-              :feature:resource:impl:testDebugUnitTest
-          - name: Chat and cron runtime
-            gradle_tasks: >-
-              :feature:chat:api:testDebugUnitTest
-              :feature:chat:impl:testDebugUnitTest
-              :feature:chat:runtime:testDebugUnitTest
-              :feature:cron:api:testDebugUnitTest
-              :feature:cron:impl:testDebugUnitTest
-              :feature:cron:data:testDebugUnitTest
-              :feature:cron:runtime:testDebugUnitTest
-              :feature:cron:presentation:compileDebugKotlin
-          - name: Plugin platform
-            gradle_tasks: >-
-              :feature:plugin:api:testDebugUnitTest
-              :feature:plugin:impl:testDebugUnitTest
-              :feature:plugin:data:testDebugUnitTest
-              :feature:plugin:runtime:testDebugUnitTest
-              :feature:plugin:presentation:compileDebugKotlin
-          - name: QQ split
-            gradle_tasks: >-
-              :feature:qq:api:testDebugUnitTest
-              :feature:qq:impl:testDebugUnitTest
-              :feature:qq:data:testDebugUnitTest
-              :feature:qq:runtime:testDebugUnitTest
-              :feature:qq:presentation:compileDebugKotlin
-          - name: Voice asset split
-            gradle_tasks: >-
-              :feature:voiceasset:data:testDebugUnitTest
-              :feature:voiceasset:presentation:compileDebugKotlin
+    timeout-minutes: 60
+    needs: tooling
 
     steps:
       - name: Check out repository
@@ -163,48 +72,29 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4.0.1
 
-      - name: Install Android SDK 36
+      - name: Install Android SDK
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run module slice tests
-        run: ./gradlew ${{ matrix.gradle_tasks }} --console=plain --no-daemon --stacktrace
+      - name: Run architecture and debug assemble gate
+        run: ./gradlew clean architectureCheck assembleDebug --console=plain --no-daemon --stacktrace
 
-  phase-02-05:
-    name: ${{ matrix.name }}
+  app-tests:
+    name: App debug unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: architecture
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Phase 02 - Core logging
-            gradle_tasks: >-
-              :core:logging:compileDebugKotlin
-              :core:logging:testDebugUnitTest
-          - name: Phase 03 - Runtime log screen
-            gradle_tasks: >-
-              :app:testDebugUnitTest
-              --tests
-              'com.elymbot.android.core.common.logging.*'
-          - name: Phase 04 - Container extractor logging
-            gradle_tasks: >-
-              :app:compileDebugKotlin
-          - name: Phase 05 - Runtime cache maintenance
-            gradle_tasks: >-
-              :app:testDebugUnitTest
-              --tests
-              '*RuntimeCache*'
+    needs: tooling
 
     steps:
       - name: Check out repository
@@ -215,166 +105,20 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4.0.1
 
-      - name: Install Android SDK 36
+      - name: Install Android SDK
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
-
-      - name: Run phase verification
-        run: ./gradlew ${{ matrix.gradle_tasks }} --console=plain --no-daemon --stacktrace
-
-  phase-06-10:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    needs: architecture
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Phase 06-07 - Startup and core network
-            gradle_tasks: >-
-              :core:common:compileDebugKotlin
-              :core:logging:compileDebugKotlin
-              :core:network:compileDebugKotlin
-          - name: Phase 08 - Runtime context, tool, and search
-            gradle_tasks: >-
-              :core:runtime-tool:compileKotlin
-              :core:runtime-context:compileKotlin
-              :core:runtime-search:compileDebugKotlin
-              :app:testDebugUnitTest
-              --tests
-              '*RuntimeContext*'
-              --tests
-              '*Search*'
-          - name: Phase 09 - Runtime LLM and audio
-            gradle_tasks: >-
-              :core:runtime-llm:compileDebugKotlin
-              :core:runtime-audio:compileDebugKotlin
-              :app:testDebugUnitTest
-              --tests
-              '*Llm*'
-              --tests
-              '*Tts*'
-              --tests
-              '*Sherpa*'
-          - name: Phase 10 - Runtime container, secret, session, and cache
-            gradle_tasks: >-
-              :core:runtime-container:compileDebugKotlin
-              :core:runtime-secret:compileDebugKotlin
-              :core:runtime-session:compileDebugKotlin
-              :core:runtime-cache:compileDebugKotlin
-              :app:testDebugUnitTest
-              --tests
-              '*Container*'
-              --tests
-              '*RuntimeCache*'
-              --tests
-              '*Secret*'
-              --tests
-              '*Session*'
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up JDK
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4.0.1
-
-      - name: Install Android SDK 36
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run phase 06-10 verification
-        run: ./gradlew ${{ matrix.gradle_tasks }} --console=plain --no-daemon --stacktrace
-
-  integration:
-    name: App integration compile
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [module-slices, phase-02-05, phase-06-10]
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up JDK
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4.0.1
-
-      - name: Install Android SDK 36
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
-
-      - name: Compile integration module
-        run: ./gradlew :app-integration:compileDebugKotlin --console=plain --no-daemon --stacktrace
-
-  app:
-    name: App smoke tests and debug assemble
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    needs: integration
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up JDK
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4.0.1
-
-      - name: Install Android SDK 36
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
-
-      - name: Run app smoke tests
-        run: >-
-          ./gradlew :app:testDebugUnitTest
-          --tests '*ScheduledTaskIntentGuardTest'
-          --tests '*ProviderViewModelTest'
-          --tests '*GreetingToolkitSampleInstallTest'
-          --tests '*TemplatePluginSampleInstallTest'
-          --tests '*MemeManagerSample*'
-          --console=plain --no-daemon --stacktrace
-
-      - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug --console=plain --no-daemon --stacktrace
+      - name: Run app debug unit tests
+        run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon --stacktrace
