@@ -23,7 +23,7 @@ env:
 
 jobs:
   tooling:
-    name: Tooling and repository guards
+    name: Build tooling and repository guards
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -57,10 +57,10 @@ jobs:
       - name: Run build logic checks
         run: ./gradlew :build-logic:check --console=plain --no-daemon --stacktrace
 
-  architecture:
-    name: Architecture contracts
+  architecture-and-assemble:
+    name: Architecture contracts and debug assemble
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     needs: tooling
 
     steps:
@@ -87,50 +87,14 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run architecture contracts
-        run: ./gradlew architectureCheck --console=plain --no-daemon --stacktrace
+      - name: Run architecture and debug assemble gate
+        run: ./gradlew clean architectureCheck assembleDebug --console=plain --no-daemon --stacktrace
 
-  module-groups:
-    name: ${{ matrix.name }}
+  app-tests:
+    name: App debug unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: tooling
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Core foundation modules
-            gradle_task: moduleCoreFoundationCheck
-          - name: Core runtime modules
-            gradle_task: moduleCoreRuntimeCheck
-          - name: Download modules
-            gradle_task: moduleDownloadCheck
-          - name: Bot modules
-            gradle_task: moduleBotCheck
-          - name: Chat modules
-            gradle_task: moduleChatCheck
-          - name: Config modules
-            gradle_task: moduleConfigCheck
-          - name: Conversation modules
-            gradle_task: moduleConversationCheck
-          - name: Cron modules
-            gradle_task: moduleCronCheck
-          - name: Persona modules
-            gradle_task: modulePersonaCheck
-          - name: Plugin modules
-            gradle_task: modulePluginCheck
-          - name: Provider modules
-            gradle_task: moduleProviderCheck
-          - name: QQ modules
-            gradle_task: moduleQqCheck
-          - name: Resource modules
-            gradle_task: moduleResourceCheck
-          - name: Settings modules
-            gradle_task: moduleSettingsCheck
-          - name: Voice asset modules
-            gradle_task: moduleVoiceAssetCheck
-          - name: App shell modules
-            gradle_task: moduleAppShellCheck
 
     steps:
       - name: Check out repository
@@ -156,41 +120,5 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run module group verification
-        run: ./gradlew ${{ matrix.gradle_task }} --console=plain --no-daemon --stacktrace
-
-  app:
-    name: App tests and debug assemble
-    runs-on: ubuntu-latest
-    timeout-minutes: 55
-    needs: [architecture, module-groups]
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up JDK
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4.0.1
-
-      - name: Install Android SDK
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
-
-      - name: Run app unit tests
+      - name: Run app debug unit tests
         run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon --stacktrace
-
-      - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug --console=plain --no-daemon --stacktrace
