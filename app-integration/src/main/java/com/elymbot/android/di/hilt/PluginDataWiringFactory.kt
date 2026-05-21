@@ -30,7 +30,11 @@ import com.elymbot.android.feature.plugin.runtime.PluginInstaller
 import com.elymbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.elymbot.android.feature.plugin.runtime.RuntimePluginPackageValidationPort
 import com.elymbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
+import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2LifecycleManager
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostNetworkApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeSessionFactory
@@ -110,6 +114,10 @@ internal class PluginDataWiringFactory @Inject constructor(
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
         hostOperations: PluginExecutionHostOperations,
+        hostNetworkApi: PluginV2HostNetworkApi,
+        providerReadApi: PluginV2ProviderReadApi,
+        messageSendApi: PluginV2MessageSendApi,
+        conversationHistoryApi: PluginV2ConversationHistoryApi,
         repositoryStatePort: com.elymbot.android.feature.plugin.domain.PluginStateRepositoryPort,
     ): PluginV2RuntimeLoader = PluginV2RuntimeLoader(
         sessionFactory = PluginV2RuntimeSessionFactory(),
@@ -119,6 +127,10 @@ internal class PluginDataWiringFactory @Inject constructor(
         store = activeRuntimeStore,
         lifecycleManager = lifecycleManager,
         hostOperations = hostOperations,
+        hostNetworkApi = hostNetworkApi,
+        providerReadApi = providerReadApi,
+        messageSendApi = messageSendApi,
+        conversationHistoryApi = conversationHistoryApi,
         repositoryStatePort = repositoryStatePort,
         stateStore = createPluginStateStore(),
     )

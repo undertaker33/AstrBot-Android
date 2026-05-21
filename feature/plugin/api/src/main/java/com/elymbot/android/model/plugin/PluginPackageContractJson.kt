@@ -1,6 +1,7 @@
 package com.elymbot.android.model.plugin
 
 import java.io.File
+import org.json.JSONArray
 import org.json.JSONObject
 
 object PluginPackageContractJson {
@@ -22,6 +23,7 @@ object PluginPackageContractJson {
 
         val apiVersion = readRequiredInt(runtimeJson, "apiVersion", "runtime.apiVersion")
         val configJson = readOptionalObject(json, "config")
+        val networkJson = readOptionalObject(json, "network")
 
         return PluginPackageContract(
             protocolVersion = protocolVersion,
@@ -31,6 +33,7 @@ object PluginPackageContractJson {
                 apiVersion = apiVersion,
             ),
             config = decodeConfig(configJson),
+            network = decodeNetwork(networkJson),
         )
     }
 
@@ -40,6 +43,25 @@ object PluginPackageContractJson {
             staticSchema = readOptionalConfigPath(json, "staticSchema", "config.staticSchema"),
             settingsSchema = readOptionalConfigPath(json, "settingsSchema", "config.settingsSchema"),
         )
+    }
+
+    private fun decodeNetwork(json: JSONObject?): PluginNetworkAccessPolicy {
+        if (json == null) return PluginNetworkAccessPolicy()
+        val allowedDomains = readOptionalStringArray(json, "allowedDomains", "network.allowedDomains")
+            .map(::normalizeNetworkDomain)
+            .distinct()
+        return PluginNetworkAccessPolicy(allowedDomains = allowedDomains)
+    }
+
+    private fun readOptionalStringArray(
+        json: JSONObject,
+        key: String,
+        path: String,
+    ): List<String> {
+        if (!json.has(key) || json.isNull(key)) return emptyList()
+        val array = json.optJSONArray(key)
+            ?: throw IllegalArgumentException("$path must be an array")
+        return array.toStringList(path)
     }
 
     private fun normalizeRuntimeBootstrap(value: String): String {
@@ -90,6 +112,29 @@ object PluginPackageContractJson {
             is String -> normalizeOptionalPluginPackageRelativePath(value, path)
             else -> throw IllegalArgumentException("$path must be a string")
         }
+    }
+
+    private fun JSONArray.toStringList(path: String): List<String> {
+        return buildList {
+            for (index in 0 until length()) {
+                val value = opt(index)
+                require(value is String) {
+                    "$path[$index] must be a string"
+                }
+                add(value)
+            }
+        }
+    }
+
+    private fun normalizeNetworkDomain(value: String): String {
+        val normalized = value.trim().lowercase().removeSuffix(".")
+        require(normalized.isNotBlank()) {
+            "network.allowedDomains must not contain blank domains"
+        }
+        require(!normalized.contains("/") && !normalized.contains(":")) {
+            "network.allowedDomains entries must be bare domains"
+        }
+        return normalized
     }
 }
 

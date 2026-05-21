@@ -154,8 +154,35 @@
   - `docs/work/D26052102-插件API对齐AstrBot能力补齐/100-D26052102-T10-todo-富消息链.md`
   - `docs/work/D26052102-插件API对齐AstrBot能力补齐/110-D26052102-T11-todo-Agent能力注册.md`
   - `docs/work/D26052102-插件API对齐AstrBot能力补齐/120-D26052102-T12-todo-Filter组合表达式.md`
-- Active Todo: not selected；用户后续决定派发顺序。
+- Remaining index:
+  - `docs/work/D26052102-插件API对齐AstrBot能力补齐/130-D26052102-剩余插件API能力索引.md`
+- Active Todo: not selected；T06 到 T12 仍待用户后续决定派发顺序。
 - Goal: split all designed plugin API parity capabilities into formal Todo files after excluding Web API registration, platform adapter registration, DB direct access, text-to-image, and HTML rendering.
 - Status: Todo breakdown written only；implementation, review, worker prompt, and Git writes have not started.
 - Git baseline: pending；本轮 `uth-dev` 未执行 Git 写入。
 - Docs sync: no scoped-sync yet；后续实现若改变插件平台事实，再进入 `uth-docs` 更新 `docs/context/09-插件平台.md`。
+
+## D26052102 Phase B 实施状态（2026-05-21 16:22 +08:00）
+
+- Scene：`uth-dev`
+- Mode：`formal-dev`
+- Task package：`docs/work/D26052102-插件API对齐AstrBot能力补齐/`
+- Completed scope：Phase A/T01 已完成；Phase B/T02-T05 已完成实现、主控验证和 evaluator 复核。
+- Feedback：
+  - `docs/work/D26052102-插件API对齐AstrBot能力补齐/21-D26052102-T02-feedback-宿主网络请求代理.md`
+  - `docs/work/D26052102-插件API对齐AstrBot能力补齐/31-D26052102-T03-feedback-Provider模型只读查询.md`
+  - `docs/work/D26052102-插件API对齐AstrBot能力补齐/41-D26052102-T04-feedback-当前会话消息发送.md`
+  - `docs/work/D26052102-插件API对齐AstrBot能力补齐/51-D26052102-T05-feedback-当前会话历史只读查询.md`
+- Evaluator：`019e4981-64d9-7be2-badc-c3d4d0539a40`，Phase B 复核结论为 `PASS`。
+- Verification：
+  - `.\gradlew.bat :feature:plugin:runtime:testDebugUnitTest --tests "*PluginV2HostNetworkApiTest*" --tests "*PluginV2MessageSendApiTest*" --tests "*PluginV2HostApiQuickJsCapabilitiesTest*" --console=plain --no-daemon --stacktrace`：pass。
+  - `.\gradlew.bat :app-integration:testDebugUnitTest --tests "*PluginHostCapabilityModuleTest*" --console=plain --no-daemon --stacktrace`：pass。
+  - `.\gradlew.bat :feature:plugin:runtime:testDebugUnitTest --tests "*HostNetwork*" --tests "*ProviderRead*" --tests "*MessageSend*" --tests "*ConversationHistory*" --tests "*PluginV2HostApiQuickJsCapabilitiesTest*" --console=plain --no-daemon --stacktrace`：pass。
+  - `.\gradlew.bat :app:testDebugUnitTest --tests "*RuntimeNetworkModelsTest*" --tests "*PluginV2HostApiArchitectureContractTest*" --tests "*PluginPackageContractJsonTest*" --tests "*PluginV2BootstrapHostApiTest*" --tests "*PluginV2QuickJsCallbackLifecycleTest*" --tests "*PluginV2HostApiAsyncBridgeTest*" --tests "*PluginV2HostApiAuditLoggerTest*" --tests "*PluginV2HostApiPermissionPolicyTest*" --console=plain --no-daemon --stacktrace`：pass。
+  - `.\gradlew.bat :app-integration:compileDebugKotlin :app:compileDebugKotlin architectureCheck --console=plain --no-daemon --stacktrace`：pass。
+  - `.\gradlew.bat clean assembleDebug --console=plain --no-daemon --stacktrace`：pass；日志 `build/reports/D26052102-phase-b-clean-assembleDebug.log`；warning / deprecated / exception 扫描为 0。
+  - `.\gradlew.bat modulePluginCheck --console=plain --no-daemon --stacktrace`：pass；2026-05-21 16:39 已补齐 `app/src/main/res/values-zh/strings.xml` 中 26 个缺失翻译并收口既有 MissingTranslation；日志：`build/reports/D26052102-modulePluginCheck-translation-closeout.log`。
+  - `.\gradlew.bat clean assembleDebug --console=plain --no-daemon --stacktrace`：pass；2026-05-21 16:39 收口复验日志 `build/reports/D26052102-translation-closeout-clean-assembleDebug.log`；warning / deprecated / exception 扫描为 0。
+- Active Todo：T06 到 T12 仍待用户决定是否继续；剩余能力索引已补充；不得在未确认前推进 T06+。
+- Git baseline：pending；本轮 `uth-dev` 未执行 Git 写入。
+- Docs sync：`Needs uth-docs scoped-sync`。本轮实现改变插件平台事实，Design-level 或阶段验收后应同步 `docs/context/09-插件平台.md`。

@@ -349,6 +349,7 @@ data class PluginPackageContractSnapshot(
     val protocolVersion: Int,
     val runtime: PluginRuntimeDeclarationSnapshot,
     val config: PluginConfigEntryPointsSnapshot = PluginConfigEntryPointsSnapshot(),
+    val network: PluginNetworkAccessPolicySnapshot = PluginNetworkAccessPolicySnapshot(),
 )
 
 data class PluginRuntimeDeclarationSnapshot(
@@ -360,6 +361,10 @@ data class PluginRuntimeDeclarationSnapshot(
 data class PluginConfigEntryPointsSnapshot(
     val staticSchema: String = "",
     val settingsSchema: String = "",
+)
+
+data class PluginNetworkAccessPolicySnapshot(
+    val allowedDomains: List<String> = emptyList(),
 )
 
 data class PluginFailureState(
@@ -640,7 +645,16 @@ fun PluginPackageContract.toSnapshot(): PluginPackageContractSnapshot {
             staticSchema = config.staticSchema,
             settingsSchema = config.settingsSchema,
         ),
+        network = PluginNetworkAccessPolicySnapshot(
+            allowedDomains = contractNormalizedDomains(network.allowedDomains),
+        ),
     )
+}
+
+private fun contractNormalizedDomains(domains: List<String>): List<String> {
+    return domains.mapNotNull { domain ->
+        domain.trim().lowercase().removeSuffix(".").takeIf(String::isNotBlank)
+    }.distinct()
 }
 
 fun PluginRiskLevel.isBlocking(): Boolean {

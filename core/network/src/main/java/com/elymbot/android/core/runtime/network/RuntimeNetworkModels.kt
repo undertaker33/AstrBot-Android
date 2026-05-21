@@ -14,6 +14,7 @@ enum class RuntimeNetworkCapability {
     MCP_SSE,
     ACTIVE_CAPABILITY,
     APP_UPDATE,
+    PLUGIN_HOST_API,
 }
 
 /**
@@ -33,6 +34,7 @@ enum class RuntimeTimeoutProfile(
     MCP_SSE_PERSISTENT(connectMs = 10_000, readMs = 0, writeMs = 10_000),
     ACTIVE_CAPABILITY_CALLBACK(connectMs = 10_000, readMs = 30_000, writeMs = 10_000),
     APP_UPDATE(connectMs = 10_000, readMs = 20_000, writeMs = 10_000),
+    PLUGIN_HOST_API(connectMs = 5_000, readMs = 15_000, writeMs = 5_000),
 }
 
 /**

@@ -12,6 +12,7 @@ dependencies {
 
     implementation(project(":core:common"))
     implementation(project(":core:logging"))
+    implementation(project(":core:network"))
     implementation(project(":core:runtime"))
     implementation(project(":core:runtime-context"))
     implementation(project(":core:runtime-search"))

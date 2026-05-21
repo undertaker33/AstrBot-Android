@@ -38,9 +38,13 @@ import com.elymbot.android.feature.plugin.runtime.RuntimePluginRuntimeLogPresent
 import com.elymbot.android.feature.plugin.runtime.PluginScheduleStateStore
 import com.elymbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
 import com.elymbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
+import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.elymbot.android.feature.plugin.runtime.PluginV2FilterEvaluator
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostNetworkApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2LifecycleManager
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
 import com.elymbot.android.feature.plugin.runtime.createSharedPreferencesPluginLogMaintenanceService
 import android.content.Context
@@ -251,12 +255,20 @@ internal object PluginRuntimeModule {
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
         hostOperations: PluginExecutionHostOperations,
+        hostNetworkApi: PluginV2HostNetworkApi,
+        providerReadApi: PluginV2ProviderReadApi,
+        messageSendApi: PluginV2MessageSendApi,
+        conversationHistoryApi: PluginV2ConversationHistoryApi,
         repositoryStatePort: PluginStateRepositoryPort,
     ): PluginV2RuntimeLoader = factory.createPluginV2RuntimeLoader(
         activeRuntimeStore = activeRuntimeStore,
         logBus = logBus,
         lifecycleManager = lifecycleManager,
         hostOperations = hostOperations,
+        hostNetworkApi = hostNetworkApi,
+        providerReadApi = providerReadApi,
+        messageSendApi = messageSendApi,
+        conversationHistoryApi = conversationHistoryApi,
         repositoryStatePort = repositoryStatePort,
     )
 }

@@ -160,6 +160,13 @@ class QuickJsExternalPluginScriptExecutor(
             "__elymbotBootstrapCompletionState"
         internal const val QUICKJS_BOOTSTRAP_COMPLETION_ERROR_PROPERTY =
             "__elymbotBootstrapCompletionError"
+        internal const val QUICKJS_CALLBACK_PROMISE_PROPERTY = "__elymbotCallbackPromise"
+        internal const val QUICKJS_CALLBACK_COMPLETION_STATE_PROPERTY =
+            "__elymbotCallbackCompletionState"
+        internal const val QUICKJS_CALLBACK_COMPLETION_ERROR_PROPERTY =
+            "__elymbotCallbackCompletionError"
+        internal const val QUICKJS_CALLBACK_COMPLETION_VALUE_PROPERTY =
+            "__elymbotCallbackCompletionValue"
     }
 }
 
@@ -303,6 +310,9 @@ private class QuickJsExternalPluginBootstrapSession(
         hostApi.attachSessionUnifiedOriginProvider {
             runtimeHandle.currentSessionUnifiedOrigin
         }
+        hostApi.attachHostApiEventContextProvider {
+            runtimeHandle.currentHostApiEventContext
+        }
         val bridge = runtimeHandle.context.createNewJSObject()
         bindHostCall(bridge, "registerMessageHandler") { args ->
             val descriptor = requireObjectArg(args, 0, "registerMessageHandler")
@@ -374,6 +384,49 @@ private class QuickJsExternalPluginBootstrapSession(
             hostApi.log(level, message, metadata)
             null
         }
+        bindHostCall(bridge, "fetch") { args ->
+            val request = parseHostNetworkRequest(requireObjectArg(args, 0, "fetch"))
+            createHostNetworkJsResult(runtimeHandle, hostApi.fetch(request))
+        }
+        val networkBridge = runtimeHandle.context.createNewJSObject()
+        bindHostCall(networkBridge, "request") { args ->
+            val request = parseHostNetworkRequest(requireObjectArg(args, 0, "network.request"))
+            createHostNetworkJsResult(runtimeHandle, hostApi.networkRequest(request))
+        }
+        bridge.setProperty("network", networkBridge)
+        runtimeHandle.handleStore["network::$name"] = networkBridge
+        val providersBridge = runtimeHandle.context.createNewJSObject()
+        bindHostCall(providersBridge, "list") {
+            createHostApiJsResult(runtimeHandle, hostApi.providersList())
+        }
+        bindHostCall(providersBridge, "models") { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.providerModels(parseProviderModelsRequest(requireObjectArg(args, 0, "providers.models"))),
+            )
+        }
+        bridge.setProperty("providers", providersBridge)
+        runtimeHandle.handleStore["providers::$name"] = providersBridge
+        val messageBridge = runtimeHandle.context.createNewJSObject()
+        bindHostCall(messageBridge, "send") { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.messageSend(parseMessageSendRequest(requireObjectArg(args, 0, "message.send"))),
+            )
+        }
+        bridge.setProperty("message", messageBridge)
+        runtimeHandle.handleStore["message::$name"] = messageBridge
+        val conversationBridge = runtimeHandle.context.createNewJSObject()
+        bindHostCall(conversationBridge, "history") { args ->
+            val descriptor = args.getOrNull(0)?.takeIf { it is JSObject || it is Map<*, *> }
+                ?: emptyMap<String, Any?>()
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.conversationHistory(parseConversationHistoryRequest(descriptor)),
+            )
+        }
+        bridge.setProperty("conversation", conversationBridge)
+        runtimeHandle.handleStore["conversation::$name"] = conversationBridge
         bindHostCall(bridge, "getPluginMetadata") {
             createJsObject(
                 runtimeHandle,
@@ -613,6 +666,218 @@ private class QuickJsExternalPluginBootstrapSession(
             metadata = BootstrapRegistrationMetadata(parseStringMap(propertyValue(descriptor, "metadata"))),
             handler = extractCallbackHandle(descriptor, runtimeHandle, "handler", "registerToolLifecycleHook"),
         )
+    }
+
+    private fun parseHostNetworkRequest(
+        descriptor: Any,
+    ): PluginV2HostNetworkRequest {
+        return PluginV2HostNetworkRequest(
+            url = requireStringProperty(descriptor, "fetch", "url"),
+            method = propertyValue(descriptor, "method")?.toString().orEmpty().ifBlank { "GET" },
+            headers = parseStringMap(propertyValue(descriptor, "headers")),
+            bodyText = propertyValue(descriptor, "bodyText")?.toString(),
+            bodyBase64 = propertyValue(descriptor, "bodyBase64")?.toString(),
+            timeoutMs = parseOptionalLong(propertyValue(descriptor, "timeoutMs"), "timeoutMs"),
+        )
+    }
+
+    private fun parseProviderModelsRequest(
+        descriptor: Any,
+    ): PluginV2ProviderModelsRequest {
+        return PluginV2ProviderModelsRequest(
+            providerId = requireStringProperty(descriptor, "providers.models", "providerId"),
+        )
+    }
+
+    private fun parseMessageSendRequest(
+        descriptor: Any,
+    ): PluginV2MessageSendRequest {
+        return PluginV2MessageSendRequest(
+            text = propertyValue(descriptor, "text")?.toString().orEmpty(),
+            markdown = parseBoolean(propertyValue(descriptor, "markdown")),
+            attachments = parseMessageAttachmentRefs(propertyValue(descriptor, "attachments")),
+            conversationId = propertyValue(descriptor, "conversationId")?.toString().orEmpty(),
+        )
+    }
+
+    private fun parseMessageAttachmentRefs(
+        value: Any?,
+    ): List<PluginV2MessageAttachmentRef> {
+        return parseList(value).mapNotNull { item ->
+            when (item) {
+                is JSObject, is Map<*, *> -> PluginV2MessageAttachmentRef(
+                    uri = propertyValue(item, "uri")?.toString().orEmpty(),
+                    mimeType = propertyValue(item, "mimeType")?.toString().orEmpty(),
+                )
+
+                else -> null
+            }
+        }
+    }
+
+    private fun parseConversationHistoryRequest(
+        descriptor: Any,
+    ): PluginV2ConversationHistoryRequest {
+        return PluginV2ConversationHistoryRequest(
+            limit = parseInt(propertyValue(descriptor, "limit"), defaultValue = 0, fieldName = "limit"),
+            beforeMessageId = propertyValue(descriptor, "beforeMessageId")?.toString().orEmpty(),
+            includeAttachments = parseBoolean(propertyValue(descriptor, "includeAttachments")),
+            conversationId = propertyValue(descriptor, "conversationId")?.toString().orEmpty(),
+        )
+    }
+
+    private fun parseBoolean(value: Any?): Boolean {
+        return when (value) {
+            is Boolean -> value
+            is Number -> value.toInt() != 0
+            is String -> value.trim().equals("true", ignoreCase = true)
+            else -> false
+        }
+    }
+
+    private fun parseInt(
+        value: Any?,
+        defaultValue: Int,
+        fieldName: String,
+    ): Int {
+        return when (value) {
+            null -> defaultValue
+            is Number -> value.toInt()
+            is String -> value.trim().takeIf(String::isNotBlank)?.toIntOrNull()
+                ?: throw IllegalArgumentException("$fieldName must be a number.")
+
+            else -> throw IllegalArgumentException("$fieldName must be a number.")
+        }
+    }
+
+    private fun parseOptionalLong(
+        value: Any?,
+        fieldName: String,
+    ): Long? {
+        return when (value) {
+            null -> null
+            is Number -> value.toLong()
+            is String -> value.trim().takeIf(String::isNotBlank)?.toLongOrNull()
+                ?: throw IllegalArgumentException("$fieldName must be a number.")
+
+            else -> throw IllegalArgumentException("$fieldName must be a number.")
+        }
+    }
+
+    private fun createHostApiJsResult(
+        runtimeHandle: QuickJsBootstrapRuntime,
+        result: PluginV2HostApiResult,
+    ): Any? {
+        return when (result) {
+            is PluginV2HostApiResult.Success -> createJsValue(runtimeHandle, result.value.toJsBridgeValue())
+            is PluginV2HostApiResult.Failure -> createJsObject(
+                runtimeHandle,
+                linkedMapOf(
+                    "ok" to false,
+                    "error" to linkedMapOf(
+                        "code" to result.error.code,
+                        "message" to result.error.message,
+                        "details" to result.error.details,
+                    ),
+                ),
+            )
+        }
+    }
+
+    private fun createHostNetworkJsResult(
+        runtimeHandle: QuickJsBootstrapRuntime,
+        result: PluginV2HostApiResult,
+    ): JSObject {
+        val value = when (result) {
+            is PluginV2HostApiResult.Success -> {
+                val response = result.value as PluginV2HostNetworkResponse
+                linkedMapOf(
+                    "status" to response.status,
+                    "headers" to response.headers,
+                    "bodyText" to response.bodyText,
+                    "bodyBase64" to response.bodyBase64,
+                    "contentType" to response.contentType,
+                    "elapsedMs" to response.elapsedMs,
+                )
+            }
+
+            is PluginV2HostApiResult.Failure -> linkedMapOf(
+                "ok" to false,
+                "error" to linkedMapOf(
+                    "code" to result.error.code,
+                    "message" to result.error.message,
+                    "details" to result.error.details,
+                ),
+            )
+        }
+        return createJsObject(runtimeHandle, value)
+    }
+
+    private fun Any?.toJsBridgeValue(): Any? {
+        return when (this) {
+            null,
+            is String,
+            is Boolean,
+            is Int,
+            is Long,
+            is Double,
+            is ByteArray,
+            -> this
+
+            is Float -> toDouble()
+            is Number -> toDouble()
+            is Map<*, *> -> entries.associate { (key, value) -> key.toString() to value.toJsBridgeValue() }
+            is List<*> -> map { it.toJsBridgeValue() }
+            is Set<*> -> map { it.toJsBridgeValue() }
+            is PluginV2ProviderSummary -> linkedMapOf(
+                "providerId" to providerId,
+                "displayName" to displayName,
+                "enabled" to enabled,
+                "capabilities" to capabilities.toList(),
+                "defaultModelId" to defaultModelId,
+                "modelCount" to modelCount,
+            )
+
+            is PluginV2ProviderModelSummary -> linkedMapOf(
+                "modelId" to modelId,
+                "displayName" to displayName,
+                "capabilities" to capabilities.toList(),
+                "contextWindow" to contextWindow,
+                "supportsToolCalling" to supportsToolCalling,
+                "supportsStreaming" to supportsStreaming,
+            )
+
+            is PluginV2MessageSendResult -> linkedMapOf(
+                "conversationId" to conversationId,
+                "platformAdapterType" to platformAdapterType,
+                "receiptIds" to receiptIds,
+                "messageLength" to messageLength,
+            )
+
+            is PluginV2ConversationHistoryResult -> linkedMapOf(
+                "conversationId" to conversationId,
+                "messages" to messages.map { it.toJsBridgeValue() },
+            )
+
+            is PluginV2ConversationHistoryMessage -> linkedMapOf(
+                "messageId" to messageId,
+                "role" to role,
+                "senderId" to senderId,
+                "messageType" to messageType,
+                "text" to text,
+                "timestampEpochMillis" to timestampEpochMillis,
+                "attachmentRefs" to attachmentRefs.map { it.toJsBridgeValue() },
+            )
+
+            is PluginV2ConversationHistoryAttachmentRef -> linkedMapOf(
+                "ref" to ref,
+                "uri" to uri,
+                "mimeType" to mimeType,
+                "type" to type,
+            )
+
+            else -> toString()
+        }
     }
 
     private fun parseBaseDescriptor(
@@ -1441,13 +1706,92 @@ private class QuickJsExternalPluginBootstrapSession(
                     "QuickJS bootstrap session has already been disposed: $pluginId"
                 }
                 val previousSessionUnifiedOrigin = runtimeHandle.currentSessionUnifiedOrigin
+                val previousHostApiEventContext = runtimeHandle.currentHostApiEventContext
                 runtimeHandle.currentSessionUnifiedOrigin = resolveSessionUnifiedOrigin(args)
+                runtimeHandle.currentHostApiEventContext = resolveHostApiEventContext(args)
                 val jsArgs = args.map { createJsValue(runtimeHandle, it) }
                 try {
-                    function.call(*jsArgs.toTypedArray())
+                    val result = function.call(*jsArgs.toTypedArray())
+                    if (isQuickJsPromiseLike(result)) {
+                        awaitQuickJsCallbackPromise(
+                            runtimeHandle = runtimeHandle,
+                            actionName = actionName,
+                            promise = result,
+                        )
+                    } else {
+                        result
+                    }
                 } finally {
                     runtimeHandle.currentSessionUnifiedOrigin = previousSessionUnifiedOrigin
+                    runtimeHandle.currentHostApiEventContext = previousHostApiEventContext
                     jsArgs.forEach(::releaseQuickJsValueIfNeeded)
+                }
+            }
+        }
+
+        private fun isQuickJsPromiseLike(value: Any?): Boolean {
+            val jsObject = value as? JSObject ?: return false
+            val thenValue = runCatching {
+                jsObject.getProperty("then")
+            }.getOrNull()
+            return try {
+                thenValue is JSFunction
+            } finally {
+                releaseQuickJsValueIfNeeded(thenValue)
+            }
+        }
+
+        private fun awaitQuickJsCallbackPromise(
+            runtimeHandle: QuickJsBootstrapRuntime,
+            actionName: String,
+            promise: Any?,
+        ): Any? {
+            var completionEvaluationResult: Any? = null
+            var completionValue: Any? = null
+            try {
+                runtimeHandle.context.setProperty(
+                    runtimeHandle.globalObject,
+                    QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_PROMISE_PROPERTY,
+                    promise,
+                )
+                completionEvaluationResult = runtimeHandle.context.evaluate(
+                    buildQuickJsCallbackCompletionSource(),
+                    runtimeHandle.bootstrapExecutionSourcePath,
+                )
+                val completionState = awaitQuickJsBootstrapCompletion(
+                    initialState = completionEvaluationResult?.toString(),
+                    timeoutMs = bootstrapTimeoutMs,
+                ) {
+                    runtimeHandle.context.evaluate(
+                        buildQuickJsCallbackCompletionStatePollSource(),
+                        runtimeHandle.bootstrapPollSourcePath,
+                    )?.toString()
+                }
+                check(completionState == QUICKJS_BOOTSTRAP_COMPLETION_STATE_FULFILLED) {
+                    val errorDetail = runtimeHandle.context.getProperty(
+                        runtimeHandle.globalObject,
+                        QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_ERROR_PROPERTY,
+                    )?.toString().orEmpty().trim()
+                    if (errorDetail.isBlank()) {
+                        "QuickJS callback $actionName completed with unexpected state $completionState for $pluginId."
+                    } else {
+                        "QuickJS callback $actionName completed with state $completionState for $pluginId: $errorDetail"
+                    }
+                }
+                completionValue = runtimeHandle.context.getProperty(
+                    runtimeHandle.globalObject,
+                    QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_VALUE_PROPERTY,
+                )
+                return coerceJsValue(completionValue)
+            } finally {
+                releaseQuickJsValueIfNeeded(completionEvaluationResult)
+                releaseQuickJsValueIfNeeded(completionValue)
+                releaseQuickJsValueIfNeeded(promise)
+                runCatching {
+                    runtimeHandle.context.evaluate(
+                        buildQuickJsCallbackCompletionCleanupSource(),
+                        runtimeHandle.bootstrapPollSourcePath,
+                    )
                 }
             }
         }
@@ -1458,6 +1802,14 @@ private class QuickJsExternalPluginBootstrapSession(
     ): String? {
         return args.asSequence()
             .mapNotNull(::extractSessionUnifiedOrigin)
+            .firstOrNull()
+    }
+
+    private fun resolveHostApiEventContext(
+        args: Array<out Any?>,
+    ): PluginV2HostApiEventContext? {
+        return args.asSequence()
+            .mapNotNull(::extractHostApiEventContext)
             .firstOrNull()
     }
 
@@ -1477,6 +1829,63 @@ private class QuickJsExternalPluginBootstrapSession(
             is PluginV2CustomFilterRequest -> value.eventView.extrasSnapshot.sessionUnifiedOrigin()
             else -> null
         }
+    }
+
+    private fun extractHostApiEventContext(
+        value: Any?,
+    ): PluginV2HostApiEventContext? {
+        return when (value) {
+            is PluginMessageEvent -> value.toHostApiEventContext()
+            is PluginCommandEvent -> value.toHostApiEventContext()
+            is PluginRegexEvent -> value.toHostApiEventContext()
+            is PluginV2LlmWaitingPayload -> PluginV2HostApiEventContext(
+                eventId = value.eventId,
+                conversationId = value.conversationId,
+                platformAdapterType = value.platformAdapterType,
+                messageType = value.messageType,
+            )
+
+            is PluginV2LlmRequestPayload -> value.event.toHostApiEventContext()
+            is PluginV2LlmResponsePayload -> value.event.toHostApiEventContext()
+            is PluginV2LlmResultDecoratingPayload -> value.event.toHostApiEventContext()
+            is PluginV2LlmAfterSentPayload -> value.event.toHostApiEventContext()
+            is PluginErrorHookArgs -> extractHostApiEventContext(value.event)
+            is PluginV2CustomFilterRequest -> PluginV2HostApiEventContext(
+                eventId = value.eventView.eventId,
+                conversationId = value.eventView.conversationId,
+                platformAdapterType = value.eventView.platformAdapterType,
+                messageType = value.eventView.messageType,
+            )
+
+            else -> null
+        }
+    }
+
+    private fun PluginMessageEvent.toHostApiEventContext(): PluginV2HostApiEventContext {
+        return PluginV2HostApiEventContext(
+            eventId = eventId,
+            conversationId = conversationId,
+            platformAdapterType = platformAdapterType,
+            messageType = messageType.wireValue,
+        )
+    }
+
+    private fun PluginCommandEvent.toHostApiEventContext(): PluginV2HostApiEventContext {
+        return PluginV2HostApiEventContext(
+            eventId = eventId,
+            conversationId = conversationId,
+            platformAdapterType = platformAdapterType,
+            messageType = messageType.wireValue,
+        )
+    }
+
+    private fun PluginRegexEvent.toHostApiEventContext(): PluginV2HostApiEventContext {
+        return PluginV2HostApiEventContext(
+            eventId = eventId,
+            conversationId = conversationId,
+            platformAdapterType = platformAdapterType,
+            messageType = messageType.wireValue,
+        )
     }
 
     private fun Map<String, *>.sessionUnifiedOrigin(): String? {
@@ -1626,6 +2035,7 @@ private data class QuickJsBootstrapRuntime(
     val bootstrapPollSourcePath: String,
     val handleStore: LinkedHashMap<String, Any>,
     var currentSessionUnifiedOrigin: String? = null,
+    var currentHostApiEventContext: PluginV2HostApiEventContext? = null,
 ) {
     fun dispose() {
         handleStore.values
@@ -1770,6 +2180,52 @@ private fun buildQuickJsBootstrapExecutionSource(): String {
 
 private fun buildQuickJsBootstrapCompletionStatePollSource(): String {
     return "globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_BOOTSTRAP_COMPLETION_STATE_PROPERTY};"
+}
+
+private fun buildQuickJsCallbackCompletionSource(): String {
+    return buildString {
+        appendLine(
+            "globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_STATE_PROPERTY} = ${JSONObject.quote(QUICKJS_BOOTSTRAP_COMPLETION_STATE_PENDING)};",
+        )
+        appendLine(
+            "globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_ERROR_PROPERTY} = '';",
+        )
+        appendLine(
+            "globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_VALUE_PROPERTY} = undefined;",
+        )
+        appendLine("(async () => {")
+        appendLine("  try {")
+        appendLine(
+            "    globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_VALUE_PROPERTY} = await globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_PROMISE_PROPERTY};",
+        )
+        appendLine(
+            "    globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_STATE_PROPERTY} = ${JSONObject.quote(QUICKJS_BOOTSTRAP_COMPLETION_STATE_FULFILLED)};",
+        )
+        appendLine("  } catch (error) {")
+        appendLine(
+            "    globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_STATE_PROPERTY} = ${JSONObject.quote(QUICKJS_BOOTSTRAP_COMPLETION_STATE_REJECTED)};",
+        )
+        appendLine(
+            "    globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_ERROR_PROPERTY} = String(error?.stack ?? error?.message ?? error);",
+        )
+        appendLine("    throw error;")
+        appendLine("  }")
+        appendLine("})();")
+        appendLine("globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_STATE_PROPERTY};")
+    }
+}
+
+private fun buildQuickJsCallbackCompletionStatePollSource(): String {
+    return "globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_STATE_PROPERTY};"
+}
+
+private fun buildQuickJsCallbackCompletionCleanupSource(): String {
+    return buildString {
+        appendLine("delete globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_PROMISE_PROPERTY};")
+        appendLine("delete globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_STATE_PROPERTY};")
+        appendLine("delete globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_ERROR_PROPERTY};")
+        appendLine("delete globalThis.${QuickJsExternalPluginScriptExecutor.QUICKJS_CALLBACK_COMPLETION_VALUE_PROPERTY};")
+    }
 }
 
 private class FileSystemQuickJsModuleLoader(

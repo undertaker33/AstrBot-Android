@@ -4,6 +4,7 @@ data class PluginPackageContract(
     val protocolVersion: Int,
     val runtime: PluginRuntimeDeclaration,
     val config: PluginConfigEntryPoints = PluginConfigEntryPoints(),
+    val network: PluginNetworkAccessPolicy = PluginNetworkAccessPolicy(),
 ) {
     init {
         require(protocolVersion == SUPPORTED_PROTOCOL_VERSION) {
@@ -31,4 +32,8 @@ data class PluginRuntimeDeclaration(
 data class PluginConfigEntryPoints(
     val staticSchema: String = "",
     val settingsSchema: String = "",
+)
+
+data class PluginNetworkAccessPolicy(
+    val allowedDomains: List<String> = emptyList(),
 )
