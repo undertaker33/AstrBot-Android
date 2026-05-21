@@ -31,13 +31,17 @@ import com.elymbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.elymbot.android.feature.plugin.runtime.RuntimePluginPackageValidationPort
 import com.elymbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2ContextCompressApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2LifecycleManager
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostNetworkApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeSessionFactory
+import com.elymbot.android.feature.plugin.runtime.PluginV2ScheduledHandlerLifecycle
 import com.elymbot.android.feature.plugin.runtime.RemotePluginPackageDownloader
 import com.elymbot.android.feature.plugin.runtime.catalog.PluginCatalogFetcher
 import com.elymbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
@@ -117,7 +121,11 @@ internal class PluginDataWiringFactory @Inject constructor(
         hostNetworkApi: PluginV2HostNetworkApi,
         providerReadApi: PluginV2ProviderReadApi,
         messageSendApi: PluginV2MessageSendApi,
+        messageStreamApi: PluginV2MessageStreamApi,
         conversationHistoryApi: PluginV2ConversationHistoryApi,
+        hostLlmApi: PluginV2HostLlmApi,
+        contextCompressApi: PluginV2ContextCompressApi,
+        scheduledHandlerLifecycle: PluginV2ScheduledHandlerLifecycle,
         repositoryStatePort: com.elymbot.android.feature.plugin.domain.PluginStateRepositoryPort,
     ): PluginV2RuntimeLoader = PluginV2RuntimeLoader(
         sessionFactory = PluginV2RuntimeSessionFactory(),
@@ -130,7 +138,11 @@ internal class PluginDataWiringFactory @Inject constructor(
         hostNetworkApi = hostNetworkApi,
         providerReadApi = providerReadApi,
         messageSendApi = messageSendApi,
+        messageStreamApi = messageStreamApi,
         conversationHistoryApi = conversationHistoryApi,
+        hostLlmApi = hostLlmApi,
+        contextCompressApi = contextCompressApi,
+        scheduledHandlerLifecycle = scheduledHandlerLifecycle,
         repositoryStatePort = repositoryStatePort,
         stateStore = createPluginStateStore(),
     )

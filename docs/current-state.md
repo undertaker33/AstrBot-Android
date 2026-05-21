@@ -98,6 +98,7 @@
 | 2026-05-21 01:49 +08:00 | `:app:testDebugUnitTest` | pass | 全量 app debug unit test 通过；日志保存到 `build/reports/D26052101-app-update-app-testDebugUnitTest.log`；warning / deprecated / exception 扫描计数为 0 |
 | 2026-05-21 02:40 +08:00 | `uth-utf8-guard` post-write | pass | `docs/current-state.md` 与 D26052101 task package 5 个 Markdown 文件通过 UTF-8 guard |
 | 2026-05-21 02:40 +08:00 | `tools/uth-hooks/uth-hook.py` L3 closeout | pass | `uth-dev` / `formal-dev` closeout 通过；`positive-claim-evidence-present` 与 `code-verification-clean` |
+| 2026-05-22 00:35 +08:00 | D26052102 T06-T10 review gate | pass with risk | 聚焦 runtime/app/app-integration 测试、`architectureCheck`、`modulePluginCheck`、`clean assembleDebug` 均通过；6 个日志 warning / deprecated / exception / failed 扫描计数均为 0；`130` 索引已更新；T06/T09 细粒度审计字段作为后续增强风险记录 |
 
 ## 当前事实来源
 
@@ -156,11 +157,11 @@
   - `docs/work/D26052102-插件API对齐AstrBot能力补齐/120-D26052102-T12-todo-Filter组合表达式.md`
 - Remaining index:
   - `docs/work/D26052102-插件API对齐AstrBot能力补齐/130-D26052102-剩余插件API能力索引.md`
-- Active Todo: not selected；T06 到 T12 仍待用户后续决定派发顺序。
+- Active Todo: not selected；T11 到 T12 仍待用户后续决定派发顺序。
 - Goal: split all designed plugin API parity capabilities into formal Todo files after excluding Web API registration, platform adapter registration, DB direct access, text-to-image, and HTML rendering.
-- Status: Todo breakdown written only；implementation, review, worker prompt, and Git writes have not started.
+- Status: T01 到 T10 已有实现与验证记录；T11 到 T12 尚未开始；T06/T09 细粒度审计字段作为后续增强风险记录在 `130` 索引中；Git 写入未执行。
 - Git baseline: pending；本轮 `uth-dev` 未执行 Git 写入。
-- Docs sync: no scoped-sync yet；后续实现若改变插件平台事实，再进入 `uth-docs` 更新 `docs/context/09-插件平台.md`。
+- Docs sync: `Needs uth-docs scoped-sync`；T06 到 T10 已改变插件平台事实，后续需要进入 `uth-docs` 更新 `docs/context/09-插件平台.md`。
 
 ## D26052102 Phase B 实施状态（2026-05-21 16:22 +08:00）
 
@@ -183,6 +184,24 @@
   - `.\gradlew.bat clean assembleDebug --console=plain --no-daemon --stacktrace`：pass；日志 `build/reports/D26052102-phase-b-clean-assembleDebug.log`；warning / deprecated / exception 扫描为 0。
   - `.\gradlew.bat modulePluginCheck --console=plain --no-daemon --stacktrace`：pass；2026-05-21 16:39 已补齐 `app/src/main/res/values-zh/strings.xml` 中 26 个缺失翻译并收口既有 MissingTranslation；日志：`build/reports/D26052102-modulePluginCheck-translation-closeout.log`。
   - `.\gradlew.bat clean assembleDebug --console=plain --no-daemon --stacktrace`：pass；2026-05-21 16:39 收口复验日志 `build/reports/D26052102-translation-closeout-clean-assembleDebug.log`；warning / deprecated / exception 扫描为 0。
-- Active Todo：T06 到 T12 仍待用户决定是否继续；剩余能力索引已补充；不得在未确认前推进 T06+。
+- Active Todo（历史状态，已被 2026-05-22 T06-T10 验收更新）：T06 到 T12 仍待用户决定是否继续；剩余能力索引已补充；不得在未确认前推进 T06+。
 - Git baseline：pending；本轮 `uth-dev` 未执行 Git 写入。
 - Docs sync：`Needs uth-docs scoped-sync`。本轮实现改变插件平台事实，Design-level 或阶段验收后应同步 `docs/context/09-插件平台.md`。
+
+## D26052102 T06-T10 验收状态（2026-05-22 00:35 +08:00）
+
+- Scene：`uth-review`
+- Review target：`T06 直接 LLM 调用`、`T07 上下文压缩落地`、`T08 插件定时任务回调`、`T09 插件流式输出`、`T10 富消息链`
+- Result：`pass with risk`。功能、权限、结构与构建门禁通过；T06/T09 的 LLM provider/model/token usage 与 streamId/chunk/bytes/duration 专用审计字段可作为后续增强，不再作为 AstrBot 对齐能力缺口保留。
+- Verification：
+  - `.\gradlew.bat :feature:plugin:runtime:testDebugUnitTest --tests "*Llm*" --tests "*Context*Compress*" --tests "*Scheduled*" --tests "*Stream*" --tests "*MessageSegment*" --tests "*RichMessage*" --tests "*PluginV2HostApiQuickJsCapabilitiesTest*" --console=plain --no-daemon --stacktrace`：pass；日志 `build/reports/D26052102-T06-T10-feature-plugin-runtime-tests.log`。
+  - `.\gradlew.bat :app:testDebugUnitTest --tests "*FutureToolSourceRegistryContextCompressionInjectionTest*" --tests "*ContextStrategyToolSourceProviderTest*" --tests "*CronJobRunCoordinatorTest*" --tests "*PluginV2RuntimeLoaderTest*" --tests "*PluginV2HostApiArchitectureContractTest*" --tests "*PluginV2BootstrapHostApiTest*" --tests "*PluginV2HostApiPermissionPolicyTest*" --tests "*PluginV2HostApiAuditLoggerTest*" --console=plain --no-daemon --stacktrace`：pass；日志 `build/reports/D26052102-T06-T10-app-tests.log`。
+  - `.\gradlew.bat :app-integration:testDebugUnitTest --tests "*PluginHostCapabilityModuleTest*" --console=plain --no-daemon --stacktrace`：pass；日志 `build/reports/D26052102-T06-T10-app-integration-tests.log`。
+  - `.\gradlew.bat architectureCheck --console=plain --no-daemon --stacktrace`：pass；日志 `build/reports/D26052102-T06-T10-architectureCheck.log`。
+  - `.\gradlew.bat modulePluginCheck --console=plain --no-daemon --stacktrace`：pass；日志 `build/reports/D26052102-T06-T10-modulePluginCheck.log`。
+  - `.\gradlew.bat clean assembleDebug --console=plain --no-daemon --stacktrace`：pass；日志 `build/reports/D26052102-T06-T10-clean-assembleDebug.log`。
+- Log scan：上述 6 个日志的 `warning` / `deprecated` / `exception` / `failed` 扫描计数均为 0。
+- Documents written：`docs/work/D26052102-插件API对齐AstrBot能力补齐/130-D26052102-剩余插件API能力索引.md` 与 `docs/current-state.md`。
+- Active Todo：T11 与 T12 仍待用户决定是否派发。
+- Git baseline：pending；本轮 `uth-review` 未执行 Git 写入。
+- Docs sync：`Needs uth-docs scoped-sync`；如需背景上下文反映 T06-T10 当前代码事实，后续进入 `uth-docs` 更新 `docs/context/09-插件平台.md`。

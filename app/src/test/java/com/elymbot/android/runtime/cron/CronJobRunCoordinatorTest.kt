@@ -62,6 +62,66 @@ class CronJobRunCoordinatorTest {
     }
 
     @Test
+    fun plugin_v2_schedule_job_dispatches_before_generic_context_validation() = runBlocking {
+        val repository = InMemoryCronJobRunRepository(
+            CronJob(
+                jobId = "plugin-v2-schedule:plugin.schedule:daily-summary",
+                name = "Plugin schedule",
+                description = "Plugin callback",
+                jobType = "plugin_v2_schedule",
+                payloadJson = """
+                    {
+                      "pluginId": "plugin.schedule",
+                      "pluginVersion": "1.0.0",
+                      "handlerKey": "daily-summary",
+                      "conversationId": "conversation-plugin",
+                      "triggerSource": "plugin_v2_schedule"
+                    }
+                """.trimIndent(),
+                conversationId = "conversation-plugin",
+                enabled = true,
+                runOnce = false,
+                nextRunTime = 1_000L,
+            ),
+        )
+        val pluginDispatch = RecordingPluginScheduledTaskDispatchPort(
+            CronJobDeliverySummary(
+                platform = "plugin_v2_schedule",
+                conversationId = "conversation-plugin",
+                deliveredMessageCount = 1,
+                receiptIds = listOf("plugin-receipt"),
+                textPreview = "plugin handled",
+            ),
+        )
+        val coordinator = CronJobRunCoordinator(
+            repository = repository,
+            executor = ScheduledTaskExecutor {
+                error("Generic scheduled task executor must not run plugin V2 schedule jobs.")
+            },
+            scheduler = RecordingCronRescheduler(),
+            pluginScheduledTaskDispatchPort = pluginDispatch,
+            clock = SequenceClock(5_000L, 5_080L),
+            nextFireTime = { _, _, _ -> 10_000L },
+            executionIdGenerator = { "exec-plugin" },
+        )
+
+        val outcome = coordinator.runDueJob(
+            jobId = "plugin-v2-schedule:plugin.schedule:daily-summary",
+            attempt = 1,
+            trigger = "work_manager",
+        )
+
+        assertEquals(CronJobRunOutcome.Succeeded, outcome)
+        assertEquals(
+            listOf("plugin-v2-schedule:plugin.schedule:daily-summary"),
+            pluginDispatch.contexts.map { it.jobId },
+        )
+        val record = repository.records.single()
+        assertEquals("SUCCEEDED", record.status)
+        assertTrue(record.deliverySummary.contains("plugin-receipt"))
+    }
+
+    @Test
     fun failed_run_records_error_and_requests_retry_when_retryable() = runBlocking {
         val repository = InMemoryCronJobRunRepository(
             CronJob(
@@ -329,5 +389,16 @@ private class RecordingCronRescheduler : CronRescheduler {
 
     override fun schedule(job: CronJob) {
         scheduled += job
+    }
+}
+
+private class RecordingPluginScheduledTaskDispatchPort(
+    private val summary: CronJobDeliverySummary,
+) : PluginScheduledTaskDispatchPort {
+    val contexts = mutableListOf<CronJobExecutionContext>()
+
+    override suspend fun dispatch(context: CronJobExecutionContext): CronJobDeliverySummary? {
+        contexts += context
+        return if (context.jobType == "plugin_v2_schedule") summary else null
     }
 }

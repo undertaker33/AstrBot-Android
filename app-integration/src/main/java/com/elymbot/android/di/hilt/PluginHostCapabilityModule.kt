@@ -1,10 +1,19 @@
 package com.elymbot.android.di.hilt
 
+import com.elymbot.android.core.runtime.llm.LlmClientPort
+import com.elymbot.android.core.runtime.llm.LlmConversationMessage
+import com.elymbot.android.core.runtime.llm.LlmInvocationRequest
+import com.elymbot.android.core.runtime.llm.LlmProviderCapability
+import com.elymbot.android.core.runtime.llm.LlmProviderProfile
+import com.elymbot.android.core.runtime.llm.LlmProviderType
+import com.elymbot.android.core.runtime.llm.LlmRuntimeConfig
+import com.elymbot.android.core.runtime.llm.LlmToolDefinition
 import com.elymbot.android.core.runtime.network.RuntimeNetworkTransport
 import com.elymbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.elymbot.android.feature.provider.api.runtime.ProviderRuntimePort
 import com.elymbot.android.feature.provider.domain.model.FeatureSupportState
 import com.elymbot.android.feature.provider.domain.model.ProviderCapability
+import com.elymbot.android.feature.provider.domain.model.ProviderProfile
 import com.elymbot.android.feature.plugin.runtime.DefaultPluginExecutionHostResolver
 import com.elymbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.elymbot.android.feature.plugin.runtime.PluginFailureGuard
@@ -18,16 +27,31 @@ import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryAtt
 import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryMessage
 import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryPortRequest
 import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryReadPort
+import com.elymbot.android.feature.plugin.runtime.PluginV2ContextCompressApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostApiAsyncBridge
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostApiAuditLogger
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostApiFacade
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostApiPermissionPolicy
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostNetworkApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmPort
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmPortRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmPortResult
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageAttachmentRef
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendPort
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendPortRequest
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendPortResult
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPlatformMode
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPort
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortChunkRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortCloseRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortFailRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortMutationResult
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortOpenRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortOpenResult
+import com.elymbot.android.feature.plugin.runtime.PluginLlmToolCall
 import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadModel
 import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadPort
@@ -39,6 +63,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Singleton
 
 @Module
@@ -237,6 +262,28 @@ internal abstract class PluginHostCapabilityModule {
         @Provides
         @Singleton
         @JvmStatic
+        fun providePluginV2MessageStreamPort(
+            conversationRepository: ConversationRepositoryPort,
+            qqScheduledMessageSender: QqScheduledMessageSender,
+        ): PluginV2MessageStreamPort = DefaultPluginV2MessageStreamPort(
+            conversationRepository = conversationRepository,
+            qqScheduledMessageSender = qqScheduledMessageSender,
+        )
+
+        @Provides
+        @Singleton
+        @JvmStatic
+        fun providePluginV2MessageStreamApi(
+            facade: PluginV2HostApiFacade,
+            streamPort: PluginV2MessageStreamPort,
+        ): PluginV2MessageStreamApi = PluginV2MessageStreamApi(
+            facade = facade,
+            streamPort = streamPort,
+        )
+
+        @Provides
+        @Singleton
+        @JvmStatic
         fun providePluginV2ConversationHistoryReadPort(
             conversationRepository: ConversationRepositoryPort,
         ): PluginV2ConversationHistoryReadPort = PluginV2ConversationHistoryReadPort { request: PluginV2ConversationHistoryPortRequest ->
@@ -275,6 +322,81 @@ internal abstract class PluginHostCapabilityModule {
             historyReader = historyReadPort,
         )
 
+        @Provides
+        @Singleton
+        @JvmStatic
+        fun providePluginV2HostLlmPort(
+            providerRuntimePort: ProviderRuntimePort,
+            llmClientPort: LlmClientPort,
+        ): PluginV2HostLlmPort = PluginV2HostLlmPort { request: PluginV2HostLlmPortRequest ->
+            val provider = providerRuntimePort.providers.value.first { it.id == request.providerId }
+            val llmProvider = provider.toLlmProviderProfile(modelId = request.modelId)
+            val result = llmClientPort.sendWithTools(
+                LlmInvocationRequest(
+                    provider = llmProvider,
+                    messages = request.messages.mapIndexed { index, message ->
+                        LlmConversationMessage(
+                            id = "${request.requestId}:$index",
+                            role = message.role,
+                            content = message.text,
+                            timestamp = System.currentTimeMillis(),
+                        )
+                    },
+                    systemPrompt = request.systemPrompt,
+                    config = LlmRuntimeConfig(id = request.conversationId),
+                    availableProviders = providerRuntimePort.providers.value
+                        .filter { it.enabled }
+                        .map { it.toLlmProviderProfile(modelId = it.model) },
+                    tools = request.tools.map { tool ->
+                        LlmToolDefinition(
+                            name = tool.name,
+                            description = tool.description,
+                            parametersJson = org.json.JSONObject(tool.inputSchema).toString(),
+                        )
+                    },
+                ),
+            )
+            PluginV2HostLlmPortResult(
+                text = result.text,
+                finishReason = result.finishReason,
+                providerId = request.providerId,
+                modelId = request.modelId,
+                toolCalls = result.toolCalls.map { toolCall ->
+                    PluginLlmToolCall(
+                        toolCallId = toolCall.id,
+                        toolName = toolCall.name,
+                        arguments = mapOf("argumentsJson" to toolCall.arguments),
+                    )
+                },
+            )
+        }
+
+        @Provides
+        @Singleton
+        @JvmStatic
+        fun providePluginV2HostLlmApi(
+            facade: PluginV2HostApiFacade,
+            providerReadPort: PluginV2ProviderReadPort,
+            llmPort: PluginV2HostLlmPort,
+        ): PluginV2HostLlmApi = PluginV2HostLlmApi(
+            facade = facade,
+            providerReader = providerReadPort,
+            llmPort = llmPort,
+        )
+
+        @Provides
+        @Singleton
+        @JvmStatic
+        fun providePluginV2ContextCompressApi(
+            facade: PluginV2HostApiFacade,
+            historyReadPort: PluginV2ConversationHistoryReadPort,
+            llmPort: PluginV2HostLlmPort,
+        ): PluginV2ContextCompressApi = PluginV2ContextCompressApi(
+            facade = facade,
+            historyReader = historyReadPort,
+            llmPort = llmPort,
+        )
+
         private fun List<PluginV2MessageAttachmentRef>.toConversationAttachments(): List<ConversationAttachment> {
             return map { attachment ->
                 val uri = attachment.uri.trim()
@@ -303,5 +425,172 @@ internal abstract class PluginHostCapabilityModule {
                 else -> false
             }
         }
+
+        private fun ProviderProfile.toLlmProviderProfile(modelId: String): LlmProviderProfile {
+            return LlmProviderProfile(
+                id = id,
+                name = name,
+                baseUrl = baseUrl,
+                model = modelId.ifBlank { model },
+                providerType = runCatching { LlmProviderType.valueOf(providerType.name) }
+                    .getOrDefault(LlmProviderType.CUSTOM),
+                apiKey = apiKey,
+                capabilities = capabilities.mapNotNullTo(linkedSetOf()) { capability ->
+                    runCatching { LlmProviderCapability.valueOf(capability.name) }.getOrNull()
+                },
+                enabled = enabled,
+                multimodalRuleSupport = runCatching {
+                    com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.valueOf(multimodalRuleSupport.name)
+                }.getOrDefault(com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.UNKNOWN),
+                multimodalProbeSupport = runCatching {
+                    com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.valueOf(multimodalProbeSupport.name)
+                }.getOrDefault(com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.UNKNOWN),
+                nativeStreamingRuleSupport = runCatching {
+                    com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.valueOf(nativeStreamingRuleSupport.name)
+                }.getOrDefault(com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.UNKNOWN),
+                nativeStreamingProbeSupport = runCatching {
+                    com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.valueOf(nativeStreamingProbeSupport.name)
+                }.getOrDefault(com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.UNKNOWN),
+                sttProbeSupport = runCatching {
+                    com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.valueOf(sttProbeSupport.name)
+                }.getOrDefault(com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.UNKNOWN),
+                ttsProbeSupport = runCatching {
+                    com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.valueOf(ttsProbeSupport.name)
+                }.getOrDefault(com.elymbot.android.core.runtime.llm.LlmFeatureSupportState.UNKNOWN),
+                ttsVoiceOptions = ttsVoiceOptions,
+            )
+        }
+    }
+}
+
+private class DefaultPluginV2MessageStreamPort(
+    private val conversationRepository: ConversationRepositoryPort,
+    private val qqScheduledMessageSender: QqScheduledMessageSender,
+) : PluginV2MessageStreamPort {
+    private val streams = ConcurrentHashMap<String, HostStreamState>()
+
+    override suspend fun open(request: PluginV2MessageStreamPortOpenRequest): PluginV2MessageStreamPortOpenResult {
+        val mode = if (request.platformAdapterType.isQqPlatform()) {
+            PluginV2MessageStreamPlatformMode.FinalOnClose
+        } else {
+            PluginV2MessageStreamPlatformMode.Editable
+        }
+        val streamId = "${request.requestId}:stream"
+        streams[streamId] = HostStreamState(
+            streamId = streamId,
+            conversationId = request.conversationId,
+            platformAdapterType = request.platformAdapterType,
+            mode = mode,
+        )
+        return PluginV2MessageStreamPortOpenResult(
+            streamId = streamId,
+            platformMode = mode,
+            receiptId = "",
+        )
+    }
+
+    override suspend fun append(request: PluginV2MessageStreamPortChunkRequest): PluginV2MessageStreamPortMutationResult {
+        val state = streams[request.streamId] ?: return unknownStream()
+        state.buffer.append(request.text)
+        return if (state.mode == PluginV2MessageStreamPlatformMode.FinalOnClose) {
+            PluginV2MessageStreamPortMutationResult(success = true)
+        } else {
+            state.syncEditable(conversationRepository)
+        }
+    }
+
+    override suspend fun replace(request: PluginV2MessageStreamPortChunkRequest): PluginV2MessageStreamPortMutationResult {
+        val state = streams[request.streamId] ?: return unknownStream()
+        state.buffer.clear()
+        state.buffer.append(request.text)
+        return if (state.mode == PluginV2MessageStreamPlatformMode.FinalOnClose) {
+            PluginV2MessageStreamPortMutationResult(success = true)
+        } else {
+            state.syncEditable(conversationRepository)
+        }
+    }
+
+    override suspend fun close(request: PluginV2MessageStreamPortCloseRequest): PluginV2MessageStreamPortMutationResult {
+        val state = streams.remove(request.streamId) ?: return unknownStream()
+        if (state.mode != PluginV2MessageStreamPlatformMode.FinalOnClose) {
+            return PluginV2MessageStreamPortMutationResult(success = true)
+        }
+        val text = state.buffer.toString()
+        if (text.isBlank()) {
+            return PluginV2MessageStreamPortMutationResult(success = true)
+        }
+        val sendResult = qqScheduledMessageSender.sendScheduledMessage(
+            conversationId = request.conversationId,
+            text = text,
+            attachments = emptyList(),
+            botId = "",
+        )
+        if (!sendResult.success) {
+            return PluginV2MessageStreamPortMutationResult(
+                success = false,
+                errorCode = "qq_stream_delivery_failed",
+                errorSummary = sendResult.errorSummary,
+            )
+        }
+        conversationRepository.appendMessage(
+            sessionId = request.conversationId,
+            role = "assistant",
+            content = text,
+            attachments = emptyList(),
+        )
+        return PluginV2MessageStreamPortMutationResult(success = true)
+    }
+
+    override suspend fun fail(request: PluginV2MessageStreamPortFailRequest): PluginV2MessageStreamPortMutationResult {
+        streams.remove(request.streamId)
+        return PluginV2MessageStreamPortMutationResult(success = true)
+    }
+
+    private fun unknownStream(): PluginV2MessageStreamPortMutationResult {
+        return PluginV2MessageStreamPortMutationResult(
+            success = false,
+            errorCode = "unknown_stream",
+            errorSummary = "Unknown message stream.",
+        )
+    }
+}
+
+private data class HostStreamState(
+    val streamId: String,
+    val conversationId: String,
+    val platformAdapterType: String,
+    val mode: PluginV2MessageStreamPlatformMode,
+    val buffer: StringBuilder = StringBuilder(),
+    var messageId: String = "",
+) {
+    fun syncEditable(conversationRepository: ConversationRepositoryPort): PluginV2MessageStreamPortMutationResult {
+        val text = buffer.toString()
+        if (messageId.isBlank()) {
+            messageId = conversationRepository.appendMessage(
+                sessionId = conversationId,
+                role = "assistant",
+                content = text,
+                attachments = emptyList(),
+            )
+        } else {
+            conversationRepository.updateMessage(
+                sessionId = conversationId,
+                messageId = messageId,
+                content = text,
+                attachments = emptyList(),
+            )
+        }
+        return PluginV2MessageStreamPortMutationResult(success = true)
+    }
+}
+
+private fun String.isQqPlatform(): Boolean {
+    return when (trim().lowercase()) {
+        "qq",
+        "onebot",
+        "qq_onebot",
+        "qq-onebot",
+        -> true
+        else -> false
     }
 }

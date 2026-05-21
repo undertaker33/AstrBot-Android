@@ -55,7 +55,11 @@ class PluginV2RuntimeLoader(
     private val hostNetworkApi: PluginV2HostNetworkApi? = null,
     private val providerReadApi: PluginV2ProviderReadApi? = null,
     private val messageSendApi: PluginV2MessageSendApi? = null,
+    private val messageStreamApi: PluginV2MessageStreamApi? = null,
     private val conversationHistoryApi: PluginV2ConversationHistoryApi? = null,
+    private val hostLlmApi: PluginV2HostLlmApi? = null,
+    private val contextCompressApi: PluginV2ContextCompressApi? = null,
+    private val scheduledHandlerLifecycle: PluginV2ScheduledHandlerLifecycle? = null,
     private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
     private val stateStore: PluginStateStore = InMemoryPluginStateStore(),
 ) {
@@ -64,13 +68,23 @@ class PluginV2RuntimeLoader(
     suspend fun sync(records: List<PluginInstallRecord> = repositoryStatePort.records.value): PluginV2RuntimeSyncResult {
         val eligibleRecords = records.filter(::isEligibleForLoad)
         val activeSnapshot = store.snapshot()
+        val recordsByPluginId = records.associateBy { record -> record.pluginId }
         val eligiblePluginIds = eligibleRecords.mapTo(linkedSetOf()) { record -> record.pluginId }
         val unloads = buildList {
             activeSnapshot.activeRuntimeEntriesByPluginId.keys
                 .filterNot(eligiblePluginIds::contains)
                 .sorted()
                 .forEach { pluginId ->
-                    add(unload(pluginId))
+                    add(
+                        unloadInternal(
+                            pluginId = pluginId,
+                            scheduleUnloadMode = if (recordsByPluginId.containsKey(pluginId)) {
+                                ScheduleUnloadMode.Pause
+                            } else {
+                                ScheduleUnloadMode.Delete
+                            },
+                        ),
+                    )
                 }
         }
         val loads = eligibleRecords.map { record ->
@@ -130,6 +144,16 @@ class PluginV2RuntimeLoader(
     }
 
     suspend fun unload(pluginId: String): PluginV2RuntimeUnloadResult {
+        return unloadInternal(
+            pluginId = pluginId,
+            scheduleUnloadMode = ScheduleUnloadMode.Delete,
+        )
+    }
+
+    private suspend fun unloadInternal(
+        pluginId: String,
+        scheduleUnloadMode: ScheduleUnloadMode,
+    ): PluginV2RuntimeUnloadResult {
         return withPluginLock(pluginId) {
             val currentEntry = store.snapshot().activeRuntimeEntriesByPluginId[pluginId]
             if (currentEntry == null) {
@@ -139,6 +163,14 @@ class PluginV2RuntimeLoader(
                 )
             }
             store.unload(pluginId)
+            messageStreamApi?.closeOpenStreamsForPlugin(
+                pluginId = pluginId,
+                failureMessage = "Plugin runtime unloaded.",
+            )
+            when (scheduleUnloadMode) {
+                ScheduleUnloadMode.Pause -> scheduledHandlerLifecycle?.pausePlugin(pluginId)
+                ScheduleUnloadMode.Delete -> scheduledHandlerLifecycle?.deletePlugin(pluginId)
+            }
             currentEntry.session.dispose()
             lifecycleManager.onPluginUnloaded(
                 pluginId = pluginId,
@@ -232,7 +264,10 @@ class PluginV2RuntimeLoader(
                     hostNetworkApi = hostNetworkApi,
                     providerReadApi = providerReadApi,
                     messageSendApi = messageSendApi,
+                    messageStreamApi = messageStreamApi,
                     conversationHistoryApi = conversationHistoryApi,
+                    hostLlmApi = hostLlmApi,
+                    contextCompressApi = contextCompressApi,
                     clock = clock,
                 ),
             )
@@ -283,6 +318,11 @@ class PluginV2RuntimeLoader(
                 callbackTokens = handle.session.snapshotCallbackTokens(),
             )
             store.commitLoadedRuntime(entry)
+            scheduledHandlerLifecycle?.reconcile(
+                pluginId = pluginId,
+                pluginVersion = record.installedVersion,
+                schedules = compiledRegistry.handlerRegistry.scheduledHandlers,
+            )
             if (replaceExisting) {
                 previousSession?.dispose()
             }
@@ -335,6 +375,11 @@ class PluginV2RuntimeLoader(
             return
         }
         store.unload(currentEntry.pluginId)
+        messageStreamApi?.closeOpenStreamsForPlugin(
+            pluginId = currentEntry.pluginId,
+            failureMessage = "Plugin runtime deactivated.",
+        )
+        scheduledHandlerLifecycle?.pausePlugin(currentEntry.pluginId)
         currentEntry.session.dispose()
         lifecycleManager.onPluginUnloaded(
             pluginId = currentEntry.pluginId,
@@ -474,6 +519,11 @@ class PluginV2RuntimeLoader(
 
     private companion object {
         private const val BOOTSTRAP_HOST_API_GLOBAL_NAME = "__elymbotBootstrapHostApi"
+    }
+
+    private enum class ScheduleUnloadMode {
+        Pause,
+        Delete,
     }
 }
 

@@ -82,6 +82,17 @@ class PluginV2RegistryCompiler(
                     stageBuckets = stageBuckets,
                 )
             }
+        val scheduleKeys = linkedSetOf<String>()
+        val scheduledHandlers = rawRegistry.scheduledHandlers
+            .sortedBy(ScheduledHandlerRawRegistration::sourceOrder)
+            .mapNotNull { registration ->
+                compileSchedule(
+                    registration = registration,
+                    diagnostics = diagnostics,
+                    duplicateGuard = duplicateGuard,
+                    scheduleKeys = scheduleKeys,
+                )
+            }
         diagnostics += inactivePhaseDiagnostics(
             pluginId = rawRegistry.pluginId,
             registrations = rawRegistry.tools.map { registration ->
@@ -119,6 +130,7 @@ class PluginV2RegistryCompiler(
             regexHandlers = regexHandlers,
             lifecycleHandlers = lifecycleHandlers,
             llmHookHandlers = llmHookHandlers,
+            scheduledHandlers = scheduledHandlers,
         )
         val dispatchIndex = PluginV2StageIndex(
             handlerIdsByStage = stageBuckets.mapValues { (_, handlerIds) ->
@@ -372,6 +384,62 @@ class PluginV2RegistryCompiler(
         return compiled
     }
 
+    private fun compileSchedule(
+        registration: ScheduledHandlerRawRegistration,
+        diagnostics: MutableList<PluginV2CompilerDiagnostic>,
+        duplicateGuard: MutableSet<String>,
+        scheduleKeys: MutableSet<String>,
+    ): PluginV2CompiledScheduledHandler? {
+        val key = registration.descriptor.key.trim()
+        if (key.isBlank()) {
+            diagnostics += PluginV2CompilerDiagnostic(
+                severity = DiagnosticSeverity.Error,
+                code = "invalid_schedule_handler_key",
+                message = "schedule handler key must not be blank.",
+                pluginId = registration.pluginId,
+                registrationKind = REGISTRATION_KIND_SCHEDULE,
+                registrationKey = registration.registrationKey,
+            )
+            return null
+        }
+        if (scheduleKeys.add(key).not()) {
+            diagnostics += PluginV2CompilerDiagnostic(
+                severity = DiagnosticSeverity.Error,
+                code = "duplicate_schedule_handler_key",
+                message = "Duplicate schedule handler key detected: $key",
+                pluginId = registration.pluginId,
+                registrationKind = REGISTRATION_KIND_SCHEDULE,
+                registrationKey = key,
+            )
+            return null
+        }
+        val identity = compileIdentity(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_SCHEDULE,
+            requestedRegistrationKey = key,
+            autoCounters = linkedMapOf(),
+            diagnostics = diagnostics,
+            duplicateGuard = duplicateGuard,
+        ) ?: return null
+        return PluginV2CompiledScheduledHandler(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_SCHEDULE,
+            registrationKey = identity.registrationKey,
+            normalizedRegistrationKey = identity.normalizedRegistrationKey,
+            handlerId = identity.handlerId,
+            callbackToken = registration.callbackToken,
+            priority = 0,
+            filterAttachments = emptyList(),
+            metadata = registration.metadata,
+            sourceOrder = registration.sourceOrder,
+            handlerKey = key,
+            cron = registration.descriptor.cron?.trim()?.takeIf(String::isNotBlank),
+            runAtEpochMillis = registration.descriptor.runAt,
+            conversationId = registration.descriptor.conversationId.trim(),
+            platformAdapterType = registration.descriptor.platformAdapterType.trim(),
+        )
+    }
+
     private fun compileIdentity(
         pluginId: String,
         registrationKind: String,
@@ -577,6 +645,7 @@ class PluginV2RegistryCompiler(
         private const val REGISTRATION_KIND_REGEX = "regex"
         private const val REGISTRATION_KIND_LIFECYCLE = "lifecycle"
         private const val REGISTRATION_KIND_LLM_HOOK = "llm_hook"
+        private const val REGISTRATION_KIND_SCHEDULE = "schedule"
         private const val REGISTRATION_KIND_TOOL = "tool"
         private const val REGISTRATION_KIND_TOOL_LIFECYCLE_HOOK = "tool_lifecycle_hook"
 
@@ -588,6 +657,7 @@ class PluginV2RegistryCompiler(
             REGISTRATION_KIND_REGEX to "auto-regex",
             REGISTRATION_KIND_LIFECYCLE to "auto-lifecycle",
             REGISTRATION_KIND_LLM_HOOK to "auto-llm-hook",
+            REGISTRATION_KIND_SCHEDULE to "auto-schedule",
             REGISTRATION_KIND_TOOL to "auto-tool",
             REGISTRATION_KIND_TOOL_LIFECYCLE_HOOK to "auto-tool-lifecycle-hook",
         )

@@ -102,33 +102,148 @@ class PluginV2HostApiQuickJsCapabilitiesTest {
         assertEquals("provider-main:model-main:message-latest", sent.text)
     }
 
+    @Test
+    fun quickjs_host_api_exposes_llm_generate_and_context_compress_with_distinct_audit_names() = runTest {
+        assumeTrue(runCatching { QuickJSContext.create().use { } }.isSuccess)
+        val workingRoot = Files.createTempDirectory("plugin-v2-host-llm-capabilities").toFile()
+        tempRoots += workingRoot
+        File(workingRoot, "runtime").mkdirs()
+        File(workingRoot, "runtime/bootstrap.js").writeText(
+            """
+                export default async function bootstrap(hostApi) {
+                  hostApi.registerCommandHandler({
+                    command: "llmcap",
+                    handler: async (event) => {
+                      const direct = await hostApi.callLlm({
+                        providerId: "provider-main",
+                        modelId: "model-main",
+                        messages: [{ role: "user", text: "direct" }],
+                        maxTokens: 64
+                      });
+                      const generated = await hostApi.llm.generate({
+                        providerId: "provider-main",
+                        modelId: "model-main",
+                        messages: [{ role: "user", text: "generate" }],
+                        maxTokens: 64
+                      });
+                      const compressed = await hostApi.context.compress({
+                        conversationId: "conversation-current",
+                        providerId: "provider-main",
+                        modelId: "model-main",
+                        maxTokens: 128,
+                        limit: 5
+                      });
+                      event.replyText(
+                        direct.text + ":" + direct.usage.totalTokens + "|" +
+                        generated.text + ":" + generated.usage.totalTokens + "|" +
+                        compressed.summary + ":" + compressed.sourceMessageCount
+                      );
+                    }
+                  });
+                }
+            """.trimIndent(),
+            Charsets.UTF_8,
+        )
+        val logBus = InMemoryPluginRuntimeLogBus(capacity = 128, clock = { 1L })
+        val store = PluginV2ActiveRuntimeStore(logBus = logBus, clock = { 1L })
+        val sendPort = RecordingMessageSendPort()
+        val llmPort = RecordingHostLlmPort()
+        val loader = PluginV2RuntimeLoader(
+            sessionFactory = PluginV2RuntimeSessionFactory(
+                scriptExecutor = QuickJsExternalPluginScriptExecutor(initializeQuickJs = {}),
+            ),
+            compiler = PluginV2RegistryCompiler(logBus = logBus, clock = { 1L }),
+            clock = { 1L },
+            logBus = logBus,
+            store = store,
+            lifecycleManager = PluginV2LifecycleManager(store = store, logBus = logBus, clock = { 1L }),
+            providerReadApi = providerReadApi(logBus),
+            messageSendApi = messageSendApi(logBus, sendPort),
+            conversationHistoryApi = conversationHistoryApi(logBus),
+            hostLlmApi = hostLlmApi(logBus, llmPort),
+            contextCompressApi = contextCompressApi(logBus, llmPort),
+        )
+
+        val loadResult = loader.load(hostCapabilityPluginRecord(workingRoot))
+        assertEquals(PluginV2RuntimeLoadStatus.Loaded, loadResult.status)
+
+        val dispatchResult = PluginV2DispatchEngine(
+            store = store,
+            logBus = logBus,
+            clock = { 1L },
+        ).dispatchMessage(
+            event = PluginMessageEvent(
+                eventId = "evt-llm-capability",
+                platformAdapterType = "app_chat",
+                messageType = MessageType.FriendMessage,
+                conversationId = "conversation-current",
+                senderId = "user-1",
+                timestampEpochMillis = 1L,
+                rawText = "/llmcap",
+                initialWorkingText = "/llmcap",
+                rawMentions = emptyList(),
+                normalizedMentions = emptyList(),
+            ),
+        )
+
+        assertEquals(
+            "response-direct:6|response-generate:8|response-Please summarize the following conversation context for safe reuse by the host.:76:2",
+            checkNotNull(dispatchResult.commandResponse).text,
+        )
+        assertEquals(3, llmPort.requests.size)
+        assertTrue(llmPort.requests.all { request -> request.bypassPluginLlmHooks })
+        val auditMetadata = logBus.snapshot(pluginId = "plugin.capability")
+            .map { record -> record.metadata }
+            .filter { metadata -> metadata["stage"] == "PluginV2HostApi" }
+        val auditApis = auditMetadata.mapNotNull { metadata -> metadata["api"] }
+        assertTrue(auditApis.contains(PluginV2HostLlmApi.HOST_API_CALL_LLM))
+        assertTrue(auditApis.contains(PluginV2HostLlmApi.HOST_API_LLM_GENERATE))
+        assertTrue(auditApis.contains(PluginV2ContextCompressApi.HOST_API_CONTEXT_COMPRESS))
+        assertEquals(
+            listOf(
+                PluginV2HostApiPermissions.CALL_MODEL,
+                PluginV2HostApiPermissions.CALL_MODEL,
+            ),
+            auditMetadata
+                .filter { metadata ->
+                    metadata["api"] == PluginV2HostLlmApi.HOST_API_CALL_LLM ||
+                        metadata["api"] == PluginV2HostLlmApi.HOST_API_LLM_GENERATE
+                }
+                .map { metadata -> metadata["permissionId"] },
+        )
+    }
+
     private fun providerReadApi(logBus: PluginRuntimeLogBus): PluginV2ProviderReadApi {
         return PluginV2ProviderReadApi(
             facade = hostApiFacade(logBus),
-            providerReader = object : PluginV2ProviderReadPort {
-                override suspend fun providers(): List<PluginV2ProviderReadProvider> {
-                    return listOf(
-                        PluginV2ProviderReadProvider(
-                            providerId = "provider-main",
-                            displayName = "Provider Main",
-                            enabled = true,
-                            capabilities = setOf("chat"),
-                            defaultModelId = "model-main",
-                            models = listOf(
-                                PluginV2ProviderReadModel(
-                                    modelId = "model-main",
-                                    displayName = "Model Main",
-                                    capabilities = setOf("chat"),
-                                    contextWindow = 8192,
-                                    supportsToolCalling = true,
-                                    supportsStreaming = true,
-                                ),
+            providerReader = providerReadPort(),
+        )
+    }
+
+    private fun providerReadPort(): PluginV2ProviderReadPort {
+        return object : PluginV2ProviderReadPort {
+            override suspend fun providers(): List<PluginV2ProviderReadProvider> {
+                return listOf(
+                    PluginV2ProviderReadProvider(
+                        providerId = "provider-main",
+                        displayName = "Provider Main",
+                        enabled = true,
+                        capabilities = setOf("chat"),
+                        defaultModelId = "model-main",
+                        models = listOf(
+                            PluginV2ProviderReadModel(
+                                modelId = "model-main",
+                                displayName = "Model Main",
+                                capabilities = setOf("chat"),
+                                contextWindow = 8192,
+                                supportsToolCalling = true,
+                                supportsStreaming = true,
                             ),
                         ),
-                    )
-                }
-            },
-        )
+                    ),
+                )
+            }
+        }
     }
 
     private fun messageSendApi(
@@ -138,6 +253,48 @@ class PluginV2HostApiQuickJsCapabilitiesTest {
         return PluginV2MessageSendApi(
             facade = hostApiFacade(logBus),
             sendPort = sendPort,
+        )
+    }
+
+    private fun hostLlmApi(
+        logBus: PluginRuntimeLogBus,
+        llmPort: PluginV2HostLlmPort,
+    ): PluginV2HostLlmApi {
+        return PluginV2HostLlmApi(
+            facade = hostApiFacade(logBus),
+            providerReader = providerReadPort(),
+            llmPort = llmPort,
+        )
+    }
+
+    private fun contextCompressApi(
+        logBus: PluginRuntimeLogBus,
+        llmPort: PluginV2HostLlmPort,
+    ): PluginV2ContextCompressApi {
+        return PluginV2ContextCompressApi(
+            facade = hostApiFacade(logBus),
+            historyReader = PluginV2ConversationHistoryReadPort { request ->
+                assertEquals("conversation-current", request.conversationId)
+                listOf(
+                    PluginV2ConversationHistoryMessage(
+                        messageId = "message-old",
+                        role = "user",
+                        senderId = "user-1",
+                        messageType = "friend",
+                        text = "old",
+                        timestampEpochMillis = 1L,
+                    ),
+                    PluginV2ConversationHistoryMessage(
+                        messageId = "message-latest",
+                        role = "assistant",
+                        senderId = "assistant",
+                        messageType = "friend",
+                        text = "latest",
+                        timestampEpochMillis = 2L,
+                    ),
+                )
+            },
+            llmPort = llmPort,
         )
     }
 
@@ -182,6 +339,8 @@ class PluginV2HostApiQuickJsCapabilitiesTest {
             permission(PluginV2HostApiPermissions.PROVIDER_READ, "Provider read"),
             permission(PluginV2HostApiPermissions.SEND_MESSAGE, "Send message"),
             permission(PluginV2HostApiPermissions.CONVERSATION_READ, "Conversation read"),
+            permission(PluginV2HostApiPermissions.CALL_MODEL, "Call model"),
+            permission(PluginV2HostApiPermissions.CONTEXT_COMPRESS, "Compress context"),
         )
         val manifest = PluginManifest(
             pluginId = "plugin.capability",
@@ -245,6 +404,22 @@ class PluginV2HostApiQuickJsCapabilitiesTest {
             return PluginV2MessageSendPortResult(
                 success = true,
                 receiptIds = listOf("receipt-${request.conversationId}"),
+            )
+        }
+    }
+
+    private class RecordingHostLlmPort : PluginV2HostLlmPort {
+        val requests = mutableListOf<PluginV2HostLlmPortRequest>()
+
+        override suspend fun generate(request: PluginV2HostLlmPortRequest): PluginV2HostLlmPortResult {
+            requests += request
+            val input = request.messages.firstOrNull()?.text.orEmpty()
+            return PluginV2HostLlmPortResult(
+                text = "response-$input",
+                finishReason = "stop",
+                providerId = request.providerId,
+                modelId = request.modelId,
+                usage = PluginLlmUsageSnapshot(totalTokens = input.length),
             )
         }
     }

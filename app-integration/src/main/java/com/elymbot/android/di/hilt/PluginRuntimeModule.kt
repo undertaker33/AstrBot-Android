@@ -16,6 +16,8 @@ import com.elymbot.android.feature.plugin.domain.PluginRuntimeLogPresentationPor
 import com.elymbot.android.feature.plugin.domain.PluginStateRepositoryPort
 import com.elymbot.android.feature.plugin.domain.PluginHostVersion
 import com.elymbot.android.feature.plugin.domain.SupportedPluginProtocolVersion
+import com.elymbot.android.feature.cron.domain.CronJobRepositoryPort
+import com.elymbot.android.feature.cron.domain.CronSchedulerPort
 import com.elymbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
 import com.elymbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.elymbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
@@ -39,13 +41,18 @@ import com.elymbot.android.feature.plugin.runtime.PluginScheduleStateStore
 import com.elymbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
 import com.elymbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2ContextCompressApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.elymbot.android.feature.plugin.runtime.PluginV2FilterEvaluator
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostNetworkApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2LifecycleManager
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
+import com.elymbot.android.feature.plugin.runtime.PluginV2ScheduledDispatchEngine
+import com.elymbot.android.feature.plugin.runtime.PluginV2ScheduledHandlerLifecycle
 import com.elymbot.android.feature.plugin.runtime.createSharedPreferencesPluginLogMaintenanceService
 import android.content.Context
 import dagger.Module
@@ -237,6 +244,7 @@ internal object PluginRuntimeModule {
         activeRuntimeStore: PluginV2ActiveRuntimeStore,
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
+        messageStreamApiProvider: Provider<PluginV2MessageStreamApi>,
     ): PluginV2DispatchEngine = PluginV2DispatchEngine(
         clock = System::currentTimeMillis,
         logBus = logBus,
@@ -245,6 +253,25 @@ internal object PluginRuntimeModule {
         filterEvaluator = PluginV2FilterEvaluator(
             logBus = logBus,
         ),
+        messageStreamFinalizerProvider = { messageStreamApiProvider.get() },
+    )
+
+    @Provides
+    @Singleton
+    fun providePluginV2ScheduledHandlerLifecycle(
+        cronRepository: CronJobRepositoryPort,
+        cronScheduler: CronSchedulerPort,
+    ): PluginV2ScheduledHandlerLifecycle = PluginV2ScheduledHandlerLifecycle(
+        repository = cronRepository,
+        scheduler = cronScheduler,
+    )
+
+    @Provides
+    @Singleton
+    fun providePluginV2ScheduledDispatchEngine(
+        messageStreamApiProvider: Provider<PluginV2MessageStreamApi>,
+    ): PluginV2ScheduledDispatchEngine = PluginV2ScheduledDispatchEngine(
+        messageStreamFinalizerProvider = { messageStreamApiProvider.get() },
     )
 
     @Provides
@@ -258,7 +285,11 @@ internal object PluginRuntimeModule {
         hostNetworkApi: PluginV2HostNetworkApi,
         providerReadApi: PluginV2ProviderReadApi,
         messageSendApi: PluginV2MessageSendApi,
+        messageStreamApi: PluginV2MessageStreamApi,
         conversationHistoryApi: PluginV2ConversationHistoryApi,
+        hostLlmApi: PluginV2HostLlmApi,
+        contextCompressApi: PluginV2ContextCompressApi,
+        scheduledHandlerLifecycle: PluginV2ScheduledHandlerLifecycle,
         repositoryStatePort: PluginStateRepositoryPort,
     ): PluginV2RuntimeLoader = factory.createPluginV2RuntimeLoader(
         activeRuntimeStore = activeRuntimeStore,
@@ -268,7 +299,11 @@ internal object PluginRuntimeModule {
         hostNetworkApi = hostNetworkApi,
         providerReadApi = providerReadApi,
         messageSendApi = messageSendApi,
+        messageStreamApi = messageStreamApi,
         conversationHistoryApi = conversationHistoryApi,
+        hostLlmApi = hostLlmApi,
+        contextCompressApi = contextCompressApi,
+        scheduledHandlerLifecycle = scheduledHandlerLifecycle,
         repositoryStatePort = repositoryStatePort,
     )
 }
