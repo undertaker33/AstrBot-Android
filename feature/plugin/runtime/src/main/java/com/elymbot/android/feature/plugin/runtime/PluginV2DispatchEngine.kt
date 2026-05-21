@@ -38,6 +38,8 @@ class PluginV2DispatchEngine(
         logBus = logBus,
         clock = clock,
     ),
+    private val messageStreamApi: PluginV2MessageStreamFinalizer? = null,
+    private val messageStreamFinalizerProvider: () -> PluginV2MessageStreamFinalizer? = { messageStreamApi },
 ) {
     fun dispatch(
         stage: PluginV2InternalStage,
@@ -425,6 +427,7 @@ class PluginV2DispatchEngine(
         event: PluginErrorEventPayload,
     ) {
         val handle = session.requireCallbackHandle(descriptor.callbackToken)
+        var streamFailureMessage = ""
         try {
             session.runSerializedCallback {
                 if (handle is PluginV2EventAwareCallbackHandle) {
@@ -434,6 +437,11 @@ class PluginV2DispatchEngine(
                 }
             }
         } catch (error: Throwable) {
+            streamFailureMessage = if (error is CancellationException) {
+                "Plugin handler cancelled."
+            } else {
+                "Plugin handler failed: ${error.message ?: error.javaClass.simpleName}"
+            }
             error.rethrowIfCancellation()
             lifecycleManager.emitPluginError(
                 event = event,
@@ -441,6 +449,11 @@ class PluginV2DispatchEngine(
                 handlerName = descriptor.handlerId,
                 error = error,
                 tracebackText = error.stackTraceToString(),
+            )
+        } finally {
+            messageStreamFinalizerProvider()?.closeOpenStreamsForPlugin(
+                pluginId = session.pluginId,
+                failureMessage = streamFailureMessage,
             )
         }
     }

@@ -1,12 +1,22 @@
 package com.elymbot.android.feature.plugin.runtime
 
 import com.elymbot.android.di.startup.syncPluginRuntimeRecordsAndSignalReady
+import com.elymbot.android.feature.cron.domain.CronJobRepositoryPort
+import com.elymbot.android.feature.cron.domain.CronSchedulerPort
+import com.elymbot.android.feature.cron.domain.model.CronJob
+import com.elymbot.android.feature.cron.domain.model.CronJobExecutionRecord
+import com.elymbot.android.model.plugin.PluginPermissionGrant
+import com.elymbot.android.model.plugin.PluginPermissionDeclaration
+import com.elymbot.android.model.plugin.PluginRiskLevel
 import com.elymbot.android.model.plugin.PluginCompatibilityState
 import com.elymbot.android.model.plugin.PluginInstallRecord
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.LinkedHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -151,6 +161,171 @@ class PluginV2RuntimeLoaderTest {
         assertEquals(entry.session.sessionInstanceId, unloadResult.sessionInstanceId)
         assertFalse(loaderStore(loader).snapshot().activeRuntimeEntriesByPluginId.containsKey(record.pluginId))
         assertEquals(PluginV2RuntimeSessionState.Disposed, entry.session.state)
+    }
+
+    @Test
+    fun sync_uninstall_deletes_plugin_v2_schedules_for_removed_record() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-uninstall-schedules")
+        createBootstrapFile(rootDir)
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.elymbot.samples.loader_uninstall_schedules",
+        ).withBootstrapRoot(rootDir)
+        val scheduleJob = pluginScheduleJob(record.pluginId)
+        val repository = RecordingCronRepository()
+        val scheduler = RecordingCronScheduler()
+        val loader = newLoader(
+            executor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+                bootstrapSessions = listOf(BootstrappingSession(registrations = 1)),
+            ),
+            scheduledHandlerLifecycle = PluginV2ScheduledHandlerLifecycle(
+                repository = repository,
+                scheduler = scheduler,
+            ),
+        )
+
+        loader.load(record)
+        repository.create(scheduleJob)
+        repository.updated.clear()
+        repository.deleted.clear()
+        scheduler.cancelled.clear()
+        loader.sync(emptyList())
+
+        assertEquals(listOf(scheduleJob.jobId), scheduler.cancelled)
+        assertEquals(listOf(scheduleJob.jobId), repository.deleted)
+        assertTrue(repository.updated.isEmpty())
+    }
+
+    @Test
+    fun sync_disable_pauses_plugin_v2_schedules_without_deleting_them() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-disable-schedules")
+        createBootstrapFile(rootDir)
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.elymbot.samples.loader_disable_schedules",
+        ).withBootstrapRoot(rootDir)
+        val scheduleJob = pluginScheduleJob(record.pluginId)
+        val repository = RecordingCronRepository()
+        val scheduler = RecordingCronScheduler()
+        val loader = newLoader(
+            executor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+                bootstrapSessions = listOf(BootstrappingSession(registrations = 1)),
+            ),
+            scheduledHandlerLifecycle = PluginV2ScheduledHandlerLifecycle(
+                repository = repository,
+                scheduler = scheduler,
+            ),
+        )
+
+        loader.load(record)
+        repository.create(scheduleJob)
+        repository.updated.clear()
+        repository.deleted.clear()
+        scheduler.cancelled.clear()
+        loader.sync(listOf(record.copyWith(enabled = false)))
+
+        assertEquals(listOf(scheduleJob.jobId), scheduler.cancelled)
+        assertEquals(listOf(scheduleJob.jobId), repository.updated.map { it.jobId })
+        assertFalse(repository.updated.single().enabled)
+        assertTrue(repository.deleted.isEmpty())
+    }
+
+    @Test
+    fun unload_fails_open_message_streams_for_plugin() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-unload-streams")
+        createBootstrapFile(rootDir)
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.elymbot.samples.loader_unload_streams",
+        ).withBootstrapRoot(rootDir)
+        val streamPort = RecordingMessageStreamPort()
+        val streamApi = streamApi(streamPort)
+        val loader = newLoader(
+            executor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+                bootstrapSessions = listOf(BootstrappingSession(registrations = 1)),
+            ),
+            messageStreamApi = streamApi,
+        )
+
+        loader.load(record)
+        streamApi.openStream(
+            context = streamContext(pluginId = record.pluginId),
+            request = PluginV2MessageStreamOpenRequest(),
+        )
+        loader.unload(record.pluginId)
+
+        assertEquals(listOf("stream-1"), streamPort.failed.map { it.streamId })
+        assertTrue(streamPort.failed.single().message.contains("unloaded"))
+    }
+
+    @Test
+    fun load_reconciles_targetless_bootstrap_schedule_without_event_context() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-targetless-schedule")
+        createBootstrapFile(rootDir)
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.elymbot.samples.loader_targetless_schedule",
+        ).withSchedulePermission().withBootstrapRoot(rootDir)
+        val repository = RecordingCronRepository()
+        val scheduler = RecordingCronScheduler()
+        val loader = newLoader(
+            executor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+                bootstrapSessions = listOf(
+                    BootstrappingSession(
+                        registrations = 0,
+                        scheduledRegistrations = listOf(scheduleRegistration()),
+                    ),
+                ),
+            ),
+            scheduledHandlerLifecycle = PluginV2ScheduledHandlerLifecycle(
+                repository = repository,
+                scheduler = scheduler,
+                clock = { 1_000L },
+                nextFireTime = { _, _, _ -> 2_000L },
+            ),
+        )
+
+        val result = loader.load(record)
+
+        assertEquals(PluginV2RuntimeLoadStatus.Loaded, result.status)
+        val job = repository.created.single()
+        assertEquals("", job.conversationId)
+        assertEquals("", job.platform)
+        assertEquals("daily-summary", job.pluginSchedulePayload().handlerKey)
+        assertEquals(job.jobId, scheduler.scheduled.single().jobId)
+    }
+
+    @Test
+    fun load_rejects_bootstrap_schedule_with_arbitrary_target_without_event_context() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-arbitrary-schedule")
+        createBootstrapFile(rootDir)
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.elymbot.samples.loader_arbitrary_schedule",
+        ).withSchedulePermission().withBootstrapRoot(rootDir)
+        val repository = RecordingCronRepository()
+        val scheduler = RecordingCronScheduler()
+        val loader = newLoader(
+            executor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+                bootstrapSessions = listOf(
+                    BootstrappingSession(
+                        registrations = 0,
+                        scheduledRegistrations = listOf(
+                            scheduleRegistration(
+                                conversationId = "conversation-1",
+                                platformAdapterType = "onebot",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            scheduledHandlerLifecycle = PluginV2ScheduledHandlerLifecycle(
+                repository = repository,
+                scheduler = scheduler,
+            ),
+        )
+
+        val result = loader.load(record)
+
+        assertEquals(PluginV2RuntimeLoadStatus.Failed, result.status)
+        assertTrue(result.reason.contains("host-authorized schedule target"))
+        assertTrue(repository.created.isEmpty())
+        assertTrue(scheduler.scheduled.isEmpty())
     }
 
     @Test
@@ -373,6 +548,8 @@ class PluginV2RuntimeLoaderTest {
             logBus = logBus,
             clock = { 1L },
         ),
+        scheduledHandlerLifecycle: PluginV2ScheduledHandlerLifecycle? = null,
+        messageStreamApi: PluginV2MessageStreamApi? = null,
     ): PluginV2RuntimeLoader {
         return PluginV2RuntimeLoader(
             sessionFactory = PluginV2RuntimeSessionFactory(scriptExecutor = executor),
@@ -380,6 +557,8 @@ class PluginV2RuntimeLoaderTest {
             compiler = PluginV2RegistryCompiler(),
             logBus = logBus,
             lifecycleManager = lifecycleManager,
+            scheduledHandlerLifecycle = scheduledHandlerLifecycle,
+            messageStreamApi = messageStreamApi,
         )
     }
 
@@ -412,6 +591,169 @@ class PluginV2RuntimeLoaderTest {
             ),
         )
     }
+
+    private fun PluginInstallRecord.withSchedulePermission(): PluginInstallRecord {
+        if (permissionSnapshot.any { it.permissionId == PluginV2HostApiPermissions.SCHEDULE_MANAGE }) {
+            return this
+        }
+        val schedulePermission = PluginPermissionDeclaration(
+            permissionId = PluginV2HostApiPermissions.SCHEDULE_MANAGE,
+            title = "Schedule",
+            description = "Allows registering plugin schedules",
+            riskLevel = PluginRiskLevel.MEDIUM,
+            required = true,
+        )
+        val permissions = permissionSnapshot + schedulePermission
+        return PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = manifestSnapshot.copy(permissions = manifestSnapshot.permissions + schedulePermission),
+            source = source,
+            packageContractSnapshot = packageContractSnapshot,
+            permissionSnapshot = permissions,
+            compatibilityState = compatibilityState,
+            uninstallPolicy = uninstallPolicy,
+            enabled = enabled,
+            failureState = failureState,
+            catalogSourceId = catalogSourceId,
+            installedPackageUrl = installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
+            installedAt = installedAt,
+            lastUpdatedAt = lastUpdatedAt,
+            localPackagePath = localPackagePath,
+            extractedDir = extractedDir,
+        )
+    }
+
+    private fun pluginScheduleJob(pluginId: String): CronJob {
+        return CronJob(
+            jobId = PluginV2ScheduledHandlerLifecycle.scheduleJobId(pluginId, "daily-summary"),
+            jobType = PluginV2ScheduledHandlerLifecycle.PLUGIN_V2_SCHEDULE_JOB_TYPE,
+            payloadJson = PluginV2SchedulePayload(
+                pluginId = pluginId,
+                pluginVersion = "1.0.0",
+                handlerKey = "daily-summary",
+                conversationId = "conversation-1",
+                platformAdapterType = "onebot",
+                triggerSource = PluginV2ScheduledHandlerLifecycle.TRIGGER_SOURCE,
+            ).toJsonString(),
+            enabled = true,
+            conversationId = "conversation-1",
+            platform = "onebot",
+        )
+    }
+
+    private fun streamApi(port: PluginV2MessageStreamPort): PluginV2MessageStreamApi {
+        return PluginV2MessageStreamApi(
+            facade = PluginV2HostApiFacade(
+                permissionPolicy = PluginV2HostApiPermissionPolicy(),
+                asyncBridge = PluginV2HostApiAsyncBridge(dispatcher = Dispatchers.Unconfined),
+                auditLogger = PluginV2HostApiAuditLogger(
+                    logBus = InMemoryPluginRuntimeLogBus(clock = { 1L }),
+                    clock = { 1L },
+                ),
+                clock = { 1L },
+            ),
+            streamPort = port,
+            clock = { 1L },
+        )
+    }
+
+    private fun streamContext(pluginId: String): PluginV2HostApiRequestContext {
+        return PluginV2HostApiRequestContext(
+            pluginId = pluginId,
+            pluginVersion = "1.0.0",
+            requestId = "request-unload-stream",
+            conversationId = "conversation-1",
+            platformAdapterType = "onebot",
+            manifestPermissionIds = setOf(PluginV2HostApiPermissions.MESSAGE_STREAM),
+            permissionSnapshot = listOf(
+                PluginPermissionGrant(
+                    permissionId = PluginV2HostApiPermissions.MESSAGE_STREAM,
+                    title = "Stream",
+                    granted = true,
+                    riskLevel = PluginRiskLevel.MEDIUM,
+                ),
+            ),
+            triggerPermissionWhitelist = setOf(PluginV2HostApiPermissions.MESSAGE_STREAM),
+        )
+    }
+}
+
+private class RecordingCronRepository(
+    initialJobs: List<CronJob> = emptyList(),
+) : CronJobRepositoryPort {
+    private val state = MutableStateFlow(initialJobs.toMutableList())
+    val created = mutableListOf<CronJob>()
+    val updated = mutableListOf<CronJob>()
+    val deleted = mutableListOf<String>()
+    override val jobs: StateFlow<List<CronJob>> = state
+
+    override suspend fun create(job: CronJob): CronJob {
+        created += job
+        state.value = (state.value + job).toMutableList()
+        return job
+    }
+
+    override suspend fun update(job: CronJob): CronJob {
+        updated += job
+        state.value = state.value.map { current -> if (current.jobId == job.jobId) job else current }.toMutableList()
+        return job
+    }
+
+    override suspend fun delete(jobId: String) {
+        deleted += jobId
+        state.value = state.value.filterNot { it.jobId == jobId }.toMutableList()
+    }
+
+    override suspend fun getByJobId(jobId: String): CronJob? = state.value.firstOrNull { it.jobId == jobId }
+    override suspend fun listAll(): List<CronJob> = state.value
+    override suspend fun listEnabled(): List<CronJob> = state.value.filter(CronJob::enabled)
+    override suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long?, lastError: String?) = Unit
+    override suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord = record
+    override suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord = record
+    override suspend fun listRecentExecutionRecords(jobId: String, limit: Int): List<CronJobExecutionRecord> = emptyList()
+    override suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? = null
+}
+
+private class RecordingCronScheduler : CronSchedulerPort {
+    val scheduled = mutableListOf<CronJob>()
+    val cancelled = mutableListOf<String>()
+
+    override fun schedule(job: CronJob) {
+        scheduled += job
+    }
+
+    override fun cancel(jobId: String) {
+        cancelled += jobId
+    }
+
+    override fun cancelAll() = Unit
+}
+
+private class RecordingMessageStreamPort : PluginV2MessageStreamPort {
+    val opened = mutableListOf<PluginV2MessageStreamPortOpenRequest>()
+    val failed = mutableListOf<PluginV2MessageStreamPortFailRequest>()
+
+    override suspend fun open(request: PluginV2MessageStreamPortOpenRequest): PluginV2MessageStreamPortOpenResult {
+        opened += request
+        return PluginV2MessageStreamPortOpenResult(
+            streamId = "stream-1",
+            platformMode = PluginV2MessageStreamPlatformMode.Editable,
+        )
+    }
+
+    override suspend fun append(request: PluginV2MessageStreamPortChunkRequest): PluginV2MessageStreamPortMutationResult =
+        PluginV2MessageStreamPortMutationResult(success = true)
+
+    override suspend fun replace(request: PluginV2MessageStreamPortChunkRequest): PluginV2MessageStreamPortMutationResult =
+        PluginV2MessageStreamPortMutationResult(success = true)
+
+    override suspend fun close(request: PluginV2MessageStreamPortCloseRequest): PluginV2MessageStreamPortMutationResult =
+        PluginV2MessageStreamPortMutationResult(success = true)
+
+    override suspend fun fail(request: PluginV2MessageStreamPortFailRequest): PluginV2MessageStreamPortMutationResult {
+        failed += request
+        return PluginV2MessageStreamPortMutationResult(success = true)
+    }
 }
 
 private class RecordingPluginV2RuntimeLoaderScriptExecutor(
@@ -440,6 +782,7 @@ private class BootstrappingSession(
     private val registrations: Int = 1,
     private val commandRegistrations: List<CommandHandlerRegistrationInput> = emptyList(),
     private val lifecycleRegistrations: List<LifecycleHandlerRegistrationInput> = emptyList(),
+    private val scheduledRegistrations: List<ScheduledHandlerRegistrationInput> = emptyList(),
     private val executeFailure: Exception? = null,
 ) : ExternalPluginBootstrapSession {
     private val globals = LinkedHashMap<String, Any?>()
@@ -479,6 +822,10 @@ private class BootstrappingSession(
             hostApi.registerLifecycleHandler(descriptor)
             handleCounter.incrementAndGet()
         }
+        scheduledRegistrations.forEach { descriptor ->
+            hostApi.registerScheduledHandler(descriptor)
+            handleCounter.incrementAndGet()
+        }
     }
 
     override fun dispose() {
@@ -512,6 +859,19 @@ private fun commandRegistration(
         command = command,
         aliases = aliases,
         groupPath = groupPath,
+        handler = PluginV2CallbackHandle {},
+    )
+}
+
+private fun scheduleRegistration(
+    conversationId: String = "",
+    platformAdapterType: String = "",
+): ScheduledHandlerRegistrationInput {
+    return ScheduledHandlerRegistrationInput(
+        key = "daily-summary",
+        cron = "0 9 * * *",
+        conversationId = conversationId,
+        platformAdapterType = platformAdapterType,
         handler = PluginV2CallbackHandle {},
     )
 }

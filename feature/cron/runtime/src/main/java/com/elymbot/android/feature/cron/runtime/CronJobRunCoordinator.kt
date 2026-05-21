@@ -24,10 +24,16 @@ data class CronJobExecutionContext(
     val origin: String,
     val runOnce: Boolean,
     val runAt: String,
+    val payloadJson: String = "",
+    val scheduledAtEpochMillis: Long = 0L,
 )
 
 fun interface ScheduledTaskExecutor {
     suspend fun execute(context: CronJobExecutionContext): CronJobDeliverySummary
+}
+
+fun interface PluginScheduledTaskDispatchPort {
+    suspend fun dispatch(context: CronJobExecutionContext): CronJobDeliverySummary?
 }
 
 interface CronRescheduler {
@@ -79,6 +85,7 @@ class CronJobRunCoordinator(
     private val repository: CronJobRepositoryPort,
     private val executor: ScheduledTaskExecutor,
     private val scheduler: CronRescheduler,
+    private val pluginScheduledTaskDispatchPort: PluginScheduledTaskDispatchPort = PluginScheduledTaskDispatchPort { null },
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val nextFireTime: (String, Long, String) -> Long = CronExpressionParser::nextFireTime,
     private val executionIdGenerator: () -> String = { UUID.randomUUID().toString() },
@@ -107,11 +114,12 @@ class CronJobRunCoordinator(
         repository.update(job.copy(status = "running", lastRunAt = startedAt))
 
         return try {
-            val context = job.toExecutionContext()
-            val missing = context.missingRequiredFields()
-            if (missing.isNotEmpty()) throw MissingScheduledTaskContextException(missing, job.jobId)
-
-            val summary = executor.execute(context)
+            val context = job.toExecutionContext(startedAt)
+            val summary = pluginScheduledTaskDispatchPort.dispatch(context) ?: run {
+                val missing = context.missingRequiredFields()
+                if (missing.isNotEmpty()) throw MissingScheduledTaskContextException(missing, job.jobId)
+                executor.execute(context)
+            }
             if (summary.deliveredMessageCount <= 0) {
                 throw CronJobExecutionFailure(
                     code = "empty_delivery",
@@ -197,7 +205,7 @@ class CronJobRunCoordinator(
     }
 }
 
-private fun CronJob.toExecutionContext(): CronJobExecutionContext {
+private fun CronJob.toExecutionContext(scheduledAtEpochMillis: Long): CronJobExecutionContext {
     val payload = runCatching { JSONObject(payloadJson) }.getOrDefault(JSONObject())
     val target = payload.optJSONObject("target")
     return CronJobExecutionContext(
@@ -218,6 +226,8 @@ private fun CronJob.toExecutionContext(): CronJobExecutionContext {
         origin = origin.ifBlank { target.optPayloadString(payload, "origin") },
         runOnce = runOnce,
         runAt = payload.optString("run_at", ""),
+        payloadJson = payloadJson,
+        scheduledAtEpochMillis = scheduledAtEpochMillis,
     )
 }
 

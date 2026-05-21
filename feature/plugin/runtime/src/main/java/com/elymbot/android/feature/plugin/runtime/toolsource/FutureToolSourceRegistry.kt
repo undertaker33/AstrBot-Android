@@ -8,8 +8,17 @@ import com.elymbot.android.core.runtime.tool.ToolSourceRequestContext
 import com.elymbot.android.feature.plugin.runtime.PluginToolSourceBridge
 import com.elymbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.elymbot.android.feature.plugin.runtime.PluginToolSourceKind
+import com.elymbot.android.feature.plugin.runtime.PluginV2ContextCompressApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryReadPort
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostApiAsyncBridge
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostApiAuditLogger
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostApiFacade
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostApiPermissionPolicy
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmPort
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmPortRequest
 import com.elymbot.android.core.runtime.context.RuntimePlatform
 import com.elymbot.android.feature.cron.domain.EmptyActiveCapabilityPromptStrings
+import com.elymbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -177,12 +186,32 @@ class FutureToolSourceRegistry @Inject constructor(
                     contextResolver = resolver,
                     runtimeLogger = runtimeLogger,
                 ),
-                contextStrategyToolSourceProvider = ContextStrategyToolSourceProvider(contextResolver = resolver),
+                contextStrategyToolSourceProvider = ContextStrategyToolSourceProvider(
+                    contextResolver = resolver,
+                    contextCompressor = emptyContextCompressApi(),
+                ),
                 webSearchToolSourceProvider = WebSearchToolSourceProvider(
                     searchPort = EmptyUnifiedSearchPort,
                     contextResolver = resolver,
                     runtimeLogger = runtimeLogger,
                 ),
+            )
+        }
+
+        private fun emptyContextCompressApi(): PluginV2ContextCompressApi {
+            val logBus = InMemoryPluginRuntimeLogBus()
+            return PluginV2ContextCompressApi(
+                facade = PluginV2HostApiFacade(
+                    permissionPolicy = PluginV2HostApiPermissionPolicy(),
+                    asyncBridge = PluginV2HostApiAsyncBridge(),
+                    auditLogger = PluginV2HostApiAuditLogger(logBus = logBus),
+                ),
+                historyReader = PluginV2ConversationHistoryReadPort { emptyList() },
+                llmPort = PluginV2HostLlmPort { request: PluginV2HostLlmPortRequest ->
+                    throw UnsupportedOperationException(
+                        "Empty FutureToolSourceRegistry does not support context compression for ${request.pluginId}",
+                    )
+                },
             )
         }
     }

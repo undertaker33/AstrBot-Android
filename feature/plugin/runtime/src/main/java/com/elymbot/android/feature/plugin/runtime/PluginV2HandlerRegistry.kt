@@ -147,6 +147,24 @@ data class PluginV2CompiledLlmHookHandler(
     val surface: PluginV2LlmHookSurface,
 ) : PluginV2CompiledHandlerDescriptor
 
+data class PluginV2CompiledScheduledHandler(
+    override val pluginId: String,
+    override val registrationKind: String,
+    override val registrationKey: String,
+    override val normalizedRegistrationKey: String,
+    override val handlerId: String,
+    override val callbackToken: PluginV2CallbackToken,
+    override val priority: Int,
+    override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val metadata: BootstrapRegistrationMetadata,
+    override val sourceOrder: Int,
+    val handlerKey: String,
+    val cron: String?,
+    val runAtEpochMillis: Long?,
+    val conversationId: String,
+    val platformAdapterType: String = "",
+) : PluginV2CompiledHandlerDescriptor
+
 data class PluginV2HandlerRegistry(
     val messageHandlers: List<PluginV2CompiledMessageHandler> = emptyList(),
     val commandHandlers: List<PluginV2CompiledCommandHandler> = emptyList(),
@@ -155,13 +173,15 @@ data class PluginV2HandlerRegistry(
     val regexHandlers: List<PluginV2CompiledRegexHandler> = emptyList(),
     val lifecycleHandlers: List<PluginV2CompiledLifecycleHandler> = emptyList(),
     val llmHookHandlers: List<PluginV2CompiledLlmHookHandler> = emptyList(),
+    val scheduledHandlers: List<PluginV2CompiledScheduledHandler> = emptyList(),
 ) {
     val totalHandlerCount: Int
         get() = messageHandlers.size +
             commandHandlers.size +
             regexHandlers.size +
             lifecycleHandlers.size +
-            llmHookHandlers.size
+            llmHookHandlers.size +
+            scheduledHandlers.size
 }
 
 data class PluginV2StageIndex(
@@ -190,6 +210,7 @@ private fun PluginV2HandlerRegistry.frozenCopy(): PluginV2HandlerRegistry {
         regexHandlers = regexHandlers.map(PluginV2CompiledRegexHandler::frozenCopy).toFrozenList(),
         lifecycleHandlers = lifecycleHandlers.map(PluginV2CompiledLifecycleHandler::frozenCopy).toFrozenList(),
         llmHookHandlers = llmHookHandlers.map(PluginV2CompiledLlmHookHandler::frozenCopy).toFrozenList(),
+        scheduledHandlers = scheduledHandlers.map(PluginV2CompiledScheduledHandler::frozenCopy).toFrozenList(),
     )
 }
 
@@ -246,6 +267,13 @@ private fun PluginV2CompiledLifecycleHandler.frozenCopy(): PluginV2CompiledLifec
 }
 
 private fun PluginV2CompiledLlmHookHandler.frozenCopy(): PluginV2CompiledLlmHookHandler {
+    return copy(
+        filterAttachments = filterAttachments.frozenFilterAttachments(),
+        metadata = metadata.frozenCopy(),
+    )
+}
+
+private fun PluginV2CompiledScheduledHandler.frozenCopy(): PluginV2CompiledScheduledHandler {
     return copy(
         filterAttachments = filterAttachments.frozenFilterAttachments(),
         metadata = metadata.frozenCopy(),

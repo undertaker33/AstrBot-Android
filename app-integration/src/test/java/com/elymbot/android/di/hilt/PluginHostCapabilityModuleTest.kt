@@ -3,6 +3,10 @@ package com.elymbot.android.di.hilt
 import com.elymbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageAttachmentRef
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendPortRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPlatformMode
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortChunkRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortCloseRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPortOpenRequest
 import com.elymbot.android.feature.qq.domain.QqScheduledMessageSender
 import com.elymbot.android.feature.qq.domain.QqSendResult
 import com.elymbot.android.model.chat.ConversationAttachment
@@ -92,6 +96,81 @@ class PluginHostCapabilityModuleTest {
         assertEquals(0, conversationRepository.appended.size)
     }
 
+    @Test
+    fun messageStreamPort_appChat_replaceUpdatesCurrentPendingMessage() = runTest {
+        val conversationRepository = RecordingConversationRepositoryPort()
+        val qqSender = RecordingQqScheduledMessageSender()
+        val port = PluginHostCapabilityModule.providePluginV2MessageStreamPort(
+            conversationRepository = conversationRepository,
+            qqScheduledMessageSender = qqSender,
+        )
+        val open = port.open(streamOpenRequest(platformAdapterType = "app_chat"))
+
+        val appended = port.append(streamChunkRequest(open.streamId, text = "draft"))
+        val replaced = port.replace(streamChunkRequest(open.streamId, text = "final"))
+
+        assertTrue(appended.success)
+        assertTrue(replaced.success)
+        assertEquals(PluginV2MessageStreamPlatformMode.Editable, open.platformMode)
+        assertEquals(1, conversationRepository.appended.size)
+        assertEquals("draft", conversationRepository.appended.single().content)
+        assertEquals("assistant-1", conversationRepository.updated.single().messageId)
+        assertEquals("final", conversationRepository.updated.single().content)
+        assertEquals(0, qqSender.requests.size)
+    }
+
+    @Test
+    fun messageStreamPort_qq_finalOnCloseBuffersChunksAndSendsOnceOnClose() = runTest {
+        val conversationRepository = RecordingConversationRepositoryPort()
+        val qqSender = RecordingQqScheduledMessageSender(
+            result = QqSendResult.success(listOf("qq-stream-receipt")),
+        )
+        val port = PluginHostCapabilityModule.providePluginV2MessageStreamPort(
+            conversationRepository = conversationRepository,
+            qqScheduledMessageSender = qqSender,
+        )
+        val open = port.open(streamOpenRequest(platformAdapterType = "onebot"))
+
+        val first = port.append(streamChunkRequest(open.streamId, platformAdapterType = "onebot", text = "hello"))
+        val second = port.append(streamChunkRequest(open.streamId, platformAdapterType = "onebot", text = " world"))
+        val close = port.close(streamCloseRequest(open.streamId, platformAdapterType = "onebot"))
+
+        assertTrue(first.success)
+        assertTrue(second.success)
+        assertTrue(close.success)
+        assertEquals(PluginV2MessageStreamPlatformMode.FinalOnClose, open.platformMode)
+        assertEquals(1, qqSender.requests.size)
+        assertEquals("hello world", qqSender.requests.single().text)
+        assertEquals(1, conversationRepository.appended.size)
+        assertEquals("hello world", conversationRepository.appended.single().content)
+    }
+
+    @Test
+    fun messageStreamPort_qq_replaceOverwritesBufferedFinalMessageBeforeClose() = runTest {
+        val conversationRepository = RecordingConversationRepositoryPort()
+        val qqSender = RecordingQqScheduledMessageSender(
+            result = QqSendResult.success(listOf("qq-stream-receipt")),
+        )
+        val port = PluginHostCapabilityModule.providePluginV2MessageStreamPort(
+            conversationRepository = conversationRepository,
+            qqScheduledMessageSender = qqSender,
+        )
+        val open = port.open(streamOpenRequest(platformAdapterType = "qq_onebot"))
+
+        val appended = port.append(streamChunkRequest(open.streamId, platformAdapterType = "qq_onebot", text = "draft"))
+        val replaced = port.replace(streamChunkRequest(open.streamId, platformAdapterType = "qq_onebot", text = "final"))
+        val close = port.close(streamCloseRequest(open.streamId, platformAdapterType = "qq_onebot"))
+
+        assertTrue(appended.success)
+        assertTrue(replaced.success)
+        assertTrue(close.success)
+        assertEquals(PluginV2MessageStreamPlatformMode.FinalOnClose, open.platformMode)
+        assertEquals(1, qqSender.requests.size)
+        assertEquals("final", qqSender.requests.single().text)
+        assertEquals(1, conversationRepository.appended.size)
+        assertEquals("final", conversationRepository.appended.single().content)
+    }
+
     private fun messageRequest(
         platformAdapterType: String,
         attachments: List<PluginV2MessageAttachmentRef> = emptyList(),
@@ -106,6 +185,46 @@ class PluginHostCapabilityModuleTest {
             attachments = attachments,
         )
     }
+
+    private fun streamOpenRequest(
+        platformAdapterType: String,
+    ): PluginV2MessageStreamPortOpenRequest {
+        return PluginV2MessageStreamPortOpenRequest(
+            pluginId = "plugin.stream",
+            requestId = "request-stream",
+            conversationId = "conversation-1",
+            platformAdapterType = platformAdapterType,
+            markdown = false,
+        )
+    }
+
+    private fun streamChunkRequest(
+        streamId: String,
+        platformAdapterType: String = "app_chat",
+        text: String,
+    ): PluginV2MessageStreamPortChunkRequest {
+        return PluginV2MessageStreamPortChunkRequest(
+            streamId = streamId,
+            pluginId = "plugin.stream",
+            requestId = "request-stream",
+            conversationId = "conversation-1",
+            platformAdapterType = platformAdapterType,
+            text = text,
+        )
+    }
+
+    private fun streamCloseRequest(
+        streamId: String,
+        platformAdapterType: String,
+    ): PluginV2MessageStreamPortCloseRequest {
+        return PluginV2MessageStreamPortCloseRequest(
+            streamId = streamId,
+            pluginId = "plugin.stream",
+            requestId = "request-stream",
+            conversationId = "conversation-1",
+            platformAdapterType = platformAdapterType,
+        )
+    }
 }
 
 private data class AppendedPluginMessage(
@@ -113,6 +232,13 @@ private data class AppendedPluginMessage(
     val role: String,
     val content: String,
     val attachments: List<ConversationAttachment>,
+)
+
+private data class UpdatedPluginMessage(
+    val sessionId: String,
+    val messageId: String,
+    val content: String?,
+    val attachments: List<ConversationAttachment>?,
 )
 
 private class RecordingConversationRepositoryPort : ConversationRepositoryPort {
@@ -129,6 +255,7 @@ private class RecordingConversationRepositoryPort : ConversationRepositoryPort {
     override val defaultSessionId: String = session.id
     override val sessions = MutableStateFlow(listOf(session))
     val appended = mutableListOf<AppendedPluginMessage>()
+    val updated = mutableListOf<UpdatedPluginMessage>()
 
     override fun contextPreview(sessionId: String): String = ""
 
@@ -164,7 +291,14 @@ private class RecordingConversationRepositoryPort : ConversationRepositoryPort {
         messageId: String,
         content: String?,
         attachments: List<ConversationAttachment>?,
-    ) = Unit
+    ) {
+        updated += UpdatedPluginMessage(
+            sessionId = sessionId,
+            messageId = messageId,
+            content = content,
+            attachments = attachments,
+        )
+    }
 
     override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) = Unit
 

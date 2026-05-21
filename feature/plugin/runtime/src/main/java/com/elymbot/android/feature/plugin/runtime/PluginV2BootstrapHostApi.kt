@@ -51,7 +51,10 @@ class PluginV2BootstrapHostApi(
     private val hostNetworkApi: PluginV2HostNetworkApi? = null,
     private val providerReadApi: PluginV2ProviderReadApi? = null,
     private val messageSendApi: PluginV2MessageSendApi? = null,
+    private val messageStreamApi: PluginV2MessageStreamApi? = null,
     private val conversationHistoryApi: PluginV2ConversationHistoryApi? = null,
+    private val hostLlmApi: PluginV2HostLlmApi? = null,
+    private val contextCompressApi: PluginV2ContextCompressApi? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     private var sessionUnifiedOriginProvider: () -> String? = { null },
     private var hostApiEventContextProvider: () -> PluginV2HostApiEventContext? = { null },
@@ -243,6 +246,23 @@ class PluginV2BootstrapHostApi(
         }
     }
 
+    fun registerScheduledHandler(
+        descriptor: ScheduledHandlerRegistrationInput,
+    ): PluginV2CallbackToken {
+        requireRegistrationPermission(PluginV2HostApiPermissions.SCHEDULE_MANAGE)
+        return register(
+            operation = "registerScheduledHandler",
+            registrationType = "schedule",
+            normalizeDescriptor = { validateScheduledHandler(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendScheduledHandler(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
     internal fun networkRequest(request: PluginV2HostNetworkRequest): PluginV2HostApiResult = fetch(request)
 
     internal fun providersList(): PluginV2HostApiResult {
@@ -275,11 +295,87 @@ class PluginV2BootstrapHostApi(
         }
     }
 
+    internal fun messageOpenStream(request: PluginV2MessageStreamOpenRequest): PluginV2HostApiResult {
+        val api = messageStreamApi
+            ?: throw hostApiUnavailable("Plugin message stream API is unavailable.")
+        return runBlocking {
+            api.openStream(
+                context = createHostApiRequestContext(),
+                request = request,
+            )
+        }
+    }
+
+    internal fun messageStreamAppend(streamId: String, text: String): PluginV2HostApiResult {
+        val api = messageStreamApi
+            ?: throw hostApiUnavailable("Plugin message stream API is unavailable.")
+        return runBlocking {
+            api.append(streamId, text)
+        }
+    }
+
+    internal fun messageStreamReplace(streamId: String, text: String): PluginV2HostApiResult {
+        val api = messageStreamApi
+            ?: throw hostApiUnavailable("Plugin message stream API is unavailable.")
+        return runBlocking {
+            api.replace(streamId, text)
+        }
+    }
+
+    internal fun messageStreamClose(streamId: String): PluginV2HostApiResult {
+        val api = messageStreamApi
+            ?: throw hostApiUnavailable("Plugin message stream API is unavailable.")
+        return runBlocking {
+            api.close(streamId)
+        }
+    }
+
+    internal fun messageStreamFail(streamId: String, message: String): PluginV2HostApiResult {
+        val api = messageStreamApi
+            ?: throw hostApiUnavailable("Plugin message stream API is unavailable.")
+        return runBlocking {
+            api.fail(streamId, message)
+        }
+    }
+
     internal fun conversationHistory(request: PluginV2ConversationHistoryRequest): PluginV2HostApiResult {
         val api = conversationHistoryApi
             ?: throw hostApiUnavailable("Plugin conversation history API is unavailable.")
         return runBlocking {
             api.history(
+                context = createHostApiRequestContext(),
+                request = request,
+            )
+        }
+    }
+
+    internal fun callLlm(request: PluginV2HostLlmRequest): PluginV2HostApiResult {
+        val api = hostLlmApi
+            ?: throw hostApiUnavailable("Plugin host LLM API is unavailable.")
+        return runBlocking {
+            api.callLlm(
+                context = createHostApiRequestContext(),
+                request = request,
+            )
+        }
+    }
+
+    internal fun llmGenerate(request: PluginV2HostLlmRequest): PluginV2HostApiResult {
+        val api = hostLlmApi
+            ?: throw hostApiUnavailable("Plugin host LLM API is unavailable.")
+        return runBlocking {
+            api.generate(
+                context = createHostApiRequestContext(),
+                request = request,
+            )
+        }
+    }
+
+    internal fun contextCompress(request: PluginV2ContextCompressRequest): PluginV2HostApiResult {
+        val api = contextCompressApi
+            ?: throw hostApiUnavailable("Plugin context compress API is unavailable.")
+        return runBlocking {
+            api.compress(
                 context = createHostApiRequestContext(),
                 request = request,
             )
@@ -783,6 +879,72 @@ class PluginV2BootstrapHostApi(
         )
     }
 
+    private fun validateScheduledHandler(
+        descriptor: ScheduledHandlerRegistrationInput,
+    ): ScheduledHandlerRegistrationInput {
+        val key = requireTrimmedValue(
+            value = descriptor.key,
+            fieldName = "key",
+        )
+        val cron = descriptor.cron?.trim()?.takeIf(String::isNotBlank)
+        val runAt = descriptor.runAt
+        require((cron != null) xor (runAt != null)) {
+            "registerScheduledHandler requires exactly one of cron or runAt."
+        }
+        val targetContext = requireScheduledTargetContext(
+            conversationId = descriptor.conversationId.trim(),
+            platformAdapterType = descriptor.platformAdapterType.trim(),
+        )
+        return descriptor.copy(
+            key = key,
+            cron = cron,
+            runAt = runAt,
+            conversationId = targetContext.conversationId,
+            platformAdapterType = targetContext.platformAdapterType,
+            metadata = normalizeMetadata(descriptor.metadata),
+        )
+    }
+
+    private fun requireScheduledTargetContext(
+        conversationId: String,
+        platformAdapterType: String,
+    ): ScheduledTargetContext {
+        val eventContext = hostApiEventContextProvider()
+        val boundConversationId = eventContext?.conversationId?.trim().orEmpty()
+        if (boundConversationId.isBlank()) {
+            require(conversationId.isBlank() && platformAdapterType.isBlank()) {
+                "registerScheduledHandler explicit target requires current event context or host-authorized schedule target."
+            }
+            return ScheduledTargetContext(
+                conversationId = "",
+                platformAdapterType = "",
+            )
+        }
+        val targetConversationId = conversationId.ifBlank { boundConversationId }
+        require(targetConversationId == boundConversationId) {
+            "registerScheduledHandler target conversationId must match current event context."
+        }
+
+        val boundPlatformAdapterType = eventContext?.platformAdapterType?.trim().orEmpty()
+        require(platformAdapterType.isBlank() || boundPlatformAdapterType.isNotBlank()) {
+            "registerScheduledHandler target platformAdapterType must match current event context."
+        }
+        val targetPlatformAdapterType = platformAdapterType.ifBlank { boundPlatformAdapterType }
+        require(boundPlatformAdapterType.isBlank() || targetPlatformAdapterType == boundPlatformAdapterType) {
+            "registerScheduledHandler target platformAdapterType must match current event context."
+        }
+
+        return ScheduledTargetContext(
+            conversationId = targetConversationId,
+            platformAdapterType = targetPlatformAdapterType,
+        )
+    }
+
+    private data class ScheduledTargetContext(
+        val conversationId: String,
+        val platformAdapterType: String,
+    )
+
     private fun normalizeBase(
         descriptor: BaseHandlerRegistrationInput,
     ): BaseHandlerRegistrationInput {
@@ -845,6 +1007,14 @@ class PluginV2BootstrapHostApi(
     ) {
         require(declaredFilters.isEmpty()) {
             "declaredFilters are only allowed on message/command/regex registrations."
+        }
+    }
+
+    private fun requireRegistrationPermission(permissionId: String) {
+        val manifestPermissions = session.installRecord.manifestSnapshot.permissions.mapTo(linkedSetOf()) { it.permissionId }
+        val grantedPermissions = session.installRecord.permissionSnapshot.mapTo(linkedSetOf()) { it.permissionId }
+        check(permissionId in manifestPermissions && permissionId in grantedPermissions) {
+            "Permission $permissionId is required for this registration."
         }
     }
 

@@ -12,6 +12,7 @@ data class PluginV2MessageSendRequest(
     val markdown: Boolean = false,
     val attachments: List<PluginV2MessageAttachmentRef> = emptyList(),
     val conversationId: String = "",
+    val chain: List<PluginMessageSegment> = emptyList(),
 )
 
 data class PluginV2MessageSendResult(
@@ -19,6 +20,7 @@ data class PluginV2MessageSendResult(
     val platformAdapterType: String,
     val receiptIds: List<String>,
     val messageLength: Int,
+    val warnings: List<PluginMessageSendWarning> = emptyList(),
 )
 
 data class PluginV2MessageSendPortRequest(
@@ -29,6 +31,8 @@ data class PluginV2MessageSendPortRequest(
     val text: String,
     val markdown: Boolean,
     val attachments: List<PluginV2MessageAttachmentRef>,
+    val warnings: List<PluginMessageSendWarning> = emptyList(),
+    val permissionId: String = PluginV2HostApiPermissions.SEND_MESSAGE,
 )
 
 data class PluginV2MessageSendPortResult(
@@ -36,6 +40,7 @@ data class PluginV2MessageSendPortResult(
     val receiptIds: List<String> = emptyList(),
     val errorCode: String = "",
     val errorSummary: String = "",
+    val warnings: List<PluginMessageSendWarning> = emptyList(),
 )
 
 fun interface PluginV2MessageSendPort {
@@ -51,18 +56,27 @@ class PluginV2MessageSendApi(
         context: PluginV2HostApiRequestContext,
         request: PluginV2MessageSendRequest,
     ): PluginV2HostApiResult {
+        val permissionId = if (request.chain.isEmpty()) {
+            PluginV2HostApiPermissions.SEND_MESSAGE
+        } else {
+            PluginV2HostApiPermissions.RICH_MESSAGE_SEND
+        }
         return facade.call(
             context = context,
             api = HOST_API_MESSAGE_SEND,
-            permissionId = PluginV2HostApiPermissions.SEND_MESSAGE,
+            permissionId = permissionId,
             timeoutMs = timeoutMs,
         ) {
             val targetConversationId = resolveTargetConversationId(
                 contextConversationId = context.conversationId,
                 requestedConversationId = request.conversationId,
             )
-            val attachments = sanitizeAttachments(request.attachments)
-            val text = request.text.trim()
+            val mapped = mapRequestForPlatform(
+                request = request,
+                platformAdapterType = context.platformAdapterType,
+            )
+            val attachments = sanitizeAttachments(mapped.attachments)
+            val text = mapped.text.trim()
             if (text.isBlank() && attachments.isEmpty()) {
                 throw PluginV2HostApiException(
                     PluginV2HostApiError(
@@ -80,6 +94,8 @@ class PluginV2MessageSendApi(
                 text = text,
                 markdown = request.markdown,
                 attachments = attachments,
+                warnings = mapped.warnings,
+                permissionId = permissionId,
             )
             val portResult = try {
                 sendPort.send(portRequest)
@@ -104,7 +120,25 @@ class PluginV2MessageSendApi(
                 platformAdapterType = platformAdapterType,
                 receiptIds = portResult.receiptIds.map(String::trim).filter(String::isNotBlank),
                 messageLength = text.length,
+                warnings = mapped.warnings + portResult.warnings,
             )
+        }
+    }
+
+    private fun mapRequestForPlatform(
+        request: PluginV2MessageSendRequest,
+        platformAdapterType: String,
+    ): PluginMessagePlatformMapping {
+        if (request.chain.isEmpty()) {
+            return PluginMessagePlatformMapping(
+                text = request.text,
+                attachments = request.attachments,
+            )
+        }
+        return if (platformAdapterType.isQqPlatform()) {
+            PluginMessagePlatformMapper.mapForQq(request.chain)
+        } else {
+            PluginMessagePlatformMapper.mapForAppChat(request.chain)
         }
     }
 
@@ -160,7 +194,10 @@ class PluginV2MessageSendApi(
     }
 
     private fun isAllowedAttachmentUri(uri: String): Boolean {
-        return uri.startsWith("plugin://package/") || uri.startsWith("plugin://workspace/")
+        return runCatching {
+            PluginMessageSegmentParser.validateMediaRef(uri)
+            true
+        }.getOrDefault(false)
     }
 
     private fun messageSendFailed(
@@ -193,5 +230,16 @@ class PluginV2MessageSendApi(
         const val DEFAULT_TIMEOUT_MS = 5_000L
 
         private const val MAX_FAILURE_CODE_LENGTH = 80
+    }
+}
+
+private fun String.isQqPlatform(): Boolean {
+    return when (trim().lowercase()) {
+        "qq",
+        "onebot",
+        "qq_onebot",
+        "qq-onebot",
+        -> true
+        else -> false
     }
 }

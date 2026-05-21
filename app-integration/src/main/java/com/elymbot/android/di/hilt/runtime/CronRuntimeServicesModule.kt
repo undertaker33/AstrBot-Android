@@ -18,6 +18,7 @@ import com.elymbot.android.feature.cron.runtime.CronJobRunCoordinator
 import com.elymbot.android.feature.cron.runtime.CronRescheduler
 import com.elymbot.android.feature.cron.runtime.CronRuntimeService
 import com.elymbot.android.feature.cron.runtime.FeatureCronSchedulerPortAdapter
+import com.elymbot.android.feature.cron.runtime.PluginScheduledTaskDispatchPort
 import com.elymbot.android.feature.cron.runtime.ScheduledMessageDeliveryPort
 import com.elymbot.android.feature.cron.runtime.ScheduledTaskExecutor
 import com.elymbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
@@ -27,6 +28,8 @@ import com.elymbot.android.feature.cron.runtime.activeCapabilityNaturalLanguageL
 import com.elymbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.elymbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.elymbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.elymbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
+import com.elymbot.android.feature.plugin.runtime.PluginV2ScheduledDispatchEngine
 import com.elymbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.elymbot.android.feature.qq.domain.QqScheduledMessageSender
 import dagger.Module
@@ -85,6 +88,16 @@ internal object CronRuntimeServicesModule {
 
     @Provides
     @Singleton
+    fun providePluginScheduledTaskDispatchPort(
+        activeRuntimeStore: PluginV2ActiveRuntimeStore,
+        dispatchEngine: PluginV2ScheduledDispatchEngine,
+    ): PluginScheduledTaskDispatchPort = PluginV2ScheduledTaskDispatchPortAdapter(
+        activeRuntimeStore = activeRuntimeStore,
+        dispatchEngine = dispatchEngine,
+    )
+
+    @Provides
+    @Singleton
     fun provideCronSchedulerPort(
         adapter: FeatureCronSchedulerPortAdapter,
     ): CronSchedulerPort = adapter
@@ -128,9 +141,11 @@ internal object CronRuntimeServicesModule {
         repository: CronJobRepositoryPort,
         scheduler: CronRescheduler,
         executor: ScheduledTaskExecutor,
+        pluginScheduledTaskDispatchPort: PluginScheduledTaskDispatchPort,
     ): CronJobRunCoordinator = CronJobRunCoordinator(
         repository = repository,
         scheduler = scheduler,
         executor = executor,
+        pluginScheduledTaskDispatchPort = pluginScheduledTaskDispatchPort,
     )
 }

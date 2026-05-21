@@ -98,6 +98,7 @@ class QqPhase24BoundaryContractTest {
             "app-integration/src/main/java/com/elymbot/android/di/hilt/QqPhase24PortModule.kt",
             "app-integration/src/main/java/com/elymbot/android/app/integration/plugin/PluginRuntimeObservationPortAdapter.kt",
             "app-integration/src/main/java/com/elymbot/android/di/hilt/runtime/CronRuntimeServicesModule.kt",
+            "app-integration/src/main/java/com/elymbot/android/di/hilt/runtime/PluginV2ScheduledTaskDispatchPortAdapter.kt",
             "app-integration/src/main/java/com/elymbot/android/di/hilt/runtime/PluginRuntimeServicesModule.kt",
         )
         val allowedQqImplementationImportFiles = setOf(

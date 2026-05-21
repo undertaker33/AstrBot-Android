@@ -100,6 +100,16 @@ data class ToolLifecycleHookRegistrationInput(
     val handler: PluginV2CallbackHandle,
 )
 
+data class ScheduledHandlerRegistrationInput(
+    val key: String,
+    val cron: String? = null,
+    val runAt: Long? = null,
+    val conversationId: String = "",
+    val platformAdapterType: String = "",
+    val metadata: BootstrapRegistrationMetadata = BootstrapRegistrationMetadata(),
+    val handler: PluginV2CallbackHandle,
+)
+
 interface PluginV2RawRegistrationEntry {
     val pluginId: String
     val registrationKey: String?
@@ -187,6 +197,17 @@ internal data class ToolLifecycleHookRawRegistration(
     val descriptor: ToolLifecycleHookRegistrationInput,
 ) : PluginV2RawRegistrationEntry
 
+data class ScheduledHandlerRawRegistration(
+    override val pluginId: String,
+    override val registrationKey: String?,
+    override val callbackToken: PluginV2CallbackToken,
+    override val priority: Int,
+    override val declaredFilters: List<BootstrapFilterDescriptor>,
+    override val metadata: BootstrapRegistrationMetadata,
+    override val sourceOrder: Int,
+    val descriptor: ScheduledHandlerRegistrationInput,
+) : PluginV2RawRegistrationEntry
+
 class PluginV2RawRegistry(
     val pluginId: String,
 ) {
@@ -204,6 +225,7 @@ class PluginV2RawRegistry(
     private val llmHookRegistrations = mutableListOf<LlmHookRawRegistration>()
     private val toolRegistrations = mutableListOf<ToolRawRegistration>()
     private val toolLifecycleHookRegistrations = mutableListOf<ToolLifecycleHookRawRegistration>()
+    private val scheduledHandlerRegistrations = mutableListOf<ScheduledHandlerRawRegistration>()
 
     val messageHandlers: List<MessageHandlerRawRegistration>
         get() = messageHandlerRegistrations.toList()
@@ -225,6 +247,9 @@ class PluginV2RawRegistry(
 
     internal val toolLifecycleHooks: List<ToolLifecycleHookRawRegistration>
         get() = toolLifecycleHookRegistrations.toList()
+
+    val scheduledHandlers: List<ScheduledHandlerRawRegistration>
+        get() = scheduledHandlerRegistrations.toList()
 
     internal fun appendMessageHandler(
         callbackToken: PluginV2CallbackToken,
@@ -356,6 +381,22 @@ class PluginV2RawRegistry(
         ).also(toolLifecycleHookRegistrations::add)
     }
 
+    internal fun appendScheduledHandler(
+        callbackToken: PluginV2CallbackToken,
+        descriptor: ScheduledHandlerRegistrationInput,
+    ): ScheduledHandlerRawRegistration {
+        return ScheduledHandlerRawRegistration(
+            pluginId = pluginId,
+            registrationKey = descriptor.key,
+            callbackToken = callbackToken,
+            priority = 0,
+            declaredFilters = emptyList(),
+            metadata = descriptor.metadata,
+            sourceOrder = allocateSourceOrder(),
+            descriptor = descriptor,
+        ).also(scheduledHandlerRegistrations::add)
+    }
+
     fun isEmpty(): Boolean {
         return messageHandlerRegistrations.isEmpty() &&
             commandHandlerRegistrations.isEmpty() &&
@@ -363,7 +404,8 @@ class PluginV2RawRegistry(
             lifecycleHandlerRegistrations.isEmpty() &&
             llmHookRegistrations.isEmpty() &&
             toolRegistrations.isEmpty() &&
-            toolLifecycleHookRegistrations.isEmpty()
+            toolLifecycleHookRegistrations.isEmpty() &&
+            scheduledHandlerRegistrations.isEmpty()
     }
 
     private fun allocateSourceOrder(): Int {

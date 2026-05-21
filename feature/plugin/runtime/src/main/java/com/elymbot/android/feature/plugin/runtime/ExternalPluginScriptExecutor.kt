@@ -347,6 +347,10 @@ private class QuickJsExternalPluginBootstrapSession(
             val descriptor = requireObjectArg(args, 0, "registerToolLifecycleHook")
             hostApi.registerToolLifecycleHook(parseToolLifecycleDescriptor(descriptor, runtimeHandle)).value
         }
+        bindHostCall(bridge, "registerScheduledHandler") { args ->
+            val descriptor = requireObjectArg(args, 0, "registerScheduledHandler")
+            hostApi.registerScheduledHandler(parseScheduledHandlerDescriptor(descriptor, runtimeHandle)).value
+        }
         bindHostCall(bridge, "onPluginLoaded") { args ->
             val descriptor = requireObjectArg(args, 0, "onPluginLoaded")
             hostApi.registerLifecycleHandler(
@@ -388,6 +392,12 @@ private class QuickJsExternalPluginBootstrapSession(
             val request = parseHostNetworkRequest(requireObjectArg(args, 0, "fetch"))
             createHostNetworkJsResult(runtimeHandle, hostApi.fetch(request))
         }
+        bindHostCall(bridge, "callLlm") { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.callLlm(parseHostLlmRequest(requireObjectArg(args, 0, "callLlm"))),
+            )
+        }
         val networkBridge = runtimeHandle.context.createNewJSObject()
         bindHostCall(networkBridge, "request") { args ->
             val request = parseHostNetworkRequest(requireObjectArg(args, 0, "network.request"))
@@ -414,6 +424,15 @@ private class QuickJsExternalPluginBootstrapSession(
                 hostApi.messageSend(parseMessageSendRequest(requireObjectArg(args, 0, "message.send"))),
             )
         }
+        bindHostCall(messageBridge, "openStream") { args ->
+            val descriptor = args.getOrNull(0)?.takeIf { it is JSObject || it is Map<*, *> }
+                ?: emptyMap<String, Any?>()
+            createMessageStreamJsResult(
+                runtimeHandle = runtimeHandle,
+                hostApi = hostApi,
+                result = hostApi.messageOpenStream(parseMessageStreamOpenRequest(descriptor)),
+            )
+        }
         bridge.setProperty("message", messageBridge)
         runtimeHandle.handleStore["message::$name"] = messageBridge
         val conversationBridge = runtimeHandle.context.createNewJSObject()
@@ -427,6 +446,24 @@ private class QuickJsExternalPluginBootstrapSession(
         }
         bridge.setProperty("conversation", conversationBridge)
         runtimeHandle.handleStore["conversation::$name"] = conversationBridge
+        val llmBridge = runtimeHandle.context.createNewJSObject()
+        bindHostCall(llmBridge, "generate") { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.llmGenerate(parseHostLlmRequest(requireObjectArg(args, 0, "llm.generate"))),
+            )
+        }
+        bridge.setProperty("llm", llmBridge)
+        runtimeHandle.handleStore["llm::$name"] = llmBridge
+        val contextBridge = runtimeHandle.context.createNewJSObject()
+        bindHostCall(contextBridge, "compress") { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.contextCompress(parseContextCompressRequest(requireObjectArg(args, 0, "context.compress"))),
+            )
+        }
+        bridge.setProperty("context", contextBridge)
+        runtimeHandle.handleStore["context::$name"] = contextBridge
         bindHostCall(bridge, "getPluginMetadata") {
             createJsObject(
                 runtimeHandle,
@@ -668,6 +705,21 @@ private class QuickJsExternalPluginBootstrapSession(
         )
     }
 
+    private fun parseScheduledHandlerDescriptor(
+        descriptor: Any,
+        runtimeHandle: QuickJsBootstrapRuntime,
+    ): ScheduledHandlerRegistrationInput {
+        return ScheduledHandlerRegistrationInput(
+            key = requireStringProperty(descriptor, "registerScheduledHandler", "key"),
+            cron = propertyValue(descriptor, "cron")?.toString(),
+            runAt = parseOptionalLong(propertyValue(descriptor, "runAt"), "runAt"),
+            conversationId = propertyValue(descriptor, "conversationId")?.toString().orEmpty(),
+            platformAdapterType = propertyValue(descriptor, "platformAdapterType")?.toString().orEmpty(),
+            metadata = BootstrapRegistrationMetadata(parseStringMap(propertyValue(descriptor, "metadata"))),
+            handler = extractCallbackHandle(descriptor, runtimeHandle, "handler", "registerScheduledHandler"),
+        )
+    }
+
     private fun parseHostNetworkRequest(
         descriptor: Any,
     ): PluginV2HostNetworkRequest {
@@ -697,7 +749,54 @@ private class QuickJsExternalPluginBootstrapSession(
             markdown = parseBoolean(propertyValue(descriptor, "markdown")),
             attachments = parseMessageAttachmentRefs(propertyValue(descriptor, "attachments")),
             conversationId = propertyValue(descriptor, "conversationId")?.toString().orEmpty(),
+            chain = parseMessageSegmentChain(propertyValue(descriptor, "chain")),
         )
+    }
+
+    private fun parseMessageStreamOpenRequest(
+        descriptor: Any,
+    ): PluginV2MessageStreamOpenRequest {
+        return PluginV2MessageStreamOpenRequest(
+            markdown = parseBoolean(propertyValue(descriptor, "markdown")),
+        )
+    }
+
+    private fun parseMessageSegmentChain(
+        value: Any?,
+    ): List<PluginMessageSegment> {
+        return parseList(value).map { item ->
+            val type = propertyValue(item, "type")?.toString()?.trim()?.lowercase().orEmpty()
+            when (type) {
+                "text" -> PluginTextSegment(text = propertyValue(item, "text")?.toString().orEmpty())
+                "image" -> PluginImageSegment(
+                    uri = propertyValue(item, "uri")?.toString().orEmpty(),
+                    alt = propertyValue(item, "alt")?.toString().orEmpty(),
+                    mimeType = propertyValue(item, "mimeType")?.toString().orEmpty().ifBlank { "image/*" },
+                )
+                "file" -> PluginFileSegment(
+                    uri = propertyValue(item, "uri")?.toString().orEmpty(),
+                    name = propertyValue(item, "name")?.toString().orEmpty(),
+                    mimeType = propertyValue(item, "mimeType")?.toString().orEmpty().ifBlank { "application/octet-stream" },
+                )
+                "mention" -> PluginMentionSegment(
+                    userId = propertyValue(item, "userId")?.toString().orEmpty(),
+                    label = propertyValue(item, "label")?.toString().orEmpty(),
+                )
+                "reply" -> PluginReplySegment(messageId = propertyValue(item, "messageId")?.toString().orEmpty())
+                "card" -> PluginCardSegment(
+                    title = propertyValue(item, "title")?.toString().orEmpty(),
+                    text = propertyValue(item, "text")?.toString().orEmpty(),
+                    url = propertyValue(item, "url")?.toString().orEmpty(),
+                )
+                else -> throw PluginV2HostApiException(
+                    PluginV2HostApiError(
+                        code = PluginMessageSegmentParser.UNSUPPORTED_SEGMENT_TYPE,
+                        message = "Unsupported message segment type.",
+                        details = mapOf("type" to type),
+                    ),
+                )
+            }
+        }
     }
 
     private fun parseMessageAttachmentRefs(
@@ -723,6 +822,74 @@ private class QuickJsExternalPluginBootstrapSession(
             beforeMessageId = propertyValue(descriptor, "beforeMessageId")?.toString().orEmpty(),
             includeAttachments = parseBoolean(propertyValue(descriptor, "includeAttachments")),
             conversationId = propertyValue(descriptor, "conversationId")?.toString().orEmpty(),
+        )
+    }
+
+    private fun parseHostLlmRequest(
+        descriptor: Any,
+    ): PluginV2HostLlmRequest {
+        return PluginV2HostLlmRequest(
+            providerId = propertyValue(descriptor, "providerId")?.toString().orEmpty(),
+            modelId = propertyValue(descriptor, "modelId")?.toString().orEmpty(),
+            messages = parseHostLlmMessages(propertyValue(descriptor, "messages")),
+            systemPrompt = propertyValue(descriptor, "systemPrompt")?.toString(),
+            temperature = parseOptionalDouble(propertyValue(descriptor, "temperature"), "temperature"),
+            topP = parseOptionalDouble(propertyValue(descriptor, "topP"), "topP"),
+            maxTokens = parseOptionalInt(propertyValue(descriptor, "maxTokens"), "maxTokens"),
+            tools = parseHostLlmTools(propertyValue(descriptor, "tools")),
+        )
+    }
+
+    private fun parseHostLlmMessages(
+        value: Any?,
+    ): List<PluginV2HostLlmMessage> {
+        return parseList(value).mapNotNull { item ->
+            when (item) {
+                is JSObject, is Map<*, *> -> PluginV2HostLlmMessage(
+                    role = propertyValue(item, "role")?.toString().orEmpty(),
+                    text = propertyValue(item, "text", "content")?.toString().orEmpty(),
+                )
+
+                else -> null
+            }
+        }
+    }
+
+    private fun parseHostLlmTools(
+        value: Any?,
+    ): List<PluginProviderToolDefinition> {
+        return parseList(value).mapNotNull { item ->
+            when (item) {
+                is JSObject, is Map<*, *> -> PluginProviderToolDefinition(
+                    name = propertyValue(item, "name")?.toString().orEmpty(),
+                    description = propertyValue(item, "description")?.toString().orEmpty(),
+                    inputSchema = parseJsonLikeMap(propertyValue(item, "inputSchema", "parameters")),
+                )
+
+                else -> null
+            }
+        }
+    }
+
+    private fun parseContextCompressRequest(
+        descriptor: Any,
+    ): PluginV2ContextCompressRequest {
+        return PluginV2ContextCompressRequest(
+            conversationId = propertyValue(descriptor, "conversationId")?.toString().orEmpty(),
+            providerId = propertyValue(descriptor, "providerId")?.toString().orEmpty(),
+            modelId = propertyValue(descriptor, "modelId")?.toString().orEmpty(),
+            maxTokens = parseInt(
+                propertyValue(descriptor, "maxTokens"),
+                defaultValue = PluginV2ContextCompressApi.DEFAULT_MAX_TOKENS,
+                fieldName = "maxTokens",
+            ),
+            limit = parseInt(
+                propertyValue(descriptor, "limit"),
+                defaultValue = PluginV2ContextCompressApi.DEFAULT_HISTORY_LIMIT,
+                fieldName = "limit",
+            ),
+            targetLanguage = propertyValue(descriptor, "targetLanguage")?.toString().orEmpty(),
+            outputLength = propertyValue(descriptor, "outputLength")?.toString().orEmpty(),
         )
     }
 
@@ -764,6 +931,34 @@ private class QuickJsExternalPluginBootstrapSession(
         }
     }
 
+    private fun parseOptionalInt(
+        value: Any?,
+        fieldName: String,
+    ): Int? {
+        return when (value) {
+            null -> null
+            is Number -> value.toInt()
+            is String -> value.trim().takeIf(String::isNotBlank)?.toIntOrNull()
+                ?: throw IllegalArgumentException("$fieldName must be a number.")
+
+            else -> throw IllegalArgumentException("$fieldName must be a number.")
+        }
+    }
+
+    private fun parseOptionalDouble(
+        value: Any?,
+        fieldName: String,
+    ): Double? {
+        return when (value) {
+            null -> null
+            is Number -> value.toDouble()
+            is String -> value.trim().takeIf(String::isNotBlank)?.toDoubleOrNull()
+                ?: throw IllegalArgumentException("$fieldName must be a number.")
+
+            else -> throw IllegalArgumentException("$fieldName must be a number.")
+        }
+    }
+
     private fun createHostApiJsResult(
         runtimeHandle: QuickJsBootstrapRuntime,
         result: PluginV2HostApiResult,
@@ -782,6 +977,48 @@ private class QuickJsExternalPluginBootstrapSession(
                 ),
             )
         }
+    }
+
+    private fun createMessageStreamJsResult(
+        runtimeHandle: QuickJsBootstrapRuntime,
+        hostApi: PluginV2BootstrapHostApi,
+        result: PluginV2HostApiResult,
+    ): Any? {
+        if (result is PluginV2HostApiResult.Failure) {
+            return createHostApiJsResult(runtimeHandle, result)
+        }
+        val openResult = (result as PluginV2HostApiResult.Success).value as PluginV2MessageStreamOpenResult
+        val streamObject = createJsObject(
+            runtimeHandle,
+            linkedMapOf(
+                "streamId" to openResult.streamId,
+                "platformMode" to openResult.platformMode.name,
+                "receiptId" to openResult.receiptId,
+            ),
+        )
+        streamObject.setProperty("append", JSCallFunction { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.messageStreamAppend(openResult.streamId, args.getOrNull(0)?.toString().orEmpty()),
+            )
+        })
+        streamObject.setProperty("replace", JSCallFunction { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.messageStreamReplace(openResult.streamId, args.getOrNull(0)?.toString().orEmpty()),
+            )
+        })
+        streamObject.setProperty("close", JSCallFunction {
+            createHostApiJsResult(runtimeHandle, hostApi.messageStreamClose(openResult.streamId))
+        })
+        streamObject.setProperty("fail", JSCallFunction { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.messageStreamFail(openResult.streamId, args.getOrNull(0)?.toString().orEmpty()),
+            )
+        })
+        runtimeHandle.handleStore["message-stream::${openResult.streamId}"] = streamObject
+        return streamObject
     }
 
     private fun createHostNetworkJsResult(
@@ -852,6 +1089,19 @@ private class QuickJsExternalPluginBootstrapSession(
                 "platformAdapterType" to platformAdapterType,
                 "receiptIds" to receiptIds,
                 "messageLength" to messageLength,
+                "warnings" to warnings.map { warning -> warning.toJsBridgeValue() },
+            )
+
+            is PluginMessageSendWarning -> linkedMapOf(
+                "code" to code,
+                "message" to message,
+                "segmentType" to segmentType,
+            )
+
+            is PluginV2MessageStreamOpenResult -> linkedMapOf(
+                "streamId" to streamId,
+                "platformMode" to platformMode.name,
+                "receiptId" to receiptId,
             )
 
             is PluginV2ConversationHistoryResult -> linkedMapOf(
@@ -874,6 +1124,38 @@ private class QuickJsExternalPluginBootstrapSession(
                 "uri" to uri,
                 "mimeType" to mimeType,
                 "type" to type,
+            )
+
+            is PluginV2HostLlmResult -> linkedMapOf(
+                "text" to text,
+                "finishReason" to finishReason,
+                "providerId" to providerId,
+                "modelId" to modelId,
+                "usage" to usage.toJsBridgeValue(),
+                "toolCalls" to toolCalls.map { toolCall -> toolCall.toJsBridgeValue() },
+            )
+
+            is PluginV2ContextCompressResult -> linkedMapOf(
+                "summary" to summary,
+                "sourceMessageCount" to sourceMessageCount,
+                "truncated" to truncated,
+                "usage" to usage.toJsBridgeValue(),
+            )
+
+            is PluginLlmUsageSnapshot -> linkedMapOf(
+                "promptTokens" to promptTokens,
+                "completionTokens" to completionTokens,
+                "totalTokens" to totalTokens,
+                "inputCostMicros" to inputCostMicros,
+                "outputCostMicros" to outputCostMicros,
+                "currencyCode" to normalizedCurrencyCode,
+            )
+
+            is PluginLlmToolCall -> linkedMapOf(
+                "toolCallId" to normalizedToolCallId,
+                "toolName" to normalizedToolName,
+                "arguments" to normalizedArguments,
+                "metadata" to normalizedMetadata,
             )
 
             else -> toString()
@@ -1655,21 +1937,10 @@ private class QuickJsExternalPluginBootstrapSession(
     }
 
     private fun resolvePluginAssetUri(uri: String): String {
-        if (uri.startsWith("http://", ignoreCase = true) ||
-            uri.startsWith("https://", ignoreCase = true) ||
-            uri.startsWith("file://", ignoreCase = true) ||
-            uri.startsWith("base64://", ignoreCase = true) ||
-            uri.startsWith("content://", ignoreCase = true) ||
-            uri.startsWith("plugin://", ignoreCase = true)
-        ) {
-            return uri
-        }
-        val file = File(uri)
-        if (file.isAbsolute) {
-            return uri
-        }
-        val resolved = File(pluginRootDirectory, uri)
-        return if (resolved.exists()) resolved.absolutePath else uri
+        return resolvePluginEventAttachmentUri(
+            uri = uri,
+            pluginRootDirectory = File(pluginRootDirectory),
+        )
     }
 
     private inner class QuickJsPluginV2CallbackHandle(
@@ -1827,6 +2098,7 @@ private class QuickJsExternalPluginBootstrapSession(
             is PluginV2LlmAfterSentPayload -> value.event.extras.sessionUnifiedOrigin()
             is PluginErrorHookArgs -> extractSessionUnifiedOrigin(value.event)
             is PluginV2CustomFilterRequest -> value.eventView.extrasSnapshot.sessionUnifiedOrigin()
+            is PluginV2ScheduledHandlerEvent -> value.conversationId.takeIf(String::isNotBlank)
             else -> null
         }
     }
@@ -1855,6 +2127,12 @@ private class QuickJsExternalPluginBootstrapSession(
                 conversationId = value.eventView.conversationId,
                 platformAdapterType = value.eventView.platformAdapterType,
                 messageType = value.eventView.messageType,
+            )
+            is PluginV2ScheduledHandlerEvent -> PluginV2HostApiEventContext(
+                eventId = value.jobId,
+                conversationId = value.conversationId,
+                platformAdapterType = value.platformAdapterType,
+                messageType = value.triggerSource,
             )
 
             else -> null
@@ -2053,6 +2331,43 @@ internal const val QUICKJS_BOOTSTRAP_COMPLETION_STATE_PENDING: String = "pending
 internal const val QUICKJS_BOOTSTRAP_COMPLETION_STATE_FULFILLED: String = "fulfilled"
 internal const val QUICKJS_BOOTSTRAP_COMPLETION_STATE_REJECTED: String = "rejected"
 internal const val QUICKJS_BOOTSTRAP_POLL_INTERVAL_MS: Long = 10L
+private val URI_SCHEME_REGEX: Regex = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
+
+internal fun resolvePluginEventAttachmentUri(
+    uri: String,
+    pluginRootDirectory: File,
+): String {
+    val normalized = uri.trim()
+    if (normalized.isBlank()) {
+        throw unsafePluginEventAttachmentUri(normalized)
+    }
+    runCatching {
+        return PluginMessageSegmentParser.validateMediaRef(normalized)
+    }
+    if (URI_SCHEME_REGEX.containsMatchIn(normalized) || File(normalized).isAbsolute) {
+        throw unsafePluginEventAttachmentUri(normalized)
+    }
+
+    val root = pluginRootDirectory.canonicalFile
+    val resolved = File(root, normalized).canonicalFile
+    val rootPath = root.path
+    val resolvedPath = resolved.path
+    val insideRoot = resolvedPath == rootPath || resolvedPath.startsWith(rootPath + File.separator)
+    if (!insideRoot || !resolved.isFile) {
+        throw unsafePluginEventAttachmentUri(normalized)
+    }
+    return resolved.absolutePath
+}
+
+private fun unsafePluginEventAttachmentUri(uri: String): PluginV2HostApiException {
+    return PluginV2HostApiException(
+        PluginV2HostApiError(
+            code = PluginMessageSegmentParser.UNSAFE_MEDIA_REF,
+            message = "Media reference is not allowed.",
+            details = mapOf("uri" to uri),
+        ),
+    )
+}
 
 internal fun awaitQuickJsBootstrapCompletion(
     initialState: String?,
