@@ -18,6 +18,24 @@ class RuntimeNetworkModelsTest {
         assertEquals(10_000L, mcpRpc.connectMs)
         assertEquals(60_000L, mcpRpc.readMs)
         assertEquals(30_000L, mcpRpc.writeMs)
+
+        val appUpdate = RuntimeTimeoutProfile.APP_UPDATE
+        assertEquals(10_000L, appUpdate.connectMs)
+        assertEquals(20_000L, appUpdate.readMs)
+        assertEquals(10_000L, appUpdate.writeMs)
+    }
+
+    @Test
+    fun app_update_capability_can_be_used_with_app_update_timeout_profile() {
+        val request = RuntimeNetworkRequest(
+            capability = RuntimeNetworkCapability.APP_UPDATE,
+            method = "GET",
+            url = "https://api.github.com/repos/undertaker33/ElymBot/releases/latest",
+            timeoutProfile = RuntimeTimeoutProfile.APP_UPDATE,
+        )
+
+        assertEquals(RuntimeNetworkCapability.APP_UPDATE, request.capability)
+        assertEquals(RuntimeTimeoutProfile.APP_UPDATE, request.timeoutProfile)
     }
 
     @Test

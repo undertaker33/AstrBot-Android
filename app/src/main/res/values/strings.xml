@@ -985,6 +985,22 @@
     <string name="plugin_trigger_on_command">On command</string>
     <string name="plugin_trigger_on_conversation_enter">On conversation enter</string>
 
+    <string name="app_update_available_title">Update available</string>
+    <string name="app_update_available_message">Current version: %1$s (%2$d)\nLatest version: %3$s\nPackage: %4$s</string>
+    <string name="app_update_action_update">Update</string>
+    <string name="app_update_action_later">Not now</string>
+    <string name="app_update_action_ignore">Ignore this version</string>
+    <string name="app_update_downloading_title">Downloading update</string>
+    <string name="app_update_downloading_message">Downloading %1$s</string>
+    <string name="app_update_progress_speed_label">%1$s</string>
+    <string name="app_update_progress_size_label">%1$s / %2$s</string>
+    <string name="app_update_ready_title">Update downloaded</string>
+    <string name="app_update_ready_message">%1$s is ready to install.\nPackage: %2$s</string>
+    <string name="app_update_action_install">Install</string>
+    <string name="app_update_failed_title">Update failed</string>
+    <string name="app_update_failed_message">%1$s</string>
+    <string name="app_update_action_retry">Retry</string>
+
     <string name="plugin_deep_link_repository_title">Add plugin repository?</string>
     <string name="plugin_deep_link_install_title">Install plugin package?</string>
     <string name="plugin_deep_link_confirm_message">External link requested this plugin action:\n%1$s\nContinue only if you trust the source.</string>

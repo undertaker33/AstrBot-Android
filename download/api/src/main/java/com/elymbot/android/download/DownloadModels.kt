@@ -5,6 +5,7 @@ import java.io.File
 enum class DownloadOwnerType {
     PLUGIN_PACKAGE,
     RUNTIME_ASSET,
+    APP_UPDATE,
 }
 
 enum class DownloadTaskStatus {

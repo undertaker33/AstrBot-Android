@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
@@ -49,18 +50,23 @@ import com.elymbot.android.model.plugin.PluginInstallIntent
 import com.elymbot.android.ui.app.ElymBotApp
 import com.elymbot.android.ui.app.MonochromeUi
 import com.elymbot.android.ui.theme.ElymBotTheme
+import com.elymbot.android.update.AppUpdateDialogHost
+import com.elymbot.android.update.AppUpdateViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+    private val appUpdateViewModel: AppUpdateViewModel by viewModels()
+
     @Inject
     lateinit var pluginCatalogRuntimePort: PluginCatalogRuntimePort
 
@@ -97,6 +103,18 @@ class MainActivity : AppCompatActivity() {
 
         val appPreferencesRepository = AppPreferencesRepository(applicationContext)
 
+        lifecycleScope.launch {
+            appUpdateViewModel.installIntents.collect { intent ->
+                runCatching {
+                    startActivity(intent)
+                }.onFailure { error ->
+                    runtimeLogger.append(
+                        "App update installer launch failed: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                }
+            }
+        }
+
         setContent {
             val appSettings by appPreferencesRepository.settings.collectAsState(
                 initial = AppSettings(
@@ -109,9 +127,15 @@ class MainActivity : AppCompatActivity() {
             val systemIsDark = isSystemInDarkTheme()
             var appliedThemeMode by remember { mutableStateOf(appSettings.themeMode) }
             var themeTransitionInitialized by remember { mutableStateOf(false) }
+            val appUpdateUiState by appUpdateViewModel.uiState.collectAsState()
+            val pendingPluginRequest by pendingPluginDeepLinkRequest.collectAsState()
 
             val overlayAlpha = remember { Animatable(0f) }
             var overlayColor by remember { mutableStateOf(Color.Transparent) }
+
+            LaunchedEffect(Unit) {
+                appUpdateViewModel.checkForUpdateOnce()
+            }
 
             LaunchedEffect(appSettings.themeMode, systemIsDark) {
                 if (!themeTransitionInitialized) {
@@ -192,7 +216,17 @@ class MainActivity : AppCompatActivity() {
                 ) {
                     ElymBotApp()
 
-                    val pendingPluginRequest by pendingPluginDeepLinkRequest.collectAsState()
+                    if (pendingPluginRequest == null) {
+                        AppUpdateDialogHost(
+                            uiState = appUpdateUiState,
+                            onUpdateNow = appUpdateViewModel::updateNow,
+                            onSnooze = appUpdateViewModel::snooze,
+                            onIgnore = appUpdateViewModel::ignore,
+                            onInstall = appUpdateViewModel::install,
+                            onRetry = appUpdateViewModel::updateNow,
+                        )
+                    }
+
                     pendingPluginRequest?.let { request ->
                         androidx.compose.material3.AlertDialog(
                             onDismissRequest = { cancelPluginDeepLinkInstall(request) },

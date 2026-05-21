@@ -89,4 +89,43 @@ class MainActivityPluginDeepLinkTest {
             !handleFunction.contains("pluginInstallIntentHandler.handle"),
         )
     }
+
+    @Test
+    fun `main activity wires one update check after compose content initialization`() {
+        val mainActivity = mainActivitySource()
+        val contentBlock = mainActivity.substringAfter("setContent {")
+
+        assertTrue(
+            "MainActivity must trigger one app update check from the Compose content lifecycle",
+            contentBlock.contains("LaunchedEffect(Unit)") &&
+                contentBlock.contains("appUpdateViewModel.checkForUpdateOnce()"),
+        )
+    }
+
+    @Test
+    fun `plugin deep link confirmation must take priority over update dialog host`() {
+        val mainActivity = mainActivitySource()
+        val updateGate = mainActivity.substringAfter("if (pendingPluginRequest == null)")
+            .substringBefore("pendingPluginRequest?.let")
+
+        assertTrue(
+            "AppUpdateDialogHost must only be shown when no plugin deep link confirmation is pending",
+            updateGate.contains("AppUpdateDialogHost("),
+        )
+        assertTrue(
+            "AppUpdateDialogHost must be wired to the Hilt AppUpdateViewModel actions",
+            updateGate.contains("uiState = appUpdateUiState") &&
+                updateGate.contains("onUpdateNow = appUpdateViewModel::updateNow") &&
+                updateGate.contains("onSnooze = appUpdateViewModel::snooze") &&
+                updateGate.contains("onIgnore = appUpdateViewModel::ignore") &&
+                updateGate.contains("onInstall = appUpdateViewModel::install"),
+        )
+    }
+
+    private fun mainActivitySource(): String {
+        val source = java.nio.file.Path.of("app/src/main/java/com/elymbot/android/MainActivity.kt")
+            .takeIf { java.nio.file.Files.exists(it) }
+            ?: java.nio.file.Path.of("src/main/java/com/elymbot/android/MainActivity.kt")
+        return source.readText()
+    }
 }
