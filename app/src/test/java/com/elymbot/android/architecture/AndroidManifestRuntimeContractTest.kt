@@ -33,6 +33,44 @@ class AndroidManifestRuntimeContractTest {
     }
 
     @Test
+    fun manifest_must_register_app_update_install_boundaries() {
+        val manifest = manifestPath.readText()
+        val updateFilePaths = listOf(
+            Path.of("app/src/main/res/xml/update_file_paths.xml"),
+            Path.of("src/main/res/xml/update_file_paths.xml"),
+        ).first { it.exists() }.readText()
+
+        assertTrue(
+            "App update install flow must declare REQUEST_INSTALL_PACKAGES",
+            manifest.contains("""<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />"""),
+        )
+        assertTrue(
+            "App update APK sharing must use the app FileProvider authority",
+            manifest.contains("""android:name="androidx.core.content.FileProvider"""") &&
+                manifest.contains("""android:authorities="${'$'}{applicationId}.fileprovider""""),
+        )
+        assertTrue(
+            "App update FileProvider must not be exported and must grant uri permissions",
+            manifest.contains("""android:exported="false"""") &&
+                manifest.contains("""android:grantUriPermissions="true""""),
+        )
+        assertTrue(
+            "App update FileProvider must point at @xml/update_file_paths",
+            manifest.contains("""android:resource="@xml/update_file_paths""""),
+        )
+        assertTrue(
+            "App update cleanup receiver must handle MY_PACKAGE_REPLACED",
+            manifest.contains("""android:name=".update.AppUpdateCleanupReceiver"""") &&
+                manifest.contains("""android.intent.action.MY_PACKAGE_REPLACED"""),
+        )
+        assertTrue(
+            "App update FileProvider must expose only the app-updates filesDir subtree",
+            updateFilePaths.contains("""<files-path""") &&
+                updateFilePaths.contains("""path="app-updates/""""),
+        )
+    }
+
+    @Test
     fun manifest_must_disable_global_cleartext_and_backup() {
         val manifest = manifestPath.readText()
 
