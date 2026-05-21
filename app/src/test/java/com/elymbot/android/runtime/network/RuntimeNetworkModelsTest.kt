@@ -23,6 +23,11 @@ class RuntimeNetworkModelsTest {
         assertEquals(10_000L, appUpdate.connectMs)
         assertEquals(20_000L, appUpdate.readMs)
         assertEquals(10_000L, appUpdate.writeMs)
+
+        val pluginHostApi = RuntimeTimeoutProfile.PLUGIN_HOST_API
+        assertEquals(5_000L, pluginHostApi.connectMs)
+        assertEquals(15_000L, pluginHostApi.readMs)
+        assertEquals(5_000L, pluginHostApi.writeMs)
     }
 
     @Test
@@ -36,6 +41,19 @@ class RuntimeNetworkModelsTest {
 
         assertEquals(RuntimeNetworkCapability.APP_UPDATE, request.capability)
         assertEquals(RuntimeTimeoutProfile.APP_UPDATE, request.timeoutProfile)
+    }
+
+    @Test
+    fun plugin_host_api_capability_can_be_used_with_plugin_host_api_timeout_profile() {
+        val request = RuntimeNetworkRequest(
+            capability = RuntimeNetworkCapability.PLUGIN_HOST_API,
+            method = "GET",
+            url = "https://api.example.com/plugin",
+            timeoutProfile = RuntimeTimeoutProfile.PLUGIN_HOST_API,
+        )
+
+        assertEquals(RuntimeNetworkCapability.PLUGIN_HOST_API, request.capability)
+        assertEquals(RuntimeTimeoutProfile.PLUGIN_HOST_API, request.timeoutProfile)
     }
 
     @Test

@@ -4,7 +4,12 @@ import com.elymbot.android.feature.plugin.data.state.InMemoryPluginStateStore
 import com.elymbot.android.feature.plugin.data.state.PluginStateScope
 import com.elymbot.android.feature.plugin.data.state.PluginStateStore
 import com.elymbot.android.feature.plugin.data.state.PluginStateValueCodec
+import com.elymbot.android.model.plugin.PluginPermissionGrant
 import com.elymbot.android.model.plugin.PluginRuntimeLogLevel
+import com.elymbot.android.model.plugin.PluginTriggerMetadata
+import java.io.File
+import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class PluginV2BootstrapPluginMetadata(
@@ -13,6 +18,13 @@ data class PluginV2BootstrapPluginMetadata(
     val runtimeKind: String,
     val runtimeApiVersion: Int,
     val runtimeBootstrap: String,
+)
+
+data class PluginV2HostApiEventContext(
+    val eventId: String = "",
+    val conversationId: String = "",
+    val platformAdapterType: String = "",
+    val messageType: String = "",
 )
 
 data class PluginV2StructuredError(
@@ -36,9 +48,16 @@ class PluginV2BootstrapHostApi(
     private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val stateStore: PluginStateStore = InMemoryPluginStateStore(),
     private val hostOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations(),
+    private val hostNetworkApi: PluginV2HostNetworkApi? = null,
+    private val providerReadApi: PluginV2ProviderReadApi? = null,
+    private val messageSendApi: PluginV2MessageSendApi? = null,
+    private val conversationHistoryApi: PluginV2ConversationHistoryApi? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     private var sessionUnifiedOriginProvider: () -> String? = { null },
+    private var hostApiEventContextProvider: () -> PluginV2HostApiEventContext? = { null },
 ) {
+    private val networkAllowedDomains: Set<String> by lazy(::loadNetworkAllowedDomains)
+
     fun registerMessageHandler(
         descriptor: MessageHandlerRegistrationInput,
     ): PluginV2CallbackToken {
@@ -208,10 +227,75 @@ class PluginV2BootstrapHostApi(
         }
     }
 
+    internal fun fetch(request: PluginV2HostNetworkRequest): PluginV2HostApiResult {
+        val networkApi = hostNetworkApi
+            ?: throw PluginV2HostApiException(
+                PluginV2HostApiError(
+                    code = PluginV2HostApiErrorCodes.HOST_UNAVAILABLE,
+                    message = "Plugin host network API is unavailable.",
+                ),
+            )
+        return runBlocking {
+            networkApi.fetch(
+                context = createHostApiRequestContext(),
+                request = request,
+            )
+        }
+    }
+
+    internal fun networkRequest(request: PluginV2HostNetworkRequest): PluginV2HostApiResult = fetch(request)
+
+    internal fun providersList(): PluginV2HostApiResult {
+        val api = providerReadApi
+            ?: throw hostApiUnavailable("Plugin provider read API is unavailable.")
+        return runBlocking {
+            api.list(context = createHostApiRequestContext())
+        }
+    }
+
+    internal fun providerModels(request: PluginV2ProviderModelsRequest): PluginV2HostApiResult {
+        val api = providerReadApi
+            ?: throw hostApiUnavailable("Plugin provider model read API is unavailable.")
+        return runBlocking {
+            api.models(
+                context = createHostApiRequestContext(),
+                request = request,
+            )
+        }
+    }
+
+    internal fun messageSend(request: PluginV2MessageSendRequest): PluginV2HostApiResult {
+        val api = messageSendApi
+            ?: throw hostApiUnavailable("Plugin message send API is unavailable.")
+        return runBlocking {
+            api.send(
+                context = createHostApiRequestContext(),
+                request = request,
+            )
+        }
+    }
+
+    internal fun conversationHistory(request: PluginV2ConversationHistoryRequest): PluginV2HostApiResult {
+        val api = conversationHistoryApi
+            ?: throw hostApiUnavailable("Plugin conversation history API is unavailable.")
+        return runBlocking {
+            api.history(
+                context = createHostApiRequestContext(),
+                request = request,
+            )
+        }
+    }
+
     internal fun attachSessionUnifiedOriginProvider(
         provider: () -> String?,
     ) {
         sessionUnifiedOriginProvider = provider
+    }
+
+    internal fun attachHostApiEventContextProvider(
+        provider: () -> PluginV2HostApiEventContext?,
+    ) {
+        hostApiEventContextProvider = provider
     }
 
     internal fun pluginStorageGet(
@@ -312,6 +396,81 @@ class PluginV2BootstrapHostApi(
 
     private fun loadMergedSettings(): Map<String, Any?> {
         return hostOperations.resolve(session.installRecord.pluginId).mergedSettings
+    }
+
+    private fun createHostApiRequestContext(): PluginV2HostApiRequestContext {
+        val declaredPermissions = session.installRecord.manifestSnapshot.permissions
+        val grantedPermissions = session.installRecord.permissionSnapshot
+        val grantedPermissionIds = grantedPermissions.mapTo(linkedSetOf()) { it.permissionId }
+        val eventContext = hostApiEventContextProvider()
+        return PluginV2HostApiRequestContext(
+            pluginId = session.pluginId,
+            pluginVersion = session.installRecord.installedVersion,
+            requestId = "${session.sessionInstanceId}:host-api:${clock()}",
+            conversationId = eventContext?.conversationId.orEmpty(),
+            platformAdapterType = eventContext?.platformAdapterType.orEmpty(),
+            manifestPermissionIds = declaredPermissions.mapTo(linkedSetOf()) { it.permissionId },
+            permissionSnapshot = grantedPermissions.map { permission ->
+                PluginPermissionGrant(
+                    permissionId = permission.permissionId,
+                    title = permission.title,
+                    granted = permission.permissionId in grantedPermissionIds,
+                    required = permission.required,
+                    riskLevel = permission.riskLevel,
+                )
+            },
+            triggerPermissionWhitelist = grantedPermissionIds,
+            triggerMetadata = PluginTriggerMetadata(
+                eventId = eventContext?.eventId.orEmpty(),
+                extras = buildMap {
+                    eventContext?.messageType
+                        ?.takeIf(String::isNotBlank)
+                        ?.let { put("messageType", it) }
+                },
+            ),
+            networkAllowedDomains = networkAllowedDomains,
+        )
+    }
+
+    private fun hostApiUnavailable(message: String): PluginV2HostApiException {
+        return PluginV2HostApiException(
+            PluginV2HostApiError(
+                code = PluginV2HostApiErrorCodes.HOST_UNAVAILABLE,
+                message = message,
+            ),
+        )
+    }
+
+    private fun loadNetworkAllowedDomains(): Set<String> {
+        val packageContractDomains = session.packageContractSnapshot.network.allowedDomains
+        val domains = linkedSetOf<String>()
+        domains += packageContractDomains
+        val manifestFile = File(session.installRecord.extractedDir, "manifest.json")
+        if (!manifestFile.isFile) {
+            return domains.normalizedDomains()
+        }
+        val json = runCatching {
+            JSONObject(manifestFile.readText(Charsets.UTF_8))
+        }.getOrNull() ?: return domains.normalizedDomains()
+        domains.appendStringArray(json.optJSONArray("networkAllowedDomains"))
+        domains.appendStringArray(json.optJSONObject("network")?.optJSONArray("allowedDomains"))
+        return domains.normalizedDomains()
+    }
+
+    private fun MutableSet<String>.appendStringArray(array: JSONArray?) {
+        if (array == null) return
+        for (index in 0 until array.length()) {
+            val value = array.optString(index).trim()
+            if (value.isNotBlank()) {
+                add(value)
+            }
+        }
+    }
+
+    private fun Set<String>.normalizedDomains(): Set<String> {
+        return mapNotNullTo(linkedSetOf()) { domain ->
+            domain.trim().lowercase().removeSuffix(".").takeIf(String::isNotBlank)
+        }
     }
 
     private fun requireSessionStorageScope(): PluginStateScope {

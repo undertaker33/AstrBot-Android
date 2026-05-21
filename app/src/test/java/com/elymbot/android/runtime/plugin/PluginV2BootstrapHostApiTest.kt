@@ -1,9 +1,20 @@
 package com.elymbot.android.feature.plugin.runtime
 
+import com.elymbot.android.core.runtime.network.RuntimeNetworkRequest
+import com.elymbot.android.core.runtime.network.RuntimeNetworkResponse
+import com.elymbot.android.core.runtime.network.RuntimeNetworkTransport
+import com.elymbot.android.core.runtime.network.SseEvent
 import com.elymbot.android.feature.plugin.data.state.InMemoryPluginStateStore
+import com.elymbot.android.model.plugin.PluginInstallRecord
+import com.elymbot.android.model.plugin.PluginNetworkAccessPolicySnapshot
+import com.elymbot.android.model.plugin.PluginPermissionDeclaration
+import com.elymbot.android.model.plugin.PluginRiskLevel
 import com.elymbot.android.model.plugin.PluginRuntimeLogLevel
 import com.elymbot.android.model.plugin.PluginExecutionContext
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -120,6 +131,50 @@ class PluginV2BootstrapHostApiTest {
 
         assertEquals(PluginV2CallbackToken::class.java, registerTool.returnType)
         assertEquals(PluginV2CallbackToken::class.java, registerToolLifecycleHook.returnType)
+    }
+
+    @Test
+    fun host_network_fetch_uses_runtime_transport_and_contract_domain_allowlist() {
+        val transport = RecordingNetworkTransport(
+            RuntimeNetworkResponse(
+                statusCode = 200,
+                headers = mapOf("content-type" to listOf("text/plain")),
+                bodyBytes = "pong".toByteArray(),
+                traceId = "trace-bootstrap-fetch",
+                durationMs = 7L,
+            ),
+        )
+        val hostApi = PluginV2BootstrapHostApi(
+            session = bootstrapRunningNetworkSession(),
+            logBus = InMemoryPluginRuntimeLogBus(clock = { 2_001L }),
+            hostNetworkApi = hostNetworkApi(transport),
+            clock = { 2_001L },
+        )
+
+        val result = hostApi.fetch(
+            PluginV2HostNetworkRequest(url = "https://api.example.com/ping"),
+        )
+
+        val response = (result as PluginV2HostApiResult.Success).value as PluginV2HostNetworkResponse
+        assertEquals(200, response.status)
+        assertEquals("pong", response.bodyText)
+        assertEquals("https://api.example.com/ping", transport.requests.single().url)
+    }
+
+    @Test
+    fun host_network_request_alias_uses_same_canonical_network_api() {
+        val hostApi = PluginV2BootstrapHostApi(
+            session = bootstrapRunningNetworkSession(),
+            logBus = InMemoryPluginRuntimeLogBus(clock = { 2_002L }),
+            hostNetworkApi = hostNetworkApi(RecordingNetworkTransport()),
+            clock = { 2_002L },
+        )
+
+        val result = hostApi.networkRequest(
+            PluginV2HostNetworkRequest(url = "https://api.example.com/ping"),
+        )
+
+        assertTrue(result is PluginV2HostApiResult.Success)
     }
 
     @Test
@@ -575,6 +630,81 @@ class PluginV2BootstrapHostApiTest {
         }
     }
 
+    private fun bootstrapRunningNetworkSession(): PluginV2RuntimeSession {
+        val networkPermission = PluginPermissionDeclaration(
+            permissionId = PluginV2HostApiPermissions.NETWORK_REQUEST,
+            title = "Network",
+            description = "Allows host-proxied network requests.",
+            riskLevel = PluginRiskLevel.MEDIUM,
+            required = true,
+        )
+        val baseRecord = samplePluginV2InstallRecord(pluginId = "plugin.network")
+        val contractSnapshot = requireNotNull(baseRecord.packageContractSnapshot).copy(
+            network = PluginNetworkAccessPolicySnapshot(
+                allowedDomains = listOf("api.example.com"),
+            ),
+        )
+        val installRecord = restorePluginRecord(
+            base = baseRecord,
+            manifestSnapshot = baseRecord.manifestSnapshot.copy(
+                permissions = listOf(networkPermission),
+            ),
+            packageContractSnapshot = contractSnapshot,
+            permissionSnapshot = listOf(networkPermission),
+        )
+        return PluginV2RuntimeSession(
+            installRecord = installRecord,
+            sessionInstanceId = "session-network",
+        ).also { session ->
+            session.transitionTo(PluginV2RuntimeSessionState.Loading)
+            session.transitionTo(PluginV2RuntimeSessionState.BootstrapRunning)
+        }
+    }
+
+    private fun hostNetworkApi(
+        transport: RuntimeNetworkTransport,
+    ): PluginV2HostNetworkApi {
+        return PluginV2HostNetworkApi(
+            facade = PluginV2HostApiFacade(
+                permissionPolicy = PluginV2HostApiPermissionPolicy(),
+                asyncBridge = PluginV2HostApiAsyncBridge(dispatcher = Dispatchers.Unconfined),
+                auditLogger = PluginV2HostApiAuditLogger(
+                    logBus = InMemoryPluginRuntimeLogBus(clock = { 2_000L }),
+                    clock = { 2_000L },
+                ),
+                clock = { 2_000L },
+            ),
+            transport = transport,
+            clock = { 2_000L },
+        )
+    }
+
+    private fun restorePluginRecord(
+        base: PluginInstallRecord,
+        manifestSnapshot: com.elymbot.android.model.plugin.PluginManifest = base.manifestSnapshot,
+        packageContractSnapshot: com.elymbot.android.model.plugin.PluginPackageContractSnapshot? =
+            base.packageContractSnapshot,
+        permissionSnapshot: List<PluginPermissionDeclaration> = base.permissionSnapshot,
+    ): PluginInstallRecord {
+        return PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = manifestSnapshot,
+            source = base.source,
+            packageContractSnapshot = packageContractSnapshot,
+            permissionSnapshot = permissionSnapshot,
+            compatibilityState = base.compatibilityState,
+            uninstallPolicy = base.uninstallPolicy,
+            enabled = base.enabled,
+            failureState = base.failureState,
+            catalogSourceId = base.catalogSourceId,
+            installedPackageUrl = base.installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = base.lastCatalogCheckAtEpochMillis,
+            installedAt = base.installedAt,
+            lastUpdatedAt = base.lastUpdatedAt,
+            localPackagePath = base.localPackagePath,
+            extractedDir = base.extractedDir,
+        )
+    }
+
     private fun descriptorFieldNames(type: Class<*>): List<String> {
         return type.declaredFields
             .filterNot { java.lang.reflect.Modifier.isStatic(it.modifiers) }
@@ -582,6 +712,27 @@ class PluginV2BootstrapHostApiTest {
             .sorted()
     }
 
+}
+
+private class RecordingNetworkTransport(
+    private val response: RuntimeNetworkResponse = RuntimeNetworkResponse(
+        statusCode = 204,
+        headers = emptyMap(),
+        bodyBytes = ByteArray(0),
+        traceId = "trace-default",
+        durationMs = 1L,
+    ),
+) : RuntimeNetworkTransport {
+    val requests = mutableListOf<RuntimeNetworkRequest>()
+
+    override suspend fun execute(request: RuntimeNetworkRequest): RuntimeNetworkResponse {
+        requests += request
+        return response
+    }
+
+    override fun openStream(request: RuntimeNetworkRequest): Flow<String> = emptyFlow()
+
+    override fun openSse(request: RuntimeNetworkRequest): Flow<SseEvent> = emptyFlow()
 }
 
 private open class NoOpPluginExecutionHostOperations : PluginExecutionHostOperations {

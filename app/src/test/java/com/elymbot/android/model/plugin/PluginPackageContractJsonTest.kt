@@ -33,6 +33,57 @@ class PluginPackageContractJsonTest {
         assertEquals(1, contract.runtime.apiVersion)
         assertEquals("schemas/static-config.schema.json", contract.config.staticSchema)
         assertEquals("schemas/settings-ui.schema.json", contract.config.settingsSchema)
+        assertEquals(emptyList<String>(), contract.network.allowedDomains)
+    }
+
+    @Test
+    fun decode_parses_network_allowed_domains() {
+        val contract = PluginPackageContractJson.decode(
+            JSONObject(
+                """
+                {
+                  "protocolVersion": 2,
+                  "runtime": {
+                    "kind": "js_quickjs",
+                    "bootstrap": "runtime/index.js",
+                    "apiVersion": 1
+                  },
+                  "network": {
+                    "allowedDomains": [" API.Example.com. ", "cdn.example.com"]
+                  }
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(listOf("api.example.com", "cdn.example.com"), contract.network.allowedDomains)
+        assertEquals(listOf("api.example.com", "cdn.example.com"), contract.toSnapshot().network.allowedDomains)
+    }
+
+    @Test
+    fun decode_rejects_network_allowed_domains_with_scheme_or_path() {
+        val failure = runCatching {
+            PluginPackageContractJson.decode(
+                JSONObject(
+                    """
+                    {
+                      "protocolVersion": 2,
+                      "runtime": {
+                        "kind": "js_quickjs",
+                        "bootstrap": "runtime/index.js",
+                        "apiVersion": 1
+                      },
+                      "network": {
+                        "allowedDomains": ["https://api.example.com"]
+                      }
+                    }
+                    """.trimIndent(),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message?.contains("network.allowedDomains") == true)
     }
 
     @Test

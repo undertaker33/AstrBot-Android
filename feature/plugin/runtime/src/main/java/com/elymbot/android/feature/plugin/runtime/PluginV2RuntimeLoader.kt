@@ -52,6 +52,10 @@ class PluginV2RuntimeLoader(
         store = store,
     ),
     private val hostOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations(),
+    private val hostNetworkApi: PluginV2HostNetworkApi? = null,
+    private val providerReadApi: PluginV2ProviderReadApi? = null,
+    private val messageSendApi: PluginV2MessageSendApi? = null,
+    private val conversationHistoryApi: PluginV2ConversationHistoryApi? = null,
     private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
     private val stateStore: PluginStateStore = InMemoryPluginStateStore(),
 ) {
@@ -225,6 +229,10 @@ class PluginV2RuntimeLoader(
                     logBus = logBus,
                     stateStore = stateStore,
                     hostOperations = hostOperations,
+                    hostNetworkApi = hostNetworkApi,
+                    providerReadApi = providerReadApi,
+                    messageSendApi = messageSendApi,
+                    conversationHistoryApi = conversationHistoryApi,
                     clock = clock,
                 ),
             )
