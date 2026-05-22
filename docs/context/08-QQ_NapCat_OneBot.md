@@ -1,6 +1,6 @@
 # QQ / NapCat / OneBot 模块上下文
 
-更新时间：2026-05-17 15:54 +08:00
+更新时间：2026-05-22 18:30 +08:00
 
 ## 状态
 
@@ -11,7 +11,7 @@
 - 模块状态：已按当前代码事实重新确认
 - 完成等级：`full-project-docs-complete`
 - 下一模块：`plugin-platform`
-- 本轮代码修改：无
+- 本轮 scoped-sync：`66eee69..4fedf19`，并按当前工作区状态核对文档
 - 本轮 Git 写入：无
 - 本轮 Gradle / 测试命令：未运行；本文档场景只做文档治理
 
@@ -230,6 +230,8 @@ QQ runtime 当前通过 API/capability port 消费 plugin 能力：
 - QQ runtime 不直接 import `PluginStoragePaths`，而是通过 `PluginWorkspacePathPort` 获取 plugin private root。
 
 Bot command 当前复用 `feature/chat/runtime` 的 `BotCommandRouter` 与 `AndroidBotCommandStringResolver`，QQ slash command 输出不应再写成 app res 或 QQ runtime 自有字符串。
+
+`QqSlashCommandPermissionPolicy` 当前集中判断插件 slash command 管理员限制：当 config/profile 中 `pluginCommandsAdminOnlyEnabled` 开启时，非管理员插件命令会被阻断；内置 bot command 仍走 `QqBotCommandRuntimeService` / `BotCommandRouter` 的既有路径。
 
 LLM 边界：
 

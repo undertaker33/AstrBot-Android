@@ -284,6 +284,8 @@ class PluginV2HostApiFacade(
         api: String,
         permissionId: String,
         timeoutMs: Long,
+        auditDetails: Map<String, String> = emptyMap(),
+        auditDetailsFromResult: (PluginV2HostApiResult) -> Map<String, String> = { emptyMap() },
         call: suspend () -> Any?,
     ): PluginV2HostApiResult {
         val startedAt = clock()
@@ -304,6 +306,7 @@ class PluginV2HostApiFacade(
                 permissionId = permissionId,
                 result = result,
                 durationMs = durationSince(startedAt),
+                details = auditDetails + auditDetailsFromResult(result),
             )
             return result
         }
@@ -319,6 +322,7 @@ class PluginV2HostApiFacade(
             permissionId = permissionId,
             result = result,
             durationMs = durationSince(startedAt),
+            details = auditDetails + auditDetailsFromResult(result),
         )
         return result
     }
@@ -336,9 +340,27 @@ class PluginV2HostApiAuditLogger(
         permissionId: String,
         result: PluginV2HostApiResult,
         durationMs: Long,
+        details: Map<String, String> = emptyMap(),
     ) {
         val failureCode = (result as? PluginV2HostApiResult.Failure)?.error?.code.orEmpty()
         val succeeded = result is PluginV2HostApiResult.Success
+        val baseMetadata = linkedMapOf(
+            "code" to if (succeeded) {
+                "plugin_v2_host_api_succeeded"
+            } else {
+                "plugin_v2_host_api_failed"
+            },
+            "stage" to "PluginV2HostApi",
+            "outcome" to if (succeeded) "SUCCEEDED" else "FAILED",
+            "api" to api,
+            "permissionId" to permissionId,
+            "conversationId" to context.conversationId,
+            "platformAdapterType" to context.platformAdapterType,
+            "requestId" to context.requestId,
+            "failureCode" to failureCode,
+            "durationMs" to durationMs.toString(),
+            "triggerEventId" to context.triggerMetadata.eventId,
+        ).filterValues { value -> value.isNotBlank() }
         logBus.publish(
             PluginRuntimeLogRecord(
                 occurredAtEpochMillis = clock(),
@@ -358,22 +380,10 @@ class PluginV2HostApiAuditLogger(
                 },
                 succeeded = succeeded,
                 durationMillis = durationMs,
-                metadata = linkedMapOf(
-                    "code" to if (succeeded) {
-                        "plugin_v2_host_api_succeeded"
-                    } else {
-                        "plugin_v2_host_api_failed"
-                    },
-                    "stage" to "PluginV2HostApi",
-                    "outcome" to if (succeeded) "SUCCEEDED" else "FAILED",
-                    "api" to api,
-                    "permissionId" to permissionId,
-                    "conversationId" to context.conversationId,
-                    "platformAdapterType" to context.platformAdapterType,
-                    "requestId" to context.requestId,
-                    "failureCode" to failureCode,
-                    "triggerEventId" to context.triggerMetadata.eventId,
-                ).filterValues { value -> value.isNotBlank() },
+                metadata = baseMetadata + sanitizeDetails(
+                    details = details,
+                    reservedKeys = baseMetadata.keys,
+                ),
             ),
         )
     }
@@ -386,5 +396,51 @@ class PluginV2HostApiAuditLogger(
 
             else -> PluginRuntimeLogLevel.Warning
         }
+    }
+
+    private fun sanitizeDetails(
+        details: Map<String, String>,
+        reservedKeys: Set<String>,
+    ): Map<String, String> {
+        val normalizedReservedKeys = reservedKeys.map { key -> key.lowercase() }.toSet()
+        return details.entries
+            .asSequence()
+            .mapNotNull { entry ->
+                val key = entry.key.trim()
+                val value = entry.value.trim()
+                if (
+                    key.isBlank() ||
+                    value.isBlank() ||
+                    key.lowercase() in normalizedReservedKeys ||
+                    isSensitiveKey(key)
+                ) {
+                    null
+                } else {
+                    key to value.take(MAX_AUDIT_DETAIL_VALUE_LENGTH)
+                }
+            }
+            .toMap(linkedMapOf())
+    }
+
+    private fun isSensitiveKey(key: String): Boolean {
+        val normalized = key.lowercase()
+        return SENSITIVE_DETAIL_KEY_FRAGMENTS.any(normalized::contains)
+    }
+
+    private companion object {
+        const val MAX_AUDIT_DETAIL_VALUE_LENGTH = 160
+        val SENSITIVE_DETAIL_KEY_FRAGMENTS = listOf(
+            "apikey",
+            "api_key",
+            "secret",
+            "credential",
+            "authorization",
+            "header",
+            "baseurl",
+            "base_url",
+            "rawstack",
+            "internaldao",
+            "stack",
+        )
     }
 }

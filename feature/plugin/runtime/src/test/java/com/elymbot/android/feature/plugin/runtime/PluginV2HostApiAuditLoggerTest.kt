@@ -105,6 +105,44 @@ class PluginV2HostApiAuditLoggerTest {
         assertEquals(PluginV2HostApiErrorCodes.EXECUTION_FAILED, record.metadata["failureCode"])
     }
 
+    @Test
+    fun details_cannot_override_required_audit_fields() {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 300L })
+        val logger = PluginV2HostApiAuditLogger(
+            logBus = logBus,
+            clock = { 300L },
+        )
+        val context = requestContext()
+
+        logger.record(
+            context = context,
+            api = "hostApi.fake",
+            permissionId = PluginV2HostApiPermissions.NETWORK_REQUEST,
+            result = PluginV2HostApiResult.Success(
+                requestId = context.requestId,
+                api = "hostApi.fake",
+                value = "ok",
+            ),
+            durationMs = 7L,
+            details = linkedMapOf(
+                "api" to "hostApi.spoofed",
+                "permissionId" to "permission.spoofed",
+                "requestId" to "req-spoofed",
+                "durationMs" to "999",
+                "providerId" to "provider-main",
+                "rawStack" to "InternalProviderDao.query",
+            ),
+        )
+
+        val metadata = logBus.snapshot(pluginId = context.pluginId).single().metadata
+        assertEquals("hostApi.fake", metadata["api"])
+        assertEquals(PluginV2HostApiPermissions.NETWORK_REQUEST, metadata["permissionId"])
+        assertEquals(context.requestId, metadata["requestId"])
+        assertEquals("7", metadata["durationMs"])
+        assertEquals("provider-main", metadata["providerId"])
+        assertFalse(metadata.containsKey("rawStack"))
+    }
+
     private fun assertRequiredAuditFields(
         metadata: Map<String, String>,
         requestId: String,

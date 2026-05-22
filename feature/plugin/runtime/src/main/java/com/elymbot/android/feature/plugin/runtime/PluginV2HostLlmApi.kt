@@ -96,6 +96,8 @@ class PluginV2HostLlmApi(
             api = api,
             permissionId = PluginV2HostApiPermissions.CALL_MODEL,
             timeoutMs = timeoutMs,
+            auditDetails = request.auditDetails(),
+            auditDetailsFromResult = ::auditDetailsFromResult,
         ) {
             semaphoreFor(context.pluginId).withPermit {
                 generateInternal(context = context, request = request)
@@ -231,6 +233,31 @@ class PluginV2HostLlmApi(
                 message = message,
             ),
         )
+    }
+
+    private fun PluginV2HostLlmRequest.auditDetails(): Map<String, String> {
+        return linkedMapOf(
+            "requestedProviderId" to providerId.trim(),
+            "requestedModelId" to modelId.trim(),
+            "messageCount" to messages.size.toString(),
+            "toolCount" to tools.size.toString(),
+        ).also { details ->
+            maxTokens?.let { details["maxTokens"] = it.toString() }
+        }.filterValues(String::isNotBlank)
+    }
+
+    private fun auditDetailsFromResult(result: PluginV2HostApiResult): Map<String, String> {
+        val value = (result as? PluginV2HostApiResult.Success)?.value as? PluginV2HostLlmResult
+            ?: return emptyMap()
+        return linkedMapOf(
+            "selectedProviderId" to value.providerId,
+            "selectedModelId" to value.modelId,
+            "finishReason" to value.finishReason.orEmpty(),
+        ).also { details ->
+            value.usage?.promptTokens?.let { details["promptTokens"] = it.toString() }
+            value.usage?.completionTokens?.let { details["completionTokens"] = it.toString() }
+            value.usage?.totalTokens?.let { details["totalTokens"] = it.toString() }
+        }.filterValues(String::isNotBlank)
     }
 
     companion object {

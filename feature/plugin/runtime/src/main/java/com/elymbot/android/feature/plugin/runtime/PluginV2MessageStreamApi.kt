@@ -104,6 +104,20 @@ class PluginV2MessageStreamApi(
             api = HOST_API_OPEN_STREAM,
             permissionId = PluginV2HostApiPermissions.MESSAGE_STREAM,
             timeoutMs = timeoutMs,
+            auditDetailsFromResult = { result ->
+                val value = (result as? PluginV2HostApiResult.Success)?.value as? PluginV2MessageStreamOpenResult
+                if (value == null) {
+                    emptyMap()
+                } else {
+                    linkedMapOf(
+                        "streamId" to value.streamId,
+                        "operation" to "open",
+                        "platformMode" to value.platformMode.name,
+                        "receiptId" to value.receiptId,
+                        "markdown" to request.markdown.toString(),
+                    ).filterValues(String::isNotBlank)
+                }
+            },
         ) {
             val conversationId = context.conversationId.trim()
             if (conversationId.isBlank()) {
@@ -124,6 +138,7 @@ class PluginV2MessageStreamApi(
                 ),
             )
             val state = StreamState(
+                context = context,
                 streamId = portResult.streamId,
                 pluginId = context.pluginId,
                 requestId = context.requestId,
@@ -156,20 +171,26 @@ class PluginV2MessageStreamApi(
             code = UNKNOWN_STREAM,
             message = "Unknown message stream.",
         )
-        if (state.closed) {
-            return state.failure(HOST_API_STREAM_CLOSE, STREAM_ALREADY_CLOSED)
+        return auditedStreamCall(
+            state = state,
+            api = HOST_API_STREAM_CLOSE,
+            operation = "close",
+        ) {
+            if (state.closed) {
+                throw state.exception(STREAM_ALREADY_CLOSED)
+            }
+            val result = runCatching {
+                streamPort.close(state.toCloseRequest())
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                PluginV2MessageStreamPortMutationResult(false, "stream_close_failed")
+            }
+            if (!result.success) {
+                throw state.exception(result.errorCode.ifBlank { "stream_close_failed" })
+            }
+            state.closed = true
+            true
         }
-        val result = runCatching {
-            streamPort.close(state.toCloseRequest())
-        }.getOrElse { error ->
-            if (error is CancellationException) throw error
-            PluginV2MessageStreamPortMutationResult(false, "stream_close_failed")
-        }
-        if (!result.success) {
-            return state.failure(HOST_API_STREAM_CLOSE, result.errorCode.ifBlank { "stream_close_failed" })
-        }
-        state.closed = true
-        return state.success(HOST_API_STREAM_CLOSE)
     }
 
     suspend fun fail(streamId: String, message: String): PluginV2HostApiResult {
@@ -180,15 +201,21 @@ class PluginV2MessageStreamApi(
             code = UNKNOWN_STREAM,
             message = "Unknown message stream.",
         )
-        if (state.closed) {
-            return state.failure(HOST_API_STREAM_FAIL, STREAM_ALREADY_CLOSED)
+        return auditedStreamCall(
+            state = state,
+            api = HOST_API_STREAM_FAIL,
+            operation = "fail",
+        ) {
+            if (state.closed) {
+                throw state.exception(STREAM_ALREADY_CLOSED)
+            }
+            val result = streamPort.fail(state.toFailRequest(message))
+            if (!result.success) {
+                throw state.exception(result.errorCode.ifBlank { "stream_fail_failed" })
+            }
+            state.closed = true
+            true
         }
-        val result = streamPort.fail(state.toFailRequest(message))
-        if (!result.success) {
-            return state.failure(HOST_API_STREAM_FAIL, result.errorCode.ifBlank { "stream_fail_failed" })
-        }
-        state.closed = true
-        return state.success(HOST_API_STREAM_FAIL)
     }
 
     suspend fun closeOpenStreamsForRequest(
@@ -240,43 +267,36 @@ class PluginV2MessageStreamApi(
             code = UNKNOWN_STREAM,
             message = "Unknown message stream.",
         )
-        if (state.closed) {
-            return state.failure(api, STREAM_ALREADY_CLOSED)
-        }
         val normalizedText = text.takeIf(String::isNotEmpty).orEmpty()
         val nextChunkCount = state.chunkCount + 1
         val nextBytes = state.bytes + normalizedText.toByteArray(Charsets.UTF_8).size
-        if (nextChunkCount > limits.maxChunks || nextBytes > limits.maxBytes) {
-            return state.failure(api, STREAM_LIMIT_EXCEEDED)
-        }
-        if (clock() - state.openedAtEpochMillis > limits.maxDurationMs) {
-            return state.failure(api, STREAM_LIMIT_EXCEEDED)
-        }
-        val result = operation(state.toChunkRequest(normalizedText))
-        if (!result.success) {
-            return state.failure(api, result.errorCode.ifBlank { "stream_mutation_failed" })
-        }
-        state.chunkCount = nextChunkCount
-        state.bytes = nextBytes
-        return state.success(api)
-    }
-
-    private fun StreamState.success(api: String): PluginV2HostApiResult.Success {
-        return PluginV2HostApiResult.Success(
-            requestId = requestId,
+        return auditedStreamCall(
+            state = state,
             api = api,
-            value = true,
-        )
-    }
-
-    private fun StreamState.failure(api: String, code: String): PluginV2HostApiResult.Failure {
-        return streamFailure(
-            streamId = streamId,
-            requestId = requestId,
-            api = api,
-            code = code,
-            message = "Message stream operation failed.",
-        )
+            operation = if (api == HOST_API_STREAM_APPEND) "append" else "replace",
+            extraDetails = mapOf(
+                "chunkBytes" to normalizedText.toByteArray(Charsets.UTF_8).size.toString(),
+                "nextChunkCount" to nextChunkCount.toString(),
+                "nextBytes" to nextBytes.toString(),
+            ),
+        ) {
+            if (state.closed) {
+                throw state.exception(STREAM_ALREADY_CLOSED)
+            }
+            if (nextChunkCount > limits.maxChunks || nextBytes > limits.maxBytes) {
+                throw state.exception(STREAM_LIMIT_EXCEEDED)
+            }
+            if (clock() - state.openedAtEpochMillis > limits.maxDurationMs) {
+                throw state.exception(STREAM_LIMIT_EXCEEDED)
+            }
+            val result = operation(state.toChunkRequest(normalizedText))
+            if (!result.success) {
+                throw state.exception(result.errorCode.ifBlank { "stream_mutation_failed" })
+            }
+            state.chunkCount = nextChunkCount
+            state.bytes = nextBytes
+            true
+        }
     }
 
     private fun streamFailure(
@@ -297,7 +317,32 @@ class PluginV2MessageStreamApi(
         )
     }
 
+    private suspend fun auditedStreamCall(
+        state: StreamState,
+        api: String,
+        operation: String,
+        extraDetails: Map<String, String> = emptyMap(),
+        call: suspend () -> Any?,
+    ): PluginV2HostApiResult {
+        return facade.call(
+            context = state.context,
+            api = api,
+            permissionId = PluginV2HostApiPermissions.MESSAGE_STREAM,
+            timeoutMs = timeoutMs,
+            auditDetails = state.auditDetails(operation = operation, nowMs = clock()) + extraDetails,
+            auditDetailsFromResult = { result ->
+                if (result is PluginV2HostApiResult.Success) {
+                    state.auditDetails(operation = operation, nowMs = clock())
+                } else {
+                    emptyMap()
+                }
+            },
+            call = call,
+        )
+    }
+
     private data class StreamState(
+        val context: PluginV2HostApiRequestContext,
         val streamId: String,
         val pluginId: String,
         val requestId: String,
@@ -308,6 +353,27 @@ class PluginV2MessageStreamApi(
         var bytes: Int = 0,
         var closed: Boolean = false,
     ) {
+        fun auditDetails(operation: String, nowMs: Long): Map<String, String> {
+            return linkedMapOf(
+                "streamId" to streamId,
+                "operation" to operation,
+                "chunkCount" to chunkCount.toString(),
+                "bytes" to bytes.toString(),
+                "streamDurationMs" to (nowMs - openedAtEpochMillis).coerceAtLeast(0L).toString(),
+                "platformAdapterType" to platformAdapterType,
+            ).filterValues(String::isNotBlank)
+        }
+
+        fun exception(code: String): PluginV2HostApiException {
+            return PluginV2HostApiException(
+                PluginV2HostApiError(
+                    code = code,
+                    message = "Message stream operation failed.",
+                    details = mapOf("streamId" to streamId),
+                ),
+            )
+        }
+
         fun toChunkRequest(text: String): PluginV2MessageStreamPortChunkRequest {
             return PluginV2MessageStreamPortChunkRequest(
                 streamId = streamId,

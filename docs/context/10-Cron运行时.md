@@ -1,6 +1,6 @@
 # Cron 运行时模块上下文
 
-更新时间：2026-05-17 19:42 +08:00
+更新时间：2026-05-22 18:30 +08:00
 
 ## 状态
 
@@ -11,7 +11,7 @@
 - 模块状态：已按当前代码事实重新确认
 - 完成等级：`full-project-docs-complete`
 - 下一模块：`resource-settings-backup`
-- 本轮代码修改：无
+- 本轮 scoped-sync：`66eee69..4fedf19`，并按当前工作区状态核对文档
 - 本轮 Git 写入：无
 - 本轮 Gradle / 测试命令：未运行；本文档场景只做文档治理
 
@@ -138,6 +138,7 @@
 5. `HiltCronRuntimeReconciliationPort` 委托 `CronJobReconciler.reconcileAsync(scope)`。
 6. `CronJobReconciler` 读取 `CronJobRepositoryPort.listEnabled()`，先 `scheduler.cancelAll()`，再对 enabled jobs 重新 `schedule(...)`。
 7. `CronRuntimeServicesModule` 提供 `ScheduledTaskRuntimeDependencies`、`ScheduledTaskExecutor`、`CronSchedulerPort`、`ActiveCapabilityTaskPort`、`CronJobRunNowPort`、`CronRescheduler` 和 `CronJobRunCoordinator`。
+8. `PluginV2ScheduledTaskDispatchPortAdapter` 当前由 app-integration 提供，把 cron scheduled task 回调投递到 Plugin V2 scheduled handler。
 
 不要恢复 `ScheduledTaskRuntimeExecutor.configureRuntimeDependenciesProvider { ... }`、手写 WorkManager factory、static scheduler facade、AppBootstrapper 手动安装 runtime dependencies 或旧 `LegacyCron*Adapter`。
 
@@ -182,6 +183,7 @@
 - 构造 role 为 `scheduled_task`、id 为 `cron:$jobId` 的 `ConversationMessage`。
 - 通过 `RuntimeLlmOrchestratorPort.dispatchLlm(...)` 进入共享 LLM pipeline。
 - 使用 `ScheduledTaskLlmCallbacksFactory`、`ScheduledTaskProviderInvocationService`、`PluginHostCapabilityGateway` 和 `ScheduledMessageDeliveryPort` 完成 provider invocation 与最终投递。
+- 如果 job 目标为插件 scheduled handler，Cron 通过 `PluginV2ScheduledTaskDispatchPortAdapter` / `PluginV2ScheduledHandlers` 唤醒对应 V2 handler；该路径已属于 plugin runtime 能力，不应写成 Cron 自己执行插件脚本。
 
 `DefaultScheduledMessageDeliveryPort` 当前支持：
 
@@ -235,6 +237,9 @@
 - `ScheduledTaskRuntimeExecutorTest`
 - `ScheduledMessageDeliveryPortTest`
 - `ScheduledMessageDeliveryPortContractTest`
+- `PluginV2ScheduledDispatchTest`
+- `PluginV2ScheduledHandlerLifecycleTest`
+- `PluginV2ScheduledHandlerRegistryTest`
 - `ScheduledTaskIntentGuardTest`
 - `ScheduledTaskIntentFallbackResponderTest`
 - `CronJobsPresentationControllerTest`
