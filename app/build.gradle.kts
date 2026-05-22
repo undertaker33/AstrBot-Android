@@ -107,8 +107,8 @@ android {
     defaultConfig {
         applicationId = "com.elymbot.android"
         targetSdk = 36
-        versionCode = 79
-        versionName = "1.0.3"
+        versionCode = 80
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

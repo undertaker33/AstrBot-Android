@@ -59,6 +59,7 @@ interface PluginV2CompiledHandlerDescriptor {
     val callbackToken: PluginV2CallbackToken
     val priority: Int
     val filterAttachments: List<PluginV2CompiledFilterAttachment>
+    val filterExpression: PluginV2CompiledFilterExpression
     val metadata: BootstrapRegistrationMetadata
     val sourceOrder: Int
 }
@@ -72,6 +73,7 @@ data class PluginV2CompiledMessageHandler(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val filterExpression: PluginV2CompiledFilterExpression = emptyCompiledFilterExpression(),
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
 ) : PluginV2CompiledHandlerDescriptor
@@ -85,6 +87,7 @@ data class PluginV2CompiledCommandHandler(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val filterExpression: PluginV2CompiledFilterExpression = emptyCompiledFilterExpression(),
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
     val command: String,
@@ -110,6 +113,7 @@ data class PluginV2CompiledRegexHandler(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val filterExpression: PluginV2CompiledFilterExpression = emptyCompiledFilterExpression(),
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
     val pattern: String,
@@ -127,6 +131,7 @@ data class PluginV2CompiledLifecycleHandler(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val filterExpression: PluginV2CompiledFilterExpression = emptyCompiledFilterExpression(),
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
     val hook: String,
@@ -141,6 +146,7 @@ data class PluginV2CompiledLlmHookHandler(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val filterExpression: PluginV2CompiledFilterExpression = emptyCompiledFilterExpression(),
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
     val hook: String,
@@ -156,6 +162,7 @@ data class PluginV2CompiledScheduledHandler(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val filterExpression: PluginV2CompiledFilterExpression = emptyCompiledFilterExpression(),
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
     val handlerKey: String,
@@ -163,6 +170,24 @@ data class PluginV2CompiledScheduledHandler(
     val runAtEpochMillis: Long?,
     val conversationId: String,
     val platformAdapterType: String = "",
+) : PluginV2CompiledHandlerDescriptor
+
+data class PluginV2CompiledAgentHandler(
+    override val pluginId: String,
+    override val registrationKind: String,
+    override val registrationKey: String,
+    override val normalizedRegistrationKey: String,
+    override val handlerId: String,
+    override val callbackToken: PluginV2CallbackToken,
+    override val priority: Int,
+    override val filterAttachments: List<PluginV2CompiledFilterAttachment>,
+    override val filterExpression: PluginV2CompiledFilterExpression = emptyCompiledFilterExpression(),
+    override val metadata: BootstrapRegistrationMetadata,
+    override val sourceOrder: Int,
+    val agentKey: String,
+    val systemPrompt: String,
+    val tools: List<String>,
+    val model: AgentModelSelection,
 ) : PluginV2CompiledHandlerDescriptor
 
 data class PluginV2HandlerRegistry(
@@ -174,6 +199,7 @@ data class PluginV2HandlerRegistry(
     val lifecycleHandlers: List<PluginV2CompiledLifecycleHandler> = emptyList(),
     val llmHookHandlers: List<PluginV2CompiledLlmHookHandler> = emptyList(),
     val scheduledHandlers: List<PluginV2CompiledScheduledHandler> = emptyList(),
+    val agentHandlers: List<PluginV2CompiledAgentHandler> = emptyList(),
 ) {
     val totalHandlerCount: Int
         get() = messageHandlers.size +
@@ -181,7 +207,8 @@ data class PluginV2HandlerRegistry(
             regexHandlers.size +
             lifecycleHandlers.size +
             llmHookHandlers.size +
-            scheduledHandlers.size
+            scheduledHandlers.size +
+            agentHandlers.size
 }
 
 data class PluginV2StageIndex(
@@ -211,6 +238,7 @@ private fun PluginV2HandlerRegistry.frozenCopy(): PluginV2HandlerRegistry {
         lifecycleHandlers = lifecycleHandlers.map(PluginV2CompiledLifecycleHandler::frozenCopy).toFrozenList(),
         llmHookHandlers = llmHookHandlers.map(PluginV2CompiledLlmHookHandler::frozenCopy).toFrozenList(),
         scheduledHandlers = scheduledHandlers.map(PluginV2CompiledScheduledHandler::frozenCopy).toFrozenList(),
+        agentHandlers = agentHandlers.map(PluginV2CompiledAgentHandler::frozenCopy).toFrozenList(),
     )
 }
 
@@ -227,6 +255,7 @@ private fun PluginV2StageIndex.frozenCopy(): PluginV2StageIndex {
 private fun PluginV2CompiledMessageHandler.frozenCopy(): PluginV2CompiledMessageHandler {
     return copy(
         filterAttachments = filterAttachments.frozenFilterAttachments(),
+        filterExpression = filterExpression.frozenCopy(),
         metadata = metadata.frozenCopy(),
     )
 }
@@ -234,6 +263,7 @@ private fun PluginV2CompiledMessageHandler.frozenCopy(): PluginV2CompiledMessage
 private fun PluginV2CompiledCommandHandler.frozenCopy(): PluginV2CompiledCommandHandler {
     return copy(
         filterAttachments = filterAttachments.frozenFilterAttachments(),
+        filterExpression = filterExpression.frozenCopy(),
         metadata = metadata.frozenCopy(),
         aliases = aliases.toFrozenList(),
         groupPath = groupPath.toFrozenList(),
@@ -253,6 +283,7 @@ private fun PluginV2CommandBucket.frozenCopy(): PluginV2CommandBucket {
 private fun PluginV2CompiledRegexHandler.frozenCopy(): PluginV2CompiledRegexHandler {
     return copy(
         filterAttachments = filterAttachments.frozenFilterAttachments(),
+        filterExpression = filterExpression.frozenCopy(),
         metadata = metadata.frozenCopy(),
         flags = flags.toFrozenSet(),
         namedGroupNames = namedGroupNames.toFrozenList(),
@@ -262,6 +293,7 @@ private fun PluginV2CompiledRegexHandler.frozenCopy(): PluginV2CompiledRegexHand
 private fun PluginV2CompiledLifecycleHandler.frozenCopy(): PluginV2CompiledLifecycleHandler {
     return copy(
         filterAttachments = filterAttachments.frozenFilterAttachments(),
+        filterExpression = filterExpression.frozenCopy(),
         metadata = metadata.frozenCopy(),
     )
 }
@@ -269,6 +301,7 @@ private fun PluginV2CompiledLifecycleHandler.frozenCopy(): PluginV2CompiledLifec
 private fun PluginV2CompiledLlmHookHandler.frozenCopy(): PluginV2CompiledLlmHookHandler {
     return copy(
         filterAttachments = filterAttachments.frozenFilterAttachments(),
+        filterExpression = filterExpression.frozenCopy(),
         metadata = metadata.frozenCopy(),
     )
 }
@@ -276,7 +309,18 @@ private fun PluginV2CompiledLlmHookHandler.frozenCopy(): PluginV2CompiledLlmHook
 private fun PluginV2CompiledScheduledHandler.frozenCopy(): PluginV2CompiledScheduledHandler {
     return copy(
         filterAttachments = filterAttachments.frozenFilterAttachments(),
+        filterExpression = filterExpression.frozenCopy(),
         metadata = metadata.frozenCopy(),
+    )
+}
+
+private fun PluginV2CompiledAgentHandler.frozenCopy(): PluginV2CompiledAgentHandler {
+    return copy(
+        filterAttachments = filterAttachments.frozenFilterAttachments(),
+        filterExpression = filterExpression.frozenCopy(),
+        metadata = metadata.frozenCopy(),
+        tools = tools.toFrozenList(),
+        model = model.copy(),
     )
 }
 
@@ -292,6 +336,27 @@ private fun List<PluginV2CompiledFilterAttachment>.frozenFilterAttachments(): Li
             arguments = LinkedHashMap(attachment.arguments).toFrozenMap(),
         )
     }.toFrozenList()
+}
+
+private fun PluginV2CompiledFilterExpression.frozenCopy(): PluginV2CompiledFilterExpression {
+    return when (this) {
+        is PluginV2CompiledFilterExpression.AllOf -> copy(
+            children = children.map(PluginV2CompiledFilterExpression::frozenCopy).toFrozenList(),
+        )
+
+        is PluginV2CompiledFilterExpression.AnyOf -> copy(
+            children = children.map(PluginV2CompiledFilterExpression::frozenCopy).toFrozenList(),
+        )
+
+        is PluginV2CompiledFilterExpression.Not -> copy(
+            child = child.frozenCopy(),
+        )
+
+        is PluginV2CompiledFilterExpression.Builtin -> copy()
+        is PluginV2CompiledFilterExpression.Custom -> copy(
+            arguments = LinkedHashMap(arguments).toFrozenMap(),
+        )
+    }
 }
 
 private fun <T> List<T>.toFrozenList(): List<T> {

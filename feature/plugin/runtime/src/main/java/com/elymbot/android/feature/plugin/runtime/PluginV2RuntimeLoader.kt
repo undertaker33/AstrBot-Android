@@ -4,6 +4,7 @@ import com.elymbot.android.feature.plugin.data.PluginRepositoryStatePort
 import com.elymbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
 import com.elymbot.android.feature.plugin.data.state.InMemoryPluginStateStore
 import com.elymbot.android.feature.plugin.data.state.PluginStateStore
+import com.elymbot.android.feature.plugin.runtime.toolsource.FutureToolSourceRegistry
 import com.elymbot.android.model.plugin.PluginCompatibilityStatus
 import com.elymbot.android.model.plugin.PluginInstallRecord
 import com.elymbot.android.model.plugin.PluginRuntimeLogLevel
@@ -58,7 +59,9 @@ class PluginV2RuntimeLoader(
     private val messageStreamApi: PluginV2MessageStreamApi? = null,
     private val conversationHistoryApi: PluginV2ConversationHistoryApi? = null,
     private val hostLlmApi: PluginV2HostLlmApi? = null,
+    private val hostLlmPort: PluginV2HostLlmPort? = null,
     private val contextCompressApi: PluginV2ContextCompressApi? = null,
+    private val futureToolSourceRegistry: FutureToolSourceRegistry? = null,
     private val scheduledHandlerLifecycle: PluginV2ScheduledHandlerLifecycle? = null,
     private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
     private val stateStore: PluginStateStore = InMemoryPluginStateStore(),
@@ -268,6 +271,7 @@ class PluginV2RuntimeLoader(
                     conversationHistoryApi = conversationHistoryApi,
                     hostLlmApi = hostLlmApi,
                     contextCompressApi = contextCompressApi,
+                    agentInvokerProvider = { createAgentInvoker() },
                     clock = clock,
                 ),
             )
@@ -515,6 +519,24 @@ class PluginV2RuntimeLoader(
                 },
             )
         }
+    }
+
+    private fun createAgentInvoker(): PluginV2AgentInvoker? {
+        val llmPort = hostLlmPort ?: return null
+        return PluginV2AgentInvoker(
+            store = store,
+            agentRunner = PluginV2AgentRunner(
+                llmPort = llmPort,
+                toolExecutor = PluginV2AgentRuntimeToolExecutor(
+                    store = store,
+                    hostOperations = hostOperations,
+                    futureToolSourceRegistry = futureToolSourceRegistry,
+                ),
+                logBus = logBus,
+                clock = clock,
+            ),
+            clock = clock,
+        )
     }
 
     private companion object {

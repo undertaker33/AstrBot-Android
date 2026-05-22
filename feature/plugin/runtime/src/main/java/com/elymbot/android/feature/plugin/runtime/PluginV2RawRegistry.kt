@@ -36,6 +36,7 @@ data class BootstrapRegistrationMetadata(
 data class BaseHandlerRegistrationInput(
     val registrationKey: String? = null,
     val declaredFilters: List<BootstrapFilterDescriptor> = emptyList(),
+    val filterExpression: PluginV2FilterExpression? = null,
     val priority: Int = 0,
     val metadata: BootstrapRegistrationMetadata = BootstrapRegistrationMetadata(),
 )
@@ -110,6 +111,20 @@ data class ScheduledHandlerRegistrationInput(
     val handler: PluginV2CallbackHandle,
 )
 
+data class AgentModelSelection(
+    val providerId: String = "",
+    val modelId: String = "",
+)
+
+data class AgentRegistrationInput(
+    val key: String,
+    val systemPrompt: String,
+    val tools: List<String> = emptyList(),
+    val model: AgentModelSelection = AgentModelSelection(),
+    val metadata: BootstrapRegistrationMetadata = BootstrapRegistrationMetadata(),
+    val handler: PluginV2CallbackHandle,
+)
+
 interface PluginV2RawRegistrationEntry {
     val pluginId: String
     val registrationKey: String?
@@ -126,6 +141,7 @@ data class MessageHandlerRawRegistration(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val declaredFilters: List<BootstrapFilterDescriptor>,
+    val filterExpression: PluginV2FilterExpression?,
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
     val descriptor: MessageHandlerRegistrationInput,
@@ -137,6 +153,7 @@ data class CommandHandlerRawRegistration(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val declaredFilters: List<BootstrapFilterDescriptor>,
+    val filterExpression: PluginV2FilterExpression?,
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
     val descriptor: CommandHandlerRegistrationInput,
@@ -148,6 +165,7 @@ data class RegexHandlerRawRegistration(
     override val callbackToken: PluginV2CallbackToken,
     override val priority: Int,
     override val declaredFilters: List<BootstrapFilterDescriptor>,
+    val filterExpression: PluginV2FilterExpression?,
     override val metadata: BootstrapRegistrationMetadata,
     override val sourceOrder: Int,
     val descriptor: RegexHandlerRegistrationInput,
@@ -208,6 +226,17 @@ data class ScheduledHandlerRawRegistration(
     val descriptor: ScheduledHandlerRegistrationInput,
 ) : PluginV2RawRegistrationEntry
 
+data class AgentRawRegistration(
+    override val pluginId: String,
+    override val registrationKey: String?,
+    override val callbackToken: PluginV2CallbackToken,
+    override val priority: Int,
+    override val declaredFilters: List<BootstrapFilterDescriptor>,
+    override val metadata: BootstrapRegistrationMetadata,
+    override val sourceOrder: Int,
+    val descriptor: AgentRegistrationInput,
+) : PluginV2RawRegistrationEntry
+
 class PluginV2RawRegistry(
     val pluginId: String,
 ) {
@@ -226,6 +255,7 @@ class PluginV2RawRegistry(
     private val toolRegistrations = mutableListOf<ToolRawRegistration>()
     private val toolLifecycleHookRegistrations = mutableListOf<ToolLifecycleHookRawRegistration>()
     private val scheduledHandlerRegistrations = mutableListOf<ScheduledHandlerRawRegistration>()
+    private val agentRegistrations = mutableListOf<AgentRawRegistration>()
 
     val messageHandlers: List<MessageHandlerRawRegistration>
         get() = messageHandlerRegistrations.toList()
@@ -251,6 +281,9 @@ class PluginV2RawRegistry(
     val scheduledHandlers: List<ScheduledHandlerRawRegistration>
         get() = scheduledHandlerRegistrations.toList()
 
+    val agents: List<AgentRawRegistration>
+        get() = agentRegistrations.toList()
+
     internal fun appendMessageHandler(
         callbackToken: PluginV2CallbackToken,
         descriptor: MessageHandlerRegistrationInput,
@@ -261,6 +294,7 @@ class PluginV2RawRegistry(
             callbackToken = callbackToken,
             priority = descriptor.base.priority,
             declaredFilters = descriptor.base.declaredFilters.toList(),
+            filterExpression = descriptor.base.filterExpression,
             metadata = descriptor.base.metadata,
             sourceOrder = allocateSourceOrder(),
             descriptor = descriptor,
@@ -277,6 +311,7 @@ class PluginV2RawRegistry(
             callbackToken = callbackToken,
             priority = descriptor.base.priority,
             declaredFilters = descriptor.base.declaredFilters.toList(),
+            filterExpression = descriptor.base.filterExpression,
             metadata = descriptor.base.metadata,
             sourceOrder = allocateSourceOrder(),
             descriptor = descriptor,
@@ -293,6 +328,7 @@ class PluginV2RawRegistry(
             callbackToken = callbackToken,
             priority = descriptor.base.priority,
             declaredFilters = descriptor.base.declaredFilters.toList(),
+            filterExpression = descriptor.base.filterExpression,
             metadata = descriptor.base.metadata,
             sourceOrder = allocateSourceOrder(),
             descriptor = descriptor,
@@ -397,6 +433,22 @@ class PluginV2RawRegistry(
         ).also(scheduledHandlerRegistrations::add)
     }
 
+    internal fun appendAgent(
+        callbackToken: PluginV2CallbackToken,
+        descriptor: AgentRegistrationInput,
+    ): AgentRawRegistration {
+        return AgentRawRegistration(
+            pluginId = pluginId,
+            registrationKey = descriptor.key,
+            callbackToken = callbackToken,
+            priority = 0,
+            declaredFilters = emptyList(),
+            metadata = descriptor.metadata,
+            sourceOrder = allocateSourceOrder(),
+            descriptor = descriptor,
+        ).also(agentRegistrations::add)
+    }
+
     fun isEmpty(): Boolean {
         return messageHandlerRegistrations.isEmpty() &&
             commandHandlerRegistrations.isEmpty() &&
@@ -405,7 +457,8 @@ class PluginV2RawRegistry(
             llmHookRegistrations.isEmpty() &&
             toolRegistrations.isEmpty() &&
             toolLifecycleHookRegistrations.isEmpty() &&
-            scheduledHandlerRegistrations.isEmpty()
+            scheduledHandlerRegistrations.isEmpty() &&
+            agentRegistrations.isEmpty()
     }
 
     private fun allocateSourceOrder(): Int {
