@@ -58,6 +58,50 @@ class PluginV2FilterEvaluatorTest {
     }
 
     @Test
+    fun evaluate_legacy_declared_filters_keep_builtin_before_custom_even_when_custom_declared_first() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 124L })
+        val customFilterCalls = AtomicInteger(0)
+        val handle = FilterAwareTestHandle(
+            onCustomFilter = {
+                customFilterCalls.incrementAndGet()
+                error("custom filter must not run before failing builtins")
+            },
+        )
+        val fixture = compileMessageFixture(
+            pluginId = "com.example.v2.filter.legacy-order",
+            logBus = logBus,
+            declaredFilters = listOf(
+                BootstrapFilterDescriptor.message("custom_filter:gate"),
+                BootstrapFilterDescriptor.message("event_message_type:friend"),
+            ),
+            handle = handle,
+        )
+        val evaluator = PluginV2FilterEvaluator(
+            logBus = logBus,
+            clock = { 124L },
+        )
+
+        val result = evaluator.evaluate(
+            session = fixture.session,
+            descriptor = fixture.handler,
+            event = sampleMessageEvent(
+                rawText = "hello",
+                platformAdapterType = "onebot",
+                messageType = MessageType.GroupMessage,
+            ),
+        )
+
+        assertTrue(result is PluginV2FilterEvaluationResult.Reject)
+        result as PluginV2FilterEvaluationResult.Reject
+        assertEquals("event_message_type", result.reasonCode)
+        assertEquals(0, customFilterCalls.get())
+        assertEquals(
+            listOf("filter_rejected"),
+            logBus.snapshot(limit = 10).map { it.code }.filterRelevantCodes(),
+        )
+    }
+
+    @Test
     fun evaluate_passes_restricted_event_and_plugin_context_snapshots_to_custom_filter() = runBlocking {
         val logBus = InMemoryPluginRuntimeLogBus(clock = { 456L })
         var capturedRequest: PluginV2CustomFilterRequest? = null

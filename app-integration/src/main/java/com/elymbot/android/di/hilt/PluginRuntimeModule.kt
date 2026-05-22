@@ -46,6 +46,7 @@ import com.elymbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.elymbot.android.feature.plugin.runtime.PluginV2FilterEvaluator
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostNetworkApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmPort
 import com.elymbot.android.feature.plugin.runtime.PluginV2LifecycleManager
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamApi
@@ -53,6 +54,7 @@ import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
 import com.elymbot.android.feature.plugin.runtime.PluginV2ScheduledDispatchEngine
 import com.elymbot.android.feature.plugin.runtime.PluginV2ScheduledHandlerLifecycle
+import com.elymbot.android.feature.plugin.runtime.toolsource.FutureToolSourceRegistry
 import com.elymbot.android.feature.plugin.runtime.createSharedPreferencesPluginLogMaintenanceService
 import android.content.Context
 import dagger.Module
@@ -288,7 +290,9 @@ internal object PluginRuntimeModule {
         messageStreamApi: PluginV2MessageStreamApi,
         conversationHistoryApi: PluginV2ConversationHistoryApi,
         hostLlmApi: PluginV2HostLlmApi,
+        hostLlmPort: PluginV2HostLlmPort,
         contextCompressApi: PluginV2ContextCompressApi,
+        futureToolSourceRegistry: FutureToolSourceRegistry,
         scheduledHandlerLifecycle: PluginV2ScheduledHandlerLifecycle,
         repositoryStatePort: PluginStateRepositoryPort,
     ): PluginV2RuntimeLoader = factory.createPluginV2RuntimeLoader(
@@ -302,7 +306,9 @@ internal object PluginRuntimeModule {
         messageStreamApi = messageStreamApi,
         conversationHistoryApi = conversationHistoryApi,
         hostLlmApi = hostLlmApi,
+        hostLlmPort = hostLlmPort,
         contextCompressApi = contextCompressApi,
+        futureToolSourceRegistry = futureToolSourceRegistry,
         scheduledHandlerLifecycle = scheduledHandlerLifecycle,
         repositoryStatePort = repositoryStatePort,
     )

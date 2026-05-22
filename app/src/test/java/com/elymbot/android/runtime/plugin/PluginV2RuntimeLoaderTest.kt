@@ -539,6 +539,133 @@ class PluginV2RuntimeLoaderTest {
         assertEquals(listOf("elymbot", "platform"), calls)
     }
 
+    @Test
+    fun runtime_loader_agent_run_invokes_registered_plugin_tool_handler() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-agent-tool")
+        createBootstrapFile(rootDir)
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.elymbot.samples.loader_agent_tool",
+        ).withAgentPermission().withBootstrapRoot(rootDir)
+        var toolHandlerInvocations = 0
+        val llmPort = object : PluginV2HostLlmPort {
+            val requests = mutableListOf<PluginV2HostLlmPortRequest>()
+
+            override suspend fun generate(request: PluginV2HostLlmPortRequest): PluginV2HostLlmPortResult {
+                requests += request
+                return if (requests.size == 1) {
+                    PluginV2HostLlmPortResult(
+                        text = "",
+                        finishReason = "tool_calls",
+                        providerId = request.providerId,
+                        modelId = request.modelId,
+                        toolCalls = listOf(
+                            PluginLlmToolCall(
+                                toolCallId = "call-lookup",
+                                toolName = "lookup",
+                                arguments = linkedMapOf("query" to request.messages.single().text),
+                            ),
+                        ),
+                    )
+                } else {
+                    PluginV2HostLlmPortResult(
+                        text = "final",
+                        finishReason = "stop",
+                        providerId = request.providerId,
+                        modelId = request.modelId,
+                    )
+                }
+            }
+        }
+        val loader = newLoader(
+            executor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+                bootstrapSessions = listOf(
+                    BootstrappingSession(
+                        registrations = 0,
+                        bootstrapActions = { hostApi ->
+                            hostApi.registerTool(
+                                descriptor = PluginToolDescriptor(
+                                    pluginId = record.pluginId,
+                                    name = "lookup",
+                                    description = "Lookup from plugin runtime.",
+                                    visibility = PluginToolVisibility.LLM_VISIBLE,
+                                    sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                                    inputSchema = linkedMapOf("type" to "object"),
+                                ),
+                                handler = PluginV2CallbackHandle {
+                                    toolHandlerInvocations++
+                                },
+                            )
+                            hostApi.registerAgent(
+                                AgentRegistrationInput(
+                                    key = "tool-agent",
+                                    systemPrompt = "Use lookup.",
+                                    tools = listOf("lookup"),
+                                    model = AgentModelSelection(
+                                        providerId = "provider-a",
+                                        modelId = "model-a-1",
+                                    ),
+                                    handler = object : PluginV2AgentCallbackHandle {
+                                        override fun invoke() = Unit
+
+                                        override suspend fun handleAgent(event: PluginV2AgentInvocationEvent): Any? {
+                                            return event.agent.run(event.input)
+                                        }
+                                    },
+                                ),
+                            )
+                            hostApi.registerCommandHandler(
+                                CommandHandlerRegistrationInput(
+                                    command = "agenttool",
+                                    handler = object : PluginV2EventAwareCallbackHandle {
+                                        override fun invoke() = Unit
+
+                                        override suspend fun handleEvent(event: PluginErrorEventPayload) {
+                                            val result = hostApi.agentRun(
+                                                PluginV2AgentRunHostApiRequest(
+                                                    key = "tool-agent",
+                                                    input = "agent tool question",
+                                                ),
+                                            ) as PluginV2HostApiResult.Success
+                                            (event as PluginCommandEvent).replyText(
+                                                "${(result.value as AgentRunResult).toolCallCount}:$toolHandlerInvocations",
+                                            )
+                                        }
+                                    },
+                                ),
+                            )
+                        },
+                    ),
+                ),
+            ),
+            hostLlmPort = llmPort,
+        )
+
+        val loadResult = loader.load(record)
+        assertEquals(PluginV2RuntimeLoadStatus.Loaded, loadResult.status)
+
+        val dispatchResult = PluginV2DispatchEngine(
+            store = loaderStore(loader),
+            clock = { 1L },
+        ).dispatchMessage(
+            event = PluginMessageEvent(
+                eventId = "evt-agent-tool-loader",
+                platformAdapterType = "app_chat",
+                messageType = com.elymbot.android.model.chat.MessageType.FriendMessage,
+                conversationId = "conversation-current",
+                senderId = "user-1",
+                timestampEpochMillis = 1L,
+                rawText = "/agenttool",
+                initialWorkingText = "/agenttool",
+                rawMentions = emptyList(),
+                normalizedMentions = emptyList(),
+            ),
+        )
+
+        assertEquals("1:1", checkNotNull(dispatchResult.commandResponse).text)
+        assertEquals(1, toolHandlerInvocations)
+        assertEquals(2, llmPort.requests.size)
+    }
+
     private fun newLoader(
         executor: RecordingPluginV2RuntimeLoaderScriptExecutor,
         store: PluginV2ActiveRuntimeStore = PluginV2ActiveRuntimeStore(),
@@ -550,6 +677,7 @@ class PluginV2RuntimeLoaderTest {
         ),
         scheduledHandlerLifecycle: PluginV2ScheduledHandlerLifecycle? = null,
         messageStreamApi: PluginV2MessageStreamApi? = null,
+        hostLlmPort: PluginV2HostLlmPort? = null,
     ): PluginV2RuntimeLoader {
         return PluginV2RuntimeLoader(
             sessionFactory = PluginV2RuntimeSessionFactory(scriptExecutor = executor),
@@ -559,6 +687,7 @@ class PluginV2RuntimeLoaderTest {
             lifecycleManager = lifecycleManager,
             scheduledHandlerLifecycle = scheduledHandlerLifecycle,
             messageStreamApi = messageStreamApi,
+            hostLlmPort = hostLlmPort,
         )
     }
 
@@ -606,6 +735,37 @@ class PluginV2RuntimeLoaderTest {
         val permissions = permissionSnapshot + schedulePermission
         return PluginInstallRecord.restoreFromPersistedState(
             manifestSnapshot = manifestSnapshot.copy(permissions = manifestSnapshot.permissions + schedulePermission),
+            source = source,
+            packageContractSnapshot = packageContractSnapshot,
+            permissionSnapshot = permissions,
+            compatibilityState = compatibilityState,
+            uninstallPolicy = uninstallPolicy,
+            enabled = enabled,
+            failureState = failureState,
+            catalogSourceId = catalogSourceId,
+            installedPackageUrl = installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
+            installedAt = installedAt,
+            lastUpdatedAt = lastUpdatedAt,
+            localPackagePath = localPackagePath,
+            extractedDir = extractedDir,
+        )
+    }
+
+    private fun PluginInstallRecord.withAgentPermission(): PluginInstallRecord {
+        if (permissionSnapshot.any { it.permissionId == PluginV2HostApiPermissions.AGENT_RUN }) {
+            return this
+        }
+        val agentPermission = PluginPermissionDeclaration(
+            permissionId = PluginV2HostApiPermissions.AGENT_RUN,
+            title = "Agent run",
+            description = "Allows running plugin agents",
+            riskLevel = PluginRiskLevel.MEDIUM,
+            required = true,
+        )
+        val permissions = permissionSnapshot + agentPermission
+        return PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = manifestSnapshot.copy(permissions = manifestSnapshot.permissions + agentPermission),
             source = source,
             packageContractSnapshot = packageContractSnapshot,
             permissionSnapshot = permissions,
@@ -783,6 +943,7 @@ private class BootstrappingSession(
     private val commandRegistrations: List<CommandHandlerRegistrationInput> = emptyList(),
     private val lifecycleRegistrations: List<LifecycleHandlerRegistrationInput> = emptyList(),
     private val scheduledRegistrations: List<ScheduledHandlerRegistrationInput> = emptyList(),
+    private val bootstrapActions: (PluginV2BootstrapHostApi) -> Unit = {},
     private val executeFailure: Exception? = null,
 ) : ExternalPluginBootstrapSession {
     private val globals = LinkedHashMap<String, Any?>()
@@ -826,6 +987,7 @@ private class BootstrappingSession(
             hostApi.registerScheduledHandler(descriptor)
             handleCounter.incrementAndGet()
         }
+        bootstrapActions(hostApi)
     }
 
     override fun dispose() {

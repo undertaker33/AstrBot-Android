@@ -166,23 +166,78 @@ class PluginV2MessageStreamApiTest {
         assertEquals(PluginV2MessageStreamPlatformMode.FinalOnClose, result.platformMode)
     }
 
+    @Test
+    fun stream_audit_includes_stream_counters_bytes_platform_and_duration() = runTest {
+        val logBus = InMemoryPluginRuntimeLogBus(capacity = 16, clock = { 1L })
+        var now = 100L
+        val api = streamApi(
+            port = RecordingMessageStreamPort(),
+            logBus = logBus,
+            clock = { now },
+        )
+
+        val open = api.openStream(
+            context = allowedContext(platformAdapterType = "onebot"),
+            request = PluginV2MessageStreamOpenRequest(markdown = true),
+        ) as PluginV2HostApiResult.Success
+        val stream = open.value as PluginV2MessageStreamOpenResult
+        now += 12L
+        api.append(stream.streamId, "hello")
+        now += 8L
+        api.close(stream.streamId)
+
+        val records = logBus.snapshot(pluginId = "plugin.stream")
+        val openAudit = records.single { it.metadata["api"] == PluginV2MessageStreamApi.HOST_API_OPEN_STREAM }
+        val appendAudit = records.single { it.metadata["api"] == PluginV2MessageStreamApi.HOST_API_STREAM_APPEND }
+        val closeAudit = records.single { it.metadata["api"] == PluginV2MessageStreamApi.HOST_API_STREAM_CLOSE }
+
+        assertEquals(stream.streamId, openAudit.metadata["streamId"])
+        assertEquals("open", openAudit.metadata["operation"])
+        assertEquals("Editable", openAudit.metadata["platformMode"])
+        assertEquals("true", openAudit.metadata["markdown"])
+        assertEquals("onebot", openAudit.metadata["platformAdapterType"])
+        assertEquals("0", openAudit.metadata["durationMs"])
+
+        assertEquals(stream.streamId, appendAudit.metadata["streamId"])
+        assertEquals("append", appendAudit.metadata["operation"])
+        assertEquals("1", appendAudit.metadata["chunkCount"])
+        assertEquals("5", appendAudit.metadata["bytes"])
+        assertEquals("5", appendAudit.metadata["chunkBytes"])
+        assertEquals("1", appendAudit.metadata["nextChunkCount"])
+        assertEquals("5", appendAudit.metadata["nextBytes"])
+        assertEquals("onebot", appendAudit.metadata["platformAdapterType"])
+        assertEquals("12", appendAudit.metadata["streamDurationMs"])
+        assertEquals("0", appendAudit.metadata["durationMs"])
+
+        assertEquals(stream.streamId, closeAudit.metadata["streamId"])
+        assertEquals("close", closeAudit.metadata["operation"])
+        assertEquals("1", closeAudit.metadata["chunkCount"])
+        assertEquals("5", closeAudit.metadata["bytes"])
+        assertEquals("onebot", closeAudit.metadata["platformAdapterType"])
+        assertEquals("20", closeAudit.metadata["streamDurationMs"])
+        assertEquals("0", closeAudit.metadata["durationMs"])
+        assertEquals("", closeAudit.metadata["failureCode"].orEmpty())
+    }
+
     private fun streamApi(
         port: PluginV2MessageStreamPort,
         limits: PluginV2MessageStreamLimits = PluginV2MessageStreamLimits(),
+        logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(clock = { 1L }),
+        clock: () -> Long = { 1L },
     ): PluginV2MessageStreamApi {
         return PluginV2MessageStreamApi(
             facade = PluginV2HostApiFacade(
                 permissionPolicy = PluginV2HostApiPermissionPolicy(),
                 asyncBridge = PluginV2HostApiAsyncBridge(dispatcher = Dispatchers.Unconfined),
                 auditLogger = PluginV2HostApiAuditLogger(
-                    logBus = InMemoryPluginRuntimeLogBus(clock = { 1L }),
+                    logBus = logBus,
                     clock = { 1L },
                 ),
-                clock = { 1L },
+                clock = clock,
             ),
             streamPort = port,
             limits = limits,
-            clock = { 1L },
+            clock = clock,
         )
     }
 

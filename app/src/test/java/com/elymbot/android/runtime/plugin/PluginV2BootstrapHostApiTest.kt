@@ -97,7 +97,7 @@ class PluginV2BootstrapHostApiTest {
             descriptorFieldNames(BootstrapRegistrationMetadata::class.java),
         )
         assertEquals(
-            listOf("declaredFilters", "metadata", "priority", "registrationKey"),
+            listOf("declaredFilters", "filterExpression", "metadata", "priority", "registrationKey"),
             descriptorFieldNames(BaseHandlerRegistrationInput::class.java),
         )
         assertEquals(

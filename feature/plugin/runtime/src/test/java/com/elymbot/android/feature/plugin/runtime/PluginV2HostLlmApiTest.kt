@@ -67,6 +67,55 @@ class PluginV2HostLlmApiTest {
     }
 
     @Test
+    fun call_llm_audit_includes_provider_model_message_and_usage_details() = runTest {
+        val logBus = InMemoryPluginRuntimeLogBus(capacity = 16, clock = { 1L })
+        val api = hostLlmApi(
+            logBus = logBus,
+            port = RecordingHostLlmPort(
+                response = PluginV2HostLlmPortResult(
+                    text = "ok",
+                    finishReason = "stop",
+                    providerId = "provider-main",
+                    modelId = "model-main",
+                    usage = PluginLlmUsageSnapshot(
+                        promptTokens = 11,
+                        completionTokens = 7,
+                        totalTokens = 18,
+                    ),
+                ),
+            ),
+        )
+
+        val result = api.callLlm(
+            context = allowedContext(),
+            request = validRequest(
+                messages = listOf(
+                    PluginV2HostLlmMessage(role = "system", text = "Be concise"),
+                    PluginV2HostLlmMessage(role = "user", text = "Hello"),
+                ),
+                maxTokens = 256,
+            ),
+        )
+
+        assertTrue(result is PluginV2HostApiResult.Success)
+        val audit = logBus.snapshot(pluginId = "plugin.llm").single { record ->
+            record.metadata["api"] == PluginV2HostLlmApi.HOST_API_CALL_LLM
+        }
+        assertEquals("provider-main", audit.metadata["requestedProviderId"])
+        assertEquals("model-main", audit.metadata["requestedModelId"])
+        assertEquals("provider-main", audit.metadata["selectedProviderId"])
+        assertEquals("model-main", audit.metadata["selectedModelId"])
+        assertEquals("2", audit.metadata["messageCount"])
+        assertEquals("256", audit.metadata["maxTokens"])
+        assertEquals("11", audit.metadata["promptTokens"])
+        assertEquals("7", audit.metadata["completionTokens"])
+        assertEquals("18", audit.metadata["totalTokens"])
+        assertEquals("0", audit.metadata["toolCount"])
+        assertEquals("stop", audit.metadata["finishReason"])
+        assertEquals("0", audit.metadata["durationMs"])
+    }
+
+    @Test
     fun missing_permission_returns_permission_denied() = runTest {
         val result = hostLlmApi().callLlm(
             context = allowedContext(granted = false),

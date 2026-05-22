@@ -93,6 +93,17 @@ class PluginV2RegistryCompiler(
                     scheduleKeys = scheduleKeys,
                 )
             }
+        val agentKeys = linkedSetOf<String>()
+        val agentHandlers = rawRegistry.agents
+            .sortedBy(AgentRawRegistration::sourceOrder)
+            .mapNotNull { registration ->
+                compileAgent(
+                    registration = registration,
+                    diagnostics = diagnostics,
+                    duplicateGuard = duplicateGuard,
+                    agentKeys = agentKeys,
+                )
+            }
         diagnostics += inactivePhaseDiagnostics(
             pluginId = rawRegistry.pluginId,
             registrations = rawRegistry.tools.map { registration ->
@@ -131,6 +142,7 @@ class PluginV2RegistryCompiler(
             lifecycleHandlers = lifecycleHandlers,
             llmHookHandlers = llmHookHandlers,
             scheduledHandlers = scheduledHandlers,
+            agentHandlers = agentHandlers,
         )
         val dispatchIndex = PluginV2StageIndex(
             handlerIdsByStage = stageBuckets.mapValues { (_, handlerIds) ->
@@ -169,6 +181,15 @@ class PluginV2RegistryCompiler(
             diagnostics = diagnostics,
             duplicateGuard = duplicateGuard,
         ) ?: return null
+        val filters = compileFilters(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_MESSAGE,
+            registrationKey = identity.registrationKey,
+            declaredFilters = registration.declaredFilters,
+            filterExpression = registration.filterExpression,
+            normalizedRegistrationKey = identity.normalizedRegistrationKey,
+            diagnostics = diagnostics,
+        ) ?: return null
         val compiled = PluginV2CompiledMessageHandler(
             pluginId = registration.pluginId,
             registrationKind = REGISTRATION_KIND_MESSAGE,
@@ -177,10 +198,8 @@ class PluginV2RegistryCompiler(
             handlerId = identity.handlerId,
             callbackToken = registration.callbackToken,
             priority = registration.priority,
-            filterAttachments = compileFilterAttachments(
-                declaredFilters = registration.declaredFilters,
-                normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            ),
+            filterAttachments = filters.attachments,
+            filterExpression = filters.expression,
             metadata = registration.metadata,
             sourceOrder = registration.sourceOrder,
         )
@@ -210,6 +229,15 @@ class PluginV2RegistryCompiler(
         if (commandCompilation.registerCanonicalPath(commandPathKey, commandPathKey, registration.pluginId, diagnostics).not()) {
             return null
         }
+        val filters = compileFilters(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_COMMAND,
+            registrationKey = identity.registrationKey,
+            declaredFilters = registration.declaredFilters,
+            filterExpression = registration.filterExpression,
+            normalizedRegistrationKey = identity.normalizedRegistrationKey,
+            diagnostics = diagnostics,
+        ) ?: return null
 
         val aliasPaths = registration.descriptor.aliases
             .map(String::toCommandPathTokensFromText)
@@ -228,10 +256,8 @@ class PluginV2RegistryCompiler(
             handlerId = identity.handlerId,
             callbackToken = registration.callbackToken,
             priority = registration.priority,
-            filterAttachments = compileFilterAttachments(
-                declaredFilters = registration.declaredFilters,
-                normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            ),
+            filterAttachments = filters.attachments,
+            filterExpression = filters.expression,
             metadata = registration.metadata,
             sourceOrder = registration.sourceOrder,
             command = registration.descriptor.command,
@@ -274,6 +300,15 @@ class PluginV2RegistryCompiler(
             )
             return null
         }
+        val filters = compileFilters(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_REGEX,
+            registrationKey = identity.registrationKey,
+            declaredFilters = registration.declaredFilters,
+            filterExpression = registration.filterExpression,
+            normalizedRegistrationKey = identity.normalizedRegistrationKey,
+            diagnostics = diagnostics,
+        ) ?: return null
         val compiled = PluginV2CompiledRegexHandler(
             pluginId = registration.pluginId,
             registrationKind = REGISTRATION_KIND_REGEX,
@@ -282,10 +317,8 @@ class PluginV2RegistryCompiler(
             handlerId = identity.handlerId,
             callbackToken = registration.callbackToken,
             priority = registration.priority,
-            filterAttachments = compileFilterAttachments(
-                declaredFilters = registration.declaredFilters,
-                normalizedRegistrationKey = identity.normalizedRegistrationKey,
-            ),
+            filterAttachments = filters.attachments,
+            filterExpression = filters.expression,
             metadata = registration.metadata,
             sourceOrder = registration.sourceOrder,
             pattern = registration.descriptor.pattern,
@@ -440,6 +473,64 @@ class PluginV2RegistryCompiler(
         )
     }
 
+    private fun compileAgent(
+        registration: AgentRawRegistration,
+        diagnostics: MutableList<PluginV2CompilerDiagnostic>,
+        duplicateGuard: MutableSet<String>,
+        agentKeys: MutableSet<String>,
+    ): PluginV2CompiledAgentHandler? {
+        val key = registration.descriptor.key.trim()
+        if (key.isBlank()) {
+            diagnostics += PluginV2CompilerDiagnostic(
+                severity = DiagnosticSeverity.Error,
+                code = "invalid_agent_key",
+                message = "agent key must not be blank.",
+                pluginId = registration.pluginId,
+                registrationKind = REGISTRATION_KIND_AGENT,
+                registrationKey = registration.registrationKey,
+            )
+            return null
+        }
+        if (agentKeys.add(key).not()) {
+            diagnostics += PluginV2CompilerDiagnostic(
+                severity = DiagnosticSeverity.Error,
+                code = "duplicate_agent_key",
+                message = "Duplicate agent key detected: $key",
+                pluginId = registration.pluginId,
+                registrationKind = REGISTRATION_KIND_AGENT,
+                registrationKey = key,
+            )
+            return null
+        }
+        val identity = compileIdentity(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_AGENT,
+            requestedRegistrationKey = key,
+            autoCounters = linkedMapOf(),
+            diagnostics = diagnostics,
+            duplicateGuard = duplicateGuard,
+        ) ?: return null
+        return PluginV2CompiledAgentHandler(
+            pluginId = registration.pluginId,
+            registrationKind = REGISTRATION_KIND_AGENT,
+            registrationKey = identity.registrationKey,
+            normalizedRegistrationKey = identity.normalizedRegistrationKey,
+            handlerId = identity.handlerId,
+            callbackToken = registration.callbackToken,
+            priority = 0,
+            filterAttachments = emptyList(),
+            metadata = registration.metadata,
+            sourceOrder = registration.sourceOrder,
+            agentKey = key,
+            systemPrompt = registration.descriptor.systemPrompt.trim(),
+            tools = registration.descriptor.tools.map(String::trim).filter(String::isNotBlank).distinct(),
+            model = AgentModelSelection(
+                providerId = registration.descriptor.model.providerId.trim(),
+                modelId = registration.descriptor.model.modelId.trim(),
+            ),
+        )
+    }
+
     private fun compileIdentity(
         pluginId: String,
         registrationKind: String,
@@ -498,6 +589,48 @@ class PluginV2RegistryCompiler(
         )
     }
 
+    private fun compileFilters(
+        pluginId: String,
+        registrationKind: String,
+        registrationKey: String,
+        declaredFilters: List<BootstrapFilterDescriptor>,
+        filterExpression: PluginV2FilterExpression?,
+        normalizedRegistrationKey: String,
+        diagnostics: MutableList<PluginV2CompilerDiagnostic>,
+    ): CompiledFilters? {
+        if (declaredFilters.isNotEmpty() && filterExpression != null) {
+            diagnostics += PluginV2CompilerDiagnostic(
+                severity = DiagnosticSeverity.Error,
+                code = "ambiguous_filter_sources",
+                message = "declaredFilters and filters AST cannot be declared on the same handler.",
+                pluginId = pluginId,
+                registrationKind = registrationKind,
+                registrationKey = registrationKey,
+            )
+            return null
+        }
+        val attachments = compileFilterAttachments(
+            declaredFilters = declaredFilters,
+            normalizedRegistrationKey = normalizedRegistrationKey,
+        )
+        val expression = if (filterExpression != null) {
+            compileFilterExpression(
+                expression = filterExpression,
+                path = "$",
+                pluginId = pluginId,
+                registrationKind = registrationKind,
+                registrationKey = registrationKey,
+                diagnostics = diagnostics,
+            )
+        } else {
+            legacyFiltersToExpression(declaredFilters)
+        } ?: return null
+        return CompiledFilters(
+            attachments = attachments,
+            expression = expression,
+        )
+    }
+
     private fun compileFilterAttachments(
         declaredFilters: List<BootstrapFilterDescriptor>,
         normalizedRegistrationKey: String,
@@ -509,6 +642,130 @@ class PluginV2RegistryCompiler(
                 sourceRegistrationKey = normalizedRegistrationKey,
             )
         }
+    }
+
+    private fun compileFilterExpression(
+        expression: PluginV2FilterExpression,
+        path: String,
+        pluginId: String,
+        registrationKind: String,
+        registrationKey: String,
+        diagnostics: MutableList<PluginV2CompilerDiagnostic>,
+    ): PluginV2CompiledFilterExpression? {
+        return when (expression) {
+            is PluginV2FilterExpression.AllOf -> PluginV2CompiledFilterExpression.AllOf(
+                expression.children.mapIndexedNotNull { index, child ->
+                    compileFilterExpression(child, "$path.allOf[$index]", pluginId, registrationKind, registrationKey, diagnostics)
+                },
+            )
+
+            is PluginV2FilterExpression.AnyOf -> PluginV2CompiledFilterExpression.AnyOf(
+                expression.children.mapIndexedNotNull { index, child ->
+                    compileFilterExpression(child, "$path.anyOf[$index]", pluginId, registrationKind, registrationKey, diagnostics)
+                },
+            )
+
+            is PluginV2FilterExpression.Not -> compileFilterExpression(
+                expression = expression.child,
+                path = "$path.not",
+                pluginId = pluginId,
+                registrationKind = registrationKind,
+                registrationKey = registrationKey,
+                diagnostics = diagnostics,
+            )?.let(PluginV2CompiledFilterExpression::Not)
+
+            is PluginV2FilterExpression.Builtin -> {
+                val value = expression.value.trim()
+                if (value.isBlank()) {
+                    diagnostics += invalidFilterDiagnostic(pluginId, registrationKind, registrationKey, path, "builtin filter value")
+                    null
+                } else {
+                    PluginV2CompiledFilterExpression.Builtin(
+                        kind = expression.kind,
+                        value = value,
+                    )
+                }
+            }
+
+            is PluginV2FilterExpression.Custom -> {
+                val name = expression.name.trim()
+                if (name.isBlank()) {
+                    diagnostics += invalidFilterDiagnostic(pluginId, registrationKind, registrationKey, path, "custom filter name")
+                    null
+                } else {
+                    PluginV2CompiledFilterExpression.Custom(
+                        name = name,
+                        arguments = (expression.arguments + ("value" to name)).mapValues { (_, value) -> value.trim() },
+                    )
+                }
+            }
+        }
+    }
+
+    private fun legacyFiltersToExpression(
+        declaredFilters: List<BootstrapFilterDescriptor>,
+    ): PluginV2CompiledFilterExpression.AllOf {
+        val children = declaredFilters
+            .mapNotNull(::legacyFilterToExpression)
+        val orderedChildren = children
+            .filterIsInstance<PluginV2CompiledFilterExpression.Builtin>() +
+            children.filterIsInstance<PluginV2CompiledFilterExpression.Custom>()
+        return PluginV2CompiledFilterExpression.AllOf(orderedChildren)
+    }
+
+    private fun legacyFilterToExpression(
+        filter: BootstrapFilterDescriptor,
+    ): PluginV2CompiledFilterExpression? {
+        val rawValue = filter.value.trim()
+        if (rawValue.isBlank()) return null
+        PREFIX_TO_BUILTIN_KIND.entries.firstOrNull { (prefix, _) ->
+            rawValue.startsWith(prefix, ignoreCase = true)
+        }?.let { (prefix, kind) ->
+            return PluginV2CompiledFilterExpression.Builtin(
+                kind = kind,
+                value = rawValue.substring(prefix.length).trim(),
+            )
+        }
+        if (rawValue.startsWith(CUSTOM_FILTER_PREFIX, ignoreCase = true)) {
+            val name = rawValue.substringAfter(':').trim()
+            return PluginV2CompiledFilterExpression.Custom(
+                name = name,
+                arguments = mapOf("value" to rawValue),
+            )
+        }
+        return when (filter.kind) {
+            BootstrapFilterKind.Message -> PluginV2CompiledFilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.EventMessageType,
+                value = rawValue,
+            )
+
+            BootstrapFilterKind.Command -> PluginV2CompiledFilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.PlatformAdapterType,
+                value = rawValue,
+            )
+
+            BootstrapFilterKind.Regex -> PluginV2CompiledFilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.PermissionType,
+                value = rawValue,
+            )
+        }
+    }
+
+    private fun invalidFilterDiagnostic(
+        pluginId: String,
+        registrationKind: String,
+        registrationKey: String,
+        path: String,
+        field: String,
+    ): PluginV2CompilerDiagnostic {
+        return PluginV2CompilerDiagnostic(
+            severity = DiagnosticSeverity.Error,
+            code = "invalid_filter_expression",
+            message = "Invalid filter expression at $path: $field must not be blank.",
+            pluginId = pluginId,
+            registrationKind = registrationKind,
+            registrationKey = registrationKey,
+        )
     }
 
     private fun nextAutoRegistrationKey(
@@ -525,6 +782,11 @@ class PluginV2RegistryCompiler(
         val registrationKey: String,
         val normalizedRegistrationKey: String,
         val handlerId: String,
+    )
+
+    private data class CompiledFilters(
+        val attachments: List<PluginV2CompiledFilterAttachment>,
+        val expression: PluginV2CompiledFilterExpression,
     )
 
     private data class InactivePhaseRegistration(
@@ -646,10 +908,17 @@ class PluginV2RegistryCompiler(
         private const val REGISTRATION_KIND_LIFECYCLE = "lifecycle"
         private const val REGISTRATION_KIND_LLM_HOOK = "llm_hook"
         private const val REGISTRATION_KIND_SCHEDULE = "schedule"
+        private const val REGISTRATION_KIND_AGENT = "agent"
         private const val REGISTRATION_KIND_TOOL = "tool"
         private const val REGISTRATION_KIND_TOOL_LIFECYCLE_HOOK = "tool_lifecycle_hook"
+        private const val CUSTOM_FILTER_PREFIX = "custom_filter:"
 
         private val REGISTRATION_KEY_PATTERN = Regex("^[A-Za-z0-9._-]+$")
+        private val PREFIX_TO_BUILTIN_KIND = linkedMapOf(
+            "event_message_type:" to PluginV2BuiltinFilterKind.EventMessageType,
+            "platform_adapter_type:" to PluginV2BuiltinFilterKind.PlatformAdapterType,
+            "permission_type:" to PluginV2BuiltinFilterKind.PermissionType,
+        )
 
         private val AUTO_KEY_PREFIX_BY_KIND = mapOf(
             REGISTRATION_KIND_MESSAGE to "auto-message",
@@ -658,6 +927,7 @@ class PluginV2RegistryCompiler(
             REGISTRATION_KIND_LIFECYCLE to "auto-lifecycle",
             REGISTRATION_KIND_LLM_HOOK to "auto-llm-hook",
             REGISTRATION_KIND_SCHEDULE to "auto-schedule",
+            REGISTRATION_KIND_AGENT to "auto-agent",
             REGISTRATION_KIND_TOOL to "auto-tool",
             REGISTRATION_KIND_TOOL_LIFECYCLE_HOOK to "auto-tool-lifecycle-hook",
         )

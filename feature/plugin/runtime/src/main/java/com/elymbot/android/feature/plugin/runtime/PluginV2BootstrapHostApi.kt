@@ -33,6 +33,12 @@ data class PluginV2StructuredError(
     val details: Map<String, String> = emptyMap(),
 )
 
+data class PluginV2AgentRunHostApiRequest(
+    val key: String,
+    val input: String,
+    val limits: AgentRunLimits = AgentRunLimits(),
+)
+
 class PluginV2StorageAccessException(
     val error: PluginV2StructuredError,
 ) : IllegalStateException(
@@ -55,6 +61,7 @@ class PluginV2BootstrapHostApi(
     private val conversationHistoryApi: PluginV2ConversationHistoryApi? = null,
     private val hostLlmApi: PluginV2HostLlmApi? = null,
     private val contextCompressApi: PluginV2ContextCompressApi? = null,
+    private val agentInvokerProvider: () -> PluginV2AgentInvoker? = { null },
     private val clock: () -> Long = System::currentTimeMillis,
     private var sessionUnifiedOriginProvider: () -> String? = { null },
     private var hostApiEventContextProvider: () -> PluginV2HostApiEventContext? = { null },
@@ -263,6 +270,23 @@ class PluginV2BootstrapHostApi(
         }
     }
 
+    fun registerAgent(
+        descriptor: AgentRegistrationInput,
+    ): PluginV2CallbackToken {
+        requireRegistrationPermission(PluginV2HostApiPermissions.AGENT_RUN)
+        return register(
+            operation = "registerAgent",
+            registrationType = "agent",
+            normalizeDescriptor = { validateAgent(descriptor) },
+            extractHandler = { it.handler },
+        ) { rawRegistry, callbackToken, normalizedDescriptor ->
+            rawRegistry.appendAgent(
+                callbackToken = callbackToken,
+                descriptor = normalizedDescriptor,
+            )
+        }
+    }
+
     internal fun networkRequest(request: PluginV2HostNetworkRequest): PluginV2HostApiResult = fetch(request)
 
     internal fun providersList(): PluginV2HostApiResult {
@@ -378,6 +402,22 @@ class PluginV2BootstrapHostApi(
             api.compress(
                 context = createHostApiRequestContext(),
                 request = request,
+            )
+        }
+    }
+
+    internal fun agentRun(request: PluginV2AgentRunHostApiRequest): PluginV2HostApiResult {
+        val invoker = agentInvokerProvider()
+            ?: throw hostApiUnavailable("Plugin agent runtime is unavailable.")
+        return runBlocking {
+            invoker.invoke(
+                PluginV2AgentInvocationRequest(
+                    context = createHostApiRequestContext(),
+                    pluginId = session.pluginId,
+                    agentKey = request.key,
+                    input = request.input,
+                    limits = request.limits,
+                ),
             )
         }
     }
@@ -905,6 +945,21 @@ class PluginV2BootstrapHostApi(
         )
     }
 
+    private fun validateAgent(
+        descriptor: AgentRegistrationInput,
+    ): AgentRegistrationInput {
+        return descriptor.copy(
+            key = requireTrimmedValue(descriptor.key, "key"),
+            systemPrompt = requireTrimmedValue(descriptor.systemPrompt, "systemPrompt"),
+            tools = normalizeStringList(descriptor.tools, "tools").distinct(),
+            model = AgentModelSelection(
+                providerId = descriptor.model.providerId.trim(),
+                modelId = descriptor.model.modelId.trim(),
+            ),
+            metadata = BootstrapRegistrationMetadata(normalizeMetadata(descriptor.metadata.values)),
+        )
+    }
+
     private fun requireScheduledTargetContext(
         conversationId: String,
         platformAdapterType: String,
@@ -948,9 +1003,13 @@ class PluginV2BootstrapHostApi(
     private fun normalizeBase(
         descriptor: BaseHandlerRegistrationInput,
     ): BaseHandlerRegistrationInput {
+        require(descriptor.declaredFilters.isEmpty() || descriptor.filterExpression == null) {
+            "declaredFilters and filters AST cannot be declared together."
+        }
         return descriptor.copy(
             registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
             declaredFilters = normalizeDeclaredFilters(descriptor.declaredFilters),
+            filterExpression = descriptor.filterExpression?.normalizeFilterExpression("filters"),
             metadata = normalizeMetadata(descriptor.metadata),
         )
     }
@@ -1007,6 +1066,37 @@ class PluginV2BootstrapHostApi(
     ) {
         require(declaredFilters.isEmpty()) {
             "declaredFilters are only allowed on message/command/regex registrations."
+        }
+    }
+
+    private fun PluginV2FilterExpression.normalizeFilterExpression(
+        fieldName: String,
+    ): PluginV2FilterExpression {
+        return when (this) {
+            is PluginV2FilterExpression.AllOf -> copy(
+                children = children.mapIndexed { index, child ->
+                    child.normalizeFilterExpression("$fieldName.allOf[$index]")
+                },
+            )
+
+            is PluginV2FilterExpression.AnyOf -> copy(
+                children = children.mapIndexed { index, child ->
+                    child.normalizeFilterExpression("$fieldName.anyOf[$index]")
+                },
+            )
+
+            is PluginV2FilterExpression.Not -> copy(
+                child = child.normalizeFilterExpression("$fieldName.not"),
+            )
+
+            is PluginV2FilterExpression.Builtin -> copy(
+                value = requireTrimmedValue(value, "$fieldName.${kind.wireKey}"),
+            )
+
+            is PluginV2FilterExpression.Custom -> copy(
+                name = requireTrimmedValue(name, "$fieldName.custom"),
+                arguments = normalizeMetadata(arguments),
+            )
         }
     }
 

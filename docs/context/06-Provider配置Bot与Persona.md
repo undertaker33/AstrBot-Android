@@ -1,6 +1,6 @@
 # provider-config-bot-persona 模块上下文
 
-更新时间：2026-05-17 14:07 +08:00
+更新时间：2026-05-22 18:30 +08:00
 
 ## 状态
 
@@ -10,7 +10,7 @@
 - 模块状态：已按当前代码事实重新确认
 - 完成等级：`full-project-docs-complete`
 - 下一模块：`chat-and-conversation`
-- 本轮代码修改：无
+- 本轮 scoped-sync：`66eee69..4fedf19`，并按当前工作区状态核对文档
 - 本轮 Git 写入：无
 - 本轮 Gradle / 测试命令：未运行；本文档场景只做文档治理
 
@@ -226,7 +226,7 @@ Config 当前主真源：
 
 当前 Config 事实：
 
-- `ConfigProfile` 仍是运行时策略入口，包含默认 provider、STT/TTS、streaming、web search、proactive、scheduled task 上下文、QQ 规则、context policy、legacy `mcpServers` 与 `skills`。
+- `ConfigProfile` 仍是运行时策略入口，包含默认 provider、STT/TTS、streaming、web search、proactive、scheduled task 上下文、QQ 规则、插件命令管理员限制、context policy、legacy `mcpServers` 与 `skills`。
 - `FeatureConfigRepositoryStore` 使用 `ConfigAggregateDao` 与 `AppPreferenceDao`。
 - selected config 真源是 `AppPreferenceDao.observeValue("selected_config_profile_id")`，`select(id)` 只持久化 selected ID；最终状态由 DAO + preference flow 回流。
 - `restoreProfiles(...)` 会持久化 restored profiles 和 resolved selected ID，selected state 仍回到 AppPreference。

@@ -33,6 +33,7 @@ import com.elymbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2ContextCompressApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmPort
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamApi
 import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderReadApi
@@ -42,6 +43,7 @@ import com.elymbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
 import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeSessionFactory
 import com.elymbot.android.feature.plugin.runtime.PluginV2ScheduledHandlerLifecycle
+import com.elymbot.android.feature.plugin.runtime.toolsource.FutureToolSourceRegistry
 import com.elymbot.android.feature.plugin.runtime.RemotePluginPackageDownloader
 import com.elymbot.android.feature.plugin.runtime.catalog.PluginCatalogFetcher
 import com.elymbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
@@ -124,7 +126,9 @@ internal class PluginDataWiringFactory @Inject constructor(
         messageStreamApi: PluginV2MessageStreamApi,
         conversationHistoryApi: PluginV2ConversationHistoryApi,
         hostLlmApi: PluginV2HostLlmApi,
+        hostLlmPort: PluginV2HostLlmPort,
         contextCompressApi: PluginV2ContextCompressApi,
+        futureToolSourceRegistry: FutureToolSourceRegistry,
         scheduledHandlerLifecycle: PluginV2ScheduledHandlerLifecycle,
         repositoryStatePort: com.elymbot.android.feature.plugin.domain.PluginStateRepositoryPort,
     ): PluginV2RuntimeLoader = PluginV2RuntimeLoader(
@@ -141,7 +145,9 @@ internal class PluginDataWiringFactory @Inject constructor(
         messageStreamApi = messageStreamApi,
         conversationHistoryApi = conversationHistoryApi,
         hostLlmApi = hostLlmApi,
+        hostLlmPort = hostLlmPort,
         contextCompressApi = contextCompressApi,
+        futureToolSourceRegistry = futureToolSourceRegistry,
         scheduledHandlerLifecycle = scheduledHandlerLifecycle,
         repositoryStatePort = repositoryStatePort,
         stateStore = createPluginStateStore(),

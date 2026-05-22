@@ -6,7 +6,7 @@
 
 - Scene: `uth-dev`
 - Mode: `formal-dev`
-- Task package: `docs/work/D26052001-备份顶栏占位与APIKey可选备份/`
+- Task package: `docs/archive/work/D26052001-备份顶栏占位与APIKey可选备份/`
 - Design: `00-D26052001-design.md`
 - Todo: `10-D26052001-T01-todo-备份顶栏占位与APIKey可选备份.md`
 - Git writes: forbidden

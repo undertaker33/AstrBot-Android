@@ -24,6 +24,10 @@
 - `changelogs/v0.9.2.md`
 - `changelogs/v0.9.3.md`
 - `changelogs/v1.0.0.md`
+- `changelogs/v1.0.1.md`
+- `changelogs/v1.0.2.md`
+- `changelogs/v1.0.3.md`
+- `changelogs/v1.0.4.md`
 
 当前规则：`v0.1.x` 到 `v0.7.x` 使用小版本聚合文件；`v0.7.5` 之后每个 patch 版本使用独立文件。
 
@@ -33,4 +37,6 @@
 - 先用带版本号的 git 记录确定锚点，再决定是否需要发布正文。
 - `v0.9.1` 目前有 `Release v0.9.1` 提交和历史 `app/build.gradle.kts` 版本号证据；尚未发现对应 `v0.9.1` tag。
 - `v0.9.2` 目前有 release commit `a9aace9` 和 `changelogs/v0.9.2.md`；尚未发现对应 `v0.9.2` tag。
-- `v0.9.3` 和 `v1.0.0` 已有 tag 与正文文件；`v1.0.0` 后的生成产物忽略/CI guard 属于当前 `HEAD` 的发布后维护事实。
+- `v0.9.3` 和 `v1.0.0` 已有 tag 与正文文件。
+- `v1.0.1`、`v1.0.2`、`v1.0.3` 已有 tag 与正文文件。
+- `v1.0.4` 当前只发现 release commit `4fedf19` 和正文文件，未发现本地或远端 tag。tag 补齐属于 `uth-git` / 发布流程。

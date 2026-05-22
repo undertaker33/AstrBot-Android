@@ -13,6 +13,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
 data class ExternalPluginScriptExecutionRequest(
@@ -351,6 +352,10 @@ private class QuickJsExternalPluginBootstrapSession(
             val descriptor = requireObjectArg(args, 0, "registerScheduledHandler")
             hostApi.registerScheduledHandler(parseScheduledHandlerDescriptor(descriptor, runtimeHandle)).value
         }
+        bindHostCall(bridge, "registerAgent") { args ->
+            val descriptor = requireObjectArg(args, 0, "registerAgent")
+            hostApi.registerAgent(parseAgentDescriptor(descriptor, runtimeHandle)).value
+        }
         bindHostCall(bridge, "onPluginLoaded") { args ->
             val descriptor = requireObjectArg(args, 0, "onPluginLoaded")
             hostApi.registerLifecycleHandler(
@@ -464,6 +469,15 @@ private class QuickJsExternalPluginBootstrapSession(
         }
         bridge.setProperty("context", contextBridge)
         runtimeHandle.handleStore["context::$name"] = contextBridge
+        val agentBridge = runtimeHandle.context.createNewJSObject()
+        bindHostCall(agentBridge, "run") { args ->
+            createHostApiJsResult(
+                runtimeHandle,
+                hostApi.agentRun(parseAgentRunRequest(requireObjectArg(args, 0, "agent.run"))),
+            )
+        }
+        bridge.setProperty("agent", agentBridge)
+        runtimeHandle.handleStore["agent::$name"] = agentBridge
         bindHostCall(bridge, "getPluginMetadata") {
             createJsObject(
                 runtimeHandle,
@@ -717,6 +731,48 @@ private class QuickJsExternalPluginBootstrapSession(
             platformAdapterType = propertyValue(descriptor, "platformAdapterType")?.toString().orEmpty(),
             metadata = BootstrapRegistrationMetadata(parseStringMap(propertyValue(descriptor, "metadata"))),
             handler = extractCallbackHandle(descriptor, runtimeHandle, "handler", "registerScheduledHandler"),
+        )
+    }
+
+    private fun parseAgentDescriptor(
+        descriptor: Any,
+        runtimeHandle: QuickJsBootstrapRuntime,
+    ): AgentRegistrationInput {
+        return AgentRegistrationInput(
+            key = requireStringProperty(descriptor, "registerAgent", "key"),
+            systemPrompt = requireStringProperty(descriptor, "registerAgent", "systemPrompt"),
+            tools = parseStringList(propertyValue(descriptor, "tools")),
+            model = parseAgentModelSelection(propertyValue(descriptor, "model")),
+            metadata = BootstrapRegistrationMetadata(parseStringMap(propertyValue(descriptor, "metadata"))),
+            handler = extractCallbackHandle(descriptor, runtimeHandle, "handler", "registerAgent"),
+        )
+    }
+
+    private fun parseAgentModelSelection(value: Any?): AgentModelSelection {
+        return AgentModelSelection(
+            providerId = propertyValue(value, "providerId")?.toString().orEmpty(),
+            modelId = propertyValue(value, "modelId")?.toString().orEmpty(),
+        )
+    }
+
+    private fun parseAgentRunRequest(
+        descriptor: Any,
+    ): PluginV2AgentRunHostApiRequest {
+        return PluginV2AgentRunHostApiRequest(
+            key = requireStringProperty(descriptor, "agent.run", "key"),
+            input = requireStringProperty(descriptor, "agent.run", "input"),
+            limits = AgentRunLimits(
+                maxToolCalls = parseOptionalInt(propertyValue(descriptor, "maxToolCalls"), "maxToolCalls")
+                    ?: AgentRunLimits.DEFAULT_MAX_TOOL_CALLS,
+                maxDepth = parseOptionalInt(propertyValue(descriptor, "maxDepth"), "maxDepth")
+                    ?: AgentRunLimits.DEFAULT_MAX_DEPTH,
+                timeoutMs = parseOptionalLong(propertyValue(descriptor, "timeoutMs"), "timeoutMs")
+                    ?: AgentRunLimits.DEFAULT_TIMEOUT_MS,
+                maxTokens = parseOptionalInt(propertyValue(descriptor, "maxTokens"), "maxTokens")
+                    ?: AgentRunLimits.DEFAULT_MAX_TOKENS,
+                maxCostMicros = parseOptionalLong(propertyValue(descriptor, "maxCostMicros"), "maxCostMicros")
+                    ?: AgentRunLimits.DEFAULT_MAX_COST_MICROS,
+            ),
         )
     }
 
@@ -1142,6 +1198,17 @@ private class QuickJsExternalPluginBootstrapSession(
                 "usage" to usage.toJsBridgeValue(),
             )
 
+            is AgentRunResult -> linkedMapOf(
+                "succeeded" to succeeded,
+                "text" to text,
+                "providerId" to providerId,
+                "modelId" to modelId,
+                "usage" to usage.toJsBridgeValue(),
+                "toolCallCount" to toolCallCount,
+                "durationMs" to durationMs,
+                "failureCode" to failureCode,
+            )
+
             is PluginLlmUsageSnapshot -> linkedMapOf(
                 "promptTokens" to promptTokens,
                 "completionTokens" to completionTokens,
@@ -1166,14 +1233,13 @@ private class QuickJsExternalPluginBootstrapSession(
         descriptor: Any,
     ): BaseHandlerRegistrationInput {
         val base = propertyValue(descriptor, "base")
+        val source = base ?: descriptor
         return BaseHandlerRegistrationInput(
-            registrationKey = parseRegistrationKey(base ?: descriptor),
-            declaredFilters = parseDeclaredFilters(
-                propertyValue(base ?: descriptor, "declaredFilters")
-                    ?: propertyValue(base ?: descriptor, "filters"),
-            ),
-            priority = parsePriority(base ?: descriptor),
-            metadata = BootstrapRegistrationMetadata(parseStringMap(propertyValue(base ?: descriptor, "metadata"))),
+            registrationKey = parseRegistrationKey(source),
+            declaredFilters = parseDeclaredFilters(propertyValue(source, "declaredFilters")),
+            filterExpression = parseFilterExpression(propertyValue(source, "filters")),
+            priority = parsePriority(source),
+            metadata = BootstrapRegistrationMetadata(parseStringMap(propertyValue(source, "metadata"))),
         )
     }
 
@@ -1240,6 +1306,106 @@ private class QuickJsExternalPluginBootstrapSession(
             kind.equals("command", ignoreCase = true) -> BootstrapFilterDescriptor.command(rawValue)
             kind.equals("regex", ignoreCase = true) -> BootstrapFilterDescriptor.regex(rawValue)
             else -> parseStringFilter(rawValue)
+        }
+    }
+
+    private fun parseFilterExpression(value: Any?): PluginV2FilterExpression? {
+        return when (val normalized = coerceJsValue(value)) {
+            null -> null
+            is String -> parseStringFilter(normalized)?.toFilterExpression()
+            is List<*> -> PluginV2FilterExpression.AllOf(
+                normalized.mapNotNull(::parseFilterExpression),
+            )
+
+            is Map<*, *> -> parseObjectFilterExpression(normalized)
+            else -> null
+        }
+    }
+
+    private fun parseObjectFilterExpression(value: Map<*, *>): PluginV2FilterExpression? {
+        propertyValue(value, "allOf")?.let { allOf ->
+            return PluginV2FilterExpression.AllOf(parseList(allOf).mapNotNull(::parseFilterExpression))
+        }
+        propertyValue(value, "anyOf")?.let { anyOf ->
+            return PluginV2FilterExpression.AnyOf(parseList(anyOf).mapNotNull(::parseFilterExpression))
+        }
+        propertyValue(value, "not")?.let { child ->
+            return parseFilterExpression(child)?.let(PluginV2FilterExpression::Not)
+        }
+        PluginV2BuiltinFilterKind.entries.forEach { kind ->
+            propertyValue(value, kind.wireKey, kind.reasonCode)?.toString()?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.let { rawValue ->
+                    return PluginV2FilterExpression.Builtin(
+                        kind = kind,
+                        value = rawValue,
+                    )
+                }
+        }
+        propertyValue(value, "custom", "customFilter", "custom_filter")?.toString()?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?.let { name ->
+                return PluginV2FilterExpression.Custom(
+                    name = name,
+                    arguments = parseStringMap(propertyValue(value, "args", "arguments")),
+                )
+            }
+        val kind = propertyValue(value, "kind", "type")?.toString()?.trim().orEmpty()
+        val rawValue = propertyValue(value, "value")?.toString()?.trim().orEmpty()
+        if (rawValue.isNotBlank()) {
+            PluginV2BuiltinFilterKind.fromWireKey(kind)?.let { builtinKind ->
+                return PluginV2FilterExpression.Builtin(
+                    kind = builtinKind,
+                    value = rawValue,
+                )
+            }
+            if (kind.equals("custom", ignoreCase = true) || kind.equals("custom_filter", ignoreCase = true)) {
+                return PluginV2FilterExpression.Custom(
+                    name = rawValue,
+                    arguments = parseStringMap(propertyValue(value, "args", "arguments")),
+                )
+            }
+        }
+        return null
+    }
+
+    private fun BootstrapFilterDescriptor.toFilterExpression(): PluginV2FilterExpression {
+        val rawValue = value.trim()
+        return when {
+            rawValue.startsWith("event_message_type:", ignoreCase = true) -> PluginV2FilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.EventMessageType,
+                value = rawValue.substringAfter(':').trim(),
+            )
+
+            rawValue.startsWith("platform_adapter_type:", ignoreCase = true) -> PluginV2FilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.PlatformAdapterType,
+                value = rawValue.substringAfter(':').trim(),
+            )
+
+            rawValue.startsWith("permission_type:", ignoreCase = true) -> PluginV2FilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.PermissionType,
+                value = rawValue.substringAfter(':').trim(),
+            )
+
+            rawValue.startsWith("custom_filter:", ignoreCase = true) -> PluginV2FilterExpression.Custom(
+                name = rawValue.substringAfter(':').trim(),
+                arguments = mapOf("value" to rawValue),
+            )
+
+            kind == BootstrapFilterKind.Message -> PluginV2FilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.EventMessageType,
+                value = rawValue,
+            )
+
+            kind == BootstrapFilterKind.Command -> PluginV2FilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.PlatformAdapterType,
+                value = rawValue,
+            )
+
+            else -> PluginV2FilterExpression.Builtin(
+                kind = PluginV2BuiltinFilterKind.PermissionType,
+                value = rawValue,
+            )
         }
     }
 
@@ -1416,6 +1582,8 @@ private class QuickJsExternalPluginBootstrapSession(
             is PluginV2LlmResponsePayload -> createLlmResponsePayloadBridge(runtimeHandle, value)
             is PluginV2LlmResultDecoratingPayload -> createLlmResultDecoratingPayloadBridge(runtimeHandle, value)
             is PluginV2LlmAfterSentPayload -> createLlmAfterSentPayloadBridge(runtimeHandle, value)
+            is PluginV2AgentInvocationEvent -> createAgentInvocationEventBridge(runtimeHandle, value)
+            is PluginToolArgs -> createPluginToolArgsBridge(runtimeHandle, value)
             is PluginLifecycleMetadata -> createJsObject(
                 runtimeHandle,
                 linkedMapOf(
@@ -1695,6 +1863,43 @@ private class QuickJsExternalPluginBootstrapSession(
         )
     }
 
+    private fun createAgentInvocationEventBridge(
+        runtimeHandle: QuickJsBootstrapRuntime,
+        event: PluginV2AgentInvocationEvent,
+    ): JSObject {
+        val agentBridge = runtimeHandle.context.createNewJSObject()
+        agentBridge.setProperty("run", JSCallFunction { args ->
+            val input = args.getOrNull(0)?.toString()?.takeIf(String::isNotBlank) ?: event.input
+            createJsValue(runtimeHandle, runBlocking { event.agent.run(input) })
+        })
+        runtimeHandle.handleStore["agent-context::${event.request.pluginId}::${event.agentDescriptor.agentKey}"] = agentBridge
+        return createJsObject(
+            runtimeHandle,
+            linkedMapOf(
+                "input" to event.input,
+                "agentKey" to event.agentDescriptor.agentKey,
+                "agent" to agentBridge,
+            ),
+        )
+    }
+
+    private fun createPluginToolArgsBridge(
+        runtimeHandle: QuickJsBootstrapRuntime,
+        args: PluginToolArgs,
+    ): JSObject {
+        return createJsObject(
+            runtimeHandle,
+            linkedMapOf(
+                "toolCallId" to args.toolCallId,
+                "requestId" to args.requestId,
+                "toolId" to args.toolId,
+                "attemptIndex" to args.attemptIndex,
+                "payload" to args.payload,
+                "metadata" to args.metadata,
+            ),
+        )
+    }
+
     private fun createPluginProviderRequestBridge(
         runtimeHandle: QuickJsBootstrapRuntime,
         request: PluginProviderRequest,
@@ -1946,7 +2151,10 @@ private class QuickJsExternalPluginBootstrapSession(
     private inner class QuickJsPluginV2CallbackHandle(
         private val label: String,
         private val function: JSFunction,
-    ) : PluginV2EventAwareCallbackHandle, PluginV2CustomFilterAwareCallbackHandle {
+    ) : PluginV2EventAwareCallbackHandle,
+        PluginV2CustomFilterAwareCallbackHandle,
+        PluginV2AgentCallbackHandle,
+        PluginV2ToolCallbackHandle {
         fun hold() {
             function.hold()
         }
@@ -1957,6 +2165,14 @@ private class QuickJsExternalPluginBootstrapSession(
 
         override suspend fun handleEvent(event: PluginErrorEventPayload) {
             callFunction(label, event)
+        }
+
+        override suspend fun handleAgent(event: PluginV2AgentInvocationEvent): Any? {
+            return callFunction("$label.agent", event)
+        }
+
+        override suspend fun handleTool(args: PluginToolArgs): Any? {
+            return coerceJsValue(callFunction("$label.tool", args))
         }
 
         override suspend fun evaluateCustomFilter(request: PluginV2CustomFilterRequest): Boolean {
