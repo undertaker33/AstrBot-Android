@@ -18,6 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2
   TZ: Asia/Shanghai
 
@@ -38,7 +39,9 @@ jobs:
           java-version: "17"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
@@ -57,8 +60,8 @@ jobs:
       - name: Run build logic checks
         run: ./gradlew :build-logic:check --console=plain --no-daemon --stacktrace
 
-  architecture-and-assemble:
-    name: Architecture contracts and debug assemble
+  module-boundary-checks:
+    name: Plugin and QQ module checks
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: tooling
@@ -82,19 +85,21 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run architecture and debug assemble gate
-        run: ./gradlew clean architectureCheck assembleDebug --console=plain --no-daemon --stacktrace
+      - name: Run plugin and QQ module checks
+        run: ./gradlew modulePluginCheck moduleQqCheck --console=plain --no-daemon --stacktrace
 
-  app-tests:
-    name: App debug unit tests
+  architecture-and-assemble:
+    name: Architecture contracts and debug assemble
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    needs: tooling
+    timeout-minutes: 60
+    needs: module-boundary-checks
 
     steps:
       - name: Check out repository
@@ -115,7 +120,44 @@ jobs:
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run architecture and debug assemble gate
+        run: ./gradlew clean architectureCheck assembleDebug --console=plain --no-daemon --stacktrace
+
+  app-tests:
+    name: App debug unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: architecture-and-assemble
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
