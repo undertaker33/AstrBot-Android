@@ -226,7 +226,7 @@ internal abstract class PluginHostCapabilityModule {
                     )
                 }
                 val localMessageId = conversationRepository.appendMessage(
-                    sessionId = request.conversationId,
+                    sessionId = conversationRepository.resolveRepositorySessionId(request.conversationId),
                     role = "assistant",
                     content = request.text,
                     attachments = attachments,
@@ -237,7 +237,7 @@ internal abstract class PluginHostCapabilityModule {
                 )
             }
             val messageId = conversationRepository.appendMessage(
-                sessionId = request.conversationId,
+                sessionId = conversationRepository.resolveRepositorySessionId(request.conversationId),
                 role = "assistant",
                 content = request.text,
                 attachments = attachments,
@@ -288,25 +288,25 @@ internal abstract class PluginHostCapabilityModule {
             conversationRepository: ConversationRepositoryPort,
         ): PluginV2ConversationHistoryReadPort = PluginV2ConversationHistoryReadPort { request: PluginV2ConversationHistoryPortRequest ->
             runCatching {
-                conversationRepository.session(request.conversationId).let { session ->
-                    session.messages.map { message ->
-                        PluginV2ConversationHistoryMessage(
-                            messageId = message.id,
-                            role = message.role,
-                            senderId = message.role,
-                            messageType = session.messageType.wireValue,
-                            text = message.content,
-                            timestampEpochMillis = message.timestamp,
-                            attachmentRefs = message.attachments.map { attachment ->
-                                PluginV2ConversationHistoryAttachmentRef(
-                                    ref = attachment.id,
-                                    uri = attachment.toHostSafeUri(),
-                                    mimeType = attachment.mimeType,
-                                    type = attachment.type,
-                                )
-                            },
-                        )
-                    }
+                val session = conversationRepository.findExistingSessionByConversationId(request.conversationId)
+                    ?: return@runCatching emptyList()
+                session.messages.map { message ->
+                    PluginV2ConversationHistoryMessage(
+                        messageId = message.id,
+                        role = message.role,
+                        senderId = message.role,
+                        messageType = session.messageType.wireValue,
+                        text = message.content,
+                        timestampEpochMillis = message.timestamp,
+                        attachmentRefs = message.attachments.map { attachment ->
+                            PluginV2ConversationHistoryAttachmentRef(
+                                ref = attachment.id,
+                                uri = attachment.toHostSafeUri(),
+                                mimeType = attachment.mimeType,
+                                type = attachment.type,
+                            )
+                        },
+                    )
                 }
             }.getOrDefault(emptyList())
         }
@@ -533,7 +533,7 @@ private class DefaultPluginV2MessageStreamPort(
             )
         }
         conversationRepository.appendMessage(
-            sessionId = request.conversationId,
+            sessionId = conversationRepository.resolveRepositorySessionId(request.conversationId),
             role = "assistant",
             content = text,
             attachments = emptyList(),
@@ -567,14 +567,14 @@ private data class HostStreamState(
         val text = buffer.toString()
         if (messageId.isBlank()) {
             messageId = conversationRepository.appendMessage(
-                sessionId = conversationId,
+                sessionId = conversationRepository.resolveRepositorySessionId(conversationId),
                 role = "assistant",
                 content = text,
                 attachments = emptyList(),
             )
         } else {
             conversationRepository.updateMessage(
-                sessionId = conversationId,
+                sessionId = conversationRepository.resolveRepositorySessionId(conversationId),
                 messageId = messageId,
                 content = text,
                 attachments = emptyList(),
@@ -593,4 +593,34 @@ private fun String.isQqPlatform(): Boolean {
         -> true
         else -> false
     }
+}
+
+private fun ConversationRepositoryPort.resolveRepositorySessionId(conversationId: String): String {
+    val target = conversationId.trim()
+    if (target.isBlank()) return target
+    return sessions.value.firstOrNull { session -> session.id == target }?.id
+        ?: sessions.value.firstOrNull { session -> session.originSessionId == target }?.id
+        ?: target
+}
+
+private fun ConversationRepositoryPort.findExistingSessionByConversationId(conversationId: String) =
+    findPublicGroupHistorySession(conversationId.trim())
+        ?: sessions.value.firstOrNull { session -> session.id == conversationId.trim() }
+        ?: sessions.value.firstOrNull { session -> session.originSessionId == conversationId.trim() }
+
+private fun ConversationRepositoryPort.findPublicGroupHistorySession(conversationId: String) =
+    conversationId.toPublicGroupOriginSessionId()
+        ?.let { publicOriginSessionId ->
+            sessions.value.firstOrNull { session -> session.originSessionId == publicOriginSessionId }
+        }
+
+private fun String.toPublicGroupOriginSessionId(): String? {
+    val target = trim()
+    if (!target.startsWith("group:")) return null
+    val groupId = target
+        .removePrefix("group:")
+        .substringBefore(":user:")
+        .substringBefore(":")
+        .trim()
+    return groupId.takeIf(String::isNotBlank)?.let { "group:$it" }
 }

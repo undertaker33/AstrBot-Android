@@ -2,7 +2,7 @@
 
 `docs/context/` 是 UTH 的当前事实层入口。代码事实优先，旧 Design、Feedback、Run Log、worker Prompt、LW 记录、归档文档、ADR 或旧模块文档不得直接当作当前事实。
 
-当前状态：`full-project-docs-complete`。12 个编号模块上下文均已写入，旧模块文档和早期 seed 已从当前上下文层移入 archive。本轮 `uth-docs` 已按 `66eee69..4fedf19` 与当前工作区增量完成 scoped-sync；当前活动任务只保留在 `docs/current-state.md` 指定的任务包中。
+当前状态：`full-project-docs-complete`。12 个编号模块上下文均已写入，旧模块文档和早期 seed 已从当前上下文层移入 archive。最新 `uth-docs` scoped-sync 已覆盖 `4fedf19..13467db`、`v1.1.0` release / CI 刷新，以及当前工作区的 QQ 普通群公共历史沉淀增量；当前活动任务只保留在 `docs/current-state.md` 指定的任务包中。
 
 ## 当前可用文档
 
@@ -62,7 +62,7 @@
 ## 基线
 
 - Initial baseline commit：`6b97b4a`
-- Latest scoped sync：`66eee69..4fedf19` + current worktree docs/code facts
+- Latest scoped sync：`4fedf19..13467db` + current worktree QQ public group history / Host API mapping facts
 - Source：`uth-docs existing-project takeover repair` and 2026-05-22 scoped-sync
-- Updated at：2026-05-22 18:30 +08:00
+- Updated at：2026-05-25 18:26 +08:00
 - Completion level：`full-project-docs-complete`

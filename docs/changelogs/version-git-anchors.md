@@ -1,6 +1,6 @@
 # 版本 Git 锚点索引
 
-更新时间：2026-05-22 18:30 +08:00
+更新时间：2026-05-25 21:10 +08:00
 
 ## 定位
 
@@ -18,7 +18,7 @@
 - `git tag --points-at`
 - `git rev-parse --short HEAD master origin/master origin/codex/ColorOS16(RealmeUI7)`
 - `git ls-remote --heads origin master codex/ColorOS16(RealmeUI7)`
-- `git ls-remote --tags origin refs/tags/v1.0.1 refs/tags/v1.0.2 refs/tags/v1.0.3 refs/tags/v1.0.4`
+- `git ls-remote --tags origin refs/tags/v1.0.1 refs/tags/v1.0.2 refs/tags/v1.0.3 refs/tags/v1.0.4 refs/tags/v1.1.0 refs/tags/v1.1.1`
 - `app/build.gradle.kts`
 - `changelogs/v*.md`
 
@@ -52,11 +52,14 @@
 | `v1.0.2` | tag `v1.0.2`，merge commit `0cf61cc`，release commit `0308320` | `changelogs/v1.0.2.md` | 已有 |
 | `v1.0.3` | tag `v1.0.3`，merge commit `0eafb33`，release commit `1d5abb7` | `changelogs/v1.0.3.md` | 已有 |
 | `v1.0.4` | release commit `4fedf19` | `changelogs/v1.0.4.md` | 已有正文，缺少 tag |
+| `v1.1.0` | tag `v1.1.0`，merge commit `988a523`，release commit `104eb3a` | `changelogs/v1.1.0.md` | 已有 |
+| `v1.1.1` | release commit 已生成，PR / tag 待发布闭环补齐 | `changelogs/v1.1.1.md` | 已有正文 |
 
 ## 当前缺口
 
 - `v0.9.1` 和 `v0.9.2` 尚未发现对应 tag；当前只保留 release commit 与正文文件锚点。
 - `v0.9.0` tag 锚在 PR merge commit `6078ff3`，不是直接锚在 `Release v0.9.0` commit `a97d398`；正式发布说明以 tag/merge 闭环为准。
 - `v1.0.1` 到 `v1.0.3` 已有 tag 与 changelog 正文文件。
-- `v1.0.4` 当前 App 版本已写入 `app/build.gradle.kts`，当前 HEAD / `origin/codex/ColorOS16(RealmeUI7)` 均为 `4fedf19`，且已有 `changelogs/v1.0.4.md`；本地和远端均未发现 `refs/tags/v1.0.4`。
-- `master` / `origin/master` 当前仍为 `0eafb33`，即 `v1.0.3` tag 所在提交。
+- `v1.0.4` 有 release commit `4fedf19` 和 `changelogs/v1.0.4.md`；本地和远端均未发现 `refs/tags/v1.0.4`。
+- `v1.1.0` 已形成 tag / merge / changelog 闭环；当前 App 版本源为 `versionName = "1.1.0"`、`versionCode = 81`。
+- `v1.1.1` 当前 release commit 已生成，准备通过 PR 合入 `master`；tag 与 merge 锚点待 PR 合并/发布流程补齐。

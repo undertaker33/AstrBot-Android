@@ -706,6 +706,112 @@ class PluginV2HostIngressTest {
     }
 
     @Test
+    fun onebot_isolated_group_messages_write_public_history_without_polluting_llm_session() = runBlocking {
+        val sendAttempts = AtomicInteger(0)
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = false,
+                    text = "suppressed",
+                )
+            },
+        )
+        val bot = defaultBot()
+        withOneBotState(
+            bot = bot,
+            config = defaultConfig(textStreamingEnabled = false, sessionIsolationEnabled = true),
+            providers = listOf(defaultChatProvider()),
+            appChatPluginRuntime = runtime,
+            pluginV2DispatchEngine = v2EngineWithHandlers(),
+        ) {
+            QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                sendAttempts.incrementAndGet()
+                OneBotSendResult.success()
+            }
+
+            invokeHandlePayload(
+                oneBotMessagePayload(
+                    messageId = "msg-passive-history",
+                    text = "ordinary group chatter",
+                ),
+            )
+
+            assertEquals(0, sendAttempts.get())
+            assertEquals(0, runtime.deliveredPipelineCalls.get())
+            assertEquals(
+                listOf("20002: ordinary group chatter"),
+                ConversationRepository.session("qq-qq-main-group-30003").messages.map { it.content },
+            )
+
+            invokeHandlePayload(
+                oneBotMessagePayload(
+                    messageId = "msg-passive-history-next",
+                    text = "elymbot hello next",
+                ),
+            )
+
+            assertEquals(0, sendAttempts.get())
+            assertEquals(1, runtime.deliveredPipelineCalls.get())
+            val publicMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
+            assertEquals(listOf("user", "user"), publicMessages.map { it.role })
+            assertEquals(
+                listOf("20002: ordinary group chatter", "20002: elymbot hello next"),
+                publicMessages.map { it.content },
+            )
+
+            val isolatedSessionId = QqSessionKeyFactory.build(
+                botId = bot.id,
+                messageType = MessageType.GroupMessage,
+                groupId = "30003",
+                userId = "20002",
+                isolated = true,
+            )
+            val isolatedMessages = ConversationRepository.session(isolatedSessionId).messages
+            assertEquals(listOf("user"), isolatedMessages.map { it.role })
+            assertEquals(listOf("20002: elymbot hello next"), isolatedMessages.map { it.content })
+        }
+    }
+
+    @Test
+    fun onebot_public_group_history_keeps_latest_100_messages() = runBlocking {
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = false,
+                    text = "suppressed",
+                )
+            },
+        )
+        val bot = defaultBot()
+        withOneBotState(
+            bot = bot,
+            config = defaultConfig(textStreamingEnabled = false, sessionIsolationEnabled = true),
+            providers = listOf(defaultChatProvider()),
+            appChatPluginRuntime = runtime,
+            pluginV2DispatchEngine = v2EngineWithHandlers(),
+        ) {
+            repeat(105) { index ->
+                val number = index + 1
+                invokeHandlePayload(
+                    oneBotMessagePayload(
+                        messageId = "msg-public-history-$number",
+                        text = "ordinary group chatter ${number.toString().padStart(3, '0')}",
+                    ),
+                )
+            }
+
+            assertEquals(0, runtime.deliveredPipelineCalls.get())
+            val publicMessages = ConversationRepository.session("qq-qq-main-group-30003").messages
+            assertEquals(100, publicMessages.size)
+            assertTrue(publicMessages.all { message -> message.role == "user" })
+            assertEquals("20002: ordinary group chatter 006", publicMessages.first().content)
+            assertEquals("20002: ordinary group chatter 105", publicMessages.last().content)
+        }
+    }
+
+    @Test
     fun onebot_llm_event_extras_include_runtime_target_context_for_host_tools() = runBlocking {
         val capturedExtras = AtomicReference<Map<String, *>?>()
         val runtime = RecordingAppChatPluginRuntime(

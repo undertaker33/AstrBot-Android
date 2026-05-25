@@ -24,3 +24,11 @@
 - `LW-Work/LW26051901-UI资源配置与备份聊天修正.md`
 
 仍在 `docs/work/` 的 `D26052102` 与 `D26052201` 是当前活动任务入口，不在本轮归档。
+
+## 2026-05-25 归档
+
+本轮 `uth-docs` 将已完成主窗口验收、但仍需 Git 路由决策的轻量记录移入归档：
+
+- `LW-Work/LW26052201-QQ普通群消息历史沉淀.md`
+
+该记录是 QQ 普通群公共历史沉淀的验收证据；当前代码事实仍以工作区源码、`docs/current-state.md` 与 `docs/context/07-聊天与会话.md`、`docs/context/08-QQ_NapCat_OneBot.md`、`docs/context/09-插件平台.md` 为准。

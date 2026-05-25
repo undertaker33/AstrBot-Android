@@ -1,6 +1,6 @@
 # QQ / NapCat / OneBot 模块上下文
 
-更新时间：2026-05-22 18:30 +08:00
+更新时间：2026-05-25 18:26 +08:00
 
 ## 状态
 
@@ -11,7 +11,7 @@
 - 模块状态：已按当前代码事实重新确认
 - 完成等级：`full-project-docs-complete`
 - 下一模块：`plugin-platform`
-- 本轮 scoped-sync：`66eee69..4fedf19`，并按当前工作区状态核对文档
+- 本轮 scoped-sync：`4fedf19..13467db` + 当前工作区 QQ 普通群公共历史沉淀增量
 - 本轮 Git 写入：无
 - 本轮 Gradle / 测试命令：未运行；本文档场景只做文档治理
 
@@ -33,6 +33,7 @@
 - `feature/qq/impl/src/main/java/**`
 - `feature/qq/presentation/src/main/java/**`
 - `feature/qq/runtime/src/main/java/**`
+- `feature/qq/runtime/src/test/java/**`
 - `feature/qq/impl/src/test/java/**`
 - `app/src/main/java/com/elymbot/android/di/startup/BootstrapPrerequisitesStartupChain.kt`
 - `app/src/main/java/com/elymbot/android/di/startup/RuntimeLaunchStartupChain.kt`
@@ -200,6 +201,15 @@ QQ 登录 UI 当前物理位于 `feature/qq/presentation/src/main/java/**`。
 7. `QqMessageRuntimeService.handleIncomingMessage(...)` 执行 bot resolve、wake/whitelist/rate-limit/keyword/duplicate guard、session lock、bot command/plugin ingress、conversation append、runtime context resolve、LLM dispatch 和 reply delivery。
 8. `QqReplySender` 与 `QqOneBotOutboundGateway` 发送 OneBot action。
 
+当前普通群公共历史事实：
+
+- `QqMessageRuntimeService` 在 OneBot message id 去重后，对普通群消息先写入公共群 session，session id 形如 `qq-<botId>-group-<groupId>`。
+- 公共群历史使用非隔离语义并保留最近 100 条；超过上限后保留最后 100 条。
+- 开启群聊隔离时，bot LLM 对话仍写入 isolated session，形如 `qq-<botId>-group-<groupId>-user-<userId>`；公共群历史不应被 isolated session 覆盖。
+- 不触发自动回复的普通群消息也可进入公共群历史；这使插件群分析不再依赖 bot 对话上下文。
+- 非隔离 LLM 路径会复用已沉淀的公共群 user message，避免同一入站消息重复追加。
+- 本轮未做真实 QQ / NapCat 连接下的端到端人工验收；当前证据来自既有 LW 验收记录、OneBot 入站单测、Host API 历史读取映射和全量 debug 构建记录。
+
 当前 reverse WS 与 cleartext 约束：
 
 - `app/src/main/AndroidManifest.xml` 显式 `android:usesCleartextTraffic="false"`。
@@ -273,6 +283,7 @@ LLM 边界：
 - `PostHiltRound3HostCapabilityContractTest`
 - `NoManualRuntimeSubgraphContractTest`
 - `QqStreamingReplyServiceTest`
+- `QqStreamingReplyServiceAttachmentStreamingTest`
 - `QqRuntimeProfileResolverTest`
 - `QqPluginDispatchServiceTest`
 - `QqOneBotOutboundGatewayTest`
@@ -310,6 +321,7 @@ LLM 边界：
 ## 当前风险与阻塞项
 
 - 本轮未运行 Gradle 或测试，因此不能把本模块状态扩展为构建通过或测试通过。
+- 当前工作区已新增 QQ 普通群公共历史沉淀和 pseudo streaming 文本+附件分流代码；本文档只同步既有验收记录，不在 `uth-docs` 中重新运行测试。
 - `feature/qq/impl` 当前无生产源码，不应写成 QQ 生产 owner。
 - `QqRuntimeServicesModule.provideQqOneBotRuntimeDependencies` 仍在 app-integration allowlist 中作为 broad Hilt provider 债务。
 - `NapCatLoginLocalStore.kt` 仍在 DAO owner allowlist 中持有 `SavedQqAccountDao`，后续需要命名或 port 边界进一步收口。

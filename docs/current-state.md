@@ -1,6 +1,6 @@
 # 当前项目状态
 
-更新时间：2026-05-22 18:30 +08:00
+更新时间：2026-05-25 21:10 +08:00
 
 ## 文档基线
 
@@ -8,9 +8,9 @@
 - 文档语言：`zh-CN`
 - 当前文档基线：`full-project-docs-complete`
 - 本轮场景：`uth-docs`
-- 本轮模式：`scoped-sync` + `state-cleanup` + `archive-cleanup`
-- 本轮完成范围：从上一轮文档锚点 `66eee69` 同步到当前分支 `4fedf19`，并纳入当前工作区中 `D26052102` 非阻塞审计字段收口与 `D26052201` 设计包事实。
-- 本轮不运行 Gradle、单元测试、APK 构建或 Git 写入；下方验证结果均为既有可追溯记录或本轮文档/UTF-8 检查。
+- 本轮模式：`scoped-sync` + `rules-maintenance` + `archive-cleanup`
+- 本轮完成范围：从上一轮文档锚点 `4fedf19` 同步到当前分支 `13467db`，并纳入当前工作区 QQ 普通群公共历史沉淀、Host API 历史读取映射、QQ pseudo streaming 文本/附件分流，以及从归档目录和工作包提炼到 `AGENTS.md` 的跨模块易错点。
+- 本轮不运行 Gradle、单元测试、APK 构建或 Git 写入；下方验证结果均为既有记录或文档 UTF-8 检查。
 
 ## 当前事实入口
 
@@ -26,33 +26,42 @@
 ## Git 与版本状态
 
 - 当前分支：`codex/ColorOS16(RealmeUI7)`
-- 当前 HEAD：`4fedf19 release: v1.0.4`
-- 远端分支：`origin/codex/ColorOS16(RealmeUI7)` 指向 `4fedf19`。
-- `master` / `origin/master`：指向 `0eafb33`，该提交带本地/远端 tag `v1.0.3`。
-- `v1.0.4`：当前只发现 release commit `4fedf19`，未发现本地或远端 tag `refs/tags/v1.0.4`。
-- 当前 App 版本真源：`app/build.gradle.kts` 为 `versionName = "1.0.4"`、`versionCode = 80`。
-- 当前 Room 真源：`core/db/src/main/java/com/elymbot/android/data/db/ElymBotDatabase.kt` 为 `version = 23`，schema 同步到 `app/schemas/.../23.json` 与 `core/db/schemas/.../23.json`。
+- 当前 HEAD：`release: v1.1.1`
+- 本地 `master`：`988a523 Merge release v1.1.0`
+- 本地 remote-tracking `origin/codex/ColorOS16(RealmeUI7)`：`13467db`，待推送当前 `release: v1.1.1`
+- 本地 remote-tracking `origin/master`：`72b9aea`；本轮未执行 `git fetch`，因此不把它声明为远端最新状态。
+- 当前 App 版本真源：`app/build.gradle.kts` 为 `versionName = "1.1.1"`、`versionCode = 82`。
+- `v1.1.0`：本地 tag `v1.1.0` 指向 merge commit `988a523`，release commit 为 `104eb3a`，正文为 `changelogs/v1.1.0.md`。
+- `v1.0.4`：当前仍只发现 release commit `4fedf19` 与正文 `changelogs/v1.0.4.md`，未发现本地或远端 tag `refs/tags/v1.0.4`。
+- 当前工作区已生成 `v1.1.1` release commit：QQ 普通群公共历史沉淀、Host API session 映射与 QQ pseudo streaming 文本/附件分流，待推送并 PR 到 `master`。
 
 ## 当前活动任务
 
 ### D26052102 插件 API 对齐 AstrBot 能力补齐
 
 - 路径：`docs/work/D26052102-插件API对齐AstrBot能力补齐/`
-- 状态：`T01` 到 `T12` 已实现、验证、复核并完成验收复查；T06/T09 非阻塞审计字段增强已在当前工作区收口。
-- 当前工作区增量：`PluginV2HostApiFoundation.kt`、`PluginV2HostLlmApi.kt`、`PluginV2MessageStreamApi.kt` 与对应测试仍有未提交修改；任务包新增 `131-D26052102-feedback-非阻塞审计字段收口.md` 和 worker prompt。
-- 当前结论：无剩余 AstrBot 对齐能力缺口；仍需用户决定是否进入 Design-level 关闭或 `uth-git`。
-- 背景同步：插件平台、聊天、QQ、Cron 与资源/备份上下文已在本轮按当前事实同步。
+- 状态：`T01` 到 `T12` 已完成实现、验证、复核和验收记录；T06/T09 非阻塞审计字段增强已收口。
+- 当前结论：设计内无剩余非验证类 Todo 待派发；如需关闭整包，进入 Design-level 验收；如需提交，按用户确认进入 `uth-git`。
+- 长期事实：已同步到 `docs/context/09-插件平台.md`，但真实设备、真实网络、真实 provider、真实插件包验证仍按任务记录排除，不应写成已覆盖。
 
 ### D26052201 插件任意会话发送能力设计
 
 - 路径：`docs/work/D26052201-插件任意会话发送能力设计/`
-- 状态：已完成 `uth-design` / `design-authoring`，未拆 Todo，未实现，未验收，未 Git 写入。
-- 关键决策：不放宽现有 `conversationId` 当前会话 guard；跨会话发送走宿主授权的 `targetId` / `PluginMessageRoute` 模型。
-- 后续路由：如继续实现，进入 `uth-dev` 拆 Todo；实现验收后再由 `uth-docs` 同步长期上下文。
+- 状态：已完成 `uth-design` / `design-authoring`；尚未拆 Todo、实现、验收或 Git 写入。
+- 关键决策：不放宽现有 `conversationId` 当前会话 guard；任意目标发送必须另走宿主授权的 `targetId` / `PluginMessageRoute` 模型。
+- 当前结论：不得把 `targetId`、target resolver、目标授权、目标 scheduled handler 写成生产能力；继续实现时进入 `uth-dev` 拆 Todo。
 
-## 已归档任务包
+### LW26052201 QQ 普通群消息历史沉淀
 
-本轮从当前工作入口移除并归档以下已完成或已进入发布链的任务材料：
+- 归档路径：`docs/archive/LW-Work/LW26052201-QQ普通群消息历史沉淀.md`
+- 状态：已完成主窗口验收，本轮从 `docs/LW-Work/` 移入归档。
+- 当前工作区增量：`QqMessageRuntimeService.kt`、`PluginHostCapabilityModule.kt`、`PluginV2HostIngressTest.kt`、`PluginHostCapabilityModuleTest.kt`、`QqStreamingReplyService.kt` 和新增 `QqStreamingReplyServiceAttachmentStreamingTest.kt`。
+- 当前事实：QQ 普通群消息会沉淀到公共群 session；`hostApi.conversation.history` 在群场景优先读公共群历史；`hostApi.message.send` / stream 持久化时会把插件外部 conversation id 解析为本地 repository session。
+- 剩余风险：未做真实 QQ / NapCat 连接下的端到端人工验收；代码仍未进入 Git closure。
+
+## 已归档任务材料
+
+以下材料仅作历史证据，不再作为当前事实入口：
 
 - `docs/archive/work/D26051801-包名统一ElymBot/`
 - `docs/archive/work/D26051901-插件指令管理员权限/`
@@ -60,29 +69,32 @@
 - `docs/archive/work/D26052101-应用内更新/`
 - `docs/archive/LW-Work/LW26051801-编译链升级AGP9.md`
 - `docs/archive/LW-Work/LW26051901-UI资源配置与备份聊天修正.md`
+- `docs/archive/LW-Work/LW26052201-QQ普通群消息历史沉淀.md`
 
-这些归档文件只作为历史证据；当前事实以 `docs/context/`、`app/build.gradle.kts`、代码和当前任务包为准。
+归档文件中的旧提交号、旧路径、旧版本号和旧完成态不得覆盖当前 `docs/context/` 与源码事实。
 
 ## 近期高信号变化
 
-- `v1.0.1`：新增应用内更新能力，包含 GitHub release 检查、下载、FileProvider 安装入口、忽略/稍后策略和安装后清理。
-- `v1.0.2`：补齐插件 Host API 底座、宿主网络代理、Provider 只读查询、当前会话消息发送和当前会话历史读取。
-- `v1.0.3`：补齐插件直接 LLM、上下文压缩、定时任务回调、流式输出和富消息链；Cron 可将 scheduled handler 唤醒到 Plugin V2。
-- `v1.0.4`：补齐插件 Agent 注册 / `agent.run` 与 Filter 组合表达式 AST；当前分支已到 `4fedf19`。
-- 当前工作区：继续补强 T06/T09 审计字段，增加 LLM provider/model/token usage 与 stream lifecycle 细粒度字段。
-- 构建治理：CI 当前分为 tooling、architecture-and-assemble、app-tests；tooling 阶段包含 generated artifacts guard 和 `:build-logic:check`。
+- `v1.1.0`：发布插件 V2 API 完整能力、应用内更新、Agent runtime、scheduled handler、流式输出、富消息链和 Filter AST；版本源更新为 `versionName = "1.1.0"`、`versionCode = 81`。
+- `v1.1.1`：补齐 QQ 普通群公共历史沉淀、Host API 群历史映射、插件发送/stream session id 解析，以及 pseudo streaming 文本/附件分流；版本源更新为 `versionName = "1.1.1"`、`versionCode = 82`。
+- CI 刷新：`.github/workflows/ci.yml` 当前包含 `tooling`、`module-boundary-checks`、`architecture-and-assemble`、`app-tests` 四段；`module-boundary-checks` 运行 `modulePluginCheck moduleQqCheck`。
+- QQ 普通群公共历史：普通群消息在去重后进入公共群 session，群聊隔离只影响 bot LLM session；插件群分析应优先读取公共群历史。
+- Host API 映射：`hostApi.conversation.history` 支持群场景公共历史映射；`hostApi.message.send` / stream 的宿主持久化不会把外部 `group:<gid>:user:<uid>` 直接当作 repository session。
+- `AGENTS.md` 已补充从归档目录、工作包和 LW 中反复出现的跨模块易错点：任务包不等于当前事实、不要回滚他人工作区、Host API 不直连宿主内部、当前会话能力不等于任意目标发送、QQ session id / origin / OneBot target 必须分清。
 
 ## 最新验证证据
 
 | Time | Method | Result | Notes |
 | --- | --- | --- | --- |
-| 2026-05-22 14:55 +08:00 | D26052102 T11-T12 review gate | pass | 既有记录：fresh runtime/app 测试、`architectureCheck`、`modulePluginCheck`、`clean assembleDebug` 均通过；5 个验收日志 warning / deprecated / exception / failed 扫描计数均为 0。 |
-| 2026-05-22 16:46 +08:00 | D26052102 non-blocking audit-field closeout | pass | 既有记录：runtime LLM/stream/audit 单测、app audit 合同、`architectureCheck`、`modulePluginCheck`、`clean assembleDebug` 均通过；真实设备/网络/provider/plugin package 验证按任务要求排除。 |
+| 2026-05-22 14:55 +08:00 | D26052102 T11-T12 review gate | pass | 既有记录：feature runtime/app 测试、`architectureCheck`、`modulePluginCheck`、`clean assembleDebug` 均通过；5 个验收日志 warning / deprecated / exception / failed 扫描计数均为 0。 |
+| 2026-05-22 16:46 +08:00 | D26052102 non-blocking audit-field closeout | pass | 既有记录：runtime LLM/stream/audit 单测、app audit 合同、`architectureCheck`、`modulePluginCheck`、`clean assembleDebug` 均通过。 |
 | 2026-05-22 16:51 +08:00 | `tools/uth-hooks/uth-hook.py` L3 closeout | pass | 既有记录：`uth-dev` / `formal-dev` 非阻塞审计字段收口 closeout 通过。 |
-| 2026-05-22 18:30 +08:00 | `uth-utf8-guard` pre-write | pass | 本轮写入前 16 个 Markdown 文件通过 UTF-8 guard。 |
-| 2026-05-22 18:30 +08:00 | `uth-utf8-guard` post-write | pass | 本轮写入和归档移动后，`docs/**/*.md` 共 108 个 Markdown 文件通过 UTF-8 guard。 |
-| 2026-05-22 18:30 +08:00 | git / remote anchor check | pass with gap | 本轮只读确认 `origin/codex/ColorOS16(RealmeUI7)=4fedf19`、`origin/master=0eafb33`；未发现 `refs/tags/v1.0.4`。 |
-| 2026-05-22 18:35 +08:00 | changelog content write | pass | 补齐 `changelogs/v1.0.1.md` 到 `changelogs/v1.0.4.md`，并同步 `docs/changelogs/README.md` 与 `version-git-anchors.md`。 |
+| 2026-05-22 18:35 +08:00 | changelog content write | pass | 已补齐 `changelogs/v1.0.1.md` 到 `changelogs/v1.0.4.md`。 |
+| 2026-05-22 | v1.1.0 release closeout | pass | 既有记录：`changelogs/v1.1.0.md` 写入，`v1.1.0` tag 指向 `988a523`。 |
+| 2026-05-22 | LW26052201 QQ public group history | pass with risk | 既有记录：OneBot 入站、公共群历史沉淀、隔离 session 不污染、Host API 历史读取映射和全量 debug 构建通过；未做真实 QQ / NapCat 端到端人工验收。 |
+| 2026-05-25 18:26 +08:00 | `uth-utf8-guard` pre-write | pass | 本轮写入前目标 Markdown 通过 UTF-8 guard。 |
+| 2026-05-25 18:27 +08:00 | `uth-utf8-guard` post-write | pass | `AGENTS.md` 与 `docs/**/*.md` 共 110 个 Markdown 文件通过 UTF-8 guard。 |
+| 2026-05-25 18:27 +08:00 | `git diff --check` | pass | 无空白错误；仅输出仓库当前 LF/CRLF 提示。 |
 
 ## 当前事实来源
 
@@ -90,31 +102,25 @@
 - `.uth-governance/project.json`
 - `docs/README.md`
 - `docs/context/README.md`
-- `docs/context/00-模块拆分.md`
-- `docs/context/01-验证构建治理.md` 到 `docs/context/12-语音资产与音频.md`
+- `docs/context/01-验证构建治理.md`
+- `docs/context/02-应用壳层与集成.md`
+- `docs/context/07-聊天与会话.md`
+- `docs/context/08-QQ_NapCat_OneBot.md`
+- `docs/context/09-插件平台.md`
 - `docs/changelogs/version-git-anchors.md`
-- `git log --oneline 66eee69..4fedf19`
-- `git diff --name-status 66eee69..4fedf19`
+- `docs/work/D26052102-插件API对齐AstrBot能力补齐/`
+- `docs/work/D26052201-插件任意会话发送能力设计/`
+- `docs/archive/work/`
+- `docs/archive/LW-Work/`
+- `git log --oneline 4fedf19..HEAD`
+- `git diff --name-status 4fedf19..HEAD`
 - `git status --short`
-- `git ls-remote --heads origin master codex/ColorOS16(RealmeUI7)`
-- `git ls-remote --tags origin refs/tags/v1.0.1 refs/tags/v1.0.2 refs/tags/v1.0.3 refs/tags/v1.0.4`
-- `settings.gradle.kts`
-- `build.gradle.kts`
-- `app/build.gradle.kts`
 - `.github/workflows/ci.yml`
-- `app/src/main/AndroidManifest.xml`
-- `app/src/main/java/com/elymbot/android/update/**`
-- `app-integration/src/main/java/com/elymbot/android/di/hilt/**`
-- `core/db/src/main/java/com/elymbot/android/data/db/**`
-- `core/network/src/main/java/com/elymbot/android/core/runtime/network/RuntimeNetworkModels.kt`
-- `core/runtime-context/src/main/java/com/elymbot/android/core/runtime/context/ResolvedRuntimeContextContracts.kt`
-- `download/api/src/main/java/com/elymbot/android/download/DownloadModels.kt`
-- `feature/chat/runtime/src/main/java/**`
-- `feature/qq/runtime/src/main/java/**`
-- `feature/cron/runtime/src/main/java/**`
-- `feature/plugin/runtime/src/main/java/**`
-- `feature/plugin/runtime/src/test/java/**`
-- `feature/settings/**`
+- `app/build.gradle.kts`
+- `app-integration/src/main/java/com/elymbot/android/di/hilt/PluginHostCapabilityModule.kt`
+- `feature/qq/runtime/src/main/java/com/elymbot/android/feature/qq/runtime/QqMessageRuntimeService.kt`
+- `feature/qq/runtime/src/main/java/com/elymbot/android/feature/qq/runtime/QqStreamingReplyService.kt`
+- `feature/qq/runtime/src/test/java/com/elymbot/android/feature/qq/runtime/QqStreamingReplyServiceAttachmentStreamingTest.kt`
 
 ## 后续路由
 

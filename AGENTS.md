@@ -102,6 +102,11 @@
 6. `Feature*PortAdapter` / `FeatureQq*PortAdapter` 已是当前生产命名，不要再把 `Legacy*Adapter` 写成现状。
 7. QQ / plugin / toolsource 的新生产主线都不接受手写 subgraph 或 static bypass；看到 compat bridge 时先确认它是不是仅给测试保留。
 8. 不要把第 23 期 `:feature:qq:impl`、`:feature:voiceasset:api`、`:feature:plugin:runtime` 过渡依赖写成当前 app direct dependency 事实。
+9. Design、Todo、Feedback、LW 和 archive 只能作为证据线索；是否已成为当前事实必须看源码、验证记录和 `docs/context/` 同步状态，不能把“已设计”写成“已实现”。
+10. 工作区可能已有其他窗口或 worker 的半成品/已验收未提交改动；不要回滚、重排或清理无关改动，必须先按当前工作区基线适配。
+11. 插件 Host API 对齐的是 ElymBot 宿主代理能力，不暴露 AstrBot 风格别名，也不允许插件直连 Room DAO、OneBot socket、adapter 实例、provider secret 或自建网络通道。
+12. `hostApi.message.send`、`hostApi.message.openStream` 和 `hostApi.conversation.history` 仍按当前会话能力理解；`D26052201` 的任意目标发送只是设计包，未拆 Todo/实现前不得写成生产能力。
+13. QQ 会话要区分本地 conversation id、`originSessionId` 和 OneBot 目标 id；群聊隔离只隔离 bot LLM 上下文，插件做群分析时优先读取公共群历史，而不是把 `group:<gid>:user:<uid>` 当作公共群历史真源。
 
 ## 4. 模块细节应该去哪里找
 

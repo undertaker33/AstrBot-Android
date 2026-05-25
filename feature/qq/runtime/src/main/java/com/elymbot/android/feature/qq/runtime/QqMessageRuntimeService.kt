@@ -81,6 +81,10 @@ internal class QqMessageRuntimeService(
         val config = configPort.resolve(bot.configProfileId)
         logConfigBindingMismatchIfNeeded(bot, config)
         val replyDecision = evaluateReplyPolicy(message, bot, config)
+        if (isDuplicateIncomingMessage(message)) {
+            return QqRuntimeResult.Ignored("duplicate_message")
+        }
+        val publicGroupDeposit = depositPublicGroupMessageIfNeeded(message, bot)
         if (!replyDecision.shouldReply) {
             if (replyDecision.shouldLogInfo) {
                 log(
@@ -137,18 +141,71 @@ internal class QqMessageRuntimeService(
             }
             return QqRuntimeResult.Ignored("rate_limited")
         }
-        if (message.messageId.isNotBlank() && !markMessageId(message.messageId)) {
-            log("OneBot duplicate message ignored: ${message.messageId}")
-            return QqRuntimeResult.Ignored("duplicate_message")
-        }
 
-        return processMessage(message, bot, config)
+        return processMessage(message, bot, config, publicGroupDeposit)
+    }
+
+    private suspend fun depositPublicGroupMessageIfNeeded(
+        message: IncomingQqMessage,
+        bot: BotProfile,
+    ): PublicGroupMessageDeposit? {
+        if (message.messageType != MessageType.GroupMessage) return null
+        return depositPublicGroupMessage(message, bot)
+    }
+
+    private suspend fun depositPublicGroupMessage(
+        message: IncomingQqMessage,
+        bot: BotProfile,
+    ): PublicGroupMessageDeposit {
+        val sessionId = buildPublicGroupSessionId(bot, message)
+        val sessionTitle = QqConversationTitleResolver.build(
+            messageType = message.messageType,
+            groupId = message.groupIdOrBlank,
+            userId = message.senderId,
+            senderName = message.senderName,
+        )
+        val finalPromptContent = buildPromptContent(
+            message = message,
+            cleanedText = message.text.trim(),
+            transcribedAudioText = null,
+        )
+        val publicGroupDeposit = sessionLockCoordinator.withLock(sessionId) {
+            val session = conversationPort.resolveOrCreateSession(sessionId, sessionTitle, message.messageType)
+            conversationPort.updateSessionBindings(
+                sessionId = sessionId,
+                botId = bot.id,
+                providerId = session.providerId,
+                personaId = session.personaId,
+            )
+            val messageId = conversationPort.appendMessage(
+                sessionId = sessionId,
+                role = "user",
+                content = finalPromptContent,
+                attachments = message.attachments,
+            )
+            trimPublicGroupHistoryIfNeeded(sessionId)
+            PublicGroupMessageDeposit(sessionId = sessionId, messageId = messageId)
+        }
+        log(
+            "QQ public group message deposited: session=$sessionId chars=${message.text.length} attachments=${message.attachments.size}",
+        )
+        return publicGroupDeposit
+    }
+
+    private fun trimPublicGroupHistoryIfNeeded(sessionId: String) {
+        val messages = conversationPort.session(sessionId).messages
+        if (messages.size <= PUBLIC_GROUP_HISTORY_LIMIT) return
+        conversationPort.replaceMessages(sessionId, messages.takeLast(PUBLIC_GROUP_HISTORY_LIMIT))
+        log(
+            "QQ public group message history trimmed: session=$sessionId kept=$PUBLIC_GROUP_HISTORY_LIMIT dropped=${messages.size - PUBLIC_GROUP_HISTORY_LIMIT}",
+        )
     }
 
     private suspend fun processMessage(
         message: IncomingQqMessage,
         bot: BotProfile,
         config: ConfigProfile,
+        publicGroupDeposit: PublicGroupMessageDeposit?,
     ): QqRuntimeResult {
         val sessionId = buildSessionId(bot, message, config)
         val sessionTitle = QqConversationTitleResolver.build(
@@ -265,14 +322,18 @@ internal class QqMessageRuntimeService(
                 transcribedAudioText = transcribedAudioText,
             )
 
-            conversationPort.appendMessage(
-                sessionId = sessionId,
-                role = "user",
-                content = finalPromptContent,
-                attachments = message.attachments,
-            )
+            val userMessageId = if (publicGroupDeposit?.sessionId == sessionId) {
+                publicGroupDeposit.messageId
+            } else {
+                conversationPort.appendMessage(
+                    sessionId = sessionId,
+                    role = "user",
+                    content = finalPromptContent,
+                    attachments = message.attachments,
+                )
+            }
             val preModelSession = conversationPort.session(sessionId)
-            val userMessage = preModelSession.messages.lastOrNull { historyMessage -> historyMessage.role == "user" }
+            val userMessage = preModelSession.messages.firstOrNull { historyMessage -> historyMessage.id == userMessageId }
                 ?: run {
                     outcome = QqRuntimeResult.Failed("Could not find user message after append")
                     return@lock
@@ -594,6 +655,15 @@ internal class QqMessageRuntimeService(
         ),
     )
 
+    private fun isDuplicateIncomingMessage(message: IncomingQqMessage): Boolean {
+        if (message.messageId.isBlank()) return false
+        val firstSeen = markMessageId(message.messageId)
+        if (!firstSeen) {
+            log("OneBot duplicate message ignored: ${message.messageId}")
+        }
+        return !firstSeen
+    }
+
     private fun buildRateLimitSourceKey(
         bot: BotProfile,
         message: IncomingQqMessage,
@@ -617,6 +687,19 @@ internal class QqMessageRuntimeService(
                     "botDefaultProvider=${bot.defaultProviderId.ifBlank { "none" }}",
             )
         }
+    }
+
+    private fun buildPublicGroupSessionId(
+        bot: BotProfile,
+        message: IncomingQqMessage,
+    ): String {
+        return QqSessionKeyFactory.build(
+            botId = bot.id,
+            messageType = message.messageType,
+            groupId = message.groupIdOrBlank,
+            userId = message.senderId,
+            isolated = false,
+        )
     }
 
     private fun buildSessionId(
@@ -713,9 +796,15 @@ internal class QqMessageRuntimeService(
     }
 
     private companion object {
+        private const val PUBLIC_GROUP_HISTORY_LIMIT = 100
         private const val AUTO_REPLY_FAILURE_NOTICE = "工具调用失败：本轮自动回复未完成，请稍后再试。"
         private const val KEYWORD_BLOCK_NOTICE = "你的消息或者大模型的响应中包含不适当的内容，已被屏蔽。"
     }
+
+    private data class PublicGroupMessageDeposit(
+        val sessionId: String,
+        val messageId: String,
+    )
 }
 
 fun interface QqProviderInvoker {
