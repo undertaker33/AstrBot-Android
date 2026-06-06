@@ -5,6 +5,7 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
+import java.io.File
 import java.util.Properties
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -107,8 +108,8 @@ android {
     defaultConfig {
         applicationId = "com.elymbot.android"
         targetSdk = 36
-        versionCode = 82
-        versionName = "1.1.1"
+        versionCode = 83
+        versionName = "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -185,148 +186,220 @@ listOf("debug", "release").forEach { variantName ->
         from(layout.buildDirectory.dir("outputs/apk/$variantName"))
         into(rootProject.layout.projectDirectory.dir("artifacts/apk/$branchApkDirName/$variantName"))
     }
+    tasks.matching { task -> task.name == "assemble$capitalizedVariant" }.configureEach {
+        finalizedBy(tasks.named("export${capitalizedVariant}ApkByBranch"))
+    }
 }
 
-afterEvaluate {
-    listOf("debug", "release").forEach { variantName ->
-        val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
-        tasks.named("assemble$capitalizedVariant").configure {
-            finalizedBy(tasks.named("export${capitalizedVariant}ApkByBranch"))
-        }
-    }
+data class AppUnitTestModuleGroup(
+    val name: String,
+    val projects: List<String>,
+)
+
+fun Project.debugUnitTestModuleOutputFiles(): List<File> {
+    val buildDir = layout.buildDirectory
+    return listOf(
+        buildDir.dir("tmp/kotlin-classes/debug").get().asFile,
+        buildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar")
+            .get()
+            .asFile,
+        buildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar")
+            .get()
+            .asFile,
+    ).map { file -> file.absoluteFile }
 }
 
 tasks.withType<KotlinCompile>().configureEach {
     if (name == "compileDebugUnitTestKotlin") {
-        dependsOn(":feature:plugin:data:compileDebugKotlin")
-        dependsOn(":feature:plugin:presentation:compileDebugKotlin")
-        dependsOn(":feature:plugin:runtime:compileDebugKotlin")
-        dependsOn(":feature:chat:presentation:compileDebugKotlin")
-        dependsOn(":feature:cron:data:compileDebugKotlin")
-        dependsOn(":feature:cron:presentation:compileDebugKotlin")
-        dependsOn(":feature:cron:runtime:compileDebugKotlin")
-        dependsOn(":feature:qq:data:compileDebugKotlin")
-        dependsOn(":feature:qq:presentation:compileDebugKotlin")
-        dependsOn(":feature:qq:runtime:compileDebugKotlin")
-        dependsOn(":core:ui:compileDebugKotlin")
-        val pluginDataBuildDir = project(":feature:plugin:data").layout.buildDirectory
-        val pluginPresentationBuildDir = project(":feature:plugin:presentation").layout.buildDirectory
-        val pluginRuntimeBuildDir = project(":feature:plugin:runtime").layout.buildDirectory
-        val chatPresentationBuildDir = project(":feature:chat:presentation").layout.buildDirectory
-        val cronDataBuildDir = project(":feature:cron:data").layout.buildDirectory
-        val cronPresentationBuildDir = project(":feature:cron:presentation").layout.buildDirectory
-        val cronRuntimeBuildDir = project(":feature:cron:runtime").layout.buildDirectory
-        val qqDataBuildDir = project(":feature:qq:data").layout.buildDirectory
-        val qqPresentationBuildDir = project(":feature:qq:presentation").layout.buildDirectory
-        val qqRuntimeBuildDir = project(":feature:qq:runtime").layout.buildDirectory
-        val coreUiBuildDir = project(":core:ui").layout.buildDirectory
-        val pluginImplFriendPaths = listOf(
-            layout.buildDirectory.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            pluginDataBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            pluginDataBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            pluginDataBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            pluginPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            pluginPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            pluginPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            pluginRuntimeBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            pluginRuntimeBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            pluginRuntimeBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            chatPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            chatPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            chatPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            cronDataBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            cronDataBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            cronDataBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            cronPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            cronPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            cronPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            cronRuntimeBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            cronRuntimeBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            cronRuntimeBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            qqDataBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            qqDataBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            qqDataBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            qqPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            qqPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            qqPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            qqRuntimeBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            qqRuntimeBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            qqRuntimeBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-            coreUiBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            coreUiBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            coreUiBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
-        ).joinToString(",")
+        val appUnitTestFriendPathGroups = listOf(
+            AppUnitTestModuleGroup(
+                name = "plugin host",
+                projects = listOf(
+                    ":feature:plugin:data",
+                    ":feature:plugin:presentation",
+                    ":feature:plugin:runtime",
+                ),
+            ),
+            AppUnitTestModuleGroup(
+                name = "chat presentation",
+                projects = listOf(":feature:chat:presentation"),
+            ),
+            AppUnitTestModuleGroup(
+                name = "cron",
+                projects = listOf(
+                    ":feature:cron:data",
+                    ":feature:cron:presentation",
+                    ":feature:cron:runtime",
+                ),
+            ),
+            AppUnitTestModuleGroup(
+                name = "qq",
+                projects = listOf(
+                    ":feature:qq:data",
+                    ":feature:qq:presentation",
+                    ":feature:qq:runtime",
+                ),
+            ),
+            AppUnitTestModuleGroup(
+                name = "core ui",
+                projects = listOf(":core:ui"),
+            ),
+        )
+        val friendPathProjects = appUnitTestFriendPathGroups.flatMap { group -> group.projects }.distinct()
+        friendPathProjects.forEach { path ->
+            dependsOn("$path:compileDebugKotlin")
+        }
+        val appDebugKotlinClasses = listOf(layout.buildDirectory.dir("tmp/kotlin-classes/debug").get().asFile)
+        val pluginImplFriendPaths = (appDebugKotlinClasses + friendPathProjects.flatMap { path ->
+            project(path).debugUnitTestModuleOutputFiles()
+        }).joinToString(",") { file -> file.absolutePath }
         compilerOptions.freeCompilerArgs.add("-Xfriend-paths=$pluginImplFriendPaths")
     }
 }
 
-val coreRuntimeModulePrefix = ":core:runtime-"
-val appUnitTestRuntimeProjects = listOf(
-    ":app-integration",
-    ":core:backup",
-    ":core:common",
-    ":core:db",
-    ":core:logging",
-    ":core:network",
-    ":core:runtime",
-    coreRuntimeModulePrefix + "audio",
-    ":core:runtime-cache",
-    coreRuntimeModulePrefix + "container",
-    ":core:runtime-llm",
-    ":core:runtime-search",
-    ":core:runtime-secret",
-    ":core:runtime-session",
-    ":core:ui",
-    ":download:api",
-    ":download:impl",
-    ":feature:bot:api",
-    ":feature:bot:data",
-    ":feature:bot:impl",
-    ":feature:bot:presentation",
-    ":feature:chat:api",
-    ":feature:chat:impl",
-    ":feature:chat:presentation",
-    ":feature:chat:runtime",
-    ":feature:config:api",
-    ":feature:config:data",
-    ":feature:config:impl",
-    ":feature:config:presentation",
-    ":feature:conversation:api",
-    ":feature:conversation:data",
-    ":feature:cron:api",
-    ":feature:cron:data",
-    ":feature:cron:impl",
-    ":feature:cron:presentation",
-    ":feature:cron:runtime",
-    ":feature:persona:api",
-    ":feature:persona:data",
-    ":feature:persona:impl",
-    ":feature:persona:presentation",
-    ":feature:plugin:api",
-    ":feature:plugin:data",
-    ":feature:plugin:impl",
-    ":feature:plugin:presentation",
-    ":feature:plugin:runtime",
-    ":feature:provider:api",
-    ":feature:provider:data",
-    ":feature:provider:impl",
-    ":feature:provider:presentation",
-    ":feature:provider:runtime",
-    ":feature:qq:api",
-    ":feature:qq:data",
-    ":feature:qq:impl",
-    ":feature:qq:presentation",
-    ":feature:qq:runtime",
-    ":feature:resource:api",
-    ":feature:resource:data",
-    ":feature:resource:impl",
-    ":feature:resource:presentation",
-    ":feature:settings:api",
-    ":feature:settings:presentation",
-    ":feature:voiceasset:api",
-    ":feature:voiceasset:data",
-    ":feature:voiceasset:presentation",
+val appUnitTestRuntimeProjectGroups = listOf(
+    AppUnitTestModuleGroup(
+        name = "app shell",
+        projects = listOf(":app-integration"),
+    ),
+    AppUnitTestModuleGroup(
+        name = "core foundation",
+        projects = listOf(
+            ":core:backup",
+            ":core:common",
+            ":core:db",
+            ":core:logging",
+            ":core:network",
+            ":core:ui",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "core runtime",
+        projects = listOf(
+            ":core:runtime",
+            ":core:runtime-cache",
+            ":core:runtime-llm",
+            ":core:runtime-search",
+            ":core:runtime-secret",
+            ":core:runtime-session",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "download",
+        projects = listOf(
+            ":download:api",
+            ":download:impl",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "bot",
+        projects = listOf(
+            ":feature:bot:api",
+            ":feature:bot:data",
+            ":feature:bot:impl",
+            ":feature:bot:presentation",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "chat",
+        projects = listOf(
+            ":feature:chat:api",
+            ":feature:chat:impl",
+            ":feature:chat:presentation",
+            ":feature:chat:runtime",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "config",
+        projects = listOf(
+            ":feature:config:api",
+            ":feature:config:data",
+            ":feature:config:impl",
+            ":feature:config:presentation",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "conversation",
+        projects = listOf(
+            ":feature:conversation:api",
+            ":feature:conversation:data",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "cron",
+        projects = listOf(
+            ":feature:cron:api",
+            ":feature:cron:data",
+            ":feature:cron:impl",
+            ":feature:cron:presentation",
+            ":feature:cron:runtime",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "persona",
+        projects = listOf(
+            ":feature:persona:api",
+            ":feature:persona:data",
+            ":feature:persona:impl",
+            ":feature:persona:presentation",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "plugin",
+        projects = listOf(
+            ":feature:plugin:api",
+            ":feature:plugin:data",
+            ":feature:plugin:impl",
+            ":feature:plugin:presentation",
+            ":feature:plugin:runtime",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "provider",
+        projects = listOf(
+            ":feature:provider:api",
+            ":feature:provider:data",
+            ":feature:provider:impl",
+            ":feature:provider:presentation",
+            ":feature:provider:runtime",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "qq",
+        projects = listOf(
+            ":feature:qq:api",
+            ":feature:qq:data",
+            ":feature:qq:impl",
+            ":feature:qq:presentation",
+            ":feature:qq:runtime",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "resource",
+        projects = listOf(
+            ":feature:resource:api",
+            ":feature:resource:data",
+            ":feature:resource:impl",
+            ":feature:resource:presentation",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "settings",
+        projects = listOf(
+            ":feature:settings:api",
+            ":feature:settings:presentation",
+        ),
+    ),
+    AppUnitTestModuleGroup(
+        name = "voice asset",
+        projects = listOf(
+            ":feature:voiceasset:api",
+            ":feature:voiceasset:data",
+            ":feature:voiceasset:presentation",
+        ),
+    ),
 )
+val appUnitTestRuntimeProjects = appUnitTestRuntimeProjectGroups.flatMap { group -> group.projects }.distinct()
 
 tasks.withType<Test>().configureEach {
     if (name == "testDebugUnitTest") {
@@ -336,16 +409,7 @@ tasks.withType<Test>().configureEach {
             dependsOn("$path:bundleLibRuntimeToJarDebug")
         }
         val runtimeOutputFiles = appUnitTestRuntimeProjects.flatMap { path ->
-            val buildDir = project(path).layout.buildDirectory
-            listOf(
-                buildDir.dir("tmp/kotlin-classes/debug").get().asFile,
-                buildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar")
-                    .get()
-                    .asFile,
-                buildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar")
-                    .get()
-                    .asFile,
-            ).map { it.absoluteFile }
+            project(path).debugUnitTestModuleOutputFiles()
         }
         classpath = classpath.plus(files(runtimeOutputFiles))
     }

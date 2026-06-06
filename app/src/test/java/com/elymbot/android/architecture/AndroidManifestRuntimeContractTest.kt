@@ -33,6 +33,26 @@ class AndroidManifestRuntimeContractTest {
     }
 
     @Test
+    fun manifest_must_keep_runtime_foreground_service_data_sync_type() {
+        val manifest = manifestPath.readText()
+
+        assertTrue(
+            "Runtime container service must keep FOREGROUND_SERVICE permission",
+            manifest.contains("""<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />"""),
+        )
+        assertTrue(
+            "Runtime container service must keep Android 14+ dataSync foreground service permission",
+            manifest.contains("""<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />"""),
+        )
+        assertTrue(
+            "Runtime container service must declare foregroundServiceType=dataSync",
+            Regex(
+                """<service\s+[\s\S]*android:name="\.core\.runtime\.container\.ContainerBridgeService"[\s\S]*android:foregroundServiceType="dataSync"[\s\S]*/>""",
+            ).containsMatchIn(manifest),
+        )
+    }
+
+    @Test
     fun manifest_must_register_app_update_install_boundaries() {
         val manifest = manifestPath.readText()
         val updateFilePaths = listOf(

@@ -2,7 +2,7 @@
 
 `docs/context/` 是 UTH 的当前事实层入口。代码事实优先，旧 Design、Feedback、Run Log、worker Prompt、LW 记录、归档文档、ADR 或旧模块文档不得直接当作当前事实。
 
-当前状态：`full-project-docs-complete`。12 个编号模块上下文均已写入，旧模块文档和早期 seed 已从当前上下文层移入 archive。最新 `uth-docs` scoped-sync 已覆盖 `4fedf19..13467db`、`v1.1.0` release / CI 刷新，以及当前工作区的 QQ 普通群公共历史沉淀增量；当前活动任务只保留在 `docs/current-state.md` 指定的任务包中。
+当前状态：`full-project-docs-complete`。12 个编号模块上下文均已写入，旧模块文档和早期 seed 已从当前上下文层移入 archive。最新 `uth-docs` 全仓文档更新已覆盖 `4fedf19..13467db`、`v1.1.0` release / CI 刷新、当前工作区 QQ 普通群公共历史沉淀增量，以及 `D26060301` 构建优化、`D26060501` NapCat 安卓权限与启动兼容的代码事实；当前活动任务只保留在 `docs/current-state.md` 指定的任务包中。
 
 ## 当前可用文档
 
@@ -62,7 +62,7 @@
 ## 基线
 
 - Initial baseline commit：`6b97b4a`
-- Latest scoped sync：`4fedf19..13467db` + current worktree QQ public group history / Host API mapping facts
-- Source：`uth-docs existing-project takeover repair` and 2026-05-22 scoped-sync
-- Updated at：2026-05-25 18:26 +08:00
+- Latest full-project update：current worktree `D26060301` build optimization + `D26060501` NapCat Android compatibility facts
+- Source：`uth-docs existing-project takeover repair`, 2026-05-22 scoped-sync, 2026-06-06 full-project-baseline update
+- Updated at：2026-06-06 11:41 +08:00
 - Completion level：`full-project-docs-complete`

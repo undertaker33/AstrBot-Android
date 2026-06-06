@@ -51,7 +51,36 @@ internal class AndroidRuntimeBridgeController @Inject constructor(
                 appContext.startService(intent)
             }
         }.onFailure { error ->
-            runtimeLogger.append("$logLabel failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append(
+                buildRuntimeBridgeStartFailureLog(
+                    logLabel = logLabel,
+                    foreground = foreground,
+                    error = error,
+                ),
+            )
+        }
+    }
+}
+
+internal fun buildRuntimeBridgeStartFailureLog(
+    logLabel: String,
+    foreground: Boolean,
+    error: Throwable,
+): String {
+    val detail = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+    val errorName = error.javaClass.simpleName
+    return when {
+        error is SecurityException -> {
+            "$logLabel failed: Android service permission/security policy blocked the request: $detail"
+        }
+        foreground && errorName == "ForegroundServiceStartNotAllowedException" -> {
+            "$logLabel failed: Android 12+ foreground service background start restriction blocked the request: $detail"
+        }
+        foreground && errorName.contains("ForegroundService") -> {
+            "$logLabel failed: foreground service start failed: $detail"
+        }
+        else -> {
+            "$logLabel failed: service start failed: $detail"
         }
     }
 }

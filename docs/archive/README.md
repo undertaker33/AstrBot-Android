@@ -32,3 +32,12 @@
 - `LW-Work/LW26052201-QQ普通群消息历史沉淀.md`
 
 该记录是 QQ 普通群公共历史沉淀的验收证据；当前代码事实仍以工作区源码、`docs/current-state.md` 与 `docs/context/07-聊天与会话.md`、`docs/context/08-QQ_NapCat_OneBot.md`、`docs/context/09-插件平台.md` 为准。
+
+## 2026-06-06 归档
+
+本轮 `uth-docs` 将已完成 Design-level 验收、已同步编号 context、且不再作为活动路由入口的正式任务包移入归档：
+
+- `work/D26060301-构建优化/`
+- `work/D26060501-NapCat安卓权限与启动兼容/`
+
+这两个任务包仅保留为历史证据。构建优化和 NapCat 兼容的当前事实以工作区源码、`docs/current-state.md`、`docs/context/01-验证构建治理.md`、`docs/context/04-核心运行时.md`、`docs/context/05-下载与容器资产.md` 与 `docs/context/08-QQ_NapCat_OneBot.md` 为准；本轮未执行 Git 写入、Gradle、单测或 APK 构建。

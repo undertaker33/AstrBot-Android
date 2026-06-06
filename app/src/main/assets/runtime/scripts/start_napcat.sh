@@ -27,12 +27,39 @@ CONTAINER_HOME="${ELYMBOT_CONTAINER_HOME:-/root}"
 CONTAINER_WORKDIR="/"
 APT_MIRROR="${ELYMBOT_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}"
 PROOT_BIND_ARGS=""
+PROOT_OPTIONAL_BIND_ARGS=""
 
 add_bind_arg() {
   if [ -n "$PROOT_BIND_ARGS" ]; then
     PROOT_BIND_ARGS="$PROOT_BIND_ARGS -b $1:$2"
   else
     PROOT_BIND_ARGS="-b $1:$2"
+  fi
+}
+
+add_optional_bind_if_readable() {
+  source_path="$1"
+  target_path="$2"
+  if [ -e "$source_path" ] && [ -r "$source_path" ]; then
+    if [ -n "$PROOT_OPTIONAL_BIND_ARGS" ]; then
+      PROOT_OPTIONAL_BIND_ARGS="$PROOT_OPTIONAL_BIND_ARGS -b $source_path:$target_path"
+    else
+      PROOT_OPTIONAL_BIND_ARGS="-b $source_path:$target_path"
+    fi
+    echo "start_napcat: external storage bind added: $source_path -> $target_path" >> "$LOG_FILE"
+  else
+    echo "start_napcat: external storage bind skipped: $source_path -> $target_path" >> "$LOG_FILE"
+  fi
+}
+
+prepare_external_storage_bind_args() {
+  if [ -e /storage/emulated/0 ] && [ -r /storage/emulated/0 ]; then
+    add_optional_bind_if_readable /storage/emulated/0 /sdcard
+    add_optional_bind_if_readable /storage/emulated/0 /storage/emulated/0
+  else
+    add_optional_bind_if_readable /storage/emulated/0 /sdcard
+    add_optional_bind_if_readable /storage/emulated/0 /storage/emulated/0
+    add_optional_bind_if_readable /sdcard /sdcard
   fi
 }
 
@@ -396,6 +423,9 @@ if ! "$PROOT_BIN" \
 fi
 echo "start_napcat: proot smoke test passed" >> "$LOG_FILE"
 
+prepare_external_storage_bind_args
+echo "start_napcat: optional external storage binds: ${PROOT_OPTIONAL_BIND_ARGS:-(none)}" >> "$LOG_FILE"
+
 nohup "$PROOT_BIN" \
   -0 \
   -r "$ROOTFS_DIR" \
@@ -410,13 +440,11 @@ nohup "$PROOT_BIN" \
   -b /proc/self/fd/0:/dev/stdin \
   -b /proc/self/fd/1:/dev/stdout \
   -b /proc/self/fd/2:/dev/stderr \
-  -b /sdcard \
-  -b /storage/emulated/0:/sdcard \
-  -b /storage/emulated/0:/storage/emulated/0 \
   -b "$APP_HOME":"$APP_HOME" \
   -b "$WRITABLE_TMP":"$WRITABLE_TMP" \
   -b "$WRITABLE_TMP":/dev/shm \
   $PROOT_BIND_ARGS \
+  $PROOT_OPTIONAL_BIND_ARGS \
   -w "$CONTAINER_WORKDIR" \
   /usr/bin/env -i \
     HOME="$CONTAINER_HOME" \

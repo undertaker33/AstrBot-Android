@@ -107,6 +107,10 @@
 11. 插件 Host API 对齐的是 ElymBot 宿主代理能力，不暴露 AstrBot 风格别名，也不允许插件直连 Room DAO、OneBot socket、adapter 实例、provider secret 或自建网络通道。
 12. `hostApi.message.send`、`hostApi.message.openStream` 和 `hostApi.conversation.history` 仍按当前会话能力理解；`D26052201` 的任意目标发送只是设计包，未拆 Todo/实现前不得写成生产能力。
 13. QQ 会话要区分本地 conversation id、`originSessionId` 和 OneBot 目标 id；群聊隔离只隔离 bot LLM 上下文，插件做群分析时优先读取公共群历史，而不是把 `group:<gid>:user:<uid>` 当作公共群历史真源。
+14. 构建优化当前基线是 configuration cache / build cache / parallel execution + lazy wiring；不要把 module group check 改回全局 `gradle.projectsEvaluated`，也不要把 app APK export 改回 app 级 `afterEvaluate`。
+15. `:app:testDebugUnitTest` 的 runtime / friend-path 治理按测试域分组；不要重新把 `:core:runtime-audio` 或 `:core:runtime-container` 字符串直接塞回 `app/build.gradle.kts` 的 app 单测任务图。
+16. NapCat Android 兼容问题先看 `RuntimeCompatibilityProbe`、`start_napcat.sh` 条件 external storage bind、`ContainerBridgeService` / `AndroidRuntimeBridgeController` 启动分类；不要通过新增 `READ_EXTERNAL_STORAGE`、`WRITE_EXTERNAL_STORAGE`、`READ_MEDIA_*` 或 `MANAGE_EXTERNAL_STORAGE` 兜底。
+17. `RuntimeCompatibilityProbe` 是 `:core:runtime-container` 的诊断模型与合同，`ContainerBridgeService` 是 app 侧 Android service adapter；不要把 Android service owner 倒置到 core，也不要把二者混成同一个边界。
 
 ## 4. 模块细节应该去哪里找
 
