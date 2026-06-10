@@ -1,6 +1,6 @@
 # 版本 Git 锚点索引
 
-更新时间：2026-05-22 18:30 +08:00
+更新时间：2026-06-10 15:03 +08:00
 
 ## 定位
 
@@ -17,18 +17,19 @@
 - `git log v0.7.5..HEAD --reverse --stat`
 - `git tag --points-at`
 - `git rev-parse --short HEAD master origin/master origin/codex/ColorOS16(RealmeUI7)`
+- `git fetch origin --prune`
 - `git ls-remote --heads origin master codex/ColorOS16(RealmeUI7)`
-- `git ls-remote --tags origin refs/tags/v1.0.1 refs/tags/v1.0.2 refs/tags/v1.0.3 refs/tags/v1.0.4`
+- `git ls-remote --tags origin refs/tags/v1.2.0`
 - `app/build.gradle.kts`
 - `changelogs/v*.md`
 
-本次没有执行 Gradle、测试、发布命令或 Git 写入。
+本次为 `v1.2.0` release PR 收口准备阶段，已刷新远端 tracking refs 并查询 `v1.2.0` 远端 tag；发布 tag / merge 锚点待 PR 发布闭环补齐。
 
 ## 命名规则
 
 - `v0.1.x` 到 `v0.7.x`：按小版本聚合，每个小版本一份 `changelogs/v0.N.x.md`。
 - `v0.7.5` 之后：每个 patch 版本一份独立正文，例如 `changelogs/v0.7.6.md`、`changelogs/v0.8.14.md`。
-- 每份正文只保留 `新增` 和 `修复` 两个章节，内容面向用户，不写成 commit log。
+- 每份正文按版本需要保留 `新增`、`变更`、`修复`、`验证` 等用户可读章节，不写成 commit log。
 
 ## 当前覆盖
 
@@ -52,11 +53,18 @@
 | `v1.0.2` | tag `v1.0.2`，merge commit `0cf61cc`，release commit `0308320` | `changelogs/v1.0.2.md` | 已有 |
 | `v1.0.3` | tag `v1.0.3`，merge commit `0eafb33`，release commit `1d5abb7` | `changelogs/v1.0.3.md` | 已有 |
 | `v1.0.4` | release commit `4fedf19` | `changelogs/v1.0.4.md` | 已有正文，缺少 tag |
+| `v1.1.0` | tag `v1.1.0`，merge commit `988a523`，release commit `104eb3a` | `changelogs/v1.1.0.md` | 已有 |
+| `v1.1.1` | release commit `dea5d75` | `changelogs/v1.1.1.md` | 已有正文，缺少本地 tag |
+| `v1.1.2` | release commit `b069daf` | `changelogs/v1.1.2.md` | 已有正文，缺少本地 tag |
+| `v1.2.0` | release commit 待生成 | `changelogs/v1.2.0.md` | 已有正文，PR / tag / merge 锚点待补齐 |
 
 ## 当前缺口
 
 - `v0.9.1` 和 `v0.9.2` 尚未发现对应 tag；当前只保留 release commit 与正文文件锚点。
 - `v0.9.0` tag 锚在 PR merge commit `6078ff3`，不是直接锚在 `Release v0.9.0` commit `a97d398`；正式发布说明以 tag/merge 闭环为准。
 - `v1.0.1` 到 `v1.0.3` 已有 tag 与 changelog 正文文件。
-- `v1.0.4` 当前 App 版本已写入 `app/build.gradle.kts`，当前 HEAD / `origin/codex/ColorOS16(RealmeUI7)` 均为 `4fedf19`，且已有 `changelogs/v1.0.4.md`；本地和远端均未发现 `refs/tags/v1.0.4`。
-- `master` / `origin/master` 当前仍为 `0eafb33`，即 `v1.0.3` tag 所在提交。
+- `v1.0.4` 有 release commit `4fedf19` 和 `changelogs/v1.0.4.md`；本地和远端均未发现 `refs/tags/v1.0.4`。
+- `v1.1.0` 已形成 tag / merge / changelog 闭环；该版本当时对应 `versionName = "1.1.0"`、`versionCode = 81`，当前 App 版本源已由后续 release 更新为 `versionName = "1.1.2"`、`versionCode = 83`。
+- `v1.1.1` release commit 为 `dea5d75`，已有正文 `changelogs/v1.1.1.md`；本轮只发现本地 tag `v1.1.0`，未发现本地 `v1.1.1` tag。
+- `v1.1.2` release commit 为 `b069daf`，已有正文 `changelogs/v1.1.2.md`；本轮只发现本地 tag `v1.1.0`，未发现本地 `v1.1.2` tag。
+- `v1.2.0` 本轮作为 PR 到 `master` 的版本提交准备中；当前 App 版本源更新为 `versionName = "1.2.0"`、`versionCode = 84`，远端未发现 `refs/tags/v1.2.0`。

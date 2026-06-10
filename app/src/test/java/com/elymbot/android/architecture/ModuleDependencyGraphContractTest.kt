@@ -505,6 +505,7 @@ class ModuleDependencyGraphContractTest {
             ":feature:chat:presentation",
             ":feature:config:presentation",
             ":feature:cron:presentation",
+            ":feature:geofence:presentation",
             ":feature:persona:presentation",
             ":feature:plugin:presentation",
             ":feature:provider:presentation",

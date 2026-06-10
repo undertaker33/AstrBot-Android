@@ -2,7 +2,18 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.LibraryExtension
 import com.google.devtools.ksp.gradle.KspExtension
 import java.io.File
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -51,6 +62,11 @@ val architectureMainSourceRoots = listOf(
     "feature/cron/impl/src/main/java",
     "feature/cron/presentation/src/main/java",
     "feature/cron/runtime/src/main/java",
+    "feature/geofence/api/src/main/java",
+    "feature/geofence/data/src/main/java",
+    "feature/geofence/impl/src/main/java",
+    "feature/geofence/presentation/src/main/java",
+    "feature/geofence/runtime/src/main/java",
     "feature/persona/api/src/main/java",
     "feature/persona/data/src/main/java",
     "feature/persona/impl/src/main/java",
@@ -176,6 +192,17 @@ val moduleBuildGroups = listOf(
         ),
     ),
     ModuleBuildGroup(
+        taskPrefix = "moduleGeofence",
+        displayName = "geofence",
+        modules = listOf(
+            ":feature:geofence:api",
+            ":feature:geofence:data",
+            ":feature:geofence:impl",
+            ":feature:geofence:presentation",
+            ":feature:geofence:runtime",
+        ),
+    ),
+    ModuleBuildGroup(
         taskPrefix = "modulePersona",
         displayName = "persona",
         modules = listOf(
@@ -255,26 +282,163 @@ val moduleBuildGroups = listOf(
     ),
 )
 
-fun trackedMainSourceRoots(project: Project): List<String> {
-    val output = project.providers.exec {
-        commandLine("git", "ls-files")
-    }.standardOutput.asText.get()
-    return output
-        .lineSequence()
-        .map(String::trim)
-        .filter { path -> path.endsWith(".kt") || path.endsWith(".java") }
-        .mapNotNull { path ->
-            val marker = "/src/main/java/"
-            val markerIndex = path.indexOf(marker)
-            if (markerIndex == -1) {
-                null
-            } else {
-                path.substring(0, markerIndex + marker.length - 1)
-            }
+abstract class ArchitectureSourceRootsReportTask : DefaultTask() {
+    @get:Input
+    abstract val sourceRoots: ListProperty<String>
+
+    @get:Internal
+    abstract val projectDirectory: DirectoryProperty
+
+    @get:OutputFile
+    abstract val reportFile: RegularFileProperty
+
+    @TaskAction
+    fun writeReport() {
+        val rootDirectory = projectDirectory.get().asFile
+        val expectedSourceRoots = sourceRoots.get()
+        val moduleMainSourceRoots = trackedMainSourceRoots(rootDirectory)
+        val missingModuleRoots = moduleMainSourceRoots.filterNot { sourceRoot ->
+            sourceRoot in expectedSourceRoots
         }
-        .distinct()
-        .sorted()
-        .toList()
+        check(missingModuleRoots.isEmpty()) {
+            "Architecture source roots are missing current Gradle module roots: $missingModuleRoots"
+        }
+
+        val lines = expectedSourceRoots.map { sourceRoot ->
+            val rootDir = rootDirectory.resolve(sourceRoot)
+            check(rootDir.isDirectory) {
+                "Architecture source root is missing: $sourceRoot"
+            }
+            val kotlinFileCount = rootDir.walkTopDown()
+                .count { file -> file.isFile && file.extension == "kt" }
+            "$sourceRoot | kotlinFiles=$kotlinFileCount"
+        }
+
+        val output = reportFile.get().asFile
+        output.parentFile.mkdirs()
+        output.writeText(lines.joinToString(System.lineSeparator()) + System.lineSeparator())
+    }
+
+    private fun trackedMainSourceRoots(rootDirectory: File): List<String> {
+        val process = ProcessBuilder("git", "ls-files")
+            .directory(rootDirectory)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+            reader.readText()
+        }
+        val exitCode = process.waitFor()
+        check(exitCode == 0) {
+            "git ls-files failed with exit code $exitCode: $output"
+        }
+        return output
+            .lineSequence()
+            .map(String::trim)
+            .filter { path -> path.endsWith(".kt") || path.endsWith(".java") }
+            .mapNotNull { path ->
+                val marker = "/src/main/java/"
+                val markerIndex = path.indexOf(marker)
+                if (markerIndex == -1) {
+                    null
+                } else {
+                    path.substring(0, markerIndex + marker.length - 1)
+                }
+            }
+            .distinct()
+            .sorted()
+            .toList()
+    }
+}
+
+abstract class ArchitectureDebtReportTask : DefaultTask() {
+    @get:Input
+    abstract val sourceRoots: ListProperty<String>
+
+    @get:Internal
+    abstract val projectDirectory: DirectoryProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val singletonAllowlistFile: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val staticRepositoryAllowlistFile: RegularFileProperty
+
+    @get:OutputFile
+    abstract val reportFile: RegularFileProperty
+
+    @TaskAction
+    fun writeReport() {
+        val singletonRows = parseAllowlist(singletonAllowlistFile.get().asFile, expectedColumns = 8)
+        val staticRepositoryRows = parseAllowlist(staticRepositoryAllowlistFile.get().asFile, expectedColumns = 7)
+        val singletonCategoryCounts = singletonRows.groupingBy { parts -> parts[2] }.eachCount()
+        val singletonOwnerCounts = singletonRows.groupingBy { parts -> parts[3] }.eachCount()
+        val staticOwnerCounts = staticRepositoryRows.groupingBy { parts -> parts[2] }.eachCount()
+        val staticSymbolCounts = staticRepositoryRows.groupingBy { parts -> parts[1] }.eachCount()
+        val rootDirectory = projectDirectory.get().asFile
+
+        val report = buildString {
+            appendLine("Architecture Debt Report")
+            appendLine()
+            appendLine("source roots:")
+            sourceRoots.get().forEach { sourceRoot ->
+                val rootDir = rootDirectory.resolve(sourceRoot)
+                check(rootDir.isDirectory) {
+                    "Architecture source root is missing: $sourceRoot"
+                }
+                val kotlinFileCount = rootDir.walkTopDown()
+                    .count { file -> file.isFile && file.extension == "kt" }
+                appendLine("- $sourceRoot | kotlinFiles=$kotlinFileCount")
+            }
+            appendLine()
+            appendLine("global singleton allowlist:")
+            appendLine("- total: ${singletonRows.size}")
+            appendLine("by category:")
+            singletonCategoryCounts.appendTo(this)
+            appendLine("by owner:")
+            singletonOwnerCounts.appendTo(this)
+            appendLine()
+            appendLine("static repository usage allowlist:")
+            appendLine("- total: ${staticRepositoryRows.size}")
+            appendLine("by owner:")
+            staticOwnerCounts.appendTo(this)
+            appendLine("by symbol:")
+            staticSymbolCounts.appendTo(this)
+        }
+
+        val output = reportFile.get().asFile
+        output.parentFile.mkdirs()
+        output.writeText(report)
+    }
+
+    private fun parseAllowlist(file: File, expectedColumns: Int): List<List<String>> {
+        check(file.isFile) {
+            "Architecture allowlist is missing: ${file.path}"
+        }
+        return file.readLines(Charsets.UTF_8)
+            .asSequence()
+            .map { line -> line.trim() }
+            .filter { line -> line.isNotBlank() && !line.startsWith("#") }
+            .mapIndexed { index, line ->
+                val parts = line.split("|").map { part -> part.trim() }
+                check(parts.size == expectedColumns) {
+                    "Invalid architecture allowlist entry at ${file.path}:${index + 1}: $line"
+                }
+                parts
+            }
+            .toList()
+    }
+
+    private fun Map<String, Int>.appendTo(builder: StringBuilder) {
+        if (isEmpty()) {
+            builder.appendLine("- none")
+            return
+        }
+        toSortedMap().forEach { (key, count) ->
+            builder.appendLine("- $key: $count")
+        }
+    }
 }
 
 fun File.hasNestedGitDirectory(): Boolean =
@@ -305,6 +469,34 @@ fun Project.existingTaskPath(vararg candidateTaskNames: String): String {
         "None of the expected tasks ${candidateTaskNames.toList()} exist in project $path"
     }
     return "$path:$taskName"
+}
+
+fun Project.configureModuleGroupBuildDependency(
+    modulePath: String,
+    buildTaskName: String,
+) {
+    // skipcq: KT-W1042
+    plugins.withId("com.android.application") {
+        rootProject.tasks.named(buildTaskName).configure {
+            dependsOn("$modulePath:assembleDebug")
+        }
+    }
+    // skipcq: KT-W1042
+    plugins.withId("com.android.library") {
+        rootProject.tasks.named(buildTaskName).configure {
+            dependsOn("$modulePath:assembleDebug")
+        }
+    }
+    plugins.withId("org.jetbrains.kotlin.jvm") {
+        rootProject.tasks.named(buildTaskName).configure {
+            dependsOn("$modulePath:assemble")
+        }
+    }
+    plugins.withId("elymbot.kotlin.jvm") {
+        rootProject.tasks.named(buildTaskName).configure {
+            dependsOn("$modulePath:assemble")
+        }
+    }
 }
 
 plugins {
@@ -496,6 +688,13 @@ moduleBuildGroups.forEach { moduleBuildGroup ->
 
         dependsOn(buildTaskName)
     }
+
+    moduleBuildGroup.modules.forEach { modulePath ->
+        project(modulePath).configureModuleGroupBuildDependency(modulePath, buildTaskName)
+        tasks.named(checkTaskName).configure {
+            dependsOn("$modulePath:check")
+        }
+    }
 }
 
 tasks.register("allModuleGroupsBuild") {
@@ -512,22 +711,6 @@ tasks.register("allModuleGroupsCheck") {
     dependsOn(moduleBuildGroups.map { moduleBuildGroup -> "${moduleBuildGroup.taskPrefix}Check" })
 }
 
-gradle.projectsEvaluated {
-    moduleBuildGroups.forEach { moduleBuildGroup ->
-        tasks.named("${moduleBuildGroup.taskPrefix}Build").configure {
-            moduleBuildGroup.modules.forEach { modulePath ->
-                dependsOn(project(modulePath).existingTaskPath("assembleDebug", "assemble"))
-            }
-        }
-
-        tasks.named("${moduleBuildGroup.taskPrefix}Check").configure {
-            moduleBuildGroup.modules.forEach { modulePath ->
-                dependsOn(project(modulePath).existingTaskPath("check"))
-            }
-        }
-    }
-}
-
 tasks.register("architectureCheck") {
     group = "verification"
     description = "Runs ElymBot source-level architecture contracts and startup hotspot guardrails."
@@ -538,120 +721,24 @@ tasks.register("architectureCheck") {
     dependsOn(":app:architectureDebugUnitTest")
 }
 
-tasks.register("architectureSourceRootsReport") {
+tasks.register<ArchitectureSourceRootsReportTask>("architectureSourceRootsReport") {
     group = "verification"
     description = "Writes the repo-wide source roots scanned by architecture checks."
 
-    val reportFile = layout.projectDirectory.file(architectureSourceRootsReportPath)
-    val rootProjectForSourceRoots = rootProject
-    outputs.file(reportFile)
+    sourceRoots.set(architectureMainSourceRoots)
+    projectDirectory.set(layout.projectDirectory)
+    reportFile.set(layout.projectDirectory.file(architectureSourceRootsReportPath))
     outputs.upToDateWhen { false }
-
-    doLast {
-        val moduleMainSourceRoots = trackedMainSourceRoots(rootProjectForSourceRoots)
-        val missingModuleRoots = moduleMainSourceRoots.filterNot { sourceRoot ->
-            sourceRoot in architectureMainSourceRoots
-        }
-        check(missingModuleRoots.isEmpty()) {
-            "Architecture source roots are missing current Gradle module roots: $missingModuleRoots"
-        }
-
-        val lines = architectureMainSourceRoots.map { sourceRoot ->
-            val rootDir = layout.projectDirectory.dir(sourceRoot).asFile
-            check(rootDir.isDirectory) {
-                "Architecture source root is missing: $sourceRoot"
-            }
-            val kotlinFileCount = rootDir.walkTopDown()
-                .count { file -> file.isFile && file.extension == "kt" }
-            "$sourceRoot | kotlinFiles=$kotlinFileCount"
-        }
-
-        val output = reportFile.asFile
-        output.parentFile.mkdirs()
-        output.writeText(lines.joinToString(System.lineSeparator()) + System.lineSeparator())
-    }
 }
 
-tasks.register("architectureDebtReport") {
+tasks.register<ArchitectureDebtReportTask>("architectureDebtReport") {
     group = "verification"
     description = "Writes the repo-wide architecture debt baseline from source roots and allowlists."
 
-    val reportFile = layout.projectDirectory.file(architectureDebtReportPath)
-    val singletonAllowlistFile = layout.projectDirectory.file(globalSingletonAllowlistPath)
-    val staticRepositoryAllowlistFile = layout.projectDirectory.file(staticRepositoryUsageAllowlistPath)
-    inputs.file(singletonAllowlistFile)
-    inputs.file(staticRepositoryAllowlistFile)
-    outputs.file(reportFile)
+    sourceRoots.set(architectureMainSourceRoots)
+    projectDirectory.set(layout.projectDirectory)
+    singletonAllowlistFile.set(layout.projectDirectory.file(globalSingletonAllowlistPath))
+    staticRepositoryAllowlistFile.set(layout.projectDirectory.file(staticRepositoryUsageAllowlistPath))
+    reportFile.set(layout.projectDirectory.file(architectureDebtReportPath))
     outputs.upToDateWhen { false }
-
-    doLast {
-        fun parseAllowlist(relativePath: String, expectedColumns: Int): List<List<String>> {
-            val file = layout.projectDirectory.file(relativePath).asFile
-            check(file.isFile) {
-                "Architecture allowlist is missing: $relativePath"
-            }
-            return file.readLines(Charsets.UTF_8)
-                .asSequence()
-                .map { line -> line.trim() }
-                .filter { line -> line.isNotBlank() && !line.startsWith("#") }
-                .mapIndexed { index, line ->
-                    val parts = line.split("|").map { part -> part.trim() }
-                    check(parts.size == expectedColumns) {
-                        "Invalid architecture allowlist entry at $relativePath:${index + 1}: $line"
-                    }
-                    parts
-                }
-                .toList()
-        }
-
-        fun Map<String, Int>.appendTo(builder: StringBuilder) {
-            if (isEmpty()) {
-                builder.appendLine("- none")
-                return
-            }
-            toSortedMap().forEach { (key, count) ->
-                builder.appendLine("- $key: $count")
-            }
-        }
-
-        val singletonRows = parseAllowlist(globalSingletonAllowlistPath, expectedColumns = 8)
-        val staticRepositoryRows = parseAllowlist(staticRepositoryUsageAllowlistPath, expectedColumns = 7)
-        val singletonCategoryCounts = singletonRows.groupingBy { parts -> parts[2] }.eachCount()
-        val singletonOwnerCounts = singletonRows.groupingBy { parts -> parts[3] }.eachCount()
-        val staticOwnerCounts = staticRepositoryRows.groupingBy { parts -> parts[2] }.eachCount()
-        val staticSymbolCounts = staticRepositoryRows.groupingBy { parts -> parts[1] }.eachCount()
-
-        val report = buildString {
-            appendLine("Architecture Debt Report")
-            appendLine()
-            appendLine("source roots:")
-            architectureMainSourceRoots.forEach { sourceRoot ->
-                val rootDir = layout.projectDirectory.dir(sourceRoot).asFile
-                check(rootDir.isDirectory) {
-                    "Architecture source root is missing: $sourceRoot"
-                }
-                val kotlinFileCount = rootDir.walkTopDown()
-                    .count { file -> file.isFile && file.extension == "kt" }
-                appendLine("- $sourceRoot | kotlinFiles=$kotlinFileCount")
-            }
-            appendLine()
-            appendLine("global singleton allowlist:")
-            appendLine("- total: ${singletonRows.size}")
-            appendLine("by category:")
-            singletonCategoryCounts.appendTo(this)
-            appendLine("by owner:")
-            singletonOwnerCounts.appendTo(this)
-            appendLine()
-            appendLine("static repository usage allowlist:")
-            appendLine("- total: ${staticRepositoryRows.size}")
-            appendLine("by owner:")
-            staticOwnerCounts.appendTo(this)
-            appendLine("by symbol:")
-            staticSymbolCounts.appendTo(this)
-        }
-
-        val output = reportFile.asFile
-        output.parentFile.mkdirs()
-        output.writeText(report)
-    }
 }

@@ -1,6 +1,6 @@
 # provider-config-bot-persona 模块上下文
 
-更新时间：2026-05-22 18:30 +08:00
+更新时间：2026-06-10 14:12 +08:00
 
 ## 状态
 
@@ -10,7 +10,7 @@
 - 模块状态：已按当前代码事实重新确认
 - 完成等级：`full-project-docs-complete`
 - 下一模块：`chat-and-conversation`
-- 本轮 scoped-sync：`66eee69..4fedf19`，并按当前工作区状态核对文档
+- 最近影响本模块的 scoped-sync：当前工作区 `D26060701` 新增 ConfigDetail 地理围栏绑定入口；ConfigProfile 本体仍不嵌入 geofence 规则内容字段。
 - 本轮 Git 写入：无
 - 本轮 Gradle / 测试命令：未运行；本文档场景只做文档治理
 
@@ -45,6 +45,7 @@
 - `feature/config/api/src/main/java/**`
 - `feature/config/data/src/main/java/**`
 - `feature/config/presentation/src/main/java/**`
+- `feature/config/presentation/src/main/java/com/elymbot/android/feature/config/presentation/geofence/**`
 - `feature/bot/api/src/main/java/**`
 - `feature/bot/data/src/main/java/**`
 - `feature/bot/presentation/src/main/java/**`
@@ -113,6 +114,7 @@
 - QQ / NapCat / OneBot runtime 不在本模块完成，交给 `qq-napcat-onebot`。
 - Plugin 平台、tool source、host capability 不在本模块完成，交给 `plugin-platform`。
 - Resource Center 完整 owner 不在本模块完成；这里只确认 Config 与 RuntimeContextResolver 通过 `ResourceCenterPort.compatibilitySnapshotForConfig(...)` 消费投影。
+- Geofence 完整 owner 不在本模块完成；这里只确认 ConfigDetail 通过 geofence API port 管理 `ConfigGeofenceBinding`，规则内容 owner 见 `docs/context/13-地理围栏.md`。
 - Voiceasset 完整 owner 不在本模块完成；这里只确认 Provider runtime 经 `RuntimeAssetPort` 和 `TtsVoiceAssetPort` 使用语音资产能力。
 - 不得把 `impl` 模块写成生产业务真源；当前四个 `impl` 模块主要是 `api` + `data` 聚合壳。
 
@@ -153,6 +155,7 @@
 - `:feature:provider:data` 依赖 `:core:common`、`:core:db`、`:core:logging`、`:core:runtime-search` 与 provider API。
 - `:feature:provider:runtime` 启用 Hilt，依赖 `:core:runtime-audio`、`:core:runtime-llm`、`:feature:provider:api`、`:feature:voiceasset:api` 与 conversation API。
 - `:feature:config:data` 依赖 `:core:db`、`:feature:config:api` 与 `:feature:resource:api`。
+- `:feature:config:presentation` 当前额外依赖 `:feature:geofence:api`，用于 ConfigDetail 地理围栏绑定 UI；不得依赖 geofence data / runtime。
 - `:feature:bot:data` 依赖 `:feature:bot:api` 与 `:feature:config:api`。
 - `:feature:persona:data` 依赖 persona API 与基础 core 依赖。
 - 四个 presentation 模块均启用 Compose + Hilt；`ProviderViewModel`、`ConfigViewModel`、`BotViewModel`、`PersonaViewModel` 仍声明在 `com.elymbot.android.ui.viewmodel` package，不能只按物理路径推断 package。
@@ -227,6 +230,7 @@ Config 当前主真源：
 当前 Config 事实：
 
 - `ConfigProfile` 仍是运行时策略入口，包含默认 provider、STT/TTS、streaming、web search、proactive、scheduled task 上下文、QQ 规则、插件命令管理员限制、context policy、legacy `mcpServers` 与 `skills`。
+- `ConfigProfile` 不嵌入 geofence coordinates、radius、action prompt、region 或 binding 字段；Config 与 geofence 的关联通过独立 `config_geofence_bindings` 表表达。
 - `FeatureConfigRepositoryStore` 使用 `ConfigAggregateDao` 与 `AppPreferenceDao`。
 - selected config 真源是 `AppPreferenceDao.observeValue("selected_config_profile_id")`，`select(id)` 只持久化 selected ID；最终状态由 DAO + preference flow 回流。
 - `restoreProfiles(...)` 会持久化 restored profiles 和 resolved selected ID，selected state 仍回到 AppPreference。
@@ -240,6 +244,12 @@ Runtime context 关系：
 - `RuntimeContextResolver` 通过 `resolveConfig(...)`、`listProviders()`、`findEnabledPersona(...)`、`session(...)`、`compatibilitySnapshotForConfig(...)` 组装 runtime context。
 - `RuntimeSkillProjectionResolver.fromResourceCenterSnapshot(...)` 负责从 Resource Center compatibility snapshot 生成 prompt skills、tool skills 与 MCP server projection。
 - `PromptAssembler` 会按 `webSearchEnabled` 和 scheduled-task trigger 注入对应 guidance；scheduled task 上下文只在 `includeScheduledTaskConversationContext` 打开且触发源为 `SCHEDULED_TASK` 时读取。
+
+ConfigDetail 地理围栏关系：
+
+- `ConfigGeofenceBindingViewModel` 注入 `GeofenceRuleRepositoryPort` 与 `ConfigGeofenceBindingController`。
+- `ConfigGeofenceBindingController` 只读写 `ConfigGeofenceBinding`，保存后调用 `GeofenceRuntimeReconciliationPort.reconcileNow()`。
+- ConfigDetail 页面通过 `onOpenGeofenceRules` 跳转规则管理页；规则创建、地图选择和运行时注册属于 geofence 模块。
 
 ## Bot
 
@@ -342,6 +352,7 @@ Persona 当前主真源：
 - Provider / Persona 删除保护依赖当前 Hilt 注入的 reference checker；绕过 checker 或恢复静态 registry 都是回归。
 - Bot / Config selected state 的真源是 AppPreference flow；把 `select(...)` 写成同步改内存状态会与当前 selected-state tests 冲突。
 - 四个 presentation ViewModel 的物理路径已经在 feature 下，但 package 仍是 `com.elymbot.android.ui.viewmodel`；不要只按路径推断 import/package。
+- ConfigDetail 地理围栏绑定只能消费 geofence API port；不能直接 import `GeofenceRuleDao`、`FeatureGeofenceRuleRepositoryStore` 或 geofence data implementation。
 - 本轮未运行 Gradle 或测试，因此不能把本模块状态扩展为构建通过或测试通过。
 
 ## 旧文档判断

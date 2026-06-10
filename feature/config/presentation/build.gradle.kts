@@ -25,6 +25,7 @@ dependencies {
     implementation(project(":feature:chat:api"))
     implementation(project(":feature:config:api"))
     implementation(project(":feature:conversation:api"))
+    implementation(project(":feature:geofence:api"))
     implementation(project(":feature:provider:api"))
     implementation(project(":feature:resource:api"))
     implementation(project(":feature:voiceasset:api"))

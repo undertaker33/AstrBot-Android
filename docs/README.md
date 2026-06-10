@@ -15,9 +15,9 @@
 - 接管快照：`snapshots/ONB26051701-existing-project-handoff.md`
 - 接管前文档备份：`ONB26051701-pre-uth-docs-backup.zip`
 
-当前 UTH 状态：existing-project takeover 文档接管收尾已完成。12 个编号模块上下文均已写入，旧 `docs/00_*.md` 到 `docs/11_*.md` 已归档，早期 seed / 失效完成证据已移出 current context。本轮已按 `66eee69..4fedf19` 与当前工作区增量同步当前事实。
+当前 UTH 状态：existing-project takeover 文档接管收尾已完成。原 12 个编号模块上下文均已写入，旧 `docs/00_*.md` 到 `docs/11_*.md` 已归档，早期 seed / 失效完成证据已移出 current context。最新文档同步已覆盖 `13467db..b069daf` 的 `v1.1.1` / `v1.1.2` release 事实，以及当前工作区 `D26060701` 地理围栏模块组增量；地理围栏已追加为 `context/13-地理围栏.md`。
 
-当前完成等级：`full-project-docs-complete`。本轮同步完成等级为 `scoped-docs-complete`。这些结论只代表文档治理基线或指定范围文档同步完成，不代表本轮运行过 Gradle、单元测试或 APK 构建。
+当前完成等级：`full-project-docs-complete`。本轮全仓文档更新完成等级为 `full-project-docs-complete`。这些结论只代表文档治理基线完成，不代表本轮运行过 Gradle、单元测试或 APK 构建。
 
 ## 默认加载顺序
 
@@ -57,6 +57,7 @@
 - `context/10-Cron运行时.md`
 - `context/11-资源设置备份.md`
 - `context/12-语音资产与音频.md`
+- `context/13-地理围栏.md`
 
 ## 旧文档地位
 

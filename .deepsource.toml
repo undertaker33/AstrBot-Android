@@ -1,0 +1,56 @@
+version = 1
+
+test_patterns = [
+  "**/src/androidTest/java/**/*Test.kt",
+  "**/src/test/java/**/*Test.kt",
+  "**/tools/uth-hooks/tests/*.py",
+]
+
+exclude_patterns = [
+  "app/build.gradle.kts",
+  "**/app/build.gradle.kts",
+  "**/src/androidTest/java/**",
+  "**/src/test/java/**",
+  "**/build/**",
+  "**/.gradle/**",
+  "**/gradle/**",
+  "**/node_modules/**",
+  "**/__pycache__/**",
+  "**/.venv/**",
+  "**/venv/**",
+  "**/.pytest_cache/**",
+  "**/*.egg-info/**",
+  "**/dist/**",
+  "**/.git/**",
+]
+
+[[analyzers]]
+name = "java"
+enabled = true
+
+  [analyzers.meta]
+  runtime_version = "17"
+
+[[analyzers]]
+name = "javascript"
+enabled = true
+
+[[analyzers]]
+name = "kotlin"
+enabled = true
+
+  [analyzers.meta]
+  language_version = "2.1"
+  runtime_version = "17"
+
+[[analyzers]]
+name = "python"
+enabled = true
+
+[[analyzers]]
+name = "secrets"
+enabled = true
+
+[[analyzers]]
+name = "shell"
+enabled = true

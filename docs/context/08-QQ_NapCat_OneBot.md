@@ -1,6 +1,6 @@
 # QQ / NapCat / OneBot 模块上下文
 
-更新时间：2026-05-22 18:30 +08:00
+更新时间：2026-06-06 11:41 +08:00
 
 ## 状态
 
@@ -11,7 +11,7 @@
 - 模块状态：已按当前代码事实重新确认
 - 完成等级：`full-project-docs-complete`
 - 下一模块：`plugin-platform`
-- 本轮 scoped-sync：`66eee69..4fedf19`，并按当前工作区状态核对文档
+- 最近影响本模块的文档更新：`4fedf19..13467db` + 当前工作区 QQ 普通群公共历史沉淀增量 + `D26060501` NapCat 安卓权限与启动兼容事实；2026-06-10 全仓同步确认 `b069daf` 仍属 v1.1.2 release 基线，未新增本模块当前工作区事实。
 - 本轮 Git 写入：无
 - 本轮 Gradle / 测试命令：未运行；本文档场景只做文档治理
 
@@ -33,6 +33,7 @@
 - `feature/qq/impl/src/main/java/**`
 - `feature/qq/presentation/src/main/java/**`
 - `feature/qq/runtime/src/main/java/**`
+- `feature/qq/runtime/src/test/java/**`
 - `feature/qq/impl/src/test/java/**`
 - `app/src/main/java/com/elymbot/android/di/startup/BootstrapPrerequisitesStartupChain.kt`
 - `app/src/main/java/com/elymbot/android/di/startup/RuntimeLaunchStartupChain.kt`
@@ -49,10 +50,15 @@
 - `app/src/main/assets/runtime/scripts/logout_qq.sh`
 - `core/runtime-container/src/main/java/com/elymbot/android/core/runtime/container/ContainerRuntimeInstaller.kt`
 - `core/runtime-container/src/main/java/com/elymbot/android/core/runtime/container/ContainerBridgeRuntimeSupport.kt`
+- `core/runtime-container/src/main/java/com/elymbot/android/core/runtime/container/RuntimeCompatibilityProbe.kt`
+- `app/src/main/java/com/elymbot/android/core/runtime/container/ContainerBridgeService.kt`
+- `app/src/main/java/com/elymbot/android/di/runtime/container/AndroidRuntimeBridgeController.kt`
 - `app/src/test/java/com/elymbot/android/architecture/QqPhase24BoundaryContractTest.kt`
 - `app/src/test/java/com/elymbot/android/architecture/QqOneBotRuntimeGuardrailTest.kt`
 - `app/src/test/java/com/elymbot/android/architecture/NapCatRuntimeScriptContractTest.kt`
 - `app/src/test/java/com/elymbot/android/architecture/AndroidManifestRuntimeContractTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/RuntimeBridgeCompatibilityContractTest.kt`
+- `core/runtime-container/src/test/java/com/elymbot/android/core/runtime/container/RuntimeCompatibilityProbeTest.kt`
 - `app/src/test/resources/architecture/app-integration-allowlist.txt`
 - `app/src/test/resources/architecture/dao-owner-allowlist.txt`
 - `app/src/test/resources/architecture/global-singleton-allowlist.txt`
@@ -93,6 +99,7 @@
 - `app` 启动链：通过 `QqStartupPort` 初始化并启动 QQ bridge runtime。
 - `app-integration` wiring：只保留精确的 QQ/plugin port 接线和 container bridge state adapter。
 - NapCat 容器脚本与安装链：`root_launcher.sh`、`start_napcat.sh`、runtime assets、container installer、progress label。
+- NapCat 安卓启动兼容：runtime compatibility preflight、optional external storage bind、前台服务启动失败分类和 bridge state warning 展示。
 
 ## 非职责
 
@@ -200,6 +207,15 @@ QQ 登录 UI 当前物理位于 `feature/qq/presentation/src/main/java/**`。
 7. `QqMessageRuntimeService.handleIncomingMessage(...)` 执行 bot resolve、wake/whitelist/rate-limit/keyword/duplicate guard、session lock、bot command/plugin ingress、conversation append、runtime context resolve、LLM dispatch 和 reply delivery。
 8. `QqReplySender` 与 `QqOneBotOutboundGateway` 发送 OneBot action。
 
+当前普通群公共历史事实：
+
+- `QqMessageRuntimeService` 在 OneBot message id 去重后，对普通群消息先写入公共群 session，session id 形如 `qq-<botId>-group-<groupId>`。
+- 公共群历史使用非隔离语义并保留最近 100 条；超过上限后保留最后 100 条。
+- 开启群聊隔离时，bot LLM 对话仍写入 isolated session，形如 `qq-<botId>-group-<groupId>-user-<userId>`；公共群历史不应被 isolated session 覆盖。
+- 不触发自动回复的普通群消息也可进入公共群历史；这使插件群分析不再依赖 bot 对话上下文。
+- 非隔离 LLM 路径会复用已沉淀的公共群 user message，避免同一入站消息重复追加。
+- 本轮未做真实 QQ / NapCat 连接下的端到端人工验收；当前证据来自既有 LW 验收记录、OneBot 入站单测、Host API 历史读取映射和全量 debug 构建记录。
+
 当前 reverse WS 与 cleartext 约束：
 
 - `app/src/main/AndroidManifest.xml` 显式 `android:usesCleartextTraffic="false"`。
@@ -248,6 +264,10 @@ LLM 边界：
 - `root_launcher.sh` 优先使用 bundled NapCat/QQ/launcher/offline assets；bundled assets 不完整时 fallback 到 upstream installer 下载。
 - `root_launcher.sh` 对已有安装的 launcher shim 缺失是容忍的，不直接 hard fail。
 - `start_napcat.sh` 通过 proot 启动 Ubuntu rootfs，准备 fake proc binds、apt mirror、runtime env、progress 文件和 `/root/elymbot_napcat_entry.sh`。
+- `start_napcat.sh` 的长运行 proot 命令不再无条件 bind `/sdcard` 或 `/storage/emulated/0`；脚本只在 host path 存在且可读时加入 optional external storage bind，并记录 skipped/added 日志。
+- `RuntimeCompatibilityProbe.runPreflight()` 在 NapCat 启动前检查 rootfs、native runtime link、proot smoke、外部存储 bind 可读性与 Android 13+ 通知权限；blocking issue 阻断启动，non-blocking issue 写入 bridge progress/warning。
+- `AndroidRuntimeBridgeController` 对 service 启动失败做分类日志，区分 service permission/security policy、Android 12+ foreground service background start restriction、foreground service failure 和普通 service start failure。
+- `app/src/main/AndroidManifest.xml` 保持 `FOREGROUND_SERVICE_DATA_SYNC` 与 `ContainerBridgeService` 的 `foregroundServiceType="dataSync"`；本轮没有新增外部存储权限。
 - `logout_qq.sh` 停止 runtime，但明确不清空 quick-login history。
 - `ContainerBridgeRuntimeSupport` 读取 `runtime/run/napcat_progress*`，并保留 network-install progress label，例如 `download-installer`、`installer-downloaded`、`run-installer`。
 
@@ -261,6 +281,8 @@ LLM 边界：
 - `QqOneBotRuntimeGuardrailTest`
 - `NapCatRuntimeScriptContractTest`
 - `AndroidManifestRuntimeContractTest`
+- `RuntimeBridgeCompatibilityContractTest`
+- `RuntimeCompatibilityProbeTest`
 - `FeatureFirstBoundaryContractTest`
 - `ModuleDependencyGraphContractTest`
 - `RepositoryPortSourceContractTest`
@@ -273,6 +295,7 @@ LLM 边界：
 - `PostHiltRound3HostCapabilityContractTest`
 - `NoManualRuntimeSubgraphContractTest`
 - `QqStreamingReplyServiceTest`
+- `QqStreamingReplyServiceAttachmentStreamingTest`
 - `QqRuntimeProfileResolverTest`
 - `QqPluginDispatchServiceTest`
 - `QqOneBotOutboundGatewayTest`
@@ -310,6 +333,8 @@ LLM 边界：
 ## 当前风险与阻塞项
 
 - 本轮未运行 Gradle 或测试，因此不能把本模块状态扩展为构建通过或测试通过。
+- 当前工作区已新增 QQ 普通群公共历史沉淀、pseudo streaming 文本+附件分流，以及 NapCat 安卓启动兼容代码；本文档只同步代码事实和既有验收记录，不在 `uth-docs` 中重新运行测试。
+- 真实低版本 Android、厂商 ROM 和真实 NapCat 端到端启动仍未由本轮文档场景覆盖。
 - `feature/qq/impl` 当前无生产源码，不应写成 QQ 生产 owner。
 - `QqRuntimeServicesModule.provideQqOneBotRuntimeDependencies` 仍在 app-integration allowlist 中作为 broad Hilt provider 债务。
 - `NapCatLoginLocalStore.kt` 仍在 DAO owner allowlist 中持有 `SavedQqAccountDao`，后续需要命名或 port 边界进一步收口。

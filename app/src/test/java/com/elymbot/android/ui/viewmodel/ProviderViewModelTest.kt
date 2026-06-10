@@ -18,10 +18,13 @@ import com.elymbot.android.model.ProviderType
 import com.elymbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.elymbot.android.model.chat.ConversationAttachment
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
@@ -146,7 +149,7 @@ class ProviderViewModelTest {
     }
 
     @Test
-    fun delete_unreferenced_provider_succeeds() {
+    fun delete_unreferenced_provider_succeeds() = runBlocking {
         installProviderReferenceChecker { false }
         val originalProviders = ProviderRepository.snapshotProfiles()
         val providerId = "provider-delete-unreferenced"
@@ -161,6 +164,7 @@ class ProviderViewModelTest {
             )
 
             ProviderRepository.delete(providerId)
+            awaitProviderAbsent(providerId)
 
             org.junit.Assert.assertFalse(
                 ProviderRepository.snapshotProfiles().any { it.id == providerId },
@@ -382,5 +386,13 @@ class ProviderViewModelTest {
         val checkerField = store.javaClass.getDeclaredField("providerReferenceChecker")
         checkerField.isAccessible = true
         checkerField.set(store, checker)
+    }
+
+    private suspend fun awaitProviderAbsent(providerId: String) {
+        withTimeout(2_000) {
+            while (ProviderRepository.snapshotProfiles().any { it.id == providerId }) {
+                delay(10)
+            }
+        }
     }
 }

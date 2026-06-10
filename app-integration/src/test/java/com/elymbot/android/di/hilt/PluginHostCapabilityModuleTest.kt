@@ -1,6 +1,7 @@
 package com.elymbot.android.di.hilt
 
 import com.elymbot.android.feature.conversation.domain.ConversationRepositoryPort
+import com.elymbot.android.feature.plugin.runtime.PluginV2ConversationHistoryPortRequest
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageAttachmentRef
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageSendPortRequest
 import com.elymbot.android.feature.plugin.runtime.PluginV2MessageStreamPlatformMode
@@ -46,6 +47,7 @@ class PluginHostCapabilityModuleTest {
     fun messageSendPort_onebot_sendsThroughQqSenderAndPersistsConversationMessage() = runTest {
         val conversationRepository = RecordingConversationRepositoryPort()
         val qqSender = RecordingQqScheduledMessageSender(
+            // skipcq: KT-W1042
             result = QqSendResult.success(listOf("qq-receipt-1")),
         )
         val port = PluginHostCapabilityModule.providePluginV2MessageSendPort(
@@ -97,6 +99,82 @@ class PluginHostCapabilityModuleTest {
     }
 
     @Test
+    fun messageSendPort_onebotPersistsToRepositorySessionForPublicQqConversationId() = runTest {
+        val qqSession = conversationSession(
+            // skipcq: KT-W1042
+            id = "qq-qq-main-group-30003-user-20002",
+            messages = emptyList(),
+        )
+        val conversationRepository = RecordingConversationRepositoryPort(initialSessions = listOf(qqSession))
+        val qqSender = RecordingQqScheduledMessageSender(
+            result = QqSendResult.success(listOf("qq-receipt-1")),
+        )
+        val port = PluginHostCapabilityModule.providePluginV2MessageSendPort(
+            conversationRepository = conversationRepository,
+            qqScheduledMessageSender = qqSender,
+        )
+
+        val result = port.send(
+            messageRequest(
+                platformAdapterType = "onebot",
+                // skipcq: KT-W1042
+                conversationId = "group:30003:user:20002",
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals("group:30003:user:20002", qqSender.requests.single().conversationId)
+        assertEquals("qq-qq-main-group-30003-user-20002", conversationRepository.appended.single().sessionId)
+    }
+
+    @Test
+    fun conversationHistoryReadPort_prefersPublicGroupSessionForIsolatedQqConversationId() = runTest {
+        val isolatedSession = conversationSession(
+            id = "qq-qq-main-group-30003-user-20002",
+            messages = listOf(
+                ConversationMessage(
+                    id = "qq-isolated-message-1",
+                    role = "user",
+                    content = "隔离消息",
+                    timestamp = 90L,
+                ),
+            ),
+        )
+        val publicSession = conversationSession(
+            id = "qq-qq-main-group-30003",
+            messages = listOf(
+                ConversationMessage(
+                    id = "qq-public-message-1",
+                    role = "user",
+                    content = "公共群消息",
+                    timestamp = 100L,
+                ),
+            ),
+        )
+        val conversationRepository = RecordingConversationRepositoryPort(
+            initialSessions = listOf(isolatedSession, publicSession),
+        )
+        val port = PluginHostCapabilityModule.providePluginV2ConversationHistoryReadPort(
+            conversationRepository = conversationRepository,
+        )
+
+        val history = port.history(
+            PluginV2ConversationHistoryPortRequest(
+                pluginId = "plugin.history",
+                requestId = "request-history",
+                conversationId = "group:30003:user:20002",
+                limit = 100,
+                beforeMessageId = "",
+                includeAttachments = false,
+            ),
+        )
+
+        assertEquals(listOf("qq-public-message-1"), history.map { it.messageId })
+        assertEquals(listOf("公共群消息"), history.map { it.text })
+        assertEquals(emptyList<String>(), conversationRepository.sessionReads)
+    }
+
+    @Test
     fun messageStreamPort_appChat_replaceUpdatesCurrentPendingMessage() = runTest {
         val conversationRepository = RecordingConversationRepositoryPort()
         val qqSender = RecordingQqScheduledMessageSender()
@@ -123,6 +201,7 @@ class PluginHostCapabilityModuleTest {
     fun messageStreamPort_qq_finalOnCloseBuffersChunksAndSendsOnceOnClose() = runTest {
         val conversationRepository = RecordingConversationRepositoryPort()
         val qqSender = RecordingQqScheduledMessageSender(
+            // skipcq: KT-W1042
             result = QqSendResult.success(listOf("qq-stream-receipt")),
         )
         val port = PluginHostCapabilityModule.providePluginV2MessageStreamPort(
@@ -171,14 +250,48 @@ class PluginHostCapabilityModuleTest {
         assertEquals("final", conversationRepository.appended.single().content)
     }
 
+    @Test
+    fun messageStreamPort_onebotPersistsToRepositorySessionForPublicQqConversationId() = runTest {
+        val qqSession = conversationSession(id = "qq-qq-main-group-30003-user-20002")
+        val conversationRepository = RecordingConversationRepositoryPort(initialSessions = listOf(qqSession))
+        val qqSender = RecordingQqScheduledMessageSender(
+            result = QqSendResult.success(listOf("qq-stream-receipt")),
+        )
+        val port = PluginHostCapabilityModule.providePluginV2MessageStreamPort(
+            conversationRepository = conversationRepository,
+            qqScheduledMessageSender = qqSender,
+        )
+        val open = port.open(
+            streamOpenRequest(
+                platformAdapterType = "onebot",
+                conversationId = "group:30003:user:20002",
+            ),
+        )
+
+        val appended = port.append(streamChunkRequest(open.streamId, platformAdapterType = "onebot", text = "hello"))
+        val close = port.close(
+            streamCloseRequest(
+                open.streamId,
+                platformAdapterType = "onebot",
+                conversationId = "group:30003:user:20002",
+            ),
+        )
+
+        assertTrue(appended.success)
+        assertTrue(close.success)
+        assertEquals("group:30003:user:20002", qqSender.requests.single().conversationId)
+        assertEquals("qq-qq-main-group-30003-user-20002", conversationRepository.appended.single().sessionId)
+    }
+
     private fun messageRequest(
         platformAdapterType: String,
+        conversationId: String = "conversation-1",
         attachments: List<PluginV2MessageAttachmentRef> = emptyList(),
     ): PluginV2MessageSendPortRequest {
         return PluginV2MessageSendPortRequest(
             pluginId = "plugin.message",
             requestId = "request-1",
-            conversationId = "conversation-1",
+            conversationId = conversationId,
             platformAdapterType = platformAdapterType,
             text = "hello from plugin",
             markdown = false,
@@ -188,11 +301,12 @@ class PluginHostCapabilityModuleTest {
 
     private fun streamOpenRequest(
         platformAdapterType: String,
+        conversationId: String = "conversation-1",
     ): PluginV2MessageStreamPortOpenRequest {
         return PluginV2MessageStreamPortOpenRequest(
             pluginId = "plugin.stream",
             requestId = "request-stream",
-            conversationId = "conversation-1",
+            conversationId = conversationId,
             platformAdapterType = platformAdapterType,
             markdown = false,
         )
@@ -216,12 +330,13 @@ class PluginHostCapabilityModuleTest {
     private fun streamCloseRequest(
         streamId: String,
         platformAdapterType: String,
+        conversationId: String = "conversation-1",
     ): PluginV2MessageStreamPortCloseRequest {
         return PluginV2MessageStreamPortCloseRequest(
             streamId = streamId,
             pluginId = "plugin.stream",
             requestId = "request-stream",
-            conversationId = "conversation-1",
+            conversationId = conversationId,
             platformAdapterType = platformAdapterType,
         )
     }
@@ -241,25 +356,21 @@ private data class UpdatedPluginMessage(
     val attachments: List<ConversationAttachment>?,
 )
 
-private class RecordingConversationRepositoryPort : ConversationRepositoryPort {
-    private val session = ConversationSession(
-        id = "conversation-1",
-        title = "Conversation",
-        botId = "bot-1",
-        personaId = "",
-        providerId = "provider-1",
-        maxContextMessages = 10,
-        messages = emptyList(),
-    )
-
-    override val defaultSessionId: String = session.id
-    override val sessions = MutableStateFlow(listOf(session))
+private class RecordingConversationRepositoryPort(
+    initialSessions: List<ConversationSession> = listOf(conversationSession()),
+) : ConversationRepositoryPort {
+    override val defaultSessionId: String = initialSessions.first().id
+    override val sessions = MutableStateFlow(initialSessions)
     val appended = mutableListOf<AppendedPluginMessage>()
     val updated = mutableListOf<UpdatedPluginMessage>()
+    val sessionReads = mutableListOf<String>()
 
     override fun contextPreview(sessionId: String): String = ""
 
-    override fun session(sessionId: String): ConversationSession = session
+    override fun session(sessionId: String): ConversationSession {
+        sessionReads += sessionId
+        return sessions.value.first { it.id == sessionId }
+    }
 
     override fun syncSystemSessionTitle(sessionId: String, title: String) = Unit
 
@@ -306,6 +417,19 @@ private class RecordingConversationRepositoryPort : ConversationRepositoryPort {
 
     override fun deleteSession(sessionId: String) = Unit
 }
+
+private fun conversationSession(
+    id: String = "conversation-1",
+    messages: List<ConversationMessage> = emptyList(),
+): ConversationSession = ConversationSession(
+    id = id,
+    title = "Conversation",
+    botId = "bot-1",
+    personaId = "",
+    providerId = "provider-1",
+    maxContextMessages = 10,
+    messages = messages,
+)
 
 private data class RecordedQqSendRequest(
     val conversationId: String,

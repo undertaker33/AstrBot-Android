@@ -11,7 +11,7 @@
 - 模块状态：已按当前代码事实重新确认
 - 完成等级：`full-project-docs-complete`
 - 下一模块：`resource-settings-backup`
-- 本轮 scoped-sync：`66eee69..4fedf19`，并按当前工作区状态核对文档
+- 最近影响本模块的 scoped-sync：`66eee69..4fedf19`；2026-05-25 全仓同步未发现本模块新增代码事实。
 - 本轮 Git 写入：无
 - 本轮 Gradle / 测试命令：未运行；本文档场景只做文档治理
 

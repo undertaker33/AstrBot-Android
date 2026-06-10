@@ -91,6 +91,7 @@ internal class QqStreamingReplyService(
     ): PluginV2HostSendResult {
         return if (
             prepared.attachments.size > 1 &&
+            // skipcq: KT-W1042
             prepared.attachments.all { attachment -> attachment.type == "audio" }
         ) {
             sendStreamingVoiceReplyWithOutcome(
@@ -109,11 +110,13 @@ internal class QqStreamingReplyService(
             )
         } else if (
             streamingMode != PluginV2StreamingMode.NON_STREAM &&
-            prepared.attachments.isEmpty()
+            prepared.text.isNotBlank() &&
+            prepared.attachments.none { attachment -> attachment.type == "audio" }
         ) {
-            sendPseudoStreamingReplyWithOutcome(
+            sendPseudoStreamingReplyWithAttachmentsOutcome(
                 message = message,
                 response = prepared.text,
+                attachments = prepared.attachments,
                 config = config,
             )
         } else {
@@ -123,6 +126,34 @@ internal class QqStreamingReplyService(
                 attachments = prepared.attachments,
             )
         }
+    }
+
+    private suspend fun sendPseudoStreamingReplyWithAttachmentsOutcome(
+        message: IncomingQqMessage,
+        response: String,
+        attachments: List<ConversationAttachment>,
+        config: ConfigProfile,
+    ): PluginV2HostSendResult {
+        val textSendResult = sendPseudoStreamingReplyWithOutcome(
+            message = message,
+            response = response,
+            config = config,
+        )
+        if (!textSendResult.success || attachments.isEmpty()) {
+            return textSendResult
+        }
+        val attachmentSendResult = sendReplyWithOutcome(
+            message = message,
+            text = "",
+            attachments = attachments,
+        )
+        if (!attachmentSendResult.success) {
+            return attachmentSendResult
+        }
+        return PluginV2HostSendResult(
+            success = true,
+            receiptIds = textSendResult.receiptIds + attachmentSendResult.receiptIds,
+        )
     }
 
     suspend fun deliverNewsSearchResultIfNeeded(

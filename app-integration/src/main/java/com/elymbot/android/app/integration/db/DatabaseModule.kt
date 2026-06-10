@@ -18,6 +18,7 @@ import com.elymbot.android.data.db.TtsVoiceAssetAggregateDao
 import com.elymbot.android.data.db.astrBotDatabaseMigrations
 import com.elymbot.android.data.db.cron.CronJobDao
 import com.elymbot.android.data.db.cron.CronJobExecutionRecordDao
+import com.elymbot.android.data.db.geofence.GeofenceRuleDao
 import com.elymbot.android.data.db.resource.ResourceCenterDao
 import dagger.Module
 import dagger.Provides
@@ -108,6 +109,11 @@ internal object DatabaseModule {
     fun provideCronJobExecutionRecordDao(
         database: ElymBotDatabase,
     ): CronJobExecutionRecordDao = database.cronJobExecutionRecordDao()
+
+    @Provides
+    fun provideGeofenceRuleDao(
+        database: ElymBotDatabase,
+    ): GeofenceRuleDao = database.geofenceRuleDao()
 
     @Provides
     fun provideTtsVoiceAssetAggregateDao(

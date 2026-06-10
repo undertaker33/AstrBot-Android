@@ -28,6 +28,7 @@ class ResourceCenterPresentationTest {
                 MeEntryKind.QqAccount,
                 MeEntryKind.Settings,
                 MeEntryKind.CronJobs,
+                MeEntryKind.Geofence,
                 MeEntryKind.ResourceCenter,
                 MeEntryKind.Logs,
                 MeEntryKind.Assets,

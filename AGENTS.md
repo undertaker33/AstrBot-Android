@@ -102,6 +102,18 @@
 6. `Feature*PortAdapter` / `FeatureQq*PortAdapter` 已是当前生产命名，不要再把 `Legacy*Adapter` 写成现状。
 7. QQ / plugin / toolsource 的新生产主线都不接受手写 subgraph 或 static bypass；看到 compat bridge 时先确认它是不是仅给测试保留。
 8. 不要把第 23 期 `:feature:qq:impl`、`:feature:voiceasset:api`、`:feature:plugin:runtime` 过渡依赖写成当前 app direct dependency 事实。
+9. Design、Todo、Feedback、LW 和 archive 只能作为证据线索；是否已成为当前事实必须看源码、验证记录和 `docs/context/` 同步状态，不能把“已设计”写成“已实现”。
+10. 工作区可能已有其他窗口或 worker 的半成品/已验收未提交改动；不要回滚、重排或清理无关改动，必须先按当前工作区基线适配。
+11. 插件 Host API 对齐的是 ElymBot 宿主代理能力，不暴露 AstrBot 风格别名，也不允许插件直连 Room DAO、OneBot socket、adapter 实例、provider secret 或自建网络通道。
+12. `hostApi.message.send`、`hostApi.message.openStream` 和 `hostApi.conversation.history` 仍按当前会话能力理解；`D26052201` 的任意目标发送只是设计包，未拆 Todo/实现前不得写成生产能力。
+13. QQ 会话要区分本地 conversation id、`originSessionId` 和 OneBot 目标 id；群聊隔离只隔离 bot LLM 上下文，插件做群分析时优先读取公共群历史，而不是把 `group:<gid>:user:<uid>` 当作公共群历史真源。
+14. 构建优化当前基线是 configuration cache / build cache / parallel execution + lazy wiring；不要把 module group check 改回全局 `gradle.projectsEvaluated`，也不要把 app APK export 改回 app 级 `afterEvaluate`。
+15. `:app:testDebugUnitTest` 的 runtime / friend-path 治理按测试域分组；不要重新把 `:core:runtime-audio` 或 `:core:runtime-container` 字符串直接塞回 `app/build.gradle.kts` 的 app 单测任务图。
+16. NapCat Android 兼容问题先看 `RuntimeCompatibilityProbe`、`start_napcat.sh` 条件 external storage bind、`ContainerBridgeService` / `AndroidRuntimeBridgeController` 启动分类；不要通过新增 `READ_EXTERNAL_STORAGE`、`WRITE_EXTERNAL_STORAGE`、`READ_MEDIA_*` 或 `MANAGE_EXTERNAL_STORAGE` 兜底。
+17. `RuntimeCompatibilityProbe` 是 `:core:runtime-container` 的诊断模型与合同，`ContainerBridgeService` 是 app 侧 Android service adapter；不要把 Android service owner 倒置到 core，也不要把二者混成同一个边界。
+18. 地理围栏 owner 是 `feature/geofence` 模块组；`ConfigDetail` 只管理 `config_geofence_bindings` 引用，不把坐标、半径、action prompt、region 或 binding 字段塞回 `ConfigProfile`，也不要复用 Resource Center projection 承载 geofence 绑定。
+19. `create_geofence_rule` 等地理围栏 Agent 工具是宿主内部 active capability，经 `GeofenceActiveCapabilityFacade` 接线，不是公开 `hostApi.geofence.*`；`GEOFENCE_EVENT` 下 mutation 工具应隐藏，避免地理围栏事件自我递归修改规则。
+20. 地理围栏自动化 gate 通过不等于真实设备能力已验收；没有 connected/manual、Google Play services、后台定位授权、地图渲染、厂商 ROM 和真实 enter/exit/dwell transition 证据时，必须保持 blocked/unverified 口径。
 
 ## 4. 模块细节应该去哪里找
 
@@ -117,6 +129,7 @@
 - Cron 运行时：`docs/context/10-Cron运行时.md`
 - 设置、日志、资源、运行时清理、备份入口：`docs/context/11-资源设置备份.md`
 - STT、TTS、声音克隆、语音资产：`docs/context/12-语音资产与音频.md`
+- 地理围栏、位置权限、地图选择、Config 绑定、运行时触发：`docs/context/13-地理围栏.md`
 - 旧 `docs/00` 到 `docs/11`：只在 `docs/context/docs-00-11-classification.md` 指向的 archive 路径中作为历史辅助证据读取
 
 ## 5. 新窗口开始开发时的最小动作

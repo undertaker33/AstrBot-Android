@@ -79,7 +79,7 @@ class ElymBotDatabaseSchemaContractTest {
 
     @Test
     fun latestMigration_targetsCurrentVersion() {
-        assertTrue(astrBotDatabaseMigrations.maxOf { it.endVersion } == 23)
+        assertTrue(astrBotDatabaseMigrations.maxOf { it.endVersion } == 24)
     }
 
     @Test
@@ -141,6 +141,57 @@ class ElymBotDatabaseSchemaContractTest {
                 migration.startVersion == 22 && migration.endVersion == 23
             },
         )
+    }
+
+    @Test
+    fun migrations_include23To24Step() {
+        assertTrue(
+            astrBotDatabaseMigrations.any { migration ->
+                migration.startVersion == 23 && migration.endVersion == 24
+            },
+        )
+    }
+
+    @Test
+    fun version24Schema_containsGeofenceRuleRegionBindingAndExecutionTables() {
+        val schemaFile = listOf(
+            File("schemas/com.elymbot.android.data.db.ElymBotDatabase/24.json"),
+            File("app/schemas/com.elymbot.android.data.db.ElymBotDatabase/24.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v24 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "geofence_rules",
+            "ruleId",
+            "triggerEnter",
+            "triggerExit",
+            "triggerDwell",
+            "dwellDelayMillis",
+            "actionType",
+            "actionPrompt",
+            "targetConfigProfileId",
+            "minimumTriggerIntervalMillis",
+            "geofence_regions",
+            "latitude",
+            "longitude",
+            "radiusMeters",
+            "addressLabel",
+            "config_geofence_bindings",
+            "configId",
+            "sortIndex",
+            "geofence_execution_records",
+            "transition",
+            "locationSnapshotJson",
+            "triggerPayloadJson",
+            "\"table\": \"geofence_rules\"",
+            "\"onDelete\": \"CASCADE\"",
+            "\"table\": \"config_profiles\"",
+            "index_geofence_regions_ruleId_sortIndex",
+            "index_config_geofence_bindings_configId_sortIndex",
+            "index_geofence_execution_records_ruleId_startedAt",
+        ).forEach { token ->
+            assertTrue("Expected $token to exist in v24 schema", token in schema)
+        }
     }
 
     @Test

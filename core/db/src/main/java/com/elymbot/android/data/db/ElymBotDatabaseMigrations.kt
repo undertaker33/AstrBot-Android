@@ -14,6 +14,7 @@ import com.elymbot.android.data.db.core.migration19To20
 import com.elymbot.android.data.db.core.migration20To21
 import com.elymbot.android.data.db.core.migration21To22
 import com.elymbot.android.data.db.core.migration22To23
+import com.elymbot.android.data.db.core.migration23To24
 import com.elymbot.android.data.db.core.migration2To3
 import com.elymbot.android.data.db.core.migration3To4
 import com.elymbot.android.data.db.core.migration4To5
@@ -48,4 +49,5 @@ private val roomMigrations: Array<Migration> = arrayOf(
     migration20To21,
     migration21To22,
     migration22To23,
+    migration23To24,
 )

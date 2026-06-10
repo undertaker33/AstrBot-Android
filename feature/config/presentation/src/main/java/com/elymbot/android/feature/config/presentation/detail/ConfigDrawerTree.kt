@@ -24,6 +24,7 @@ internal fun configDrawerGroups(): List<ConfigNavGroup> {
                 ConfigSection.Wake,
                 ConfigSection.Reply,
                 ConfigSection.Whitelist,
+                ConfigSection.Geofence,
                 ConfigSection.IgnorePermission,
                 ConfigSection.RateLimit,
                 ConfigSection.Keyword,

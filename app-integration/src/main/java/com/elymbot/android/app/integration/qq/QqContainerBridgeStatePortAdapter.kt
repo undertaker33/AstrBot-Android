@@ -5,7 +5,7 @@ import com.elymbot.android.core.runtime.container.ContainerBridgeStatePort
 import com.elymbot.android.core.runtime.container.ContainerRuntimeState
 import com.elymbot.android.core.runtime.container.ContainerRuntimeStatus
 import com.elymbot.android.di.hilt.ApplicationScope
-import com.elymbot.android.feature.qq.data.NapCatBridgeStateOwner
+import com.elymbot.android.feature.qq.domain.QqBridgeStatePort
 import com.elymbot.android.feature.qq.domain.model.NapCatBridgeConfig
 import com.elymbot.android.feature.qq.domain.model.NapCatRuntimeState
 import com.elymbot.android.feature.qq.domain.model.RuntimeStatus
@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 
 @Singleton
 internal class ProductionContainerBridgeStatePort @Inject constructor(
-    private val bridgeStateOwner: NapCatBridgeStateOwner,
+    private val bridgeStateOwner: QqBridgeStatePort,
     @ApplicationScope appScope: CoroutineScope,
 ) : ContainerBridgeStatePort {
     private val _config = MutableStateFlow(bridgeStateOwner.config.value.toContainerBridgeConfig())

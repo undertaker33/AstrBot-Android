@@ -33,6 +33,26 @@ class AndroidManifestRuntimeContractTest {
     }
 
     @Test
+    fun manifest_must_keep_runtime_foreground_service_data_sync_type() {
+        val manifest = manifestPath.readText()
+
+        assertTrue(
+            "Runtime container service must keep FOREGROUND_SERVICE permission",
+            manifest.contains("""<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />"""),
+        )
+        assertTrue(
+            "Runtime container service must keep Android 14+ dataSync foreground service permission",
+            manifest.contains("""<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />"""),
+        )
+        assertTrue(
+            "Runtime container service must declare foregroundServiceType=dataSync",
+            Regex(
+                """<service\s+[\s\S]*android:name="\.core\.runtime\.container\.ContainerBridgeService"[\s\S]*android:foregroundServiceType="dataSync"[\s\S]*/>""",
+            ).containsMatchIn(manifest),
+        )
+    }
+
+    @Test
     fun manifest_must_register_app_update_install_boundaries() {
         val manifest = manifestPath.readText()
         val updateFilePaths = listOf(
@@ -67,6 +87,31 @@ class AndroidManifestRuntimeContractTest {
             "App update FileProvider must expose only the app-updates filesDir subtree",
             updateFilePaths.contains("""<files-path""") &&
                 updateFilePaths.contains("""path="app-updates/""""),
+        )
+    }
+
+    @Test
+    fun manifest_must_declare_geofence_location_permissions_and_receiver() {
+        val manifest = manifestPath.readText()
+
+        listOf(
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_BACKGROUND_LOCATION",
+        ).forEach { permission ->
+            assertTrue(
+                "AndroidManifest.xml must declare $permission for geofence runtime.",
+                manifest.contains("""<uses-permission android:name="$permission" />"""),
+            )
+        }
+        assertTrue(
+            "Geofence transition receiver must be registered as non-exported.",
+            Regex(
+                """<receiver\s+[\s\S]*android:name="com\.elymbot\.android\.feature\.geofence\.runtime\.GeofenceTransitionReceiver"[\s\S]*android:exported="false"[\s\S]*>""",
+            ).containsMatchIn(manifest) ||
+                Regex(
+                    """<receiver\s+[\s\S]*android:name="com\.elymbot\.android\.feature\.geofence\.runtime\.GeofenceTransitionReceiver"[\s\S]*android:exported="false"[\s\S]*/>""",
+                ).containsMatchIn(manifest),
         )
     }
 
