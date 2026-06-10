@@ -34,36 +34,69 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
         metadata: Map<String, Any?>?,
         toolSourceContext: ToolSourceContext?,
     ): JSONObject {
+        val request = when (val resolved = buildCreateRuleRequest(payload, metadata, toolSourceContext)) {
+            is CreateRuleRequestResolution.Failed -> return structuredError(resolved.code, resolved.message)
+            is CreateRuleRequestResolution.Resolved -> resolved.request
+        }
+        val created = repository.createRule(request.rule.copy(regions = listOf(request.region)), listOf(request.region))
+        val bindingError = bindCreatedRuleToConfig(created.ruleId, request.configId, request.enabled, request.now)
+        if (bindingError != null) return bindingError
+        val reconciliation = reconcile()
+        if (reconciliation is ReconciliationResolution.Failed) {
+            return structuredError(reconciliation.code, reconciliation.message).apply {
+                put(KEY_RECONCILIATION_STATUS, reconciliation.status)
+            }
+        }
+        return ruleJson(created.copy(regions = listOf(request.region))).apply {
+            put(KEY_SUCCESS, true)
+            put(KEY_RECONCILIATION_STATUS, (reconciliation as ReconciliationResolution.Resolved).status)
+            if (!request.permission.backgroundGranted) {
+                put(KEY_MESSAGE, "Saved but not enabled for background triggering; background location permission is required.")
+            }
+        }
+    }
+
+    private fun buildCreateRuleRequest(
+        payload: Map<String, Any?>,
+        metadata: Map<String, Any?>?,
+        toolSourceContext: ToolSourceContext?,
+    ): CreateRuleRequestResolution {
         val permission = permissionStatusPort.currentStatus()
         val location = when (val resolved = resolveLocation(payload, metadata, permission)) {
             is LocationResolution.Resolved -> resolved.location
-            is LocationResolution.Failed -> return structuredError(resolved.code, resolved.message)
-            LocationResolution.NotRequested -> return locationError(payload)
+            is LocationResolution.Failed -> return CreateRuleRequestResolution.Failed(resolved.code, resolved.message)
+            LocationResolution.NotRequested -> return CreateRuleRequestResolution.Failed(
+                code = CODE_MISSING_LOCATION,
+                message = locationErrorMessage(payload),
+            )
         }
         val now = System.currentTimeMillis()
-        val ruleId = payload.stringValue("rule_id").ifBlank { UUID.randomUUID().toString() }
+        val ruleId = payload.stringValue(KEY_RULE_ID).ifBlank { UUID.randomUUID().toString() }
         val config = resolveTargetConfig(
-            requestedConfigId = payload.stringValue("config_profile_id"),
-            fallbackConfigId = "",
+            requestedConfigId = payload.stringValue(KEY_CONFIG_PROFILE_ID),
+            fallbackConfigId = EMPTY_VALUE,
             toolSourceContext = toolSourceContext,
-        ) ?: return missingTargetConfigError()
+        ) ?: return CreateRuleRequestResolution.Failed(CODE_MISSING_TARGET_CONTEXT, MESSAGE_MISSING_TARGET_CONFIG)
         val configId = config.id
-        val targetPlatform = when (val resolved = resolveTargetPlatform(payload.stringValue("target_platform"), toolSourceContext)) {
+        val targetPlatform = when (val resolved = resolveTargetPlatform(payload.stringValue(KEY_TARGET_PLATFORM), toolSourceContext)) {
             is TargetPlatformResolution.Resolved -> resolved.platform
-            is TargetPlatformResolution.Failed -> return structuredError(resolved.code, resolved.message)
+            is TargetPlatformResolution.Failed -> return CreateRuleRequestResolution.Failed(resolved.code, resolved.message)
         }
-        val targetBot = when (val resolved = resolveTargetBot(payload.stringValue("bot_id"), config)) {
+        val targetBot = when (val resolved = resolveTargetBot(payload.stringValue(KEY_BOT_ID), config)) {
             is TargetBotResolution.Resolved -> resolved.bot
-            is TargetBotResolution.Failed -> return structuredError(resolved.code, resolved.message)
+            is TargetBotResolution.Failed -> return CreateRuleRequestResolution.Failed(resolved.code, resolved.message)
         }
-        val actionPrompt = payload.stringValue("action_prompt")
-            .ifBlank { payload.stringValue("message") }
-            .ifBlank { payload.stringValue("prompt") }
+        val actionPrompt = payload.stringValue(KEY_ACTION_PROMPT)
+            .ifBlank { payload.stringValue(KEY_MESSAGE) }
+            .ifBlank { payload.stringValue(KEY_PROMPT) }
         if (actionPrompt.isBlank()) {
-            return structuredError("missing_action_prompt", "Geofence action_prompt is required.")
+            return CreateRuleRequestResolution.Failed(
+                code = "missing_action_prompt",
+                message = "Geofence action_prompt is required.",
+            )
         }
-        val trigger = payload.stringValue("trigger").ifBlank { "enter" }
-        val enabled = payload.booleanValue("enabled") ?: true
+        val trigger = payload.stringValue(KEY_TRIGGER).ifBlank { TRIGGER_ENTER }
+        val enabled = payload.booleanValue(KEY_ENABLED) ?: true
         val status = when {
             !permission.backgroundGranted -> GeofenceRuleStatus.PERMISSION_REQUIRED
             !enabled -> GeofenceRuleStatus.PAUSED
@@ -71,47 +104,64 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
         }
         val rule = GeofenceRule(
             ruleId = ruleId,
-            name = payload.stringValue("name").ifBlank { "Geofence rule" },
-            description = payload.stringValue("description"),
+            name = payload.stringValue(KEY_NAME).ifBlank { "Geofence rule" },
+            description = payload.stringValue(KEY_DESCRIPTION),
             enabled = enabled,
-            triggerEnter = trigger == "enter" || trigger == "enter_exit",
-            triggerExit = trigger == "exit" || trigger == "enter_exit",
-            triggerDwell = trigger == "dwell",
-            dwellDelayMillis = payload.longValue("dwell_delay_millis")
-                .takeIf { it > 0L || trigger != "dwell" }
+            triggerEnter = trigger == TRIGGER_ENTER || trigger == TRIGGER_ENTER_EXIT,
+            triggerExit = trigger == TRIGGER_EXIT || trigger == TRIGGER_ENTER_EXIT,
+            triggerDwell = trigger == TRIGGER_DWELL,
+            dwellDelayMillis = payload.longValue(KEY_DWELL_DELAY_MILLIS)
+                .takeIf { it > 0L || trigger != TRIGGER_DWELL }
                 ?: DEFAULT_DWELL_DELAY_MILLIS,
-            actionType = GeofenceActionType.fromPersistedValue(payload.stringValue("action_type")),
+            actionType = GeofenceActionType.fromPersistedValue(payload.stringValue(KEY_ACTION_TYPE)),
             actionPrompt = actionPrompt,
             targetPlatform = targetPlatform,
-            targetConversationId = payload.stringValue("conversation_id").ifBlank { toolSourceContext?.conversationId.orEmpty() },
+            targetConversationId = payload.stringValue(KEY_CONVERSATION_ID).ifBlank { toolSourceContext?.conversationId.orEmpty() },
             targetBotId = targetBot.id,
             targetConfigProfileId = configId,
             targetPersonaId = targetBot.defaultPersonaId,
             targetProviderId = targetBot.defaultProviderId.ifBlank { config.defaultChatProviderId },
-            minimumTriggerIntervalMillis = payload.longValue("minimum_trigger_interval_millis"),
+            minimumTriggerIntervalMillis = payload.longValue(KEY_MINIMUM_TRIGGER_INTERVAL_MILLIS),
             status = status,
-            lastError = if (status == GeofenceRuleStatus.PERMISSION_REQUIRED) "background_location_permission_required" else "",
+            lastError = if (status == GeofenceRuleStatus.PERMISSION_REQUIRED) "background_location_permission_required" else EMPTY_VALUE,
             createdAt = now,
             updatedAt = now,
         )
         val region = GeofenceRegion(
             regionId = UUID.randomUUID().toString(),
             ruleId = rule.ruleId,
-            label = payload.stringValue("region_label").ifBlank { rule.name },
+            label = payload.stringValue(KEY_REGION_LABEL).ifBlank { rule.name },
             latitude = location.latitude,
             longitude = location.longitude,
             radiusMeters = location.radiusMeters,
-            addressLabel = payload.stringValue("address_label"),
+            addressLabel = payload.stringValue(KEY_ADDRESS_LABEL),
             createdAt = now,
             updatedAt = now,
         )
-        val created = repository.createRule(rule.copy(regions = listOf(region)), listOf(region))
+        return CreateRuleRequestResolution.Resolved(
+            CreateRuleRequest(
+                rule = rule,
+                region = region,
+                configId = configId,
+                enabled = enabled,
+                now = now,
+                permission = permission,
+            ),
+        )
+    }
+
+    private suspend fun bindCreatedRuleToConfig(
+        ruleId: String,
+        configId: String,
+        enabled: Boolean,
+        now: Long,
+    ): JSONObject? {
         if (configId.isNotBlank()) {
             val bindingResult = runCatching {
                 repository.upsertConfigBinding(
                     ConfigGeofenceBinding(
                         configId = configId,
-                        ruleId = created.ruleId,
+                        ruleId = ruleId,
                         enabled = enabled,
                         createdAt = now,
                         updatedAt = now,
@@ -119,26 +169,14 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
                 )
             }
             if (bindingResult.isFailure) {
-                runCatching { repository.deleteRule(created.ruleId) }
+                runCatching { repository.deleteRule(ruleId) }
                 return structuredError(
                     code = "config_binding_failed",
                     message = "Failed to bind geofence rule to target ConfigProfile.",
                 )
             }
         }
-        val reconciliation = reconcile()
-        if (reconciliation is ReconciliationResolution.Failed) {
-            return structuredError(reconciliation.code, reconciliation.message).apply {
-                put("reconciliation_status", reconciliation.status)
-            }
-        }
-        return ruleJson(created.copy(regions = listOf(region))).apply {
-            put("success", true)
-            put("reconciliation_status", (reconciliation as ReconciliationResolution.Resolved).status)
-            if (!permission.backgroundGranted) {
-                put("message", "Saved but not enabled for background triggering; background location permission is required.")
-            }
-        }
+        return null
     }
 
     override suspend fun updateRule(
@@ -146,12 +184,12 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
         metadata: Map<String, Any?>?,
         toolSourceContext: ToolSourceContext?,
     ): JSONObject {
-        val ruleId = payload.stringValue("rule_id")
-        if (ruleId.isBlank()) return structuredError("missing_rule_id", "rule_id is required.")
+        val ruleId = payload.stringValue(KEY_RULE_ID)
+        if (ruleId.isBlank()) return structuredError(CODE_MISSING_RULE_ID, MESSAGE_MISSING_RULE_ID)
         val existing = repository.getRule(ruleId)
-            ?: return structuredError("not_found", "Geofence rule not found: $ruleId")
+            ?: return ruleNotFoundError(ruleId)
         val config = resolveTargetConfig(
-            requestedConfigId = payload.stringValue("config_profile_id"),
+            requestedConfigId = payload.stringValue(KEY_CONFIG_PROFILE_ID),
             fallbackConfigId = existing.targetConfigProfileId,
             toolSourceContext = toolSourceContext,
         ) ?: return missingTargetConfigError()
@@ -161,37 +199,37 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
         }
         val targetPlatform = when (
             val resolved = resolveTargetPlatform(
-                requestedPlatform = payload.stringValue("target_platform").ifBlank { existing.targetPlatform },
+                requestedPlatform = payload.stringValue(KEY_TARGET_PLATFORM).ifBlank { existing.targetPlatform },
                 toolSourceContext = toolSourceContext,
             )
         ) {
             is TargetPlatformResolution.Resolved -> resolved.platform
             is TargetPlatformResolution.Failed -> return structuredError(resolved.code, resolved.message)
         }
-        val targetBot = when (val resolved = resolveTargetBot(payload.stringValue("bot_id").ifBlank { existing.targetBotId }, config)) {
+        val targetBot = when (val resolved = resolveTargetBot(payload.stringValue(KEY_BOT_ID).ifBlank { existing.targetBotId }, config)) {
             is TargetBotResolution.Resolved -> resolved.bot
             is TargetBotResolution.Failed -> return structuredError(resolved.code, resolved.message)
         }
         val updated = repository.updateRule(
             existing.copy(
-                name = payload.stringValue("name").ifBlank { existing.name },
-                description = payload.stringValue("description").ifBlank { existing.description },
-                enabled = payload.booleanValue("enabled") ?: existing.enabled,
-                actionType = payload.stringValue("action_type")
+                name = payload.stringValue(KEY_NAME).ifBlank { existing.name },
+                description = payload.stringValue(KEY_DESCRIPTION).ifBlank { existing.description },
+                enabled = payload.booleanValue(KEY_ENABLED) ?: existing.enabled,
+                actionType = payload.stringValue(KEY_ACTION_TYPE)
                     .takeIf(String::isNotBlank)
                     ?.let(GeofenceActionType::fromPersistedValue)
                     ?: existing.actionType,
-                actionPrompt = payload.stringValue("action_prompt").ifBlank { existing.actionPrompt },
+                actionPrompt = payload.stringValue(KEY_ACTION_PROMPT).ifBlank { existing.actionPrompt },
                 targetPlatform = targetPlatform,
-                targetConversationId = payload.stringValue("conversation_id").ifBlank { existing.targetConversationId },
+                targetConversationId = payload.stringValue(KEY_CONVERSATION_ID).ifBlank { existing.targetConversationId },
                 targetBotId = targetBot.id,
                 targetConfigProfileId = config.id,
                 targetPersonaId = targetBot.defaultPersonaId.ifBlank { existing.targetPersonaId },
                 targetProviderId = targetBot.defaultProviderId
                     .ifBlank { existing.targetProviderId }
                     .ifBlank { config.defaultChatProviderId },
-                minimumTriggerIntervalMillis = payload.longValue("minimum_trigger_interval_millis")
-                    .takeIf { payload.containsKey("minimum_trigger_interval_millis") }
+                minimumTriggerIntervalMillis = payload.longValue(KEY_MINIMUM_TRIGGER_INTERVAL_MILLIS)
+                    .takeIf { payload.containsKey(KEY_MINIMUM_TRIGGER_INTERVAL_MILLIS) }
                     ?: existing.minimumTriggerIntervalMillis,
             ).applyTriggerPatch(payload),
         )
@@ -201,11 +239,11 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
                 val region = GeofenceRegion(
                     regionId = firstRegion?.regionId ?: UUID.randomUUID().toString(),
                     ruleId = ruleId,
-                    label = payload.stringValue("region_label").ifBlank { firstRegion?.label ?: updated.name },
+                    label = payload.stringValue(KEY_REGION_LABEL).ifBlank { firstRegion?.label ?: updated.name },
                     latitude = locationResolution.location.latitude,
                     longitude = locationResolution.location.longitude,
                     radiusMeters = locationResolution.location.radiusMeters,
-                    addressLabel = payload.stringValue("address_label").ifBlank { firstRegion?.addressLabel.orEmpty() },
+                    addressLabel = payload.stringValue(KEY_ADDRESS_LABEL).ifBlank { firstRegion?.addressLabel.orEmpty() },
                     sortIndex = firstRegion?.sortIndex ?: 0,
                     createdAt = firstRegion?.createdAt ?: System.currentTimeMillis(),
                     updatedAt = System.currentTimeMillis(),
@@ -218,19 +256,19 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
         val reconciliation = reconcile()
         if (reconciliation is ReconciliationResolution.Failed) {
             return structuredError(reconciliation.code, reconciliation.message).apply {
-                put("reconciliation_status", reconciliation.status)
+                put(KEY_RECONCILIATION_STATUS, reconciliation.status)
             }
         }
         return ruleJson(ruleWithRegions).apply {
-            put("success", true)
-            put("reconciliation_status", (reconciliation as ReconciliationResolution.Resolved).status)
+            put(KEY_SUCCESS, true)
+            put(KEY_RECONCILIATION_STATUS, (reconciliation as ReconciliationResolution.Resolved).status)
         }
     }
 
     override suspend fun listRules(): JSONObject {
         val rules = repository.listRules()
         return JSONObject().apply {
-            put("success", true)
+            put(KEY_SUCCESS, true)
             put("count", rules.size)
             put("rules", JSONArray().apply {
                 rules.forEach { rule -> put(ruleJson(rule, includeSensitiveLocation = false)) }
@@ -239,50 +277,50 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
     }
 
     override suspend fun deleteRule(ruleId: String): JSONObject {
-        if (ruleId.isBlank()) return structuredError("missing_rule_id", "rule_id is required.")
-        val existing = repository.getRule(ruleId) ?: return structuredError("not_found", "Geofence rule not found: $ruleId")
+        if (ruleId.isBlank()) return structuredError(CODE_MISSING_RULE_ID, MESSAGE_MISSING_RULE_ID)
+        val existing = repository.getRule(ruleId) ?: return ruleNotFoundError(ruleId)
         repository.deleteRule(ruleId)
         val reconciliation = reconcile()
         if (reconciliation is ReconciliationResolution.Failed) {
             return structuredError(reconciliation.code, reconciliation.message).apply {
-                put("reconciliation_status", reconciliation.status)
+                put(KEY_RECONCILIATION_STATUS, reconciliation.status)
             }
         }
         return JSONObject().apply {
-            put("success", true)
-            put("deleted_rule_id", ruleId)
-            put("deleted_name", existing.name)
-            put("reconciliation_status", (reconciliation as ReconciliationResolution.Resolved).status)
+            put(KEY_SUCCESS, true)
+            put(KEY_DELETED_RULE_ID, ruleId)
+            put(KEY_DELETED_NAME, existing.name)
+            put(KEY_RECONCILIATION_STATUS, (reconciliation as ReconciliationResolution.Resolved).status)
         }
     }
 
     override suspend fun pauseRule(ruleId: String): JSONObject {
-        if (ruleId.isBlank()) return structuredError("missing_rule_id", "rule_id is required.")
-        val updated = repository.pauseRule(ruleId) ?: return structuredError("not_found", "Geofence rule not found: $ruleId")
+        if (ruleId.isBlank()) return structuredError(CODE_MISSING_RULE_ID, MESSAGE_MISSING_RULE_ID)
+        val updated = repository.pauseRule(ruleId) ?: return ruleNotFoundError(ruleId)
         val reconciliation = reconcile()
         if (reconciliation is ReconciliationResolution.Failed) {
             return structuredError(reconciliation.code, reconciliation.message).apply {
-                put("reconciliation_status", reconciliation.status)
+                put(KEY_RECONCILIATION_STATUS, reconciliation.status)
             }
         }
         return ruleJson(updated).apply {
-            put("success", true)
-            put("reconciliation_status", (reconciliation as ReconciliationResolution.Resolved).status)
+            put(KEY_SUCCESS, true)
+            put(KEY_RECONCILIATION_STATUS, (reconciliation as ReconciliationResolution.Resolved).status)
         }
     }
 
     override suspend fun resumeRule(ruleId: String): JSONObject {
-        if (ruleId.isBlank()) return structuredError("missing_rule_id", "rule_id is required.")
-        val updated = repository.resumeRule(ruleId) ?: return structuredError("not_found", "Geofence rule not found: $ruleId")
+        if (ruleId.isBlank()) return structuredError(CODE_MISSING_RULE_ID, MESSAGE_MISSING_RULE_ID)
+        val updated = repository.resumeRule(ruleId) ?: return ruleNotFoundError(ruleId)
         val reconciliation = reconcile()
         if (reconciliation is ReconciliationResolution.Failed) {
             return structuredError(reconciliation.code, reconciliation.message).apply {
-                put("reconciliation_status", reconciliation.status)
+                put(KEY_RECONCILIATION_STATUS, reconciliation.status)
             }
         }
         return ruleJson(updated).apply {
-            put("success", true)
-            put("reconciliation_status", (reconciliation as ReconciliationResolution.Resolved).status)
+            put(KEY_SUCCESS, true)
+            put(KEY_RECONCILIATION_STATUS, (reconciliation as ReconciliationResolution.Resolved).status)
         }
     }
 
@@ -293,7 +331,7 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
                     val status = summary.status.name.lowercase()
                     if (summary.status in RECONCILIATION_FAILURE_STATUSES) {
                         ReconciliationResolution.Failed(
-                            code = "reconciliation_failed",
+                            code = CODE_RECONCILIATION_FAILED,
                             status = status,
                             message = summary.errorMessage.ifBlank {
                                 "Geofence runtime reconciliation failed: $status."
@@ -305,8 +343,8 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
                 },
                 onFailure = { error ->
                     ReconciliationResolution.Failed(
-                        code = "reconciliation_failed",
-                        status = "reconciliation_failed",
+                        code = CODE_RECONCILIATION_FAILED,
+                        status = CODE_RECONCILIATION_FAILED,
                         message = error.message ?: error.javaClass.simpleName,
                     )
                 },
@@ -333,7 +371,7 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
             .ifBlank { toolSourceContext?.platform?.wireValue.orEmpty() }
             .trim()
         return when (rawValue.lowercase()) {
-            "",
+            EMPTY_VALUE,
             RuntimePlatform.APP_CHAT.wireValue,
             -> TargetPlatformResolution.Resolved(RuntimePlatform.APP_CHAT.wireValue)
             "qq",
@@ -353,7 +391,7 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
             .trim()
         if (resolvedBotId.isBlank()) {
             return TargetBotResolution.Failed(
-                code = "missing_target_context",
+                code = CODE_MISSING_TARGET_CONTEXT,
                 message = "Target Bot is missing.",
             )
         }
@@ -362,7 +400,7 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
             TargetBotResolution.Resolved(bot)
         } else {
             TargetBotResolution.Failed(
-                code = "missing_target_context",
+                code = CODE_MISSING_TARGET_CONTEXT,
                 message = "Target Bot is missing or does not belong to ConfigProfile ${config.id}.",
             )
         }
@@ -373,12 +411,12 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
         metadata: Map<String, Any?>?,
         permission: GeofencePermissionStatus,
     ): LocationResolution {
-        val latitude = payload.numberValue("latitude")?.toDouble()
-        val longitude = payload.numberValue("longitude")?.toDouble()
-        val radius = payload.numberValue("radius_meters")?.toFloat()
-            ?: payload.numberValue("radiusMeters")?.toFloat()
+        val latitude = payload.numberValue(KEY_LATITUDE)?.toDouble()
+        val longitude = payload.numberValue(KEY_LONGITUDE)?.toDouble()
+        val radius = payload.numberValue(KEY_RADIUS_METERS)?.toFloat()
+            ?: payload.numberValue(KEY_RADIUS_METERS_CAMEL)?.toFloat()
             ?: 100f
-        if (payload.booleanValue("use_current_location") == true) {
+        if (payload.booleanValue(KEY_USE_CURRENT_LOCATION) == true) {
             if (!permission.foregroundGranted) {
                 return LocationResolution.Failed(
                     code = "permission_required",
@@ -387,21 +425,21 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
             }
             val currentLocation = metadata.trustedCurrentLocation()
                 ?: return LocationResolution.Failed(
-                    code = "missing_location",
-                    message = "Current location is not available to the Agent runtime.",
+                    code = CODE_MISSING_LOCATION,
+                    message = MESSAGE_CURRENT_LOCATION_UNAVAILABLE,
                 )
-            val currentLatitude = currentLocation.numberValueFromAnyMap("latitude")?.toDouble()
-            val currentLongitude = currentLocation.numberValueFromAnyMap("longitude")?.toDouble()
+            val currentLatitude = currentLocation.numberValueFromAnyMap(KEY_LATITUDE)?.toDouble()
+            val currentLongitude = currentLocation.numberValueFromAnyMap(KEY_LONGITUDE)?.toDouble()
             if (currentLatitude == null || currentLongitude == null) {
                 return LocationResolution.Failed(
-                    code = "missing_location",
-                    message = "Current location is not available to the Agent runtime.",
+                    code = CODE_MISSING_LOCATION,
+                    message = MESSAGE_CURRENT_LOCATION_UNAVAILABLE,
                 )
             }
-            val currentRadius = payload.numberValue("radius_meters")?.toFloat()
-                ?: payload.numberValue("radiusMeters")?.toFloat()
-                ?: currentLocation.numberValueFromAnyMap("radius_meters")?.toFloat()
-                ?: currentLocation.numberValueFromAnyMap("radiusMeters")?.toFloat()
+            val currentRadius = payload.numberValue(KEY_RADIUS_METERS)?.toFloat()
+                ?: payload.numberValue(KEY_RADIUS_METERS_CAMEL)?.toFloat()
+                ?: currentLocation.numberValueFromAnyMap(KEY_RADIUS_METERS)?.toFloat()
+                ?: currentLocation.numberValueFromAnyMap(KEY_RADIUS_METERS_CAMEL)?.toFloat()
                 ?: 100f
             return LocationResolution.Resolved(
                 LocationPayload(latitude = currentLatitude, longitude = currentLongitude, radiusMeters = currentRadius),
@@ -412,69 +450,67 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
                 LocationPayload(latitude = latitude, longitude = longitude, radiusMeters = radius),
             )
         }
-        if (latitude != null || longitude != null || payload.containsKey("radius_meters") || payload.containsKey("radiusMeters")) {
+        if (
+            latitude != null ||
+            longitude != null ||
+            payload.containsKey(KEY_RADIUS_METERS) ||
+            payload.containsKey(KEY_RADIUS_METERS_CAMEL)
+        ) {
             return LocationResolution.Failed(
-                code = "missing_location",
+                code = CODE_MISSING_LOCATION,
                 message = "Geofence location is incomplete. Provide both latitude and longitude.",
             )
         }
         return LocationResolution.NotRequested
     }
 
-    private fun locationError(payload: Map<String, Any?>): JSONObject {
-        return if (payload.booleanValue("use_current_location") == true) {
-            structuredError(
-                code = "missing_location",
-                message = "Current location is not available to the Agent runtime.",
-            )
+    private fun locationErrorMessage(payload: Map<String, Any?>): String =
+        if (payload.booleanValue(KEY_USE_CURRENT_LOCATION) == true) {
+            MESSAGE_CURRENT_LOCATION_UNAVAILABLE
         } else {
-            structuredError(
-                code = "missing_location",
-                message = "Geofence location is missing. Provide latitude/longitude or request current location with permission.",
-            )
+            "Geofence location is missing. Provide latitude/longitude or request current location with permission."
         }
-    }
 
     private fun GeofenceRule.applyTriggerPatch(payload: Map<String, Any?>): GeofenceRule {
-        val trigger = payload.stringValue("trigger")
+        val trigger = payload.stringValue(KEY_TRIGGER)
         if (trigger.isBlank()) return this
         return copy(
-            triggerEnter = trigger == "enter" || trigger == "enter_exit",
-            triggerExit = trigger == "exit" || trigger == "enter_exit",
-            triggerDwell = trigger == "dwell",
-            dwellDelayMillis = payload.longValue("dwell_delay_millis")
-                .takeIf { it > 0L || trigger != "dwell" }
+            triggerEnter = trigger == TRIGGER_ENTER || trigger == TRIGGER_ENTER_EXIT,
+            triggerExit = trigger == TRIGGER_EXIT || trigger == TRIGGER_ENTER_EXIT,
+            triggerDwell = trigger == TRIGGER_DWELL,
+            dwellDelayMillis = payload.longValue(KEY_DWELL_DELAY_MILLIS)
+                .takeIf { it > 0L || trigger != TRIGGER_DWELL }
                 ?: DEFAULT_DWELL_DELAY_MILLIS,
         )
     }
 
     private fun ruleJson(rule: GeofenceRule, includeSensitiveLocation: Boolean = true): JSONObject =
         JSONObject().apply {
-            put("rule_id", rule.ruleId)
-            put("name", rule.name)
-            put("description", rule.description)
-            put("enabled", rule.enabled)
+            put(KEY_RULE_ID, rule.ruleId)
+            put(KEY_NAME, rule.name)
+            put(KEY_DESCRIPTION, rule.description)
+            put(KEY_ENABLED, rule.enabled)
             put("status", rule.status.persistedValue)
-            put("action_type", rule.actionType.persistedValue)
-            put("target_platform", rule.targetPlatform)
-            put("conversation_id", rule.targetConversationId)
-            put("config_profile_id", rule.targetConfigProfileId)
-            put("minimum_trigger_interval_millis", rule.minimumTriggerIntervalMillis)
+            put(KEY_ACTION_TYPE, rule.actionType.persistedValue)
+            put(KEY_TARGET_PLATFORM, rule.targetPlatform)
+            put(KEY_CONVERSATION_ID, rule.targetConversationId)
+            put(KEY_CONFIG_PROFILE_ID, rule.targetConfigProfileId)
+            put(KEY_MINIMUM_TRIGGER_INTERVAL_MILLIS, rule.minimumTriggerIntervalMillis)
             put("triggers", JSONArray().apply {
-                if (rule.triggerEnter) put("enter")
-                if (rule.triggerExit) put("exit")
-                if (rule.triggerDwell) put("dwell")
+                if (rule.triggerEnter) put(TRIGGER_ENTER)
+                if (rule.triggerExit) put(TRIGGER_EXIT)
+                if (rule.triggerDwell) put(TRIGGER_DWELL)
             })
             put("regions", JSONArray().apply {
                 rule.regions.forEach { region ->
                     put(JSONObject().apply {
                         put("region_id", region.regionId)
                         put("label", region.label)
-                        put("radius_meters", region.radiusMeters)
-                        put("address_label", region.addressLabel)
+                        put(KEY_RADIUS_METERS, region.radiusMeters)
+                        put(KEY_ADDRESS_LABEL, region.addressLabel)
                         if (includeSensitiveLocation) {
-                            put("latitude", region.latitude)
-                            put("longitude", region.longitude)
+                            put(KEY_LATITUDE, region.latitude)
+                            put(KEY_LONGITUDE, region.longitude)
                         } else {
                             put("location_present", true)
                         }
@@ -485,16 +521,33 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
 
     private fun structuredError(code: String, message: String): JSONObject =
         JSONObject().apply {
-            put("success", false)
+            put(KEY_SUCCESS, false)
             put("error_code", code)
-            put("message", message)
+            put(KEY_MESSAGE, message)
         }
 
     private fun missingTargetConfigError(): JSONObject =
         structuredError(
-            code = "missing_target_context",
-            message = "Target ConfigProfile is missing or unavailable.",
+            code = CODE_MISSING_TARGET_CONTEXT,
+            message = MESSAGE_MISSING_TARGET_CONFIG,
         )
+
+    private fun ruleNotFoundError(ruleId: String): JSONObject =
+        structuredError(CODE_NOT_FOUND, "$MESSAGE_RULE_NOT_FOUND_PREFIX$ruleId")
+
+    private data class CreateRuleRequest(
+        val rule: GeofenceRule,
+        val region: GeofenceRegion,
+        val configId: String,
+        val enabled: Boolean,
+        val now: Long,
+        val permission: GeofencePermissionStatus,
+    )
+
+    private sealed class CreateRuleRequestResolution {
+        data class Resolved(val request: CreateRuleRequest) : CreateRuleRequestResolution()
+        data class Failed(val code: String, val message: String) : CreateRuleRequestResolution()
+    }
 
     private data class LocationPayload(
         val latitude: Double,
@@ -525,6 +578,46 @@ class GeofenceActiveCapabilityFacadeAdapter @Inject constructor(
 
     private companion object {
         const val DEFAULT_DWELL_DELAY_MILLIS = 300_000L
+        const val CODE_MISSING_LOCATION = "missing_location"
+        const val CODE_MISSING_RULE_ID = "missing_rule_id"
+        const val CODE_MISSING_TARGET_CONTEXT = "missing_target_context"
+        const val CODE_NOT_FOUND = "not_found"
+        const val CODE_RECONCILIATION_FAILED = "reconciliation_failed"
+        const val EMPTY_VALUE = ""
+        const val KEY_ACTION_PROMPT = "action_prompt"
+        const val KEY_ACTION_TYPE = "action_type"
+        const val KEY_ADDRESS_LABEL = "address_label"
+        const val KEY_BOT_ID = "bot_id"
+        const val KEY_CONFIG_PROFILE_ID = "config_profile_id"
+        const val KEY_CONVERSATION_ID = "conversation_id"
+        const val KEY_DELETED_NAME = "deleted_name"
+        const val KEY_DELETED_RULE_ID = "deleted_rule_id"
+        const val KEY_DESCRIPTION = "description"
+        const val KEY_DWELL_DELAY_MILLIS = "dwell_delay_millis"
+        const val KEY_ENABLED = "enabled"
+        const val KEY_LATITUDE = "latitude"
+        const val KEY_LONGITUDE = "longitude"
+        const val KEY_MESSAGE = "message"
+        const val KEY_MINIMUM_TRIGGER_INTERVAL_MILLIS = "minimum_trigger_interval_millis"
+        const val KEY_NAME = "name"
+        const val KEY_PROMPT = "prompt"
+        const val KEY_RADIUS_METERS = "radius_meters"
+        const val KEY_RADIUS_METERS_CAMEL = "radiusMeters"
+        const val KEY_RECONCILIATION_STATUS = "reconciliation_status"
+        const val KEY_REGION_LABEL = "region_label"
+        const val KEY_RULE_ID = "rule_id"
+        const val KEY_SUCCESS = "success"
+        const val KEY_TARGET_PLATFORM = "target_platform"
+        const val KEY_TRIGGER = "trigger"
+        const val KEY_USE_CURRENT_LOCATION = "use_current_location"
+        const val MESSAGE_CURRENT_LOCATION_UNAVAILABLE = "Current location is not available to the Agent runtime."
+        const val MESSAGE_MISSING_RULE_ID = "rule_id is required."
+        const val MESSAGE_MISSING_TARGET_CONFIG = "Target ConfigProfile is missing or unavailable."
+        const val MESSAGE_RULE_NOT_FOUND_PREFIX = "Geofence rule not found: "
+        const val TRIGGER_DWELL = "dwell"
+        const val TRIGGER_ENTER = "enter"
+        const val TRIGGER_ENTER_EXIT = "enter_exit"
+        const val TRIGGER_EXIT = "exit"
         val RECONCILIATION_FAILURE_STATUSES = setOf(
             GeofenceRegistrationStatus.PLAY_SERVICES_UNAVAILABLE,
             GeofenceRegistrationStatus.CAPACITY_EXCEEDED,

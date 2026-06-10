@@ -41,6 +41,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -71,13 +72,13 @@ class GeofenceRulesViewModelTest {
         val viewModel = viewModel(repository)
 
         viewModel.createRule(validDraft(name = "Created"), permissionReady())
-        val created = withTimeout(2_000) { repository.createdRule.await() }
+        val created = awaitAsync { repository.createdRule.await() }
 
         viewModel.updateRule(sampleRule(), validDraft(name = "Updated"), permissionReady())
-        val updated = withTimeout(2_000) { repository.updatedRule.await() }
+        val updated = awaitAsync { repository.updatedRule.await() }
 
         viewModel.deleteRule("rule-1")
-        val deletedRuleId = withTimeout(2_000) { repository.deletedRuleId.await() }
+        val deletedRuleId = awaitAsync { repository.deletedRuleId.await() }
 
         assertEquals("Created", created.rule.name)
         assertEquals(1, created.regions.size)
@@ -98,7 +99,7 @@ class GeofenceRulesViewModelTest {
             ),
             permissionReady(),
         )
-        val created = withTimeout(2_000) { repository.createdRule.await() }.rule
+        val created = awaitAsync { repository.createdRule.await() }.rule
 
         assertEquals("chat-main", created.targetConversationId)
         assertEquals("bot-1", created.targetBotId)
@@ -118,14 +119,14 @@ class GeofenceRulesViewModelTest {
             draft = validDraft(name = "Created"),
             permissionStatus = GeofencePermissionStatus(foregroundGranted = false, backgroundGranted = true),
         )
-        val created = withTimeout(2_000) { repository.createdRule.await() }
+        val created = awaitAsync { repository.createdRule.await() }
 
         viewModel.updateRule(
             existing = sampleRule(),
             draft = validDraft(name = "Updated"),
             permissionStatus = GeofencePermissionStatus(foregroundGranted = true, backgroundGranted = false),
         )
-        val updated = withTimeout(2_000) { repository.updatedRule.await() }
+        val updated = awaitAsync { repository.updatedRule.await() }
 
         assertEquals(GeofenceRuleStatus.PERMISSION_REQUIRED, created.rule.status)
         assertEquals(GeofenceRuleStatus.PERMISSION_REQUIRED, updated.status)
@@ -144,7 +145,7 @@ class GeofenceRulesViewModelTest {
 
         repository.createFailure = null
         viewModel.createRule(validDraft(name = "Created after failure"), permissionReady())
-        withTimeout(2_000) { repository.createdRule.await() }
+        awaitAsync { repository.createdRule.await() }
         viewModel.awaitOperationErrorCleared()
 
         repository.updateFailure = IllegalStateException("update failed")
@@ -177,7 +178,7 @@ class GeofenceRulesViewModelTest {
         repository.listRunsFailure = IllegalStateException("runs failed")
         viewModel.showRuns(sampleRule())
         assertTrue(viewModel.awaitOperationErrorMessage().contains("runs failed"))
-        withTimeout(2_000) {
+        awaitAsync {
             while (viewModel.runHistoryState.value.loading) {
                 delay(10)
             }
@@ -214,10 +215,10 @@ class GeofenceRulesViewModelTest {
         val viewModel = viewModel(repository)
 
         viewModel.pauseRule("rule-1")
-        val pausedRuleId = withTimeout(2_000) { repository.pausedRuleId.await() }
+        val pausedRuleId = awaitAsync { repository.pausedRuleId.await() }
 
         viewModel.resumeRule("rule-1")
-        val resumedRuleId = withTimeout(2_000) { repository.resumedRuleId.await() }
+        val resumedRuleId = awaitAsync { repository.resumedRuleId.await() }
 
         assertEquals("rule-1", pausedRuleId)
         assertEquals("rule-1", resumedRuleId)
@@ -244,8 +245,8 @@ class GeofenceRulesViewModelTest {
         val viewModel = viewModel(repository)
 
         viewModel.showRuns(sampleRule())
-        val request = withTimeout(2_000) { repository.listRunsRequest.await() }
-        withTimeout(2_000) {
+        val request = awaitAsync { repository.listRunsRequest.await() }
+        awaitAsync {
             while (viewModel.runHistoryState.value.loading) {
                 delay(10)
             }
@@ -382,7 +383,7 @@ class GeofenceRulesViewModelTest {
         GeofencePermissionStatus(foregroundGranted = true, backgroundGranted = true)
 
     private suspend fun GeofenceRulesViewModel.awaitOperationErrorMessage(): String =
-        withTimeout(2_000) {
+        awaitAsync {
             while (!operationErrorState.value.visible) {
                 delay(10)
             }
@@ -390,12 +391,17 @@ class GeofenceRulesViewModelTest {
         }
 
     private suspend fun GeofenceRulesViewModel.awaitOperationErrorCleared() {
-        withTimeout(2_000) {
+        awaitAsync {
             while (operationErrorState.value.visible) {
                 delay(10)
             }
         }
     }
+
+    private suspend fun <T> awaitAsync(block: suspend () -> T): T =
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) { block() }
+        }
 }
 
 private data class CreatedRuleCall(

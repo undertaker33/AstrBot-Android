@@ -10,12 +10,26 @@ import java.util.Properties
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
+val appPackageName = "com.elymbot.android"
+val appVersionMajor = 1
+val appVersionMinor = 2
+val appVersionPatch = 0
+val buildTypeDebug = "debug"
+val buildTypeRelease = "release"
+val compileDebugKotlinTask = "compileDebugKotlin"
+val debugKotlinClassesDir = "tmp/kotlin-classes/debug"
+val fallbackBranchName = "detached-head"
+
+val appVersionName = "$appVersionMajor.$appVersionMinor.$appVersionPatch"
+
+fun compileDebugKotlinTaskPath(path: String): String = "$path:$compileDebugKotlinTask"
+
 fun sanitizeBranchName(name: String): String {
     return name
-        .ifBlank { "detached-head" }
+        .ifBlank { fallbackBranchName }
         .replace(Regex("[^A-Za-z0-9._-]+"), "_")
         .trim('_')
-        .ifBlank { "detached-head" }
+        .ifBlank { fallbackBranchName }
 }
 
 fun currentGitBranchName(): String {
@@ -34,7 +48,7 @@ fun currentGitBranchName(): String {
     val branch = providers.exec {
         commandLine("git", "branch", "--show-current")
     }.standardOutput.asText.get().trim()
-    return if (branch.isBlank()) "detached-head" else branch
+    return if (branch.isBlank()) fallbackBranchName else branch
 }
 
 val keystoreProperties = Properties().apply {
@@ -92,11 +106,11 @@ val prepareFilteredAssets by tasks.registering(Sync::class) {
 }
 
 android {
-    namespace = "com.elymbot.android"
+    namespace = appPackageName
 
     signingConfigs {
         if (hasReleaseSigning) {
-            create("release") {
+            create(buildTypeRelease) {
                 storeFile = rootProject.file(requireNotNull(releaseStoreFile))
                 storePassword = requireNotNull(releaseStorePassword)
                 keyAlias = requireNotNull(releaseKeyAlias)
@@ -106,10 +120,10 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.elymbot.android"
+        applicationId = appPackageName
         targetSdk = 36
         versionCode = 84
-        versionName = "1.2.0"
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -121,7 +135,7 @@ android {
         release {
             isMinifyEnabled = true
             if (hasReleaseSigning) {
-                signingConfig = signingConfigs.getByName("release")
+                signingConfig = signingConfigs.getByName(buildTypeRelease)
             }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -180,14 +194,15 @@ tasks.matching {
     dependsOn(prepareFilteredAssets)
 }
 
-listOf("debug", "release").forEach { variantName ->
+listOf(buildTypeDebug, buildTypeRelease).forEach { variantName ->
     val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
-    tasks.register<Sync>("export${capitalizedVariant}ApkByBranch") {
+    val exportApkTaskName = "export${capitalizedVariant}ApkByBranch"
+    tasks.register<Sync>(exportApkTaskName) {
         from(layout.buildDirectory.dir("outputs/apk/$variantName"))
         into(rootProject.layout.projectDirectory.dir("artifacts/apk/$branchApkDirName/$variantName"))
     }
     tasks.matching { task -> task.name == "assemble$capitalizedVariant" }.configureEach {
-        finalizedBy(tasks.named("export${capitalizedVariant}ApkByBranch"))
+        finalizedBy(tasks.named(exportApkTaskName))
     }
 }
 
@@ -196,10 +211,88 @@ data class AppUnitTestModuleGroup(
     val projects: List<String>,
 )
 
+object AppUnitTestGroupNames {
+    const val CHAT_PRESENTATION = "chat presentation"
+    const val CORE_UI = "core ui"
+    const val CRON = "cron"
+    const val GEOFENCE = "geofence"
+    const val PLUGIN_HOST = "plugin host"
+    const val QQ = "qq"
+}
+
+object AppUnitTestProjects {
+    const val APP_INTEGRATION = ":app-integration"
+    const val CORE_BACKUP = ":core:backup"
+    const val CORE_COMMON = ":core:common"
+    const val CORE_DB = ":core:db"
+    const val CORE_LOGGING = ":core:logging"
+    const val CORE_NETWORK = ":core:network"
+    const val CORE_RUNTIME = ":core:runtime"
+    const val CORE_RUNTIME_CACHE = ":core:runtime-cache"
+    const val CORE_RUNTIME_LLM = ":core:runtime-llm"
+    const val CORE_RUNTIME_SEARCH = ":core:runtime-search"
+    const val CORE_RUNTIME_SECRET = ":core:runtime-secret"
+    const val CORE_RUNTIME_SESSION = ":core:runtime-session"
+    const val CORE_UI = ":core:ui"
+    const val DOWNLOAD_API = ":download:api"
+    const val DOWNLOAD_IMPL = ":download:impl"
+    const val FEATURE_BOT_API = ":feature:bot:api"
+    const val FEATURE_BOT_DATA = ":feature:bot:data"
+    const val FEATURE_BOT_IMPL = ":feature:bot:impl"
+    const val FEATURE_BOT_PRESENTATION = ":feature:bot:presentation"
+    const val FEATURE_CHAT_API = ":feature:chat:api"
+    const val FEATURE_CHAT_IMPL = ":feature:chat:impl"
+    const val FEATURE_CHAT_PRESENTATION = ":feature:chat:presentation"
+    const val FEATURE_CHAT_RUNTIME = ":feature:chat:runtime"
+    const val FEATURE_CONFIG_API = ":feature:config:api"
+    const val FEATURE_CONFIG_DATA = ":feature:config:data"
+    const val FEATURE_CONFIG_IMPL = ":feature:config:impl"
+    const val FEATURE_CONFIG_PRESENTATION = ":feature:config:presentation"
+    const val FEATURE_CONVERSATION_API = ":feature:conversation:api"
+    const val FEATURE_CONVERSATION_DATA = ":feature:conversation:data"
+    const val FEATURE_CRON_API = ":feature:cron:api"
+    const val FEATURE_CRON_DATA = ":feature:cron:data"
+    const val FEATURE_CRON_IMPL = ":feature:cron:impl"
+    const val FEATURE_CRON_PRESENTATION = ":feature:cron:presentation"
+    const val FEATURE_CRON_RUNTIME = ":feature:cron:runtime"
+    const val FEATURE_GEOFENCE_DATA = ":feature:geofence:data"
+    const val FEATURE_GEOFENCE_IMPL = ":feature:geofence:impl"
+    const val FEATURE_GEOFENCE_PRESENTATION = ":feature:geofence:presentation"
+    const val FEATURE_GEOFENCE_RUNTIME = ":feature:geofence:runtime"
+    const val FEATURE_PERSONA_API = ":feature:persona:api"
+    const val FEATURE_PERSONA_DATA = ":feature:persona:data"
+    const val FEATURE_PERSONA_IMPL = ":feature:persona:impl"
+    const val FEATURE_PERSONA_PRESENTATION = ":feature:persona:presentation"
+    const val FEATURE_PLUGIN_API = ":feature:plugin:api"
+    const val FEATURE_PLUGIN_DATA = ":feature:plugin:data"
+    const val FEATURE_PLUGIN_IMPL = ":feature:plugin:impl"
+    const val FEATURE_PLUGIN_PRESENTATION = ":feature:plugin:presentation"
+    const val FEATURE_PLUGIN_RUNTIME = ":feature:plugin:runtime"
+    const val FEATURE_PROVIDER_API = ":feature:provider:api"
+    const val FEATURE_PROVIDER_DATA = ":feature:provider:data"
+    const val FEATURE_PROVIDER_IMPL = ":feature:provider:impl"
+    const val FEATURE_PROVIDER_PRESENTATION = ":feature:provider:presentation"
+    const val FEATURE_PROVIDER_RUNTIME = ":feature:provider:runtime"
+    const val FEATURE_QQ_API = ":feature:qq:api"
+    const val FEATURE_QQ_DATA = ":feature:qq:data"
+    const val FEATURE_QQ_IMPL = ":feature:qq:impl"
+    const val FEATURE_QQ_PRESENTATION = ":feature:qq:presentation"
+    const val FEATURE_QQ_RUNTIME = ":feature:qq:runtime"
+    const val FEATURE_RESOURCE_API = ":feature:resource:api"
+    const val FEATURE_RESOURCE_DATA = ":feature:resource:data"
+    const val FEATURE_RESOURCE_IMPL = ":feature:resource:impl"
+    const val FEATURE_RESOURCE_PRESENTATION = ":feature:resource:presentation"
+    const val FEATURE_SETTINGS_API = ":feature:settings:api"
+    const val FEATURE_SETTINGS_PRESENTATION = ":feature:settings:presentation"
+    const val FEATURE_VOICEASSET_API = ":feature:voiceasset:api"
+    const val FEATURE_VOICEASSET_DATA = ":feature:voiceasset:data"
+    const val FEATURE_VOICEASSET_PRESENTATION = ":feature:voiceasset:presentation"
+}
+
 fun Project.debugUnitTestModuleOutputFiles(): List<File> {
     val buildDir = layout.buildDirectory
     return listOf(
-        buildDir.dir("tmp/kotlin-classes/debug").get().asFile,
+        buildDir.dir(debugKotlinClassesDir).get().asFile,
         buildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar")
             .get()
             .asFile,
@@ -213,47 +306,47 @@ tasks.withType<KotlinCompile>().configureEach {
     if (name == "compileDebugUnitTestKotlin") {
         val appUnitTestFriendPathGroups = listOf(
             AppUnitTestModuleGroup(
-                name = "plugin host",
+                name = AppUnitTestGroupNames.PLUGIN_HOST,
                 projects = listOf(
-                    ":feature:plugin:data",
-                    ":feature:plugin:presentation",
-                    ":feature:plugin:runtime",
+                    AppUnitTestProjects.FEATURE_PLUGIN_DATA,
+                    AppUnitTestProjects.FEATURE_PLUGIN_PRESENTATION,
+                    AppUnitTestProjects.FEATURE_PLUGIN_RUNTIME,
                 ),
             ),
             AppUnitTestModuleGroup(
-                name = "chat presentation",
-                projects = listOf(":feature:chat:presentation"),
+                name = AppUnitTestGroupNames.CHAT_PRESENTATION,
+                projects = listOf(AppUnitTestProjects.FEATURE_CHAT_PRESENTATION),
             ),
             AppUnitTestModuleGroup(
-                name = "cron",
+                name = AppUnitTestGroupNames.CRON,
                 projects = listOf(
-                    ":feature:cron:data",
-                    ":feature:cron:presentation",
-                    ":feature:cron:runtime",
+                    AppUnitTestProjects.FEATURE_CRON_DATA,
+                    AppUnitTestProjects.FEATURE_CRON_PRESENTATION,
+                    AppUnitTestProjects.FEATURE_CRON_RUNTIME,
                 ),
             ),
             AppUnitTestModuleGroup(
-                name = "geofence",
-                projects = listOf(":feature:geofence:presentation"),
+                name = AppUnitTestGroupNames.GEOFENCE,
+                projects = listOf(AppUnitTestProjects.FEATURE_GEOFENCE_PRESENTATION),
             ),
             AppUnitTestModuleGroup(
-                name = "qq",
+                name = AppUnitTestGroupNames.QQ,
                 projects = listOf(
-                    ":feature:qq:data",
-                    ":feature:qq:presentation",
-                    ":feature:qq:runtime",
+                    AppUnitTestProjects.FEATURE_QQ_DATA,
+                    AppUnitTestProjects.FEATURE_QQ_PRESENTATION,
+                    AppUnitTestProjects.FEATURE_QQ_RUNTIME,
                 ),
             ),
             AppUnitTestModuleGroup(
-                name = "core ui",
-                projects = listOf(":core:ui"),
+                name = AppUnitTestGroupNames.CORE_UI,
+                projects = listOf(AppUnitTestProjects.CORE_UI),
             ),
         )
         val friendPathProjects = appUnitTestFriendPathGroups.flatMap { group -> group.projects }.distinct()
         friendPathProjects.forEach { path ->
-            dependsOn("$path:compileDebugKotlin")
+            dependsOn(compileDebugKotlinTaskPath(path))
         }
-        val appDebugKotlinClasses = listOf(layout.buildDirectory.dir("tmp/kotlin-classes/debug").get().asFile)
+        val appDebugKotlinClasses = listOf(layout.buildDirectory.dir(debugKotlinClassesDir).get().asFile)
         val pluginImplFriendPaths = (appDebugKotlinClasses + friendPathProjects.flatMap { path ->
             project(path).debugUnitTestModuleOutputFiles()
         }).joinToString(",") { file -> file.absolutePath }
@@ -264,151 +357,151 @@ tasks.withType<KotlinCompile>().configureEach {
 val appUnitTestRuntimeProjectGroups = listOf(
     AppUnitTestModuleGroup(
         name = "app shell",
-        projects = listOf(":app-integration"),
+        projects = listOf(AppUnitTestProjects.APP_INTEGRATION),
     ),
     AppUnitTestModuleGroup(
         name = "core foundation",
         projects = listOf(
-            ":core:backup",
-            ":core:common",
-            ":core:db",
-            ":core:logging",
-            ":core:network",
-            ":core:ui",
+            AppUnitTestProjects.CORE_BACKUP,
+            AppUnitTestProjects.CORE_COMMON,
+            AppUnitTestProjects.CORE_DB,
+            AppUnitTestProjects.CORE_LOGGING,
+            AppUnitTestProjects.CORE_NETWORK,
+            AppUnitTestProjects.CORE_UI,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "core runtime",
         projects = listOf(
-            ":core:runtime",
-            ":core:runtime-cache",
-            ":core:runtime-llm",
-            ":core:runtime-search",
-            ":core:runtime-secret",
-            ":core:runtime-session",
+            AppUnitTestProjects.CORE_RUNTIME,
+            AppUnitTestProjects.CORE_RUNTIME_CACHE,
+            AppUnitTestProjects.CORE_RUNTIME_LLM,
+            AppUnitTestProjects.CORE_RUNTIME_SEARCH,
+            AppUnitTestProjects.CORE_RUNTIME_SECRET,
+            AppUnitTestProjects.CORE_RUNTIME_SESSION,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "download",
         projects = listOf(
-            ":download:api",
-            ":download:impl",
+            AppUnitTestProjects.DOWNLOAD_API,
+            AppUnitTestProjects.DOWNLOAD_IMPL,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "bot",
         projects = listOf(
-            ":feature:bot:api",
-            ":feature:bot:data",
-            ":feature:bot:impl",
-            ":feature:bot:presentation",
+            AppUnitTestProjects.FEATURE_BOT_API,
+            AppUnitTestProjects.FEATURE_BOT_DATA,
+            AppUnitTestProjects.FEATURE_BOT_IMPL,
+            AppUnitTestProjects.FEATURE_BOT_PRESENTATION,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "chat",
         projects = listOf(
-            ":feature:chat:api",
-            ":feature:chat:impl",
-            ":feature:chat:presentation",
-            ":feature:chat:runtime",
+            AppUnitTestProjects.FEATURE_CHAT_API,
+            AppUnitTestProjects.FEATURE_CHAT_IMPL,
+            AppUnitTestProjects.FEATURE_CHAT_PRESENTATION,
+            AppUnitTestProjects.FEATURE_CHAT_RUNTIME,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "config",
         projects = listOf(
-            ":feature:config:api",
-            ":feature:config:data",
-            ":feature:config:impl",
-            ":feature:config:presentation",
+            AppUnitTestProjects.FEATURE_CONFIG_API,
+            AppUnitTestProjects.FEATURE_CONFIG_DATA,
+            AppUnitTestProjects.FEATURE_CONFIG_IMPL,
+            AppUnitTestProjects.FEATURE_CONFIG_PRESENTATION,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "conversation",
         projects = listOf(
-            ":feature:conversation:api",
-            ":feature:conversation:data",
+            AppUnitTestProjects.FEATURE_CONVERSATION_API,
+            AppUnitTestProjects.FEATURE_CONVERSATION_DATA,
         ),
     ),
     AppUnitTestModuleGroup(
-        name = "cron",
+        name = AppUnitTestGroupNames.CRON,
         projects = listOf(
-            ":feature:cron:api",
-            ":feature:cron:data",
-            ":feature:cron:impl",
-            ":feature:cron:presentation",
-            ":feature:cron:runtime",
+            AppUnitTestProjects.FEATURE_CRON_API,
+            AppUnitTestProjects.FEATURE_CRON_DATA,
+            AppUnitTestProjects.FEATURE_CRON_IMPL,
+            AppUnitTestProjects.FEATURE_CRON_PRESENTATION,
+            AppUnitTestProjects.FEATURE_CRON_RUNTIME,
         ),
     ),
     AppUnitTestModuleGroup(
-        name = "geofence",
+        name = AppUnitTestGroupNames.GEOFENCE,
         projects = listOf(
-            ":feature:geofence:data",
-            ":feature:geofence:impl",
-            ":feature:geofence:presentation",
-            ":feature:geofence:runtime",
+            AppUnitTestProjects.FEATURE_GEOFENCE_DATA,
+            AppUnitTestProjects.FEATURE_GEOFENCE_IMPL,
+            AppUnitTestProjects.FEATURE_GEOFENCE_PRESENTATION,
+            AppUnitTestProjects.FEATURE_GEOFENCE_RUNTIME,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "persona",
         projects = listOf(
-            ":feature:persona:api",
-            ":feature:persona:data",
-            ":feature:persona:impl",
-            ":feature:persona:presentation",
+            AppUnitTestProjects.FEATURE_PERSONA_API,
+            AppUnitTestProjects.FEATURE_PERSONA_DATA,
+            AppUnitTestProjects.FEATURE_PERSONA_IMPL,
+            AppUnitTestProjects.FEATURE_PERSONA_PRESENTATION,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "plugin",
         projects = listOf(
-            ":feature:plugin:api",
-            ":feature:plugin:data",
-            ":feature:plugin:impl",
-            ":feature:plugin:presentation",
-            ":feature:plugin:runtime",
+            AppUnitTestProjects.FEATURE_PLUGIN_API,
+            AppUnitTestProjects.FEATURE_PLUGIN_DATA,
+            AppUnitTestProjects.FEATURE_PLUGIN_IMPL,
+            AppUnitTestProjects.FEATURE_PLUGIN_PRESENTATION,
+            AppUnitTestProjects.FEATURE_PLUGIN_RUNTIME,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "provider",
         projects = listOf(
-            ":feature:provider:api",
-            ":feature:provider:data",
-            ":feature:provider:impl",
-            ":feature:provider:presentation",
-            ":feature:provider:runtime",
+            AppUnitTestProjects.FEATURE_PROVIDER_API,
+            AppUnitTestProjects.FEATURE_PROVIDER_DATA,
+            AppUnitTestProjects.FEATURE_PROVIDER_IMPL,
+            AppUnitTestProjects.FEATURE_PROVIDER_PRESENTATION,
+            AppUnitTestProjects.FEATURE_PROVIDER_RUNTIME,
         ),
     ),
     AppUnitTestModuleGroup(
-        name = "qq",
+        name = AppUnitTestGroupNames.QQ,
         projects = listOf(
-            ":feature:qq:api",
-            ":feature:qq:data",
-            ":feature:qq:impl",
-            ":feature:qq:presentation",
-            ":feature:qq:runtime",
+            AppUnitTestProjects.FEATURE_QQ_API,
+            AppUnitTestProjects.FEATURE_QQ_DATA,
+            AppUnitTestProjects.FEATURE_QQ_IMPL,
+            AppUnitTestProjects.FEATURE_QQ_PRESENTATION,
+            AppUnitTestProjects.FEATURE_QQ_RUNTIME,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "resource",
         projects = listOf(
-            ":feature:resource:api",
-            ":feature:resource:data",
-            ":feature:resource:impl",
-            ":feature:resource:presentation",
+            AppUnitTestProjects.FEATURE_RESOURCE_API,
+            AppUnitTestProjects.FEATURE_RESOURCE_DATA,
+            AppUnitTestProjects.FEATURE_RESOURCE_IMPL,
+            AppUnitTestProjects.FEATURE_RESOURCE_PRESENTATION,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "settings",
         projects = listOf(
-            ":feature:settings:api",
-            ":feature:settings:presentation",
+            AppUnitTestProjects.FEATURE_SETTINGS_API,
+            AppUnitTestProjects.FEATURE_SETTINGS_PRESENTATION,
         ),
     ),
     AppUnitTestModuleGroup(
         name = "voice asset",
         projects = listOf(
-            ":feature:voiceasset:api",
-            ":feature:voiceasset:data",
-            ":feature:voiceasset:presentation",
+            AppUnitTestProjects.FEATURE_VOICEASSET_API,
+            AppUnitTestProjects.FEATURE_VOICEASSET_DATA,
+            AppUnitTestProjects.FEATURE_VOICEASSET_PRESENTATION,
         ),
     ),
 )
@@ -417,7 +510,7 @@ val appUnitTestRuntimeProjects = appUnitTestRuntimeProjectGroups.flatMap { group
 tasks.withType<Test>().configureEach {
     if (name == "testDebugUnitTest") {
         appUnitTestRuntimeProjects.forEach { path ->
-            dependsOn("$path:compileDebugKotlin")
+            dependsOn(compileDebugKotlinTaskPath(path))
             dependsOn("$path:bundleLibCompileToJarDebug")
             dependsOn("$path:bundleLibRuntimeToJarDebug")
         }
@@ -491,20 +584,20 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation(project(":feature:bot:data"))
-    testImplementation(project(":feature:chat:runtime"))
-    testImplementation(project(":feature:config:data"))
-    testImplementation(project(":feature:conversation:data"))
-    testImplementation(project(":feature:cron:data"))
-    testImplementation(project(":feature:cron:runtime"))
-    testImplementation(project(":feature:persona:data"))
-    testImplementation(project(":feature:plugin:data"))
-    testImplementation(project(":feature:plugin:runtime"))
-    testImplementation(project(":feature:provider:data"))
-    testImplementation(project(":feature:qq:data"))
-    testImplementation(project(":feature:qq:runtime"))
-    testImplementation(project(":feature:resource:data"))
-    testImplementation(project(":feature:voiceasset:data"))
+    testImplementation(project(AppUnitTestProjects.FEATURE_BOT_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_CHAT_RUNTIME))
+    testImplementation(project(AppUnitTestProjects.FEATURE_CONFIG_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_CONVERSATION_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_CRON_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_CRON_RUNTIME))
+    testImplementation(project(AppUnitTestProjects.FEATURE_PERSONA_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_PLUGIN_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_PLUGIN_RUNTIME))
+    testImplementation(project(AppUnitTestProjects.FEATURE_PROVIDER_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_QQ_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_QQ_RUNTIME))
+    testImplementation(project(AppUnitTestProjects.FEATURE_RESOURCE_DATA))
+    testImplementation(project(AppUnitTestProjects.FEATURE_VOICEASSET_DATA))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:$okHttpVersion")
     testImplementation("org.json:json:20240303")
