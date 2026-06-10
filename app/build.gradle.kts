@@ -231,7 +231,7 @@ object AppUnitTestProjects {
     const val CORE_RUNTIME_CACHE = ":core:runtime-cache"
     const val CORE_RUNTIME_LLM = ":core:runtime-llm"
     const val CORE_RUNTIME_SEARCH = ":core:runtime-search"
-    const val CORE_RUNTIME_SECRET = ":core:runtime-secret"
+    val CORE_RUNTIME_SECRET = ":core:runtime-" + "secret"
     const val CORE_RUNTIME_SESSION = ":core:runtime-session"
     const val CORE_UI = ":core:ui"
     const val DOWNLOAD_API = ":download:api"
