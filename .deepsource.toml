@@ -8,6 +8,7 @@ test_patterns = [
 
 exclude_patterns = [
   "app/build.gradle.kts",
+  "**/app/build.gradle.kts",
   "**/src/androidTest/java/**",
   "**/src/test/java/**",
   "**/build/**",

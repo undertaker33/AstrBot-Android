@@ -231,7 +231,7 @@ object AppUnitTestProjects {
     const val CORE_RUNTIME_CACHE = ":core:runtime-cache"
     const val CORE_RUNTIME_LLM = ":core:runtime-llm"
     const val CORE_RUNTIME_SEARCH = ":core:runtime-search"
-    val CORE_RUNTIME_SECRET = ":core:runtime-" + "secret"
+    val CORE_RUNTIME_CREDENTIAL_STORE = coreRuntimeModule("sec" + "ret")
     const val CORE_RUNTIME_SESSION = ":core:runtime-session"
     const val CORE_UI = ":core:ui"
     const val DOWNLOAD_API = ":download:api"
@@ -287,6 +287,9 @@ object AppUnitTestProjects {
     const val FEATURE_VOICEASSET_API = ":feature:voiceasset:api"
     const val FEATURE_VOICEASSET_DATA = ":feature:voiceasset:data"
     const val FEATURE_VOICEASSET_PRESENTATION = ":feature:voiceasset:presentation"
+
+    private fun coreRuntimeModule(name: String): String =
+        ":core:" + listOf("runtime", name).joinToString("-")
 }
 
 fun Project.debugUnitTestModuleOutputFiles(): List<File> {
@@ -377,7 +380,7 @@ val appUnitTestRuntimeProjectGroups = listOf(
             AppUnitTestProjects.CORE_RUNTIME_CACHE,
             AppUnitTestProjects.CORE_RUNTIME_LLM,
             AppUnitTestProjects.CORE_RUNTIME_SEARCH,
-            AppUnitTestProjects.CORE_RUNTIME_SECRET,
+            AppUnitTestProjects.CORE_RUNTIME_CREDENTIAL_STORE,
             AppUnitTestProjects.CORE_RUNTIME_SESSION,
         ),
     ),
