@@ -62,7 +62,7 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun applyRuntimeDefaults(defaults: NapCatBridgeConfig) {
+    override fun applyRuntimeDefaults(defaults: NapCatBridgeConfig) {
         val mergedConfig = runBlocking(Dispatchers.IO) { loadConfig(defaults) }
         _config.value = mergedConfig
         runtimeLogger.append(
@@ -70,7 +70,7 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun markStarting() {
+    override fun markStarting() {
         _runtimeState.value = _runtimeState.value.copy(
             statusType = RuntimeStatus.STARTING,
             lastAction = "Start requested",
@@ -82,9 +82,9 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun markRunning(
-        pidHint: String = "local",
-        details: String = "Local bridge is ready for QQ message transport",
+    override fun markRunning(
+        pidHint: String,
+        details: String,
     ) {
         _runtimeState.value = _runtimeState.value.copy(
             statusType = RuntimeStatus.RUNNING,
@@ -98,9 +98,9 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun markProcessRunning(
-        pidHint: String = "local",
-        details: String = "NapCat process is running and waiting for the HTTP endpoint",
+    override fun markProcessRunning(
+        pidHint: String,
+        details: String,
     ) {
         val current = _runtimeState.value
         _runtimeState.value = current.copy(
@@ -114,7 +114,7 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun markStopped(reason: String = "Stopped manually") {
+    override fun markStopped(reason: String) {
         _runtimeState.value = _runtimeState.value.copy(
             statusType = RuntimeStatus.STOPPED,
             lastAction = reason,
@@ -127,7 +127,7 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun markChecking() {
+    override fun markChecking() {
         _runtimeState.value = _runtimeState.value.copy(
             statusType = when (_runtimeState.value.statusType) {
                 RuntimeStatus.RUNNING -> RuntimeStatus.RUNNING
@@ -140,7 +140,7 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun markError(message: String) {
+    override fun markError(message: String) {
         _runtimeState.value = _runtimeState.value.copy(
             statusType = RuntimeStatus.ERROR,
             lastAction = "Bridge error",
@@ -150,11 +150,11 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun updateProgress(
+    override fun updateProgress(
         label: String,
         percent: Int,
         indeterminate: Boolean,
-        installerCached: Boolean = _runtimeState.value.installerCached,
+        installerCached: Boolean,
     ) {
         _runtimeState.value = _runtimeState.value.copy(
             progressLabel = label,
@@ -165,7 +165,7 @@ class NapCatBridgeStateOwner @Inject constructor(
         )
     }
 
-    fun markInstallerCached(cached: Boolean) {
+    override fun markInstallerCached(cached: Boolean) {
         _runtimeState.value = _runtimeState.value.copy(
             installerCached = cached,
             lastCheckAt = System.currentTimeMillis(),

@@ -55,6 +55,7 @@ import com.elymbot.android.ui.settings.DataBackupHubScreen
 import com.elymbot.android.ui.settings.FullBackupScreen
 import com.elymbot.android.ui.settings.LogScreen
 import com.elymbot.android.ui.settings.CronJobsScreen
+import com.elymbot.android.ui.settings.GeofenceRulesScreen
 import com.elymbot.android.ui.settings.MeScreen
 import com.elymbot.android.ui.settings.ModuleBackupScreen
 import com.elymbot.android.ui.settings.ResourceCenterScreen
@@ -374,6 +375,7 @@ internal fun ElymBotAppNavGraph(
             ConfigDetailScreen(
                 profileId = profileId,
                 onBack = { AppNavigator.back(navController) },
+                onOpenGeofenceRules = { AppNavigator.open(navController, AppDestination.GeofenceRules.route) },
                 onOpenResourceCenter = { AppNavigator.open(navController, AppDestination.ResourceCenter.route) },
             )
         }
@@ -499,6 +501,9 @@ internal fun ElymBotAppNavGraph(
         composable(AppDestination.Runtime.route) { SettingsScreen(onBack = { AppNavigator.back(navController) }) }
         composable(AppDestination.CronJobs.route) {
             CronJobsScreen(onBack = { AppNavigator.back(navController) })
+        }
+        composable(AppDestination.GeofenceRules.route) {
+            GeofenceRulesScreen(onBack = { AppNavigator.back(navController) })
         }
         composable(AppDestination.BackupHub.route) {
             DataBackupHubScreen(
@@ -665,6 +670,7 @@ private fun MainTopLevelRail(
                         onOpenAssets = { AppNavigator.open(navController, AppDestination.Assets.route) },
                         onOpenBackup = { AppNavigator.open(navController, AppDestination.BackupHub.route) },
                         onOpenCronJobs = { AppNavigator.open(navController, AppDestination.CronJobs.route) },
+                        onOpenGeofenceRules = { AppNavigator.open(navController, AppDestination.GeofenceRules.route) },
                         onOpenResourceCenter = { AppNavigator.open(navController, AppDestination.ResourceCenter.route) },
                     )
                 },

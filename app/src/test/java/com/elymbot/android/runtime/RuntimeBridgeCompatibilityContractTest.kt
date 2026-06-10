@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,29 +16,30 @@ class RuntimeBridgeCompatibilityContractTest {
     )
 
     @Test
-    fun container_bridge_service_runs_preflight_before_starting_napcat() {
+    fun container_bridge_service_uses_v110_startup_model_without_blocking_preflight() {
         val source = bridgeServiceSource.readText(UTF_8)
         val ensureInstalledIndex = source.indexOf("containerRuntimeInstaller.ensureInstalled()")
-        val preflightIndex = source.indexOf("runtimeCompatibilityProbe.runPreflight()")
         val startNapCatIndex = source.indexOf("containerRuntimeController.startNapCat()")
 
-        assertTrue("ContainerBridgeService must inject RuntimeCompatibilityProbe", source.contains("runtimeCompatibilityProbe"))
+        assertFalse(
+            "ContainerBridgeService must not block the v1.1.0 startup path with RuntimeCompatibilityProbe",
+            source.contains("runtimeCompatibilityProbe") || source.contains("runPreflight()"),
+        )
         assertTrue(
-            "Compatibility preflight must run after install and before startNapCat",
+            "ContainerBridgeService must install runtime assets before startNapCat",
             ensureInstalledIndex >= 0 &&
-                preflightIndex > ensureInstalledIndex &&
-                startNapCatIndex > preflightIndex,
+                startNapCatIndex > ensureInstalledIndex,
         )
+    }
+
+    @Test
+    fun container_bridge_service_uses_original_initial_health_retry() {
+        val source = bridgeServiceSource.readText(UTF_8)
+
         assertTrue(
-            "Blocking compatibility preflight must mark the bridge error and return before startNapCat",
-            source.contains("if (compatibility.blocking)") &&
-                source.contains("bridgeStatePort.markError(compatibility.userMessage)") &&
-                source.contains("return"),
-        )
-        assertTrue(
-            "Non-blocking compatibility issues must be surfaced through runtime progress/details",
-            source.contains("publishCompatibilityWarnings(compatibility)") &&
-                source.contains("bridgeStatePort.updateProgress("),
+            "The v1.1.0 startup model must use BridgeHealthChecker.checkWithRetry after startNapCat",
+            source.contains("bridgeHealthChecker.checkWithRetry(config.healthUrl)") &&
+                !source.contains("checkInitialHealthWithStartupDiagnostics(config.healthUrl)"),
         )
     }
 

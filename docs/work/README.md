@@ -19,3 +19,7 @@ docs/work/DYYMMDDXX-task-title/
 - `D26052201-插件任意会话发送能力设计/`：已完成设计，尚未拆 Todo、实现或验收。
 
 已进入发布链或不再作为活动路由入口的任务包应移动到 `docs/archive/work/`。
+
+## 最近归档
+
+- `D26060701-地理围栏完整能力设计/` 已于 2026-06-10 移入 `docs/archive/work/`；当前事实见 `docs/context/13-地理围栏.md`。

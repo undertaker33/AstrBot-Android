@@ -108,8 +108,8 @@ android {
     defaultConfig {
         applicationId = "com.elymbot.android"
         targetSdk = 36
-        versionCode = 83
-        versionName = "1.1.2"
+        versionCode = 84
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -233,6 +233,10 @@ tasks.withType<KotlinCompile>().configureEach {
                 ),
             ),
             AppUnitTestModuleGroup(
+                name = "geofence",
+                projects = listOf(":feature:geofence:presentation"),
+            ),
+            AppUnitTestModuleGroup(
                 name = "qq",
                 projects = listOf(
                     ":feature:qq:data",
@@ -336,6 +340,15 @@ val appUnitTestRuntimeProjectGroups = listOf(
         ),
     ),
     AppUnitTestModuleGroup(
+        name = "geofence",
+        projects = listOf(
+            ":feature:geofence:data",
+            ":feature:geofence:impl",
+            ":feature:geofence:presentation",
+            ":feature:geofence:runtime",
+        ),
+    ),
+    AppUnitTestModuleGroup(
         name = "persona",
         projects = listOf(
             ":feature:persona:api",
@@ -428,6 +441,7 @@ dependencies {
     implementation(project(":feature:chat:presentation"))
     implementation(project(":feature:config:presentation"))
     implementation(project(":feature:cron:presentation"))
+    implementation(project(":feature:geofence:presentation"))
     implementation(project(":feature:persona:presentation"))
     implementation(project(":feature:plugin:presentation"))
     implementation(project(":feature:provider:presentation"))

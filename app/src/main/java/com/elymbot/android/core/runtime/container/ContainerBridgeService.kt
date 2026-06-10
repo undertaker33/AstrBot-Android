@@ -37,9 +37,6 @@ class ContainerBridgeService : Service() {
     @Inject
     lateinit var bridgeHealthChecker: BridgeHealthChecker
 
-    @Inject
-    lateinit var runtimeCompatibilityProbe: RuntimeCompatibilityProbe
-
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressMonitorJob: Job? = null
     private var healthMonitorJob: Job? = null
@@ -75,17 +72,8 @@ class ContainerBridgeService : Service() {
         stopHealthMonitor()
         bridgeStatePort.markStarting()
         containerRuntimeInstaller.ensureInstalled()
-        val compatibility = runtimeCompatibilityProbe.runPreflight()
-        logCompatibilitySnapshot(compatibility)
-        if (compatibility.blocking) {
-            bridgeStatePort.markError(compatibility.userMessage)
-            runtimeLogger.append("Runtime compatibility preflight blocked NapCat start: ${compatibility.technicalDetails}")
-            updateForeground("NapCat start blocked")
-            return
-        }
         val config = bridgeStatePort.config.value
         syncProgressFromRuntimeFiles()
-        publishCompatibilityWarnings(compatibility)
         startProgressMonitor()
         runtimeLogger.append("Starting local NapCat bridge")
         updateForeground("Starting NapCat")
@@ -334,33 +322,6 @@ class ContainerBridgeService : Service() {
             snapshot = snapshot,
             health = health,
             startedAtMs = startedAt,
-        )
-    }
-
-    private fun logCompatibilitySnapshot(compatibility: RuntimeCompatibilitySnapshot) {
-        runtimeLogger.append(
-            "Runtime compatibility preflight: category=${compatibility.category} blocking=${compatibility.blocking} " +
-                "sdk=${compatibility.sdkInt} targetSdk=${compatibility.targetSdk} rom=${compatibility.manufacturer}/${compatibility.model}",
-        )
-        compatibility.issues.forEach { issue ->
-            runtimeLogger.append(
-                "Runtime compatibility issue: category=${issue.category} blocking=${issue.blocking} details=${issue.technicalDetails}",
-            )
-        }
-    }
-
-    private fun publishCompatibilityWarnings(compatibility: RuntimeCompatibilitySnapshot) {
-        val warnings = compatibility.issues.filterNot { it.blocking }
-        if (warnings.isEmpty()) return
-
-        val label = warnings
-            .joinToString(separator = "; ") { it.userMessage }
-            .let { message -> if (message.length <= 140) message else message.take(137) + "..." }
-        bridgeStatePort.updateProgress(
-            label = label,
-            percent = 5,
-            indeterminate = false,
-            installerCached = bridgeStatePort.runtimeState.value.installerCached,
         )
     }
 

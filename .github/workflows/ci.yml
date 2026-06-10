@@ -61,7 +61,7 @@ jobs:
         run: ./gradlew :build-logic:check --console=plain --no-daemon --stacktrace
 
   module-boundary-checks:
-    name: Plugin and QQ module checks
+    name: Feature module checks
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: tooling
@@ -92,8 +92,8 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run plugin and QQ module checks
-        run: ./gradlew modulePluginCheck moduleQqCheck --console=plain --no-daemon --stacktrace
+      - name: Run feature module checks
+        run: ./gradlew modulePluginCheck moduleQqCheck moduleGeofenceCheck moduleSettingsCheck moduleConfigCheck --console=plain --no-daemon --stacktrace
 
   architecture-and-assemble:
     name: Architecture contracts and debug assemble

@@ -61,6 +61,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -81,6 +83,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.elymbot.android.core.ui.R
 import com.elymbot.android.feature.config.domain.model.ConfigProfile
+import com.elymbot.android.feature.geofence.domain.model.GeofenceActionType
+import com.elymbot.android.ui.config.geofence.ConfigGeofenceBindingDraft
+import com.elymbot.android.ui.config.geofence.ConfigGeofenceBindingListItem
+import com.elymbot.android.ui.config.geofence.ConfigGeofenceBindingPresentation
+import com.elymbot.android.ui.config.geofence.ConfigGeofenceBindingSummary
+import com.elymbot.android.ui.config.geofence.ConfigGeofenceBindingViewModel
 import com.elymbot.android.feature.provider.domain.model.FeatureSupportState
 import com.elymbot.android.model.ConfigResourceProjection
 import com.elymbot.android.model.McpServerEntry
@@ -95,6 +103,7 @@ import com.elymbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.elymbot.android.ui.app.MonochromeUi
 import com.elymbot.android.ui.app.ConfigDetailChromeBinding
 import com.elymbot.android.ui.app.monochromeOutlinedTextFieldColors
+import com.elymbot.android.ui.app.monochromeSwitchColors
 import com.elymbot.android.ui.app.RegisterConfigDetailChromeBinding
 import com.elymbot.android.ui.app.SecondaryTopBarPlaceholder
 import com.elymbot.android.ui.viewmodel.ConfigViewModel
@@ -112,14 +121,18 @@ import java.util.Base64
 fun ConfigDetailScreen(
     profileId: String,
     onBack: () -> Unit,
+    onOpenGeofenceRules: () -> Unit,
     onOpenResourceCenter: () -> Unit,
     configViewModel: ConfigViewModel = hiltViewModel(),
+    geofenceBindingViewModel: ConfigGeofenceBindingViewModel = hiltViewModel(),
 ) {
     val profiles by configViewModel.configProfiles.collectAsState()
     val providers by configViewModel.providers.collectAsState()
     val ttsVoiceAssets by configViewModel.ttsVoiceAssets.collectAsState()
     val resourceCenterResources by configViewModel.resourceCenterResources.collectAsState()
     val resourceCenterProjections by configViewModel.resourceCenterProjections.collectAsState()
+    val geofenceRules by geofenceBindingViewModel.rules.collectAsState()
+    val geofenceBindings by geofenceBindingViewModel.bindings.collectAsState()
     val profile = profiles.firstOrNull { it.id == profileId }
     val context = LocalContext.current
 
@@ -128,6 +141,14 @@ fun ConfigDetailScreen(
     }
 
     if (profile == null) return
+
+    val geofenceBindingPresentation = remember(profile.id, geofenceRules, geofenceBindings) {
+        geofenceBindingViewModel.buildPresentation(
+            configId = profile.id,
+            rules = geofenceRules,
+            bindings = geofenceBindings,
+        )
+    }
 
     val chatProviderOptions = providers
         .filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
@@ -195,12 +216,17 @@ fun ConfigDetailScreen(
                 ttsVoiceAssets = ttsVoiceAssets,
                 resourceCenterResources = resourceCenterResources,
                 resourceCenterProjections = resourceCenterProjections,
+                geofenceBindingPresentation = geofenceBindingPresentation,
                 currentSectionTitle = context.getString(currentSection.titleRes),
                 onOpenSections = { scope.launch { drawerState.open() } },
                 listState = listState,
                 modifier = Modifier.padding(innerPadding),
                 onBack = onBack,
+                onOpenGeofenceRules = onOpenGeofenceRules,
                 onOpenResourceCenter = onOpenResourceCenter,
+                onSaveGeofenceBindingDraft = { draft ->
+                    geofenceBindingViewModel.saveDraft(profile.id, draft)
+                },
                 onSave = { updated, projections ->
                     configViewModel.saveWithResourceProjections(updated, projections)
                     configViewModel.select(updated.id)
@@ -230,12 +256,15 @@ private fun ConfigDetailContent(
     ttsVoiceAssets: List<TtsVoiceReferenceAsset>,
     resourceCenterResources: List<ResourceCenterItem>,
     resourceCenterProjections: List<ConfigResourceProjection>,
+    geofenceBindingPresentation: ConfigGeofenceBindingPresentation,
     currentSectionTitle: String,
     onOpenSections: () -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     onBack: () -> Unit,
+    onOpenGeofenceRules: () -> Unit,
     onOpenResourceCenter: () -> Unit,
+    onSaveGeofenceBindingDraft: suspend (ConfigGeofenceBindingDraft) -> Result<Unit>,
     onSave: (ConfigProfile, List<ConfigResourceProjection>) -> Unit,
     onPreviewVoice: (ProviderProfile, String, String, Boolean) -> com.elymbot.android.model.chat.ConversationAttachment,
 ) {
@@ -320,6 +349,10 @@ private fun ConfigDetailContent(
     }
     var pendingResourceDialogKind by remember { mutableStateOf<ResourceCenterKind?>(null) }
     var pendingExit by remember { mutableStateOf<ConfigPendingExit?>(null) }
+    var showGeofenceBindingDialog by remember(profile.id) { mutableStateOf(false) }
+    var geofenceBindingDialogSession by remember(profile.id) { mutableStateOf(0) }
+    var geofenceBindingSaving by remember(profile.id) { mutableStateOf(false) }
+    var geofenceBindingSaveError by remember(profile.id) { mutableStateOf<String?>(null) }
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     val defaultChatProvider = providers.firstOrNull { it.id == defaultChatProviderId }
     val defaultTtsProvider = providers.firstOrNull { it.id == defaultTtsProviderId }
@@ -425,6 +458,7 @@ private fun ConfigDetailContent(
         } else {
             when (exit) {
                 ConfigPendingExit.Back -> onBack()
+                ConfigPendingExit.GeofenceRules -> onOpenGeofenceRules()
                 ConfigPendingExit.ResourceCenter -> onOpenResourceCenter()
             }
         }
@@ -874,6 +908,17 @@ private fun ConfigDetailContent(
                     onAdminPrivateBypassWhitelistEnabledChange = { adminPrivateBypassWhitelistEnabled = it },
                 )
             }
+            item(key = ConfigSection.Geofence.name) {
+                GeofenceBindingSettingsSection(
+                    presentation = geofenceBindingPresentation,
+                    onManage = {
+                        geofenceBindingDialogSession += 1
+                        geofenceBindingSaveError = null
+                        showGeofenceBindingDialog = true
+                    },
+                    onOpenRules = { requestExit(ConfigPendingExit.GeofenceRules) },
+                )
+            }
             item(key = ConfigSection.IgnorePermission.name) {
                 IgnorePermissionSettingsSection(
                     ignoreSelfMessageEnabled = ignoreSelfMessageEnabled,
@@ -936,6 +981,37 @@ private fun ConfigDetailContent(
             )
         }
 
+        if (showGeofenceBindingDialog) {
+            GeofenceBindingDialog(
+                draftSessionKey = "${profile.id}:$geofenceBindingDialogSession",
+                presentation = geofenceBindingPresentation,
+                saving = geofenceBindingSaving,
+                errorMessage = geofenceBindingSaveError,
+                onOpenRules = { requestExit(ConfigPendingExit.GeofenceRules) },
+                onDismiss = {
+                    if (!geofenceBindingSaving) {
+                        showGeofenceBindingDialog = false
+                        geofenceBindingSaveError = null
+                    }
+                },
+                onSave = { draft ->
+                    scope.launch {
+                        geofenceBindingSaving = true
+                        geofenceBindingSaveError = null
+                        val result = onSaveGeofenceBindingDraft(draft)
+                        geofenceBindingSaving = false
+                        result.onSuccess {
+                            showGeofenceBindingDialog = false
+                            geofenceBindingSaveError = null
+                            Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
+                        }.onFailure { error ->
+                            geofenceBindingSaveError = error.message ?: error.javaClass.simpleName
+                        }
+                    }
+                },
+            )
+        }
+
         pendingExit?.let { exit ->
             UnsavedConfigExitDialog(
                 onDismiss = { pendingExit = null },
@@ -944,6 +1020,7 @@ private fun ConfigDetailContent(
                     pendingExit = null
                     when (exit) {
                         ConfigPendingExit.Back -> onBack()
+                        ConfigPendingExit.GeofenceRules -> onOpenGeofenceRules()
                         ConfigPendingExit.ResourceCenter -> onOpenResourceCenter()
                     }
                 },
@@ -951,6 +1028,7 @@ private fun ConfigDetailContent(
                     pendingExit = null
                     when (exit) {
                         ConfigPendingExit.Back -> onBack()
+                        ConfigPendingExit.GeofenceRules -> onOpenGeofenceRules()
                         ConfigPendingExit.ResourceCenter -> onOpenResourceCenter()
                     }
                 },
@@ -962,6 +1040,333 @@ private fun ConfigDetailContent(
 private fun ProviderProfile.hasMultimodalSupport(): Boolean {
     return multimodalProbeSupport == FeatureSupportState.SUPPORTED ||
         multimodalRuleSupport == FeatureSupportState.SUPPORTED
+}
+
+@Composable
+private fun GeofenceBindingSettingsSection(
+    presentation: ConfigGeofenceBindingPresentation,
+    onManage: () -> Unit,
+    onOpenRules: () -> Unit,
+) {
+    ConfigSectionCard(
+        title = stringResource(R.string.config_section_geofence),
+        subtitle = stringResource(R.string.config_section_geofence_desc),
+    ) {
+        ConfigFieldGroup {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("config-geofence-section"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.config_geofence_binding_count, presentation.loadedCount),
+                    color = MonochromeUi.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (presentation.summaryItems.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.config_geofence_binding_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                } else {
+                    presentation.summaryItems.forEach { summary ->
+                        Text(
+                            text = localizedGeofenceBindingSummary(summary),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MonochromeUi.textSecondary,
+                        )
+                    }
+                    val remaining = presentation.loadedCount - presentation.summaryItems.size
+                    if (remaining > 0) {
+                        Text(
+                            text = stringResource(R.string.config_list_preview_more, remaining),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MonochromeUi.textSecondary,
+                        )
+                    }
+                }
+                if (presentation.emptyRules) {
+                    InlineConfigNotice(text = stringResource(R.string.config_geofence_binding_no_rules))
+                    OutlinedButton(
+                        onClick = onOpenRules,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("config-geofence-open-rules"),
+                    ) {
+                        Text(stringResource(R.string.config_geofence_open_rules))
+                    }
+                }
+                OutlinedButton(
+                    onClick = onManage,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("config-geofence-manage"),
+                ) {
+                    Text(stringResource(R.string.common_manage))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GeofenceBindingDialog(
+    draftSessionKey: String,
+    presentation: ConfigGeofenceBindingPresentation,
+    saving: Boolean,
+    errorMessage: String?,
+    onOpenRules: () -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (ConfigGeofenceBindingDraft) -> Unit,
+) {
+    val availableRuleIds = remember(presentation.items) {
+        presentation.items.mapTo(linkedSetOf()) { item -> item.ruleId }
+    }
+    var draft by remember(draftSessionKey) {
+        mutableStateOf(ConfigGeofenceBindingDraft.fromPresentation(presentation))
+    }
+    LaunchedEffect(draftSessionKey, availableRuleIds) {
+        draft = draft.mergeAvailableRules(availableRuleIds)
+    }
+    val draftByRuleId = draft.entries.associateBy { entry -> entry.ruleId }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textSecondary,
+        title = { Text(stringResource(R.string.config_geofence_binding_dialog_title)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState())
+                    .testTag("config-geofence-dialog"),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (presentation.emptyRules) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("config-geofence-empty"),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(stringResource(R.string.config_geofence_binding_no_rules))
+                        OutlinedButton(
+                            onClick = onOpenRules,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("config-geofence-open-rules"),
+                        ) {
+                            Text(stringResource(R.string.config_geofence_open_rules))
+                        }
+                    }
+                } else {
+                    presentation.items.forEachIndexed { index, item ->
+                        val entry = draftByRuleId[item.ruleId]
+                        GeofenceBindingDialogRuleRow(
+                            item = item,
+                            selected = entry != null,
+                            bindingEnabled = entry?.enabled ?: true,
+                            onSelectedChange = { selected ->
+                                draft = draft.withRuleSelected(item.ruleId, selected)
+                            },
+                            onBindingEnabledChange = { enabled ->
+                                draft = draft.withBindingEnabled(item.ruleId, enabled)
+                            },
+                        )
+                        if (index != presentation.items.lastIndex) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp),
+                                color = MonochromeUi.divider,
+                            ) {}
+                        }
+                    }
+                }
+                if (presentation.staleBindingRuleIds.isNotEmpty()) {
+                    InlineConfigNotice(
+                        text = stringResource(
+                            R.string.config_geofence_stale_bindings_notice,
+                            presentation.staleBindingRuleIds.joinToString(", "),
+                        ),
+                    )
+                }
+                if (saving) {
+                    Text(
+                        text = stringResource(R.string.config_geofence_saving),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+                errorMessage?.let { message ->
+                    InlineConfigNotice(
+                        text = stringResource(R.string.config_geofence_save_failed, message),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            OutlinedButton(
+                onClick = { onSave(draft) },
+                enabled = !saving,
+            ) {
+                Text(stringResource(R.string.common_save))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !saving,
+            ) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun GeofenceBindingDialogRuleRow(
+    item: ConfigGeofenceBindingListItem,
+    selected: Boolean,
+    bindingEnabled: Boolean,
+    onSelectedChange: (Boolean) -> Unit,
+    onBindingEnabledChange: (Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = selected,
+                onCheckedChange = onSelectedChange,
+                modifier = Modifier.testTag("config-geofence-rule-checkbox-${item.ruleId}"),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = item.name,
+                    color = MonochromeUi.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = localizedGeofenceRuleDetail(item.summary),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MonochromeUi.textSecondary,
+                )
+            }
+        }
+        if (selected) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.config_geofence_binding_enabled),
+                        color = MonochromeUi.textPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = stringResource(R.string.config_geofence_binding_enabled_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+                Switch(
+                    checked = bindingEnabled,
+                    onCheckedChange = onBindingEnabledChange,
+                    modifier = Modifier.testTag("config-geofence-binding-enabled-${item.ruleId}"),
+                    colors = monochromeSwitchColors(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun localizedGeofenceBindingSummary(summary: ConfigGeofenceBindingSummary): String {
+    return listOf(
+        summary.ruleName,
+        if (summary.bindingEnabled) {
+            stringResource(R.string.config_geofence_binding_state_enabled)
+        } else {
+            stringResource(R.string.config_geofence_binding_state_disabled)
+        },
+        localizedGeofenceRegionSummary(summary),
+        localizedGeofenceTriggerSummary(summary),
+        localizedGeofenceActionSummary(summary),
+    ).filter { part -> part.isNotBlank() }.joinToString(" · ")
+}
+
+@Composable
+private fun localizedGeofenceRuleDetail(summary: ConfigGeofenceBindingSummary): String {
+    return listOf(
+        localizedGeofenceRegionSummary(summary),
+        localizedGeofenceTriggerSummary(summary),
+        localizedGeofenceActionSummary(summary),
+    ).filter { part -> part.isNotBlank() }
+        .joinToString(" · ")
+        .ifBlank { stringResource(R.string.config_geofence_summary_empty) }
+}
+
+@Composable
+private fun localizedGeofenceRegionSummary(summary: ConfigGeofenceBindingSummary): String {
+    val radiusMeters = summary.radiusMeters ?: return ""
+    val label = summary.regionLabel ?: stringResource(R.string.config_geofence_region_fallback)
+    return if (summary.additionalRegionCount > 0) {
+        stringResource(
+            R.string.config_geofence_region_summary_more,
+            label,
+            radiusMeters,
+            summary.additionalRegionCount,
+        )
+    } else {
+        stringResource(R.string.config_geofence_region_summary, label, radiusMeters)
+    }
+}
+
+@Composable
+private fun localizedGeofenceTriggerSummary(summary: ConfigGeofenceBindingSummary): String {
+    val triggers = mutableListOf<String>()
+    if (summary.triggerEnter) {
+        triggers += stringResource(R.string.config_geofence_trigger_enter)
+    }
+    if (summary.triggerExit) {
+        triggers += stringResource(R.string.config_geofence_trigger_exit)
+    }
+    if (summary.triggerDwell) {
+        triggers += stringResource(R.string.config_geofence_trigger_dwell)
+    }
+    return triggers.joinToString(", ")
+}
+
+@Composable
+private fun localizedGeofenceActionSummary(summary: ConfigGeofenceBindingSummary): String {
+    val actionLabel = when (summary.actionType) {
+        GeofenceActionType.AGENT_PROMPT -> stringResource(R.string.config_geofence_action_agent_prompt)
+        GeofenceActionType.SEND_MESSAGE -> stringResource(R.string.config_geofence_action_send_message)
+        GeofenceActionType.WEATHER_FORECAST -> stringResource(R.string.config_geofence_action_weather_forecast)
+        GeofenceActionType.NEWS_DIGEST -> stringResource(R.string.config_geofence_action_news_digest)
+        GeofenceActionType.HOST_CAPABILITY -> stringResource(R.string.config_geofence_action_host_capability)
+    }
+    return if (summary.actionPromptPreview.isBlank()) {
+        actionLabel
+    } else {
+        stringResource(R.string.config_geofence_action_with_prompt, actionLabel, summary.actionPromptPreview)
+    }
 }
 
 @Composable
@@ -1173,6 +1578,7 @@ private fun UnsavedConfigExitDialog(
 
 private enum class ConfigPendingExit {
     Back,
+    GeofenceRules,
     ResourceCenter,
 }
 

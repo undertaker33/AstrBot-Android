@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Settings
@@ -19,6 +20,7 @@ fun MeScreen(
     onOpenAssets: () -> Unit,
     onOpenBackup: () -> Unit,
     onOpenCronJobs: () -> Unit,
+    onOpenGeofenceRules: () -> Unit,
     onOpenResourceCenter: () -> Unit = {},
 ) {
     EntryListPage(
@@ -30,6 +32,7 @@ fun MeScreen(
                 onOpenAssets = onOpenAssets,
                 onOpenBackup = onOpenBackup,
                 onOpenCronJobs = onOpenCronJobs,
+                onOpenGeofenceRules = onOpenGeofenceRules,
                 onOpenResourceCenter = onOpenResourceCenter,
             )
         },
@@ -44,6 +47,7 @@ private fun MeEntryKind.toEntryCardState(
     onOpenAssets: () -> Unit,
     onOpenBackup: () -> Unit,
     onOpenCronJobs: () -> Unit,
+    onOpenGeofenceRules: () -> Unit,
     onOpenResourceCenter: () -> Unit,
 ): EntryCardState {
     return when (this) {
@@ -64,6 +68,12 @@ private fun MeEntryKind.toEntryCardState(
             subtitle = stringResource(R.string.cron_jobs_subtitle),
             icon = Icons.Outlined.Notifications,
             onClick = onOpenCronJobs,
+        )
+        MeEntryKind.Geofence -> EntryCardState(
+            title = stringResource(R.string.me_card_geofence_title),
+            subtitle = stringResource(R.string.me_card_geofence_subtitle),
+            icon = Icons.Outlined.Place,
+            onClick = onOpenGeofenceRules,
         )
         MeEntryKind.ResourceCenter -> EntryCardState(
             title = stringResource(R.string.me_card_resource_center_title),

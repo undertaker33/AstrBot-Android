@@ -41,3 +41,11 @@
 - `work/D26060501-NapCat安卓权限与启动兼容/`
 
 这两个任务包仅保留为历史证据。构建优化和 NapCat 兼容的当前事实以工作区源码、`docs/current-state.md`、`docs/context/01-验证构建治理.md`、`docs/context/04-核心运行时.md`、`docs/context/05-下载与容器资产.md` 与 `docs/context/08-QQ_NapCat_OneBot.md` 为准；本轮未执行 Git 写入、Gradle、单测或 APK 构建。
+
+## 2026-06-10 归档
+
+本轮 `uth-docs` 将已完成当前工作区可执行实现/验收收口、已同步编号 context、且不再作为活动路由入口的正式任务包移入归档：
+
+- `work/D26060701-地理围栏完整能力设计/`
+
+该任务包仅保留为历史证据。地理围栏当前事实以工作区源码、`docs/current-state.md` 与 `docs/context/13-地理围栏.md` 为准；真实设备、connected/manual、Google Play services、地图渲染、后台定位授权、厂商 ROM 和真实 enter/exit/dwell transition 仍按任务记录保持 blocked/unverified。本轮未执行 Git 写入、Gradle、单测或 APK 构建。

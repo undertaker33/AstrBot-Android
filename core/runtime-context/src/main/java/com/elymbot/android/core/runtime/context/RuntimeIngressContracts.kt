@@ -15,6 +15,7 @@ enum class IngressTrigger {
     USER_MESSAGE,
     COMMAND,
     SCHEDULED_TASK,
+    GEOFENCE_EVENT,
     PLUGIN_EVENT,
 }
 

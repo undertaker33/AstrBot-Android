@@ -91,6 +91,31 @@ class AndroidManifestRuntimeContractTest {
     }
 
     @Test
+    fun manifest_must_declare_geofence_location_permissions_and_receiver() {
+        val manifest = manifestPath.readText()
+
+        listOf(
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_BACKGROUND_LOCATION",
+        ).forEach { permission ->
+            assertTrue(
+                "AndroidManifest.xml must declare $permission for geofence runtime.",
+                manifest.contains("""<uses-permission android:name="$permission" />"""),
+            )
+        }
+        assertTrue(
+            "Geofence transition receiver must be registered as non-exported.",
+            Regex(
+                """<receiver\s+[\s\S]*android:name="com\.elymbot\.android\.feature\.geofence\.runtime\.GeofenceTransitionReceiver"[\s\S]*android:exported="false"[\s\S]*>""",
+            ).containsMatchIn(manifest) ||
+                Regex(
+                    """<receiver\s+[\s\S]*android:name="com\.elymbot\.android\.feature\.geofence\.runtime\.GeofenceTransitionReceiver"[\s\S]*android:exported="false"[\s\S]*/>""",
+                ).containsMatchIn(manifest),
+        )
+    }
+
+    @Test
     fun manifest_must_disable_global_cleartext_and_backup() {
         val manifest = manifestPath.readText()
 

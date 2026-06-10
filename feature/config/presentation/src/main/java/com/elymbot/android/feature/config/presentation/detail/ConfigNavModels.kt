@@ -16,6 +16,7 @@ enum class ConfigSection(@StringRes val titleRes: Int) {
     Wake(R.string.config_section_wake),
     Reply(R.string.config_section_reply),
     Whitelist(R.string.config_section_whitelist),
+    Geofence(R.string.config_section_geofence),
     IgnorePermission(R.string.config_section_ignore_permission),
     RateLimit(R.string.config_section_rate_limit),
     Keyword(R.string.config_section_keyword),

@@ -2,6 +2,11 @@ package com.elymbot.android.data.db
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import com.elymbot.android.data.db.geofence.ConfigGeofenceBindingEntity
+import com.elymbot.android.data.db.geofence.GeofenceExecutionRecordEntity
+import com.elymbot.android.data.db.geofence.GeofenceRegionEntity
+import com.elymbot.android.data.db.geofence.GeofenceRuleDao
+import com.elymbot.android.data.db.geofence.GeofenceRuleEntity
 import com.elymbot.android.data.db.resource.ConfigResourceProjectionEntity
 import com.elymbot.android.data.db.resource.ResourceCenterDao
 import com.elymbot.android.data.db.resource.ResourceCenterItemEntity
@@ -46,10 +51,14 @@ import com.elymbot.android.data.db.resource.ResourceCenterItemEntity
         TtsVoiceProviderBindingEntity::class,
         CronJobEntity::class,
         CronJobExecutionRecordEntity::class,
+        GeofenceRuleEntity::class,
+        GeofenceRegionEntity::class,
+        ConfigGeofenceBindingEntity::class,
+        GeofenceExecutionRecordEntity::class,
         ResourceCenterItemEntity::class,
         ConfigResourceProjectionEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = true,
 )
 abstract class ElymBotDatabase : RoomDatabase() {
@@ -68,5 +77,6 @@ abstract class ElymBotDatabase : RoomDatabase() {
     abstract fun ttsVoiceAssetAggregateDao(): TtsVoiceAssetAggregateDao
     abstract fun cronJobDao(): com.elymbot.android.data.db.cron.CronJobDao
     abstract fun cronJobExecutionRecordDao(): com.elymbot.android.data.db.cron.CronJobExecutionRecordDao
+    abstract fun geofenceRuleDao(): GeofenceRuleDao
     abstract fun resourceCenterDao(): ResourceCenterDao
 }

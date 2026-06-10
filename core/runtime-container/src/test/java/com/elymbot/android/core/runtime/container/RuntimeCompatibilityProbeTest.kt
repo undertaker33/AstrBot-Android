@@ -78,6 +78,30 @@ class RuntimeCompatibilityProbeTest {
     }
 
     @Test
+    fun `smoke command does not force proot no seccomp`() {
+        val fixture = RuntimeFixture()
+        val runner = RecordingCommandRunner()
+
+        fixture.probe(runner).runPreflight()
+
+        assertFalse(runner.lastSpec?.env?.containsKey("PROOT_NO_SECCOMP") == true)
+        fixture.cleanup()
+    }
+
+    @Test
+    fun `smoke command sets library path for linked native dependencies`() {
+        val fixture = RuntimeFixture()
+        val runner = RecordingCommandRunner()
+
+        fixture.probe(runner).runPreflight()
+
+        val libraryPath = runner.lastSpec?.env?.get("LD_LIBRARY_PATH").orEmpty()
+        assertTrue(libraryPath.contains(fixture.runtimeBinDir.absolutePath))
+        assertTrue(libraryPath.contains(fixture.nativeLibraryDir.absolutePath))
+        fixture.cleanup()
+    }
+
+    @Test
     fun `unreadable external storage bind is non blocking`() {
         val fixture = RuntimeFixture(externalStorageReady = false)
 
@@ -113,7 +137,8 @@ class RuntimeCompatibilityProbeTest {
     ) {
         private val root = createTempDirectory(prefix = "runtime-compat").toFile()
         private val filesDir = File(root, "files")
-        private val nativeLibraryDir = File(root, "native-libs")
+        val nativeLibraryDir: File = File(root, "native-libs")
+        val runtimeBinDir: File = File(filesDir, "runtime/bin")
         private val externalStorageDir = File(root, "external-storage")
 
         init {
@@ -126,9 +151,9 @@ class RuntimeCompatibilityProbeTest {
             File(filesDir, "runtime/scripts").mkdirs()
             File(filesDir, "runtime/scripts/start_napcat.sh").writeText("#!/system/bin/sh\n")
             if (nativeRuntimeReady) {
-                File(filesDir, "runtime/bin").mkdirs()
-                File(filesDir, "runtime/bin/proot").writeText("")
-                File(filesDir, "runtime/bin/loader").writeText("")
+                runtimeBinDir.mkdirs()
+                File(runtimeBinDir, "proot").writeText("")
+                File(runtimeBinDir, "loader").writeText("")
             }
             if (externalStorageReady) {
                 externalStorageDir.mkdirs()
@@ -173,9 +198,12 @@ class RuntimeCompatibilityProbeTest {
     ) : CommandRunner {
         var executions: Int = 0
             private set
+        var lastSpec: CommandSpec? = null
+            private set
 
         override fun execute(spec: CommandSpec): CommandExecutionResult {
             executions += 1
+            lastSpec = spec
             return result
         }
     }

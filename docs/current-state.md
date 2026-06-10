@@ -1,16 +1,16 @@
 # 当前项目状态
 
-更新时间：2026-06-06 16:30 +08:00
+更新时间：2026-06-10 15:03 +08:00
 
 ## 文档基线
 
 - UTH 启用：yes
 - 文档语言：`zh-CN`
 - 当前文档基线：`full-project-docs-complete`
-- 本轮场景：`uth-docs`
-- 本轮模式：`state-cleanup + archive-cleanup + rules-maintenance`
-- 本轮完成范围：整理 current-state，归档 `D26060301-构建优化` 与 `D26060501-NapCat安卓权限与启动兼容` 任务包，并把构建优化、NapCat 兼容相关高频误判沉淀到 `AGENTS.md`。
-- 本轮只执行文档 UTF-8 guard、任务包移动和文档索引维护；下方 Gradle、单测和 APK 构建结果均为既有任务记录，非本轮重新执行。
+- 本轮场景：`uth-git`
+- 本轮模式：`release-pr-closeout` + `ci-workflow-update`
+- 本轮同步范围：在已同步 `D26060701` 地理围栏模块组事实基础上，更新 CI 功能模块 gate，准备 `v1.2.0` release commit 并复用当前 PR 指向 `master`。
+- 本轮边界：收口当前工作区源码、测试、构建脚本、治理文档和 changelog；不创建 tag，不直接合并 `master`，connected/manual 真实设备验证仍按既有记录保持 blocked/unverified。
 
 ## 当前事实入口
 
@@ -20,20 +20,24 @@
 | 状态入口 | `docs/current-state.md` | 当前状态、活动任务、Git 锚点与后续路由 |
 | 上下文索引 | `docs/context/README.md` | 当前事实层索引 |
 | 模块拆分 | `docs/context/00-模块拆分.md` | 已确认模块队列、代码事实范围和清理规则 |
+| 地理围栏上下文 | `docs/context/13-地理围栏.md` | 当前工作区 `feature/geofence` 模块组事实 |
 | 版本锚点 | `docs/changelogs/version-git-anchors.md` | release commit / tag / changelog 覆盖索引 |
 | 归档入口 | `docs/archive/README.md` | 已完成或历史任务材料入口 |
 
 ## Git 与版本状态
 
 - 当前分支：`codex/ColorOS16(RealmeUI7)`
-- 当前 HEAD：`release: v1.1.2` 待提交
+- 当前 HEAD：`b069daf release: v1.1.2`；本轮准备生成 `release: v1.2.0`。
+- 本地 remote-tracking `origin/codex/ColorOS16(RealmeUI7)`：`b069daf`
 - 本地 `master`：`988a523 Merge release v1.1.0`
-- 本地 remote-tracking `origin/codex/ColorOS16(RealmeUI7)`：`dea5d75`，待推送当前 `release: v1.1.2`
-- 本地 remote-tracking `origin/master`：`72b9aea`；本轮未执行 `git fetch`，因此不把它声明为远端最新状态。
-- 当前 App 版本真源：`app/build.gradle.kts` 为 `versionName = "1.1.2"`、`versionCode = 83`。
+- 本地 remote-tracking `origin/master`：`72b9aea`
+- 当前 App 版本真源：`app/build.gradle.kts` 为 `versionName = "1.2.0"`、`versionCode = 84`。
 - `v1.1.0`：本地 tag `v1.1.0` 指向 merge commit `988a523`，release commit 为 `104eb3a`，正文为 `changelogs/v1.1.0.md`。
-- `v1.0.4`：当前仍只发现 release commit `4fedf19` 与正文 `changelogs/v1.0.4.md`，未发现本地或远端 tag `refs/tags/v1.0.4`。
-- 当前工作区准备生成 `v1.1.2` release commit：NapCat / 容器运行时兼容性预检、外部存储 optional bind、前台服务启动失败分类、CI 并行验证与 Gradle 缓存配置，待推送并更新 PR 到 `master`。
+- `v1.1.1`：release commit 为 `dea5d75`，正文为 `changelogs/v1.1.1.md`；本轮未发现本地 `v1.1.1` tag。
+- `v1.1.2`：release commit 为 `b069daf`，正文为 `changelogs/v1.1.2.md`；本轮未发现本地 `v1.1.2` tag。
+- `v1.2.0`：本轮作为 PR 到 `master` 的 release commit 准备中，正文为 `changelogs/v1.2.0.md`；tag / merge 锚点待发布闭环补齐。
+- `v1.0.4`：当前仍只发现 release commit `4fedf19` 与正文 `changelogs/v1.0.4.md`，未发现本地 tag `refs/tags/v1.0.4`。
+- 当前工作区 `D26060701` 地理围栏能力、CI gate 和 `v1.2.0` 版本源将随本轮 release commit 收口；合入 / tag 待 PR 发布闭环。
 
 ## 当前活动任务
 
@@ -61,6 +65,7 @@
 - `docs/archive/work/D26052101-应用内更新/`
 - `docs/archive/work/D26060301-构建优化/`
 - `docs/archive/work/D26060501-NapCat安卓权限与启动兼容/`
+- `docs/archive/work/D26060701-地理围栏完整能力设计/`
 - `docs/archive/LW-Work/LW26051801-编译链升级AGP9.md`
 - `docs/archive/LW-Work/LW26051901-UI资源配置与备份聊天修正.md`
 - `docs/archive/LW-Work/LW26052201-QQ普通群消息历史沉淀.md`
@@ -69,33 +74,30 @@
 
 ## 近期高信号变化
 
-- `v1.1.0`：发布插件 V2 API 完整能力、应用内更新、Agent runtime、scheduled handler、流式输出、富消息链和 Filter AST；版本源更新为 `versionName = "1.1.0"`、`versionCode = 81`。
 - `v1.1.1`：补齐 QQ 普通群公共历史沉淀、Host API 群历史映射、插件发送/stream session id 解析，以及 pseudo streaming 文本/附件分流；版本源更新为 `versionName = "1.1.1"`、`versionCode = 82`。
 - `v1.1.2`：补齐 NapCat / 容器运行时兼容性预检、外部存储 optional bind、前台服务启动失败分类、CI 并行验证与 Gradle 缓存配置；版本源更新为 `versionName = "1.1.2"`、`versionCode = 83`。
-- 构建优化：根 `gradle.properties` 默认启用 configuration cache、build cache 和 parallel execution；`build-logic/gradle.properties` 不再关闭 Kotlin incremental；architecture report 任务已改为 typed task。
-- CI 刷新：`.github/workflows/ci.yml` 当前包含 `tooling`、`module-boundary-checks`、`architecture-and-assemble`、`app-tests` 四段；`module-boundary-checks` 与 `app-tests` 均依赖 `tooling`，`architecture-and-assemble` 等待前三者后运行 `clean architectureCheck assembleDebug`。
-- NapCat 启动兼容：`RuntimeCompatibilityProbe` 负责 rootfs/native/proot smoke/外部存储/通知权限预检，`start_napcat.sh` 只在外部存储路径可读时加入 optional bind，`ContainerBridgeService` 在启动前阻断 blocking issue 并展示 non-blocking warning。
-- QQ 普通群公共历史：普通群消息在去重后进入公共群 session，群聊隔离只影响 bot LLM session；插件群分析应优先读取公共群历史。
-- Host API 映射：`hostApi.conversation.history` 支持群场景公共历史映射；`hostApi.message.send` / stream 的宿主持久化不会把外部 `group:<gid>:user:<uid>` 直接当作 repository session。
-- `AGENTS.md` 已补充从归档目录、工作包和 LW 中反复出现的跨模块易错点：任务包不等于当前事实、不要回滚他人工作区、Host API 不直连宿主内部、当前会话能力不等于任意目标发送、QQ session id / origin / OneBot target 必须分清、构建优化不能退回 eager wiring、NapCat 兼容不能靠外部存储权限兜底。
+- `v1.2.0`：收口地理围栏模块组、Room v24 迁移、设置页与 ConfigDetail 入口、运行时 reconciliation、宿主内部 active capability，以及 CI feature module gate；版本源更新为 `versionName = "1.2.0"`、`versionCode = 84`。
+- 地理围栏：本轮新增 `:feature:geofence:api/data/impl/presentation/runtime`，新增 Room v24 地理围栏表、运行时注册/触发/执行链、设置页入口、ConfigDetail 绑定入口，以及 Agent 内部 active capability 工具；当前事实见 `docs/context/13-地理围栏.md`。
+- 构建治理：根 `build.gradle.kts` 已加入 `moduleGeofenceBuild` / `moduleGeofenceCheck`，并将 `feature/geofence/**/src/main/java` 纳入 architecture source roots；`app/build.gradle.kts` app 单测分组新增 geofence presentation / runtime classpath；CI `module-boundary-checks` 同步覆盖 Plugin、QQ、Geofence、Settings 和 Config。
+- App 与 Manifest：当前工作区声明 foreground/coarse/background location 权限与非导出 `GeofenceTransitionReceiver`；启动链在 Cron reconciliation 后调用 `GeofenceRuntimeReconciliationPort.reconcileAsync(appScope)`。
+- 插件边界：`create_geofence_rule` 等地理围栏工具属于 `ActiveCapabilityToolSourceProvider` 的宿主内部 active capability；`GeofenceActiveCapabilityFacade` 标注为 `INTERNAL_ACTIVE_CAPABILITY_ONLY`，不是公开 `hostApi.geofence.*`。
+- 验证风险：D26060701 的自动化 gate 已有既有通过记录，但真实设备、connected/manual、Google Play services、地图渲染、后台定位授权、厂商 ROM 与真实 enter/exit/dwell transition 仍保持 blocked/unverified。
 
 ## 最新验证证据
 
 | Time | Method | Result | Notes |
 | --- | --- | --- | --- |
-| 2026-05-22 14:55 +08:00 | D26052102 T11-T12 review gate | pass | 既有记录：feature runtime/app 测试、`architectureCheck`、`modulePluginCheck`、`clean assembleDebug` 均通过；5 个验收日志 warning / deprecated / exception / failed 扫描计数均为 0。 |
-| 2026-05-22 16:46 +08:00 | D26052102 non-blocking audit-field closeout | pass | 既有记录：runtime LLM/stream/audit 单测、app audit 合同、`architectureCheck`、`modulePluginCheck`、`clean assembleDebug` 均通过。 |
-| 2026-05-22 16:51 +08:00 | `tools/uth-hooks/uth-hook.py` L3 closeout | pass | 既有记录：`uth-dev` / `formal-dev` 非阻塞审计字段收口 closeout 通过。 |
-| 2026-05-22 18:35 +08:00 | changelog content write | pass | 已补齐 `changelogs/v1.0.1.md` 到 `changelogs/v1.0.4.md`。 |
 | 2026-05-22 | v1.1.0 release closeout | pass | 既有记录：`changelogs/v1.1.0.md` 写入，`v1.1.0` tag 指向 `988a523`。 |
 | 2026-05-22 | LW26052201 QQ public group history | pass with risk | 既有记录：OneBot 入站、公共群历史沉淀、隔离 session 不污染、Host API 历史读取映射和全量 debug 构建通过；未做真实 QQ / NapCat 端到端人工验收。 |
-| 2026-05-25 18:26 +08:00 | `uth-utf8-guard` pre-write | pass | 本轮写入前目标 Markdown 通过 UTF-8 guard。 |
-| 2026-05-25 18:27 +08:00 | `uth-utf8-guard` post-write | pass | `AGENTS.md` 与 `docs/**/*.md` 共 110 个 Markdown 文件通过 UTF-8 guard。 |
-| 2026-05-25 18:27 +08:00 | `git diff --check` | pass | 无空白错误；仅输出仓库当前 LF/CRLF 提示。 |
 | 2026-06-04 00:02 +08:00 | D26060301 Design-level review after fix | pass | 既有记录：返工后 `:app:testDebugUnitTest`、`architectureCheck`、`:build-logic:check`、module group checks 和 `clean assembleDebug` 通过；残余风险为远端 GitHub Actions 未运行、app dry-run 仍为 1248 任务线。 |
 | 2026-06-05 19:09 +08:00 | D26060501 stable build + Design-level review | pass with risk | 既有记录：`RuntimeCompatibilityProbeTest`、NapCat 脚本合同、`moduleQqCheck`、`architectureCheck`、`clean assembleDebug` 和无上下文验收通过；残余风险为真实低版本 Android、厂商 ROM 和真实 NapCat 端到端启动未覆盖。 |
-| 2026-06-06 16:30 +08:00 | uth-docs archive/rules cleanup pre-write UTF-8 guard | pass | `AGENTS.md`、`docs/current-state.md`、`docs/archive/README.md` 与 D26060301 / D26060501 任务包 Markdown 共 18 个文件在归档整理前通过 UTF-8 guard。 |
-| 2026-06-06 16:30 +08:00 | uth-docs archive/rules cleanup post-write UTF-8 guard | pass | `AGENTS.md`、`docs/current-state.md`、`docs/archive/README.md` 与归档后的 D26060301 / D26060501 任务包 Markdown 共 18 个文件通过 UTF-8 guard。 |
+| 2026-06-08 06:51 +08:00 | D26060701 T07 controller stable build gate | pass | 既有记录：`moduleGeofenceCheck`、`moduleSettingsCheck`、`moduleConfigCheck`、`architectureCheck`、`:app:testDebugUnitTest --tests "*Geofence*"` 与 `clean assembleDebug` 均通过。 |
+| 2026-06-08 06:54 +08:00 | D26060701 T07 docs / patch guard | pass with notice | 既有记录：T07 Feedback、run log、worker prompt 与 `docs/current-state.md` 通过 UTF-8 guard；`git diff --check` exit 0，仅有既有 LF/CRLF 转换提示。 |
+| 2026-06-08 06:28 +08:00 | D26060701 connected/manual availability | blocked | 既有记录：`where.exe adb` 未找到 `adb`；connected/manual 设备 UI、前后台定位、地图渲染、真实 Play services geofence transition 与厂商 ROM 验证未运行。 |
+| 2026-06-10 14:12 +08:00 | `uth-utf8-guard` pre-write | pass | 本轮写入前 `AGENTS.md` 与 `docs/**/*.md` 共 150 个 Markdown 文件通过 UTF-8 guard。 |
+| 2026-06-10 14:28 +08:00 | `uth-utf8-guard` post-write | pass | 本轮写入后 `AGENTS.md` 与 `docs/**/*.md` 共 151 个 Markdown 文件通过 UTF-8 guard。 |
+| 2026-06-10 15:03 +08:00 | v1.2.0 release PR static guards | pass | `git diff --check` 通过；`AGENTS.md`、`changelogs/v1.2.0.md` 与 `docs/**/*.md` 共 152 个 Markdown 文件通过 UTF-8 guard。 |
+| 2026-06-10 15:03 +08:00 | v1.2.0 CI-equivalent Gradle gate | pass | `:build-logic:check`、`modulePluginCheck moduleQqCheck moduleGeofenceCheck moduleSettingsCheck moduleConfigCheck`、`:app:testDebugUnitTest` 与 `clean architectureCheck assembleDebug` 均通过；`ResourceCenterPresentationTest` 已同步新增 `MeEntryKind.Geofence` 入口后重跑通过。 |
 
 ## 当前事实来源
 
@@ -103,40 +105,40 @@
 - `.uth-governance/project.json`
 - `docs/README.md`
 - `docs/context/README.md`
+- `docs/context/00-模块拆分.md`
 - `docs/context/01-验证构建治理.md`
 - `docs/context/02-应用壳层与集成.md`
+- `docs/context/03-核心基础与数据库.md`
 - `docs/context/04-核心运行时.md`
-- `docs/context/05-下载与容器资产.md`
-- `docs/context/07-聊天与会话.md`
-- `docs/context/08-QQ_NapCat_OneBot.md`
+- `docs/context/06-Provider配置Bot与Persona.md`
 - `docs/context/09-插件平台.md`
+- `docs/context/11-资源设置备份.md`
+- `docs/context/13-地理围栏.md`
 - `docs/changelogs/version-git-anchors.md`
+- `changelogs/v1.2.0.md`
 - `docs/work/D26052102-插件API对齐AstrBot能力补齐/`
 - `docs/work/D26052201-插件任意会话发送能力设计/`
-- `docs/archive/work/D26060301-构建优化/`
-- `docs/archive/work/D26060501-NapCat安卓权限与启动兼容/`
-- `docs/archive/work/`
-- `docs/archive/LW-Work/`
-- `git log --oneline 4fedf19..HEAD`
-- `git diff --name-status 4fedf19..HEAD`
+- `docs/archive/work/D26060701-地理围栏完整能力设计/`
+- `git log --oneline 13467db..b069daf`
+- `git diff --name-status 13467db..b069daf`
 - `git status --short`
 - `.github/workflows/ci.yml`
-- `gradle.properties`
+- `settings.gradle.kts`
 - `build.gradle.kts`
-- `build-logic/gradle.properties`
 - `app/build.gradle.kts`
-- `app/src/main/assets/runtime/scripts/start_napcat.sh`
-- `app/src/main/java/com/elymbot/android/core/runtime/container/ContainerBridgeService.kt`
-- `app/src/main/java/com/elymbot/android/di/runtime/container/AndroidRuntimeBridgeController.kt`
-- `core/runtime-container/src/main/java/com/elymbot/android/core/runtime/container/RuntimeCompatibilityProbe.kt`
-- `core/runtime-container/src/test/java/com/elymbot/android/core/runtime/container/RuntimeCompatibilityProbeTest.kt`
-- `app/src/test/java/com/elymbot/android/runtime/RuntimeBridgeCompatibilityContractTest.kt`
-- `app/src/test/java/com/elymbot/android/architecture/NapCatRuntimeScriptContractTest.kt`
-- `app/src/test/java/com/elymbot/android/architecture/AndroidManifestRuntimeContractTest.kt`
-- `app-integration/src/main/java/com/elymbot/android/di/hilt/PluginHostCapabilityModule.kt`
-- `feature/qq/runtime/src/main/java/com/elymbot/android/feature/qq/runtime/QqMessageRuntimeService.kt`
-- `feature/qq/runtime/src/main/java/com/elymbot/android/feature/qq/runtime/QqStreamingReplyService.kt`
-- `feature/qq/runtime/src/test/java/com/elymbot/android/feature/qq/runtime/QqStreamingReplyServiceAttachmentStreamingTest.kt`
+- `app/src/main/AndroidManifest.xml`
+- `app/src/main/java/com/elymbot/android/di/startup/RuntimeLaunchStartupChain.kt`
+- `app/src/main/java/com/elymbot/android/ui/navigation/AppDestinations.kt`
+- `app/src/main/java/com/elymbot/android/ui/navigation/ElymBotAppScaffoldParts.kt`
+- `core/db/src/main/java/com/elymbot/android/data/db/ElymBotDatabase.kt`
+- `core/db/src/main/java/com/elymbot/android/data/db/core/DbMigrations.kt`
+- `core/db/src/main/java/com/elymbot/android/data/db/geofence/**`
+- `core/runtime-context/src/main/java/com/elymbot/android/core/runtime/context/RuntimeIngressContracts.kt`
+- `feature/geofence/**`
+- `feature/config/presentation/src/main/java/com/elymbot/android/feature/config/presentation/geofence/**`
+- `feature/plugin/api/src/main/java/com/elymbot/android/feature/plugin/domain/runtime/GeofenceActiveCapabilityFacade.kt`
+- `feature/plugin/runtime/src/main/java/com/elymbot/android/feature/plugin/runtime/toolsource/ActiveCapabilityToolSourceProvider.kt`
+- `feature/settings/presentation/src/main/java/com/elymbot/android/ui/settings/MeScreen.kt`
 
 ## 后续路由
 

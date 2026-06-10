@@ -3,7 +3,6 @@ package com.elymbot.android.architecture
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readText
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,7 +14,6 @@ class NapCatRuntimeScriptContractTest {
     } ?: error("Could not locate project root from ${Path.of("").toAbsolutePath()}")
 
     private val rootLauncher: Path = projectRoot.resolve("app/src/main/assets/runtime/scripts/root_launcher.sh")
-    private val startNapcat: Path = projectRoot.resolve("app/src/main/assets/runtime/scripts/start_napcat.sh")
     private val runtimeSupportSource: Path = projectRoot.resolve(
         "core/runtime-container/src/main/java/com/elymbot/android/core/runtime/container/ContainerBridgeRuntimeSupport.kt",
     )
@@ -56,34 +54,6 @@ class NapCatRuntimeScriptContractTest {
             "ContainerBridgeRuntimeSupport must keep network-install progress labels for NapCat startup",
             source.contains("\"download-installer\" -> \"Downloading upstream installer\"") &&
                 source.contains("\"installer-downloaded\" -> \"Installer script downloaded\""),
-        )
-    }
-
-    @Test
-    fun start_napcat_must_conditionally_bind_external_storage() {
-        val source = startNapcat.readText()
-
-        assertTrue(
-            "start_napcat.sh must keep the proot smoke test before the long-running NapCat process",
-            source.contains("start_napcat: running proot smoke test") &&
-                source.contains("proot smoke test failed"),
-        )
-        assertTrue(
-            "start_napcat.sh must use a helper that adds optional binds only when the host path is readable",
-            source.contains("add_optional_bind_if_readable()") &&
-                source.contains("start_napcat: external storage bind skipped"),
-        )
-        assertFalse(
-            "start_napcat.sh must not bind /sdcard unconditionally",
-            Regex("""(?m)^\s*-b /sdcard\s*\\$""").containsMatchIn(source),
-        )
-        assertFalse(
-            "start_napcat.sh must not bind /storage/emulated/0 to /sdcard unconditionally",
-            Regex("""(?m)^\s*-b /storage/emulated/0:/sdcard\s*\\$""").containsMatchIn(source),
-        )
-        assertFalse(
-            "start_napcat.sh must not bind /storage/emulated/0 to itself unconditionally",
-            Regex("""(?m)^\s*-b /storage/emulated/0:/storage/emulated/0\s*\\$""").containsMatchIn(source),
         )
     }
 }

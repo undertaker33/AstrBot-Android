@@ -6,6 +6,7 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Face
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SmartToy
 import com.elymbot.android.ui.settings.ResourceKind
@@ -67,4 +68,5 @@ internal sealed class AppDestination(
     data object Models : AppDestination("models", Icons.Outlined.Memory)
     data object Runtime : AppDestination("runtime", Icons.Outlined.Settings)
     data object CronJobs : AppDestination("cron-jobs", Icons.Outlined.Settings)
+    data object GeofenceRules : AppDestination("geofence-rules", Icons.Outlined.Place)
 }

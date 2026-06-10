@@ -31,6 +31,7 @@
 - `changelogs/v1.1.0.md`
 - `changelogs/v1.1.1.md`
 - `changelogs/v1.1.2.md`
+- `changelogs/v1.2.0.md`
 
 当前规则：`v0.1.x` 到 `v0.7.x` 使用小版本聚合文件；`v0.7.5` 之后每个 patch 版本使用独立文件。
 
@@ -44,5 +45,6 @@
 - `v1.0.1`、`v1.0.2`、`v1.0.3` 已有 tag 与正文文件。
 - `v1.0.4` 当前只发现 release commit `4fedf19` 和正文文件，未发现本地或远端 tag。tag 补齐属于 `uth-git` / 发布流程。
 - `v1.1.0` 已有 tag `v1.1.0`、merge commit `988a523` 和正文文件 `changelogs/v1.1.0.md`。
-- `v1.1.1` 已有正文文件 `changelogs/v1.1.1.md`，tag / merge 锚点待发布闭环补齐。
-- `v1.1.2` 已有正文文件 `changelogs/v1.1.2.md`，tag / merge 锚点待发布闭环补齐。
+- `v1.1.1` 已有 release commit `dea5d75` 与正文文件 `changelogs/v1.1.1.md`，tag / merge 锚点待发布闭环补齐。
+- `v1.1.2` 已有 release commit `b069daf` 与正文文件 `changelogs/v1.1.2.md`，tag / merge 锚点待发布闭环补齐。
+- `v1.2.0` 已有正文文件 `changelogs/v1.2.0.md`，release commit / tag / merge 锚点待发布闭环补齐。

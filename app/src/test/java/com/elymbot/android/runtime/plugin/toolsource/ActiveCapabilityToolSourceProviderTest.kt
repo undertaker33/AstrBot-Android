@@ -54,7 +54,7 @@ class ActiveCapabilityToolSourceProviderTest {
     }
 
     @Test
-    fun list_bindings_exposes_only_scheduled_task_management_tools_when_enabled() = runBlocking {
+    fun list_bindings_exposes_scheduled_task_and_geofence_management_tools_when_enabled() = runBlocking {
         val provider = ActiveCapabilityToolSourceProvider(
             facade = ActiveCapabilityRuntimeFacade(
                 repository = InMemoryActiveCapabilityTaskRepositoryForProvider(),
@@ -93,6 +93,12 @@ class ActiveCapabilityToolSourceProviderTest {
                 "list_future_task_runs",
                 "update_future_task",
                 "run_future_task_now",
+                "create_geofence_rule",
+                "update_geofence_rule",
+                "list_geofence_rules",
+                "delete_geofence_rule",
+                "pause_geofence_rule",
+                "resume_geofence_rule",
             ),
             bindings.map { it.descriptor.name },
         )

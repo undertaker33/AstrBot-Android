@@ -2,7 +2,7 @@
 
 `docs/context/` 是 UTH 的当前事实层入口。代码事实优先，旧 Design、Feedback、Run Log、worker Prompt、LW 记录、归档文档、ADR 或旧模块文档不得直接当作当前事实。
 
-当前状态：`full-project-docs-complete`。12 个编号模块上下文均已写入，旧模块文档和早期 seed 已从当前上下文层移入 archive。最新 `uth-docs` 全仓文档更新已覆盖 `4fedf19..13467db`、`v1.1.0` release / CI 刷新、当前工作区 QQ 普通群公共历史沉淀增量，以及 `D26060301` 构建优化、`D26060501` NapCat 安卓权限与启动兼容的代码事实；当前活动任务只保留在 `docs/current-state.md` 指定的任务包中。
+当前状态：`full-project-docs-complete`。原 12 个编号模块上下文均已写入，旧模块文档和早期 seed 已从当前上下文层移入 archive。最新 `uth-docs` 全仓文档更新已覆盖 `13467db..b069daf` 的 `v1.1.1` / `v1.1.2` release 事实，并追加当前工作区 `D26060701` 地理围栏模块组事实到 `13-地理围栏.md`；当前活动任务只保留在 `docs/current-state.md` 指定的任务包中。
 
 ## 当前可用文档
 
@@ -23,6 +23,7 @@
 | `10-Cron运行时.md` | current | `cron-runtime` 模块上下文 |
 | `11-资源设置备份.md` | current | `resource-settings-backup` 模块上下文 |
 | `12-语音资产与音频.md` | current | `voiceasset-audio` 模块上下文 |
+| `13-地理围栏.md` | current | `geofence` 模块上下文；基于当前工作区未提交增量同步 |
 
 ## 归档证据
 
@@ -48,6 +49,7 @@
 | 10 | cron-runtime | completed | `10-Cron运行时.md` |
 | 11 | resource-settings-backup | completed | `11-资源设置备份.md` |
 | 12 | voiceasset-audio | completed | `12-语音资产与音频.md` |
+| 13 | geofence | current | `13-地理围栏.md` |
 
 完整说明见 `00-模块拆分.md`。
 
@@ -62,7 +64,7 @@
 ## 基线
 
 - Initial baseline commit：`6b97b4a`
-- Latest full-project update：current worktree `D26060301` build optimization + `D26060501` NapCat Android compatibility facts
-- Source：`uth-docs existing-project takeover repair`, 2026-05-22 scoped-sync, 2026-06-06 full-project-baseline update
-- Updated at：2026-06-06 11:41 +08:00
+- Latest full-project update：`13467db..b069daf` release facts + current worktree `D26060701` geofence facts
+- Source：`uth-docs existing-project takeover repair`, 2026-05-22 scoped-sync, 2026-06-06 full-project-baseline update, 2026-06-10 scoped-sync
+- Updated at：2026-06-10 14:12 +08:00
 - Completion level：`full-project-docs-complete`

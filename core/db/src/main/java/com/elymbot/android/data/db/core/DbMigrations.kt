@@ -693,3 +693,112 @@ internal val migration22To23 = object : Migration(22, 23) {
         )
     }
 }
+
+internal val migration23To24 = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS geofence_rules (
+                ruleId TEXT NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                triggerEnter INTEGER NOT NULL,
+                triggerExit INTEGER NOT NULL,
+                triggerDwell INTEGER NOT NULL,
+                dwellDelayMillis INTEGER NOT NULL,
+                actionType TEXT NOT NULL,
+                actionPrompt TEXT NOT NULL,
+                targetPlatform TEXT NOT NULL,
+                targetConversationId TEXT NOT NULL,
+                targetBotId TEXT NOT NULL,
+                targetConfigProfileId TEXT NOT NULL,
+                targetPersonaId TEXT NOT NULL,
+                targetProviderId TEXT NOT NULL,
+                minimumTriggerIntervalMillis INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                lastRegisteredAt INTEGER NOT NULL,
+                lastTriggeredAt INTEGER NOT NULL,
+                lastError TEXT NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS geofence_regions (
+                regionId TEXT NOT NULL PRIMARY KEY,
+                ruleId TEXT NOT NULL,
+                label TEXT NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                radiusMeters REAL NOT NULL,
+                addressLabel TEXT NOT NULL,
+                sortIndex INTEGER NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                FOREIGN KEY(ruleId) REFERENCES geofence_rules(ruleId) ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_geofence_regions_ruleId_sortIndex
+            ON geofence_regions(ruleId, sortIndex)
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS config_geofence_bindings (
+                configId TEXT NOT NULL,
+                ruleId TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                sortIndex INTEGER NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY(configId, ruleId),
+                FOREIGN KEY(configId) REFERENCES config_profiles(id) ON DELETE CASCADE,
+                FOREIGN KEY(ruleId) REFERENCES geofence_rules(ruleId) ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_config_geofence_bindings_configId_sortIndex
+            ON config_geofence_bindings(configId, sortIndex)
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_config_geofence_bindings_ruleId
+            ON config_geofence_bindings(ruleId)
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS geofence_execution_records (
+                executionId TEXT NOT NULL PRIMARY KEY,
+                ruleId TEXT NOT NULL,
+                regionId TEXT NOT NULL,
+                configId TEXT NOT NULL,
+                transition TEXT NOT NULL,
+                startedAt INTEGER NOT NULL,
+                completedAt INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                errorCode TEXT NOT NULL,
+                errorMessage TEXT NOT NULL,
+                deliverySummary TEXT NOT NULL,
+                locationSnapshotJson TEXT NOT NULL,
+                triggerPayloadJson TEXT NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_geofence_execution_records_ruleId_startedAt
+            ON geofence_execution_records(ruleId, startedAt)
+            """.trimIndent(),
+        )
+    }
+}

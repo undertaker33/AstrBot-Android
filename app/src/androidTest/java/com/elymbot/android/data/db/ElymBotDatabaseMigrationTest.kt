@@ -612,4 +612,5 @@ class ElymBotDatabaseMigrationTest {
         }
         database.close()
     }
+
 }

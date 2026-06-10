@@ -17,4 +17,7 @@ dependencies {
     ksp("androidx.room:room-compiler:$roomVersion")
 
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.room:room-testing:$roomVersion")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

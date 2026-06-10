@@ -235,6 +235,7 @@ class RuntimeCompatibilityProbe(
                 "echo elymbot-proot-smoke-ok",
             ),
             env = mapOf(
+                "LD_LIBRARY_PATH" to "${File(env.appHome, "runtime/bin").absolutePath}:${env.nativeLibraryDir.absolutePath}",
                 "PROOT_LOADER" to loaderLink.absolutePath,
                 "PROOT_TMP_DIR" to tmpDir.absolutePath,
             ),
