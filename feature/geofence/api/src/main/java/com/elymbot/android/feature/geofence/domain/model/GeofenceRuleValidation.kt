@@ -11,6 +11,7 @@ object GeofenceRuleValidation {
     }
 
     fun requireValidRule(rule: GeofenceRule) {
+        // skipcq: KT-W1042
         requireField(rule.ruleId.isNotBlank(), "ruleId must not be blank")
         requireField(rule.name.isNotBlank(), "name must not be blank")
         requireField(

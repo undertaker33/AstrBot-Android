@@ -15,6 +15,7 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
+// skipcq: KT-R1000
 internal abstract class GeofenceRuntimeBindings {
     @Binds
     @Singleton

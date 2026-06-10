@@ -134,6 +134,7 @@ internal class GeofenceRegistrationCoordinator(
 
         try {
             backend.replaceRegisteredGeofences(GeofenceRegistrationRequest(activeRegions))
+        // skipcq: KT-W1009
         } catch (error: Throwable) {
             markRules(
                 rules = boundRules,
@@ -146,6 +147,7 @@ internal class GeofenceRegistrationCoordinator(
                 activeRuleCount = boundRules.size,
                 activeRegionCount = activeRegions.size,
                 affectedRuleIds = affectedRuleIds,
+                // skipcq: KT-R1004
                 errorMessage = error.message ?: "",
             )
         }

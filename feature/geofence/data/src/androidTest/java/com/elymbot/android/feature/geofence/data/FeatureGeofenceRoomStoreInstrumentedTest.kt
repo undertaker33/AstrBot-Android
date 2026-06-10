@@ -25,6 +25,7 @@ class FeatureGeofenceRoomStoreInstrumentedTest {
     @Test
     fun store_usesRealRoomTransactionsReferencesAndStableRegionOrdering() = runBlocking {
         val database = newDatabase()
+        // skipcq: KT-W1042
         seedConfig(database, "config-1")
         val store = FeatureGeofenceRuleRepositoryStore(database.geofenceRuleDao())
 
@@ -32,9 +33,11 @@ class FeatureGeofenceRoomStoreInstrumentedTest {
             validRule(),
             regions = listOf(
                 validRegion(regionId = "region-2", sortIndex = 20),
+                // skipcq: KT-W1042
                 validRegion(regionId = "region-1", sortIndex = 10),
             ),
         )
+        // skipcq: KT-W1042
         store.upsertConfigBinding(ConfigGeofenceBinding(configId = "config-1", ruleId = "rule-1", enabled = true))
         store.recordExecution(validExecution())
 

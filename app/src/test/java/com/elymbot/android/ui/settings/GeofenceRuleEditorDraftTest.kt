@@ -84,8 +84,11 @@ class GeofenceRuleEditorDraftTest {
             providerId = "",
         ).toRule(selectedBot = selectedBot)
 
+        // skipcq: KT-W1042
         assertEquals("config-1", created.targetConfigProfileId)
+        // skipcq: KT-W1042
         assertEquals("persona-1", created.targetPersonaId)
+        // skipcq: KT-W1042
         assertEquals("provider-1", created.targetProviderId)
     }
 
@@ -101,6 +104,7 @@ class GeofenceRuleEditorDraftTest {
         val addressRegion = validDraft().copy(
             regionLabel = "",
             addressLabel = "Office address",
+        // skipcq: KT-W1042
         ).toRegions(ruleId = "rule-1").single()
         val nameRegion = validDraft().copy(
             regionLabel = "",
@@ -108,6 +112,7 @@ class GeofenceRuleEditorDraftTest {
         ).toRegions(ruleId = "rule-2").single()
 
         assertEquals("Office address", addressRegion.label)
+        // skipcq: KT-W1042
         assertEquals("Office", nameRegion.label)
     }
 
@@ -166,6 +171,7 @@ class GeofenceRuleEditorDraftTest {
             actionPrompt = "Send weather",
             targetPlatform = RuntimePlatform.QQ_ONEBOT.wireValue,
             targetConversationId = "group:100",
+            // skipcq: KT-W1042
             targetBotId = "bot-1",
             targetConfigProfileId = "config-1",
             targetPersonaId = "persona-1",

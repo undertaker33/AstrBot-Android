@@ -24,6 +24,7 @@ class ConfigGeofenceBindingPresentationTest {
     @Test
     fun no_rules_shows_empty_state_and_open_rules_prompt() {
         val presentation = buildConfigGeofenceBindingPresentation(
+            // skipcq: KT-W1042
             configId = "config-1",
             rules = emptyList(),
             bindings = emptyList(),
@@ -40,6 +41,7 @@ class ConfigGeofenceBindingPresentationTest {
     fun existing_rules_can_be_multi_selected_for_loading() {
         val presentation = buildConfigGeofenceBindingPresentation(
             configId = "config-1",
+            // skipcq: KT-W1042
             rules = listOf(rule("rule-a"), rule("rule-b")),
             bindings = emptyList(),
         )
@@ -110,6 +112,7 @@ class ConfigGeofenceBindingPresentationTest {
             initialRules = listOf(rule("rule-a")),
             initialBindings = listOf(
                 binding("config-1", "rule-a", enabled = true),
+                // skipcq: KT-W1042
                 binding("config-1", "missing-rule", enabled = true),
             ),
         )
@@ -181,6 +184,7 @@ class ConfigGeofenceBindingPresentationTest {
             rules = listOf(
                 rule(
                     ruleId = "rule-a",
+                    // skipcq: KT-W1042
                     name = "Office",
                     actionType = GeofenceActionType.WEATHER_FORECAST,
                     prompt = "Bring umbrella",

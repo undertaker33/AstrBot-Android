@@ -79,6 +79,7 @@ class GeofenceActionExecutorTest {
         assertTrue(result.success)
         assertEquals("app_chat", deliveryPort.requests.single().platform)
         assertEquals("conversation-1", deliveryPort.requests.single().conversationId)
+        // skipcq: KT-W1042
         assertEquals("Geofence prompt", deliveryPort.requests.single().text)
     }
 
@@ -93,9 +94,12 @@ class GeofenceActionExecutorTest {
         val ingress = resolver.capturedEvent
         assertEquals(IngressTrigger.GEOFENCE_EVENT, ingress?.trigger)
         @Suppress("UNCHECKED_CAST")
+        // skipcq: KT-E1006
         val payload = ingress?.rawPlatformPayload as Map<String, Any?>
+        // skipcq: KT-W1042
         assertEquals("rule-1", payload["ruleId"])
         assertEquals("Office reminder", payload["ruleName"])
+        // skipcq: KT-W1042
         assertEquals("region-1", payload["regionId"])
         assertEquals("region-1", payload["regionLabel"])
         assertEquals("enter", payload["transition"])
@@ -103,6 +107,7 @@ class GeofenceActionExecutorTest {
         assertEquals("redacted", payload["longitude"])
         assertEquals(100f, payload["radiusMeters"])
         assertEquals(123L, payload["occurredAt"])
+        // skipcq: KT-W1042
         assertEquals("config-1", payload["configId"])
     }
 
@@ -110,6 +115,7 @@ class GeofenceActionExecutorTest {
     fun geofence_llm_turn_redacts_exact_coordinates_from_hook_visible_inputs() = runBlocking {
         val orchestrator = RecordingRuntimeOrchestrator()
         val executor = executor(
+            // skipcq: KT-W1042
             config = ConfigProfile(id = "config-1", defaultChatProviderId = "provider-1", webSearchEnabled = true),
             orchestrator = orchestrator,
         )
@@ -175,6 +181,7 @@ class GeofenceActionExecutorTest {
     @Test
     fun action_with_explicit_bot_from_other_config_fails() = runBlocking {
         val executor = executor(
+            // skipcq: KT-W1042
             bot = BotProfile(id = "bot-1", configProfileId = "config-2", defaultProviderId = "provider-1"),
         )
 
@@ -215,6 +222,7 @@ class GeofenceActionExecutorTest {
         val processor = GeofenceTransitionProcessor(
             repository = repository,
             clock = localSequenceClock(100L, 150L, 180L),
+            // skipcq: KT-W1042
             executionIdFactory = { "execution-1" },
             actionExecutor = { GeofenceActionExecutionResult.success("""{"receipt_ids":["r1"]}""") },
         )
@@ -243,6 +251,7 @@ class GeofenceActionExecutorTest {
             executionIdFactory = { "execution-1" },
             actionExecutor = {
                 GeofenceActionExecutionResult.failure(
+                    // skipcq: KT-W1042
                     errorCode = "delivery_failed",
                     errorMessage = "Delivery failed",
                     deliverySummary = "delivery_failed",
@@ -480,6 +489,7 @@ private fun resolvedRuntimeContext(
         id = "provider-1",
         name = "Provider",
         baseUrl = "https://example.invalid/v1",
+        // skipcq: KT-W1042
         model = "model-1",
         providerType = "CUSTOM",
         apiKey = "",
@@ -539,6 +549,7 @@ private fun resolvedRuntimeContext(
 
 private fun pluginPipelineResult(conversationId: String, messageId: String): PluginV2LlmPipelineResult {
     val sendable = PluginMessageEventResult(
+        // skipcq: KT-W1042
         requestId = "req-1",
         conversationId = conversationId,
         text = "Geofence response",

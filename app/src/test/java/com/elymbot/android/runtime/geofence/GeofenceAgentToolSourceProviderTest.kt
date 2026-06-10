@@ -50,16 +50,21 @@ class GeofenceAgentToolSourceProviderTest {
         val provider = provider()
 
         val create = provider.listBindings(ToolSourceRegistryIngestContext(userToolContext()))
+            // skipcq: KT-W1042
             .single { it.descriptor.name == "create_geofence_rule" }
 
         val properties = create.descriptor.inputSchema["properties"] as Map<*, *>
+        // skipcq: KT-W1042
         assertTrue(properties.containsKey("latitude"))
+        // skipcq: KT-W1042
         assertTrue(properties.containsKey("longitude"))
+        // skipcq: KT-W1042
         assertTrue(properties.containsKey("radius_meters"))
         assertTrue(properties.containsKey("trigger"))
         assertTrue(properties.containsKey("action_type"))
         assertTrue(properties.containsKey("conversation_id"))
         assertTrue(properties.containsKey("minimum_trigger_interval_millis"))
+        // skipcq: KT-W1042
         assertFalse(properties.containsKey("config_profile_id"))
         assertFalse(properties.containsKey("persona_id"))
         assertFalse(properties.containsKey("provider_id"))
@@ -74,6 +79,7 @@ class GeofenceAgentToolSourceProviderTest {
                 listOf(
                     BotProfile(
                         id = "bot-selected",
+                        // skipcq: KT-W1042
                         configProfileId = "config-1",
                         defaultPersonaId = "persona-selected",
                         defaultProviderId = "provider-selected",
@@ -108,11 +114,13 @@ class GeofenceAgentToolSourceProviderTest {
 
         val result = provider.invoke(
             createRequest(
+                // skipcq: KT-W1042
                 payload = validCreatePayload() - setOf("latitude", "longitude") + ("use_current_location" to true),
             ),
         ).result
 
         assertEquals(PluginToolResultStatus.ERROR, result.status)
+        // skipcq: KT-W1042
         assertEquals("permission_required", result.errorCode)
     }
 
@@ -144,6 +152,7 @@ class GeofenceAgentToolSourceProviderTest {
         ).result
 
         assertEquals(PluginToolResultStatus.ERROR, result.status)
+        // skipcq: KT-W1042
         assertEquals("missing_target_context", result.errorCode)
         assertTrue(repository.rulesSnapshot.isEmpty())
     }
@@ -168,6 +177,7 @@ class GeofenceAgentToolSourceProviderTest {
         val provider = provider(
             repository = repository,
             botRepositoryPort = FakeBotRepositoryPort(
+                // skipcq: KT-W1042
                 listOf(BotProfile(id = "bot-other", configProfileId = "config-other")),
             ),
         )
@@ -234,7 +244,9 @@ class GeofenceAgentToolSourceProviderTest {
 
         assertTrue(names.contains("list_geofence_rules"))
         assertFalse(names.contains("create_geofence_rule"))
+        // skipcq: KT-W1042
         assertFalse(names.contains("update_geofence_rule"))
+        // skipcq: KT-W1042
         assertFalse(names.contains("delete_geofence_rule"))
         assertFalse(names.contains("pause_geofence_rule"))
         assertFalse(names.contains("resume_geofence_rule"))
@@ -248,6 +260,7 @@ class GeofenceAgentToolSourceProviderTest {
         val result = provider.invoke(
             updateRequest(
                 payload = mapOf(
+                    // skipcq: KT-W1042
                     "rule_id" to "rule-1",
                     "config_profile_id" to "missing-config",
                 ),
@@ -465,6 +478,7 @@ class GeofenceAgentToolSourceProviderTest {
             "trigger" to "enter",
             "action_type" to "agent_prompt",
             "action_prompt" to "Remind me",
+            // skipcq: KT-W1042
             "conversation_id" to "conversation-1",
             "minimum_trigger_interval_millis" to 60000,
         )

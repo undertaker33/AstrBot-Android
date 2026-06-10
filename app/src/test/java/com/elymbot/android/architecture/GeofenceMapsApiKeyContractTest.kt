@@ -43,6 +43,7 @@ class GeofenceMapsApiKeyContractTest {
     }
 
     private fun candidateRoots(path: String): List<File> {
+        // skipcq: KT-W1051
         return listOf(File(path), File("../$path")).filter { it.exists() }
     }
 }

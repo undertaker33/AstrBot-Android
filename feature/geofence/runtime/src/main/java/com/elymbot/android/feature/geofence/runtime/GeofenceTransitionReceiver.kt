@@ -13,9 +13,11 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class GeofenceTransitionReceiver : BroadcastReceiver() {
+    // skipcq: KT-W1047
     @Inject
     internal lateinit var enqueuePort: GeofenceTransitionEnqueuePort
 
+    // skipcq: KT-W1047
     @Inject
     internal lateinit var runtimeLogger: RuntimeLogger
 

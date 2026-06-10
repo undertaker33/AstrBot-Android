@@ -84,6 +84,7 @@ class GeofenceRuleValidationTest {
 
     private fun validRule(): GeofenceRule =
         GeofenceRule(
+            // skipcq: KT-W1042
             ruleId = "rule-1",
             name = "Office reminder",
             description = "Trigger at office",

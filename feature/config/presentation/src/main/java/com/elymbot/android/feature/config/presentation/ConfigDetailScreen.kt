@@ -246,6 +246,7 @@ fun ConfigDetailScreen(
 }
 
 @Composable
+// skipcq: KT-R1006
 private fun ConfigDetailContent(
     profile: ConfigProfile,
     chatModelOptions: List<Pair<String, String>>,

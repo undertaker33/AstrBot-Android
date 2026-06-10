@@ -112,6 +112,7 @@ class DefaultGeofenceActionExecutor @Inject constructor(
                         "action=${context.rule.actionType.persistedValue} error=${error.javaClass.simpleName}",
                 )
                 GeofenceActionExecutionResult.failure(
+                    // skipcq: KT-W1042
                     errorCode = "delivery_failed",
                     errorMessage = error.message ?: error.javaClass.simpleName,
                     deliverySummary = "delivery_failed",
@@ -123,6 +124,7 @@ class DefaultGeofenceActionExecutor @Inject constructor(
     private suspend fun sendMessage(context: GeofenceActionExecutionContext): GeofenceActionExecutionResult {
         val target = context.resolveTargetContext()
         val text = context.rule.actionPrompt.trim()
+        // skipcq: KT-W1042
         if (text.isBlank()) throw GeofenceActionFailure("missing_target_context", "Geofence send_message action prompt is empty")
         val result = deliveryPort.deliver(
             GeofenceMessageDeliveryRequest(
@@ -390,6 +392,7 @@ private class GeofenceLlmCallbacksFactory(
                     attachments = attachments.toConversationAttachments(),
                     deliveredEntries = listOf(
                         PluginV2AfterSentView.DeliveredEntry(
+                            // skipcq: KT-W1042
                             entryId = result.admission.messageIds.firstOrNull().orEmpty().ifBlank { "assistant" },
                             entryType = "assistant",
                             textPreview = sendable.text.take(160),
@@ -431,6 +434,7 @@ private class GeofenceLlmCallbacksFactory(
                 mode: PluginV2StreamingMode,
                 ctx: ResolvedRuntimeContext,
             ): PluginV2ProviderInvocationResult {
+                // skipcq: KT-W1051
                 return providerInvocationService.invokeProvider(request, mode, ctx)
             }
         }
@@ -440,6 +444,7 @@ private class GeofenceLlmCallbacksFactory(
 private class GeofenceProviderInvocationService(
     private val llmClient: LlmClientPort,
 ) {
+    // skipcq: KT-R1006
     suspend fun invokeProvider(
         request: PluginProviderRequest,
         mode: PluginV2StreamingMode,

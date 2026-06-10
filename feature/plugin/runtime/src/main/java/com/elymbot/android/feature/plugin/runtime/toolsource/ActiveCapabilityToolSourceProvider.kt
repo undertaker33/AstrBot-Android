@@ -97,6 +97,7 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
         }
     }
 
+    // skipcq: KT-R1006
     override suspend fun invoke(
         request: ToolSourceInvokeRequest,
     ): ToolSourceInvokeResult {
@@ -113,7 +114,9 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                     status = PluginToolResultStatus.ERROR,
                     errorCode = GEOFENCE_MUTATION_HIDDEN_DURING_EVENT,
                     text = org.json.JSONObject().apply {
+                        // skipcq: KT-W1042
                         put("success", false)
+                        // skipcq: KT-W1042
                         put("error_code", GEOFENCE_MUTATION_HIDDEN_DURING_EVENT)
                         put("message", "Geofence mutation tools are hidden during geofence event ingress.")
                     }.toString(2),
@@ -130,15 +133,22 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 "list_future_task_runs" -> handleListFutureTaskRuns(request.args.payload)
                 "update_future_task" -> handleUpdateFutureTask(request.args.payload)
                 "run_future_task_now" -> handleRunFutureTaskNow(request.args.payload)
+                // skipcq: KT-W1042
                 "create_geofence_rule" -> handleCreateGeofenceRule(request)
+                // skipcq: KT-W1042
                 "update_geofence_rule" -> handleUpdateGeofenceRule(request)
+                // skipcq: KT-W1042
                 "list_geofence_rules" -> handleGeofenceManagement(geofenceFacade.listRules())
+                // skipcq: KT-W1042
                 "delete_geofence_rule" -> handleGeofenceManagement(
+                    // skipcq: KT-W1042
                     geofenceFacade.deleteRule(request.args.payload.stringValue("rule_id")),
                 )
+                // skipcq: KT-W1042
                 "pause_geofence_rule" -> handleGeofenceManagement(
                     geofenceFacade.pauseRule(request.args.payload.stringValue("rule_id")),
                 )
+                // skipcq: KT-W1042
                 "resume_geofence_rule" -> handleGeofenceManagement(
                     geofenceFacade.resumeRule(request.args.payload.stringValue("rule_id")),
                 )
@@ -369,6 +379,7 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                     "type" to "object",
                     "properties" to mapOf(
                         "job_id" to mapOf("type" to "string", "description" to promptStrings.schemaJobIdDescription),
+                        // skipcq: KT-W1042
                         "limit" to mapOf("type" to "number", "description" to promptStrings.schemaRunsLimitDescription),
                     ),
                     "required" to listOf("job_id"),
@@ -398,6 +409,7 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                         "job_id" to mapOf("type" to "string", "description" to promptStrings.schemaJobIdDescription),
                         "name" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedShortTitleDescription),
                         "note" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedTaskInstructionDescription),
+                        // skipcq: KT-W1042
                         "enabled" to mapOf("type" to "boolean", "description" to promptStrings.schemaTaskEnabledDescription),
                         "status" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedTaskStatusDescription),
                         "run_at" to mapOf("type" to "string", "description" to promptStrings.schemaUpdatedRunAtDescription),

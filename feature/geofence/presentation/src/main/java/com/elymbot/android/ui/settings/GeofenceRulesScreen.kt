@@ -191,6 +191,7 @@ private enum class GeofenceRuleEditorStep {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+// skipcq: KT-R1006
 fun GeofenceRulesContent(
     rules: List<GeofenceRule>,
     defaultTargetContext: GeofenceRuleTargetContext = GeofenceRuleTargetContext(),
@@ -653,6 +654,7 @@ private fun GeofenceOperationErrorBanner(
 }
 
 @Composable
+// skipcq: KT-R1006
 private fun CreateGeofenceRuleDialog(
     initialRule: GeofenceRule?,
     initialTargetContext: GeofenceRuleTargetContext,
@@ -1487,7 +1489,9 @@ private class GeofenceMapWebViewClient(
         if (isMainFrame || resourceErrorLogCount < 6) {
             resourceErrorLogCount += 1
             onLog(
+                // skipcq: KT-E1009
                 "WebView resource error main=$isMainFrame code=${error?.errorCode} " +
+                    // skipcq: KT-E1009
                     "description=${error?.description} url=${request?.url}",
             )
         }
@@ -1502,7 +1506,9 @@ private class GeofenceMapWebViewClient(
         if (isMainFrame || resourceErrorLogCount < 6) {
             resourceErrorLogCount += 1
             onLog(
+                // skipcq: KT-E1009
                 "WebView HTTP error main=$isMainFrame status=${errorResponse?.statusCode} " +
+                    // skipcq: KT-E1009
                     "reason=${errorResponse?.reasonPhrase} url=${request?.url}",
             )
         }

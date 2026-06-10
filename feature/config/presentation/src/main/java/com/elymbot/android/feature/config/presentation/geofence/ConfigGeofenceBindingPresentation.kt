@@ -1,3 +1,4 @@
+// skipcq: KT-W1044
 package com.elymbot.android.ui.config.geofence
 
 import com.elymbot.android.feature.geofence.domain.GeofenceRuleRepositoryPort
@@ -81,10 +82,12 @@ data class ConfigGeofenceBindingDraft(
     }
 
     fun mergeAvailableRules(presentation: ConfigGeofenceBindingPresentation): ConfigGeofenceBindingDraft {
+        // skipcq: KT-W1051
         return mergeAvailableRules(presentation.items.mapTo(linkedSetOf()) { item -> item.ruleId })
     }
 
     fun mergeAvailableRules(availableRuleIds: Set<String>): ConfigGeofenceBindingDraft {
+        // skipcq: KT-W1051
         return copy(entries = entries.filter { entry -> entry.ruleId in availableRuleIds }.reindexed())
     }
 

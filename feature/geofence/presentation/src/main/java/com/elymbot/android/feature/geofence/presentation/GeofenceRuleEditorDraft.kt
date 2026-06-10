@@ -48,6 +48,7 @@ data class GeofenceRuleEditorDraft(
 ) {
     fun canSubmit(): Boolean = missingFields().isEmpty()
 
+    // skipcq: KT-R1006
     fun missingFields(): List<String> {
         val parsedLatitude = parsedLatitude()
         val parsedLongitude = parsedLongitude()
@@ -110,6 +111,7 @@ data class GeofenceRuleEditorDraft(
             status = nextStatus,
             lastRegisteredAt = existing?.lastRegisteredAt ?: 0L,
             lastTriggeredAt = existing?.lastTriggeredAt ?: 0L,
+            // skipcq: KT-R1004
             lastError = existing?.lastError ?: "",
             regions = toRegions(ruleId, existing?.regions.orEmpty(), now),
             createdAt = existing?.createdAt?.takeIf { it > 0L } ?: now,

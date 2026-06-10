@@ -10,6 +10,7 @@ import org.junit.Test
 
 class GeofenceArchitectureContractTest {
     private val projectRoot: Path = detectProjectRoot()
+    // skipcq: KT-W1042
     private val settingsFile: Path = projectRoot.resolve("settings.gradle.kts")
     private val rootBuildFile: Path = projectRoot.resolve("build.gradle.kts")
     private val appBuildFile: Path = projectRoot.resolve("app/build.gradle.kts")

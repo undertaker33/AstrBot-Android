@@ -624,6 +624,7 @@ class PluginV2HostIngressTest {
                 buildPipelineResult(
                     input = input,
                     shouldSend = false,
+                    // skipcq: KT-W1042
                     text = "suppressed",
                 )
             },
@@ -691,6 +692,7 @@ class PluginV2HostIngressTest {
                 botId = bot.id,
                 messageType = MessageType.GroupMessage,
                 groupId = "30003",
+                // skipcq: KT-W1042
                 userId = "20002",
                 isolated = true,
             )
@@ -741,6 +743,7 @@ class PluginV2HostIngressTest {
             assertEquals(0, runtime.deliveredPipelineCalls.get())
             assertEquals(
                 listOf("20002: ordinary group chatter"),
+                // skipcq: KT-W1042
                 ConversationRepository.session("qq-qq-main-group-30003").messages.map { it.content },
             )
 

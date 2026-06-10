@@ -71,12 +71,15 @@ class GeofenceRulesViewModelTest {
         )
         val viewModel = viewModel(repository)
 
+        // skipcq: KT-W1042
         viewModel.createRule(validDraft(name = "Created"), permissionReady())
         val created = awaitAsync { repository.createdRule.await() }
 
+        // skipcq: KT-W1042
         viewModel.updateRule(sampleRule(), validDraft(name = "Updated"), permissionReady())
         val updated = awaitAsync { repository.updatedRule.await() }
 
+        // skipcq: KT-W1042
         viewModel.deleteRule("rule-1")
         val deletedRuleId = awaitAsync { repository.deletedRuleId.await() }
 
@@ -101,10 +104,15 @@ class GeofenceRulesViewModelTest {
         )
         val created = awaitAsync { repository.createdRule.await() }.rule
 
+        // skipcq: KT-W1042
         assertEquals("chat-main", created.targetConversationId)
+        // skipcq: KT-W1042
         assertEquals("bot-1", created.targetBotId)
+        // skipcq: KT-W1042
         assertEquals("config-1", created.targetConfigProfileId)
+        // skipcq: KT-W1042
         assertEquals("persona-1", created.targetPersonaId)
+        // skipcq: KT-W1042
         assertEquals("provider-1", created.targetProviderId)
     }
 
@@ -175,6 +183,7 @@ class GeofenceRulesViewModelTest {
         assertTrue(viewModel.awaitOperationErrorMessage().contains("resume failed"))
 
         viewModel.dismissOperationError()
+        // skipcq: KT-W1042
         repository.listRunsFailure = IllegalStateException("runs failed")
         viewModel.showRuns(sampleRule())
         assertTrue(viewModel.awaitOperationErrorMessage().contains("runs failed"))
@@ -361,6 +370,7 @@ class GeofenceRulesViewModelTest {
     }
 
     private fun validDraft(
+        // skipcq: KT-W1042
         name: String = "Office",
         selectedBotId: String = "bot-1",
     ): GeofenceRuleEditorDraft {

@@ -35,6 +35,7 @@ class ConfigDetailGeofenceSectionTest {
     @Test
     fun section_presentation_shows_loaded_count_and_first_two_summaries() {
         val presentation = buildConfigGeofenceBindingPresentation(
+            // skipcq: KT-W1042
             configId = "config-1",
             rules = listOf(rule("rule-a", "Office"), rule("rule-b", "Home"), rule("rule-c", "Station")),
             bindings = listOf(

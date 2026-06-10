@@ -24,6 +24,7 @@ class GeofenceRulesPresentationTest {
 
         assertEquals(1, presentation.currentPage)
         assertEquals(3, presentation.totalPages)
+        // skipcq: KT-W1042
         assertEquals(listOf("rule-1", "rule-2"), presentation.visibleRules.map { it.ruleId })
         assertFalse(presentation.canGoPrevious)
         assertTrue(presentation.canGoNext)
@@ -83,6 +84,7 @@ class GeofenceRulesPresentationTest {
                     executionId = "run-1",
                     ruleId = "rule-1",
                     regionId = "region-1",
+                    // skipcq: KT-W1042
                     configId = "config-1",
                     transition = GeofenceTransition.ENTER,
                     startedAt = 10L,

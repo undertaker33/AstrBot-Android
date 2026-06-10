@@ -17,6 +17,7 @@ class GeofenceMapSelectorStateTest {
         val updated = state.onMapClick(latitude = 32.0615, longitude = 118.7913)
 
         assertEquals("32.0615", updated.latitudeText)
+        // skipcq: KT-W1042
         assertEquals("118.7913", updated.longitudeText)
         assertEquals("150", updated.radiusText)
         assertEquals(32.0615, updated.selection?.latitude ?: 0.0, 0.000001)

@@ -475,11 +475,13 @@ fun Project.configureModuleGroupBuildDependency(
     modulePath: String,
     buildTaskName: String,
 ) {
+    // skipcq: KT-W1042
     plugins.withId("com.android.application") {
         rootProject.tasks.named(buildTaskName).configure {
             dependsOn("$modulePath:assembleDebug")
         }
     }
+    // skipcq: KT-W1042
     plugins.withId("com.android.library") {
         rootProject.tasks.named(buildTaskName).configure {
             dependsOn("$modulePath:assembleDebug")

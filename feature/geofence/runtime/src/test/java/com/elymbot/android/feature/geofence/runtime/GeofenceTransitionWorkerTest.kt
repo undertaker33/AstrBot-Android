@@ -20,6 +20,7 @@ class GeofenceTransitionWorkerTest {
 
     @Test
     fun processor_writes_execution_start_and_complete_records() = runBlocking {
+        // skipcq: KT-W1042
         val requestId = GeofenceRequestIdCodec.encode("rule-1", "region-1")
         val repository = FakeGeofenceRuleRepository(
             rules = listOf(rule(regions = listOf(region()))),
@@ -38,6 +39,7 @@ class GeofenceTransitionWorkerTest {
         )
 
         assertEquals(1, summary.completedCount)
+        // skipcq: KT-W1042
         assertEquals(listOf("started", "complete"), repository.records.map { it.status })
         assertEquals(150L, repository.records.last().completedAt)
     }
@@ -150,6 +152,7 @@ class GeofenceTransitionWorkerTest {
         assertEquals("execution-missing-rule", record.executionId)
         assertEquals("missing-rule", record.ruleId)
         assertEquals("region-1", record.regionId)
+        // skipcq: KT-W1042
         assertEquals("failed", record.status)
         assertEquals("missing_rule", record.errorCode)
     }

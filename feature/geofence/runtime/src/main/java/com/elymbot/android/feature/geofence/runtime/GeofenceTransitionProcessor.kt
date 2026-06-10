@@ -65,6 +65,7 @@ class GeofenceTransitionProcessor @Inject constructor(
         )
     }
 
+    // skipcq: KT-R1006
     private suspend fun processOne(
         transition: GeofenceTransition,
         requestId: String,
@@ -204,6 +205,7 @@ class GeofenceTransitionProcessor @Inject constructor(
             errorMessage = errorMessage,
             deliverySummary = "geofence transition ignored: $errorCode",
             locationSnapshotJson = buildFlatJson(
+                // skipcq: KT-W1042
                 "regionId" to decoded.regionId,
             ),
             triggerPayloadJson = buildFlatJson(

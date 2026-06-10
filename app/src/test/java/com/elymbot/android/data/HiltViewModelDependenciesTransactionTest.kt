@@ -47,6 +47,10 @@ class HiltViewModelDependenciesTransactionTest {
                 selectedProfileId = selectedConfigId,
             )
             BotRepository.restoreProfiles(botSnapshot, selectedBotId)
+            FeatureRepositoryPhase3DataTransactionService.waitForBotRestore(
+                expectedProfiles = botSnapshot,
+                selectedBotId = selectedBotId,
+            )
             ConversationRepository.restoreSessions(conversationSnapshot)
         }
     }
@@ -83,6 +87,12 @@ class HiltViewModelDependenciesTransactionTest {
         )
         BotRepository.restoreProfiles(
             profiles = listOf(
+                BotProfile(id = targetBotId, displayName = "Transaction Bot", configProfileId = deletedConfigId),
+            ),
+            selectedBotId = targetBotId,
+        )
+        FeatureRepositoryPhase3DataTransactionService.waitForBotRestore(
+            expectedProfiles = listOf(
                 BotProfile(id = targetBotId, displayName = "Transaction Bot", configProfileId = deletedConfigId),
             ),
             selectedBotId = targetBotId,
@@ -143,6 +153,10 @@ class HiltViewModelDependenciesTransactionTest {
         // Ensure exactly one bot exists (default)
         BotRepository.restoreProfiles(
             profiles = listOf(BotProfile(id = onlyBotId, displayName = "Main Bot")),
+            selectedBotId = onlyBotId,
+        )
+        FeatureRepositoryPhase3DataTransactionService.waitForBotRestore(
+            expectedProfiles = listOf(BotProfile(id = onlyBotId, displayName = "Main Bot")),
             selectedBotId = onlyBotId,
         )
         // Plant a conversation for that bot

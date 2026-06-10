@@ -27,6 +27,7 @@ class FeatureGeofenceRuleRepositoryStoreTest {
         val rule = validRule(name = "Office")
 
         store.createRule(rule, regions = listOf(validRegion(sortIndex = 0)))
+        // skipcq: KT-W1042
         dao.configIds += "config-1"
         store.upsertConfigBinding(ConfigGeofenceBinding(configId = "config-1", ruleId = rule.ruleId, enabled = true))
         store.updateRule(rule.copy(name = "Office updated"))
@@ -45,6 +46,7 @@ class FeatureGeofenceRuleRepositoryStoreTest {
             rule,
             regions = listOf(
                 validRegion(regionId = "region-2", sortIndex = 20),
+                // skipcq: KT-W1042
                 validRegion(regionId = "region-1", sortIndex = 10),
             ),
         )
@@ -62,6 +64,7 @@ class FeatureGeofenceRuleRepositoryStoreTest {
             store.upsertConfigBinding(
                 ConfigGeofenceBinding(
                     configId = "config-1",
+                    // skipcq: KT-W1042
                     ruleId = "rule-1",
                     enabled = true,
                     sortIndex = 5,

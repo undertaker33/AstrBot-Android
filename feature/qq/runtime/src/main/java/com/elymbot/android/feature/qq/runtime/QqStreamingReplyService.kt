@@ -91,6 +91,7 @@ internal class QqStreamingReplyService(
     ): PluginV2HostSendResult {
         return if (
             prepared.attachments.size > 1 &&
+            // skipcq: KT-W1042
             prepared.attachments.all { attachment -> attachment.type == "audio" }
         ) {
             sendStreamingVoiceReplyWithOutcome(

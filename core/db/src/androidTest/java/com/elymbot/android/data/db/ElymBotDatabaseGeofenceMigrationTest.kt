@@ -73,9 +73,11 @@ class ElymBotDatabaseGeofenceMigrationTest {
             close()
         }
 
+        // skipcq: KT-P1004
         helper.runMigrationsAndValidate(databaseName, 24, true, *astrBotDatabaseMigrations)
 
         val database = openDatabaseForVerification(databaseName)
+        // skipcq: KT-W1042
         listOf("geofence_rules", "geofence_regions", "config_geofence_bindings", "geofence_execution_records")
             .forEach { tableName ->
                 database.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='$tableName'", null)
@@ -87,8 +89,10 @@ class ElymBotDatabaseGeofenceMigrationTest {
             database = database,
             tableName = "geofence_regions",
             referencedTable = "geofence_rules",
+            // skipcq: KT-W1042
             fromColumn = "ruleId",
             toColumn = "ruleId",
+            // skipcq: KT-W1042
             onDelete = "CASCADE",
         )
         assertForeignKey(

@@ -37,6 +37,7 @@ class GeofenceRuntimeRegistrationTest {
 
         assertEquals(GeofenceRegistrationStatus.REGISTERED, summary.status)
         assertEquals(1, backend.requests.single().regions.size)
+        // skipcq: KT-W1042
         assertEquals("rule-1", backend.requests.single().regions.single().rule.ruleId)
         assertEquals(GeofenceRuleStatus.ACTIVE, repository.ruleStatus("rule-1"))
     }

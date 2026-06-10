@@ -47,6 +47,7 @@ class PluginHostCapabilityModuleTest {
     fun messageSendPort_onebot_sendsThroughQqSenderAndPersistsConversationMessage() = runTest {
         val conversationRepository = RecordingConversationRepositoryPort()
         val qqSender = RecordingQqScheduledMessageSender(
+            // skipcq: KT-W1042
             result = QqSendResult.success(listOf("qq-receipt-1")),
         )
         val port = PluginHostCapabilityModule.providePluginV2MessageSendPort(
@@ -100,6 +101,7 @@ class PluginHostCapabilityModuleTest {
     @Test
     fun messageSendPort_onebotPersistsToRepositorySessionForPublicQqConversationId() = runTest {
         val qqSession = conversationSession(
+            // skipcq: KT-W1042
             id = "qq-qq-main-group-30003-user-20002",
             messages = emptyList(),
         )
@@ -115,6 +117,7 @@ class PluginHostCapabilityModuleTest {
         val result = port.send(
             messageRequest(
                 platformAdapterType = "onebot",
+                // skipcq: KT-W1042
                 conversationId = "group:30003:user:20002",
             ),
         )
@@ -198,6 +201,7 @@ class PluginHostCapabilityModuleTest {
     fun messageStreamPort_qq_finalOnCloseBuffersChunksAndSendsOnceOnClose() = runTest {
         val conversationRepository = RecordingConversationRepositoryPort()
         val qqSender = RecordingQqScheduledMessageSender(
+            // skipcq: KT-W1042
             result = QqSendResult.success(listOf("qq-stream-receipt")),
         )
         val port = PluginHostCapabilityModule.providePluginV2MessageStreamPort(

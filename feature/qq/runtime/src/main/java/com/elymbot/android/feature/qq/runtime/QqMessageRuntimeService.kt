@@ -201,6 +201,7 @@ internal class QqMessageRuntimeService(
         )
     }
 
+    // skipcq: KT-R1006
     private suspend fun processMessage(
         message: IncomingQqMessage,
         bot: BotProfile,

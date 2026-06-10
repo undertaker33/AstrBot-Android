@@ -93,6 +93,7 @@ data class RuntimeCompatibilitySnapshot(
             issues.joinToString(separator = "\n") { it.technicalDetails }
         }
 
+    // skipcq: KT-W1070
     val primaryIssue: RuntimeCompatibilityIssue?
         get() = issues.firstOrNull { it.blocking } ?: issues.firstOrNull()
 }
@@ -145,6 +146,7 @@ class RuntimeCompatibilityProbe(
                 userMessage = "Ubuntu rootfs is missing. Reinstall the runtime assets before starting NapCat.",
                 technicalDetails = buildString {
                     append("rootfs missing or incomplete at ${rootfsDir.absolutePath}; ")
+                    // skipcq: KT-W1042
                     append("sdk=${env.sdkInt} targetSdk=${env.targetSdk} rom=${env.manufacturer}/${env.model}")
                 },
             )

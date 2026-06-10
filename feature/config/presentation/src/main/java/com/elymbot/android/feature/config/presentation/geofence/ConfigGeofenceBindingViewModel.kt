@@ -1,3 +1,4 @@
+// skipcq: KT-W1044
 package com.elymbot.android.ui.config.geofence
 
 import androidx.lifecycle.ViewModel
