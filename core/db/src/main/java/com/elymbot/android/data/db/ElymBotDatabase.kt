@@ -31,6 +31,8 @@ import com.elymbot.android.data.db.resource.ResourceCenterItemEntity
         PersonaEntity::class,
         PersonaPromptEntity::class,
         PersonaEnabledToolEntity::class,
+        PersonaTagEntity::class,
+        PersonaCoverAssetEntity::class,
         ProviderEntity::class,
         ProviderCapabilityEntity::class,
         ProviderTtsVoiceOptionEntity::class,
@@ -58,7 +60,7 @@ import com.elymbot.android.data.db.resource.ResourceCenterItemEntity
         ResourceCenterItemEntity::class,
         ConfigResourceProjectionEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = true,
 )
 abstract class ElymBotDatabase : RoomDatabase() {

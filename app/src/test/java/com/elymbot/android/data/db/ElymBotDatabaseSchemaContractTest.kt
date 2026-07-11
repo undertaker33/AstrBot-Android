@@ -155,9 +155,9 @@ class ElymBotDatabaseSchemaContractTest {
     @Test
     fun version24Schema_containsGeofenceRuleRegionBindingAndExecutionTables() {
         val schemaFile = listOf(
-            File("schemas/com.elymbot.android.data.db.ElymBotDatabase/24.json"),
-            File("app/schemas/com.elymbot.android.data.db.ElymBotDatabase/24.json"),
-        ).firstOrNull { it.exists() } ?: error("Room schema file for v24 was not found")
+            File("schemas/com.elymbot.android.data.db.ElymBotDatabase/25.json"),
+            File("app/schemas/com.elymbot.android.data.db.ElymBotDatabase/25.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v25 was not found")
         val schema = schemaFile.readText()
 
         listOf(

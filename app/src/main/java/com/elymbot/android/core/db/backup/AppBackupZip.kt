@@ -28,6 +28,7 @@ internal fun writeAppBackupZip(
         zip.closeEntry()
 
         files.forEach { entry ->
+            require(isSafeArchivePath(entry.archivePath)) { "Unsafe backup archive path" }
             zip.putNextEntry(ZipEntry(entry.archivePath))
             entry.sourceFile.inputStream().use { input -> input.copyTo(zip) }
             zip.closeEntry()
@@ -47,6 +48,7 @@ internal fun readAppBackupZip(
         while (true) {
             val entry = zip.nextEntry ?: break
             val normalizedPath = entry.name.replace('\\', '/')
+            require(isSafeArchivePath(normalizedPath)) { "Unsafe backup archive path" }
             if (entry.isDirectory) {
                 File(outputDirectory, normalizedPath).mkdirs()
                 zip.closeEntry()
@@ -59,7 +61,8 @@ internal fun readAppBackupZip(
                 continue
             }
 
-            val destination = File(outputDirectory, normalizedPath).apply {
+            val destination = File(outputDirectory, normalizedPath).canonicalFile.apply {
+                require(path.startsWith(outputDirectory.canonicalFile.path + File.separator)) { "Unsafe backup archive path" }
                 parentFile?.mkdirs()
             }
             destination.outputStream().use { output -> zip.copyTo(output) }
@@ -73,3 +76,6 @@ internal fun readAppBackupZip(
         files = extractedFiles,
     )
 }
+
+private fun isSafeArchivePath(path: String): Boolean = path.isNotBlank() &&
+    !path.startsWith('/') && !path.contains(":") && path.split('/').none { it == ".." }

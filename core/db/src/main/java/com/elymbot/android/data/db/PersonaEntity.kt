@@ -6,7 +6,6 @@ import androidx.room.PrimaryKey
 data class PersonaEntity(
     @PrimaryKey val id: String,
     val name: String,
-    val tag: String,
     val defaultProviderId: String,
     val maxContextMessages: Int,
     val enabled: Boolean,

@@ -13,6 +13,7 @@ import com.elymbot.android.data.db.toWriteModel
 import com.elymbot.android.feature.persona.domain.defaultPersonaEnabledTools
 import com.elymbot.android.feature.persona.domain.model.PersonaProfile
 import com.elymbot.android.feature.persona.domain.model.PersonaToolEnablementSnapshot
+import com.elymbot.android.feature.persona.domain.model.normalizePersonaTags
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Named
@@ -66,7 +67,7 @@ class FeaturePersonaRepositoryStore @Inject constructor(
             PersonaProfile(
                 id = UUID.randomUUID().toString(),
                 name = name,
-                tag = tag.trim(),
+                tags = normalizePersonaTags(tag),
                 systemPrompt = systemPrompt,
                 enabledTools = enabledTools,
                 defaultProviderId = defaultProviderId,
@@ -179,7 +180,7 @@ class FeaturePersonaRepositoryStore @Inject constructor(
         val normalizedTools = profile.enabledTools.map(String::trim).filter(String::isNotBlank).toSet()
         return profile.copy(
             name = profile.name.trim(),
-            tag = profile.tag.trim(),
+            tags = normalizePersonaTags(profile.tags),
             systemPrompt = profile.systemPrompt,
             enabledTools = if (normalizedTools.isEmpty()) {
                 defaultEnabledTools()
@@ -193,7 +194,7 @@ class FeaturePersonaRepositoryStore @Inject constructor(
         PersonaProfile(
             id = "default",
             name = "Default Assistant",
-            tag = "Default",
+            tags = listOf("Default"),
             systemPrompt = "You are a concise, reliable QQ assistant.",
             enabledTools = defaultEnabledTools(),
             maxContextMessages = 12,

@@ -3,6 +3,8 @@ package com.elymbot.android.core.db.backup
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AppBackupManifestAdaptersTest {
@@ -53,5 +55,40 @@ class AppBackupManifestAdaptersTest {
         val values = JSONArray().put("a").put("b").put("c")
 
         assertEquals(listOf("a", "b", "c"), values.jsonStringList())
+    }
+
+    @Test
+    fun `persona adapter reads tags and cover metadata`() {
+        val json = JSONObject()
+            .put("id", "persona-1")
+            .put("name", "Helper")
+            .put("tags", JSONArray(listOf("warm", "concise", "safe", "ignored")))
+            .put("systemPrompt", "Help")
+            .put("enabledTools", JSONArray())
+            .put("cover", JSONObject()
+                .put("assetRef", "assets/persona-covers/persona-1/cover.png")
+                .put("contentSha256", "abc")
+                .put("pixelWidth", 800)
+                .put("pixelHeight", 1200)
+                .put("updatedAt", 9L)
+                .put("portraitCrop", JSONObject().put("centerX", .4).put("centerY", .6).put("zoom", 1.5))
+                .put("squareCrop", JSONObject().put("centerX", .5).put("centerY", .5).put("zoom", 2.0)))
+
+        val result = json.toPersonaProfile()
+
+        assertEquals(listOf("warm", "concise", "safe"), result.tags)
+        assertNotNull(result.cover)
+        assertEquals("assets/persona-covers/persona-1/cover.png", result.cover?.assetRef)
+        assertEquals(.6f, result.cover?.portraitCrop?.centerY)
+    }
+
+    @Test
+    fun `persona adapter falls back to legacy single tag and missing cover`() {
+        val result = JSONObject().put("id", "legacy").put("name", "Legacy")
+            .put("tag", " old，friend ").put("systemPrompt", "Hi")
+            .put("enabledTools", JSONArray()).toPersonaProfile()
+
+        assertEquals(listOf("old", "friend"), result.tags)
+        assertNull(result.cover)
     }
 }

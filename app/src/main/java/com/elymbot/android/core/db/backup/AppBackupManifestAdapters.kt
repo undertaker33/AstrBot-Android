@@ -6,6 +6,9 @@ import com.elymbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
 import com.elymbot.android.model.ConfigProfile
 import com.elymbot.android.model.FeatureSupportState
 import com.elymbot.android.model.PersonaProfile
+import com.elymbot.android.feature.persona.domain.model.PersonaCoverMetadata
+import com.elymbot.android.feature.persona.domain.model.PersonaCropSpec
+import com.elymbot.android.feature.persona.domain.model.normalizePersonaTags
 import com.elymbot.android.model.ProviderCapability
 import com.elymbot.android.model.ProviderProfile
 import com.elymbot.android.model.ProviderType
@@ -110,17 +113,36 @@ internal fun JSONObject.toProviderProfile(): ProviderProfile {
 }
 
 internal fun JSONObject.toPersonaProfile(): PersonaProfile {
+    val tags = if (has("tags")) normalizePersonaTags(optJSONArray("tags").jsonStringList())
+    else normalizePersonaTags(optString("tag"))
     return PersonaProfile(
         id = optString("id"),
         name = optString("name"),
-        tag = optString("tag"),
+        tags = tags,
         systemPrompt = optString("systemPrompt"),
         enabledTools = optJSONArray("enabledTools").jsonStringList().toSet(),
         defaultProviderId = optString("defaultProviderId"),
         maxContextMessages = optInt("maxContextMessages", 12),
         enabled = optBoolean("enabled", true),
+        cover = optJSONObject("cover")?.toPersonaCoverMetadata(),
     )
 }
+
+private fun JSONObject.toPersonaCoverMetadata(): PersonaCoverMetadata? = runCatching {
+    PersonaCoverMetadata(
+        assetRef = getString("assetRef"), contentSha256 = optString("contentSha256"),
+        pixelWidth = getInt("pixelWidth"), pixelHeight = getInt("pixelHeight"),
+        portraitCrop = getJSONObject("portraitCrop").toPersonaCropSpec(),
+        squareCrop = getJSONObject("squareCrop").toPersonaCropSpec(),
+        updatedAt = optLong("updatedAt", 0L),
+    )
+}.getOrNull()
+
+private fun JSONObject.toPersonaCropSpec() = PersonaCropSpec(
+    centerX = optDouble("centerX", .5).toFloat(),
+    centerY = optDouble("centerY", .5).toFloat(),
+    zoom = optDouble("zoom", 1.0).toFloat(),
+)
 
 internal fun JSONObject.toConfigProfile(): ConfigProfile {
     return ConfigProfile(
