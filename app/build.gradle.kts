@@ -13,7 +13,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 val appPackageName = "com.elymbot.android"
 val appVersionMajor = 1
 val appVersionMinor = 2
-val appVersionPatch = 0
+val appVersionPatch = 1
 val buildTypeDebug = "debug"
 val buildTypeRelease = "release"
 val compileDebugKotlinTask = "compileDebugKotlin"
@@ -122,7 +122,7 @@ android {
     defaultConfig {
         applicationId = appPackageName
         targetSdk = 36
-        versionCode = 84
+        versionCode = 85
         versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
