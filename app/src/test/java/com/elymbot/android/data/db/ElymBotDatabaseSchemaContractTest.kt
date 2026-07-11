@@ -79,7 +79,7 @@ class ElymBotDatabaseSchemaContractTest {
 
     @Test
     fun latestMigration_targetsCurrentVersion() {
-        assertTrue(astrBotDatabaseMigrations.maxOf { it.endVersion } == 24)
+        assertTrue(astrBotDatabaseMigrations.maxOf { it.endVersion } == 25)
     }
 
     @Test
