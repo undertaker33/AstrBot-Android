@@ -32,6 +32,7 @@
 - `changelogs/v1.1.1.md`
 - `changelogs/v1.1.2.md`
 - `changelogs/v1.2.0.md`
+- `changelogs/v1.2.1.md`
 
 当前规则：`v0.1.x` 到 `v0.7.x` 使用小版本聚合文件；`v0.7.5` 之后每个 patch 版本使用独立文件。
 
@@ -48,3 +49,4 @@
 - `v1.1.1` 已有 release commit `dea5d75` 与正文文件 `changelogs/v1.1.1.md`，tag / merge 锚点待发布闭环补齐。
 - `v1.1.2` 已有 release commit `b069daf` 与正文文件 `changelogs/v1.1.2.md`，tag / merge 锚点待发布闭环补齐。
 - `v1.2.0` 已有正文文件 `changelogs/v1.2.0.md`，release commit / tag / merge 锚点待发布闭环补齐。
+- `v1.2.1` 收录人格页双模式重构、多标签、应用私有封面、两步裁切与备份兼容；发布锚点将在本次 Git 收口完成后补齐。

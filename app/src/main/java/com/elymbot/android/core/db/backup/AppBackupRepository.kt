@@ -2,6 +2,7 @@ package com.elymbot.android.core.db.backup
 
 import android.content.Context
 import android.net.Uri
+import android.graphics.BitmapFactory
 import com.elymbot.android.core.backup.BackupParticipantRegistry
 import com.elymbot.android.core.db.backup.AppBackupAppState
 import com.elymbot.android.core.db.backup.AppBackupJson
@@ -65,6 +66,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import java.security.MessageDigest
 
 data class AppBackupCreateOptions(
     val includeProviderApiKeys: Boolean = false,
@@ -610,9 +612,11 @@ class AppBackupRepository(
         plan: AppBackupImportPlan,
         extractedFiles: Map<String, File> = emptyMap(),
     ): AppBackupRestoreResult {
-        val incoming = manifestToSnapshot(manifest, materializeTtsFiles = true, extractedFiles = extractedFiles)
+        val incoming = manifestToSnapshot(manifest, materializeTtsFiles = true, materializePersonaFiles = true, extractedFiles = extractedFiles)
         val current = buildCurrentSnapshot()
         val resolved = AppBackupImportPlanner.merge(current, incoming, plan)
+        val incomingCoverRefs = incoming.personas.mapNotNull { it.cover?.assetRef }.toSet()
+        val resolvedCoverRefs = resolved.personas.mapNotNull { it.cover?.assetRef }.toSet()
         val dataPort = resolveDataPort()
         val appliedStages = mutableListOf<AppBackupRestoreStage>()
         val stages = listOf(
@@ -684,8 +688,18 @@ class AppBackupRepository(
                 appliedStages = appliedStages,
                 restoreError = restoreError,
             )
+            cleanupPersonaCoverRefs(personaCoverCleanupPlan(emptySet(), incomingCoverRefs, emptySet(), true))
             throw restoreError
         }
+
+        cleanupPersonaCoverRefs(
+            personaCoverCleanupPlan(
+                current.personas.mapNotNull { it.cover?.assetRef }.toSet(),
+                incomingCoverRefs,
+                resolvedCoverRefs,
+                false,
+            ),
+        )
 
         return AppBackupRestoreResult(
             botCount = resolved.bots.size,
@@ -801,6 +815,13 @@ class AppBackupRepository(
 
     private fun resolveZipEntries(manifest: AppBackupManifest): List<AppBackupZipEntrySource> {
         return buildList {
+            manifest.modules.personas.records.mapNotNull { it as? JSONObject }.forEach { persona ->
+                val cover = persona.optJSONObject("cover") ?: return@forEach
+                val assetRef = cover.optString("assetRef")
+                val archivePath = cover.optString("archivePath", assetRef)
+                val source = File(appContext.filesDir, assetRef)
+                if (assetRef.isNotBlank() && source.isFile) add(AppBackupZipEntrySource(archivePath, source))
+            }
             manifest.modules.ttsAssets.records.mapNotNull { it as? JSONObject }.forEach { assetObject ->
                 val assetId = assetObject.optString("id")
                 val clips = assetObject.optJSONArray("clips") ?: JSONArray()
@@ -846,13 +867,17 @@ class AppBackupRepository(
     private fun manifestToSnapshot(
         manifest: AppBackupManifest,
         materializeTtsFiles: Boolean,
+        materializePersonaFiles: Boolean = false,
         extractedFiles: Map<String, File> = emptyMap(),
     ): AppBackupSnapshot {
         val qqLogin = manifest.modules.qqLogin.records.firstOrNull() as? JSONObject
         return AppBackupSnapshot(
             bots = manifest.modules.bots.records.mapNotNull { (it as? JSONObject)?.toBotProfile() },
             providers = manifest.modules.providers.records.mapNotNull { (it as? JSONObject)?.toProviderProfile() },
-            personas = manifest.modules.personas.records.mapNotNull { (it as? JSONObject)?.toPersonaProfile() },
+            personas = manifest.modules.personas.records.mapNotNull { record ->
+                val json = record as? JSONObject ?: return@mapNotNull null
+                (if (materializePersonaFiles) materializePersonaCover(json, extractedFiles) else json)?.toPersonaProfile()
+            },
             configs = manifest.modules.configs.records.mapNotNull { (it as? JSONObject)?.toConfigProfile() },
             conversations = manifest.modules.conversations.records.filterIsInstance<ConversationSession>(),
             quickLoginUin = qqLogin?.optString("quickLoginUin").orEmpty(),
@@ -909,14 +934,62 @@ class AppBackupRepository(
         return JSONObject()
             .put("id", profile.id)
             .put("name", profile.name)
-            .put("tag", profile.tag)
+            .put("tags", JSONArray(profile.tags))
             .put("systemPrompt", profile.systemPrompt)
             .put("enabledTools", JSONArray(profile.enabledTools.toList()))
             .put("defaultProviderId", profile.defaultProviderId)
             .put("maxContextMessages", profile.maxContextMessages)
             .put("enabled", profile.enabled)
+            .apply {
+                profile.cover?.let { cover ->
+                    val source = File(appContext.filesDir, cover.assetRef)
+                    put("cover", JSONObject()
+                    .put("assetRef", cover.assetRef)
+                    .put("archivePath", cover.assetRef)
+                    .put("length", source.takeIf(File::isFile)?.length() ?: 0L)
+                    .put("contentSha256", cover.contentSha256)
+                    .put("pixelWidth", cover.pixelWidth).put("pixelHeight", cover.pixelHeight)
+                    .put("updatedAt", cover.updatedAt)
+                    .put("portraitCrop", JSONObject().put("centerX", cover.portraitCrop.centerX).put("centerY", cover.portraitCrop.centerY).put("zoom", cover.portraitCrop.zoom))
+                    .put("squareCrop", JSONObject().put("centerX", cover.squareCrop.centerX).put("centerY", cover.squareCrop.centerY).put("zoom", cover.squareCrop.zoom))) }
+            }
     }
 
+    private fun materializePersonaCover(json: JSONObject, extractedFiles: Map<String, File>): JSONObject? {
+        val cover = json.optJSONObject("cover") ?: return json
+        val archivePath = cover.optString("archivePath", cover.optString("assetRef"))
+        val staged = extractedFiles[archivePath] ?: return json.apply { remove("cover") }
+        val expectedLength = cover.optLong("length", staged.length())
+        val expectedHash = cover.optString("contentSha256")
+        val valid = staged.length() == expectedLength &&
+            (expectedHash.isBlank() || staged.sha256().equals(expectedHash, ignoreCase = true)) &&
+            BitmapFactory.decodeFile(staged.absolutePath) != null
+        if (!valid) {
+            runtimeLogger.append("Persona cover restore warning: invalid asset for ${json.optString("id")}")
+            return json.apply { remove("cover") }
+        }
+        val originalRef = cover.optString("assetRef")
+        val extension = File(originalRef).extension.ifBlank { "img" }
+        val assetRef = "assets/persona-covers/${json.optString("id")}/import-${UUID.randomUUID()}.$extension"
+        val destination = File(appContext.filesDir, assetRef)
+        destination.parentFile?.mkdirs()
+        staged.copyTo(destination, overwrite = true)
+        cover.put("assetRef", assetRef)
+        return json
+    }
+
+    private fun File.sha256(): String = inputStream().use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) { val read = input.read(buffer); if (read < 0) break; digest.update(buffer, 0, read) }
+        digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun cleanupPersonaCoverRefs(refs: Set<String>) {
+        refs.filter { it.startsWith("assets/persona-covers/") }.forEach { ref ->
+            runCatching { File(appContext.filesDir, ref).delete() }
+        }
+    }
     private fun configToJson(profile: ConfigProfile): JSONObject {
         return JSONObject()
             .put("id", profile.id)
@@ -1047,6 +1120,13 @@ class AppBackupRepository(
             )
     }
 }
+
+internal fun personaCoverCleanupPlan(
+    currentRefs: Set<String>,
+    incomingRefs: Set<String>,
+    resolvedRefs: Set<String>,
+    restoreFailed: Boolean,
+): Set<String> = if (restoreFailed) incomingRefs else (currentRefs + incomingRefs) - resolvedRefs
 
 private data class AppBackupRestoreStage(
     val name: String,

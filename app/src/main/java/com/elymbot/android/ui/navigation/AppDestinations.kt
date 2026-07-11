@@ -42,6 +42,9 @@ internal sealed class AppDestination(
     data object ConfigDetail : AppDestination("config/detail/{configId}", Icons.Outlined.Settings) {
         fun routeFor(configId: String): String = "config/detail/$configId"
     }
+    data object PersonaEditor : AppDestination("personas/edit/{personaId}", Icons.Outlined.Face) {
+        fun routeFor(personaId: String): String = "personas/edit/$personaId"
+    }
 
     data object Logs : AppDestination("logs", Icons.AutoMirrored.Outlined.List)
     data object Me : AppDestination("me", Icons.Outlined.PersonOutline)

@@ -63,6 +63,7 @@ import com.elymbot.android.ui.settings.ResourceKind
 import com.elymbot.android.ui.settings.ResourceListScreen
 import com.elymbot.android.ui.settings.buildResourceCards
 import com.elymbot.android.ui.persona.PersonaScreen
+import com.elymbot.android.ui.persona.PersonaEditorScreen
 import com.elymbot.android.ui.plugin.PluginDetailScreenRoute
 import com.elymbot.android.ui.plugin.PluginManagerScreenRoute
 import com.elymbot.android.ui.plugin.PluginMarketDetailScreenRoute
@@ -242,6 +243,12 @@ internal fun ElymBotAppNavGraph(
                 configSelectedIds = configSelectedIds,
                 onConfigSelectedIdsChange = onConfigSelectedIdsChange,
                 qqLoginViewModel = qqLoginViewModel,
+            )
+        }
+        composable(AppDestination.PersonaEditor.route) { backStackEntry ->
+            PersonaEditorScreen(
+                personaId = backStackEntry.arguments?.getString("personaId").orEmpty(),
+                onBack = { AppNavigator.back(navController) },
             )
         }
         composable(AppDestination.Plugins.route) {
@@ -628,10 +635,7 @@ private fun MainTopLevelRail(
                     )
                 },
                 MainSwipePage.PERSONAS to {
-                    BotScreen(
-                        workspaceTab = BotWorkspaceTab.PERSONAS,
-                        onWorkspaceTabChange = onBotWorkspaceTabChange,
-                    )
+                    PersonaScreen(onEditPersona = { AppNavigator.open(navController, AppDestination.PersonaEditor.routeFor(it)) })
                 },
                 MainSwipePage.PLUGINS_LOCAL to {
                     PluginScreen(

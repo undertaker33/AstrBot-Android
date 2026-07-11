@@ -1,6 +1,7 @@
 package com.elymbot.android.feature.persona.data
 
 import com.elymbot.android.feature.persona.domain.model.PersonaProfile
+import com.elymbot.android.feature.persona.domain.model.normalizePersonaTags
 import org.json.JSONArray
 
 internal fun parseLegacyPersonaProfiles(raw: String?): List<PersonaProfile> {
@@ -13,7 +14,10 @@ internal fun parseLegacyPersonaProfiles(raw: String?): List<PersonaProfile> {
                 PersonaProfile(
                     id = item.optString("id"),
                     name = item.optString("name"),
-                    tag = item.optString("tag"),
+                    tags = normalizePersonaTags(
+                        item.optJSONArray("tags")?.let { tags -> (0 until tags.length()).map { tags.optString(it) } }
+                            ?: listOf(item.optString("tag")),
+                    ),
                     systemPrompt = item.optString("systemPrompt"),
                     enabledTools = item.optStringList("enabledTools").toSet(),
                     defaultProviderId = item.optString("defaultProviderId"),

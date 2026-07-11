@@ -10,6 +10,8 @@ import com.elymbot.android.model.ProviderProfile
 import com.elymbot.android.model.ProviderType
 import com.elymbot.android.model.SavedQqAccount
 import com.elymbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.elymbot.android.feature.persona.domain.model.PersonaCoverMetadata
+import com.elymbot.android.feature.persona.domain.model.PersonaCropSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -151,6 +153,44 @@ class AppBackupImportPlannerTest {
         assertEquals("20000", merged.savedAccounts.last().uin)
     }
 
+    @Test
+    fun persona_merge_skip_duplicates_keeps_local_cover() {
+        val merged = AppBackupImportPlanner.merge(
+            snapshot(personas = listOf(persona("same", "local.png"))),
+            snapshot(personas = listOf(persona("same", "incoming.png"))),
+            AppBackupImportMode.MERGE_SKIP_DUPLICATES,
+        )
+        assertEquals("assets/persona-covers/same/local.png", merged.personas.single().cover?.assetRef)
+    }
+
+    @Test
+    fun persona_merge_overwrite_duplicates_uses_incoming_cover() {
+        val merged = AppBackupImportPlanner.merge(
+            snapshot(personas = listOf(persona("same", "local.png"))),
+            snapshot(personas = listOf(persona("same", "incoming.png"))),
+            AppBackupImportMode.MERGE_OVERWRITE_DUPLICATES,
+        )
+        assertEquals("assets/persona-covers/same/incoming.png", merged.personas.single().cover?.assetRef)
+    }
+
+    @Test
+    fun persona_replace_all_uses_only_incoming_covers() {
+        val merged = AppBackupImportPlanner.merge(
+            snapshot(personas = listOf(persona("old", "old.png"))),
+            snapshot(personas = listOf(persona("new", "new.png"))),
+            AppBackupImportMode.REPLACE_ALL,
+        )
+        assertEquals(listOf("assets/persona-covers/new/new.png"), merged.personas.mapNotNull { it.cover?.assetRef })
+    }
+
+    @Test
+    fun persona_cover_cleanup_plan_covers_skip_overwrite_replace_and_rollback() {
+        assertEquals(setOf("incoming"), personaCoverCleanupPlan(setOf("local"), setOf("incoming"), setOf("local"), false))
+        assertEquals(setOf("local"), personaCoverCleanupPlan(setOf("local"), setOf("incoming"), setOf("incoming"), false))
+        assertEquals(setOf("old-a", "old-b"), personaCoverCleanupPlan(setOf("old-a", "old-b"), setOf("new"), setOf("new"), false))
+        assertEquals(setOf("incoming"), personaCoverCleanupPlan(setOf("local"), setOf("incoming"), setOf("incoming"), true))
+    }
+
     private fun snapshot(
         bots: List<BotProfile> = emptyList(),
         providers: List<ProviderProfile> = emptyList(),
@@ -191,6 +231,14 @@ class AppBackupImportPlannerTest {
         name = id,
         systemPrompt = "prompt",
         enabledTools = emptySet(),
+    )
+
+    private fun persona(id: String, coverRef: String) = persona(id).copy(
+        cover = PersonaCoverMetadata(
+            assetRef = "assets/persona-covers/$id/$coverRef", contentSha256 = "hash",
+            pixelWidth = 10, pixelHeight = 10, portraitCrop = PersonaCropSpec(),
+            squareCrop = PersonaCropSpec(), updatedAt = 1L,
+        ),
     )
 
     private fun config(id: String) = ConfigProfile(id = id, name = id)

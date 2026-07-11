@@ -35,9 +35,11 @@ import com.elymbot.android.data.db.ConversationMessageAggregate
 import com.elymbot.android.data.db.ConversationMessageEntity
 import com.elymbot.android.data.db.PersonaAggregate
 import com.elymbot.android.data.db.PersonaAggregateDao
+import com.elymbot.android.data.db.PersonaCoverAssetEntity
 import com.elymbot.android.data.db.PersonaEnabledToolEntity
 import com.elymbot.android.data.db.PersonaEntity
 import com.elymbot.android.data.db.PersonaPromptEntity
+import com.elymbot.android.data.db.PersonaTagEntity
 import com.elymbot.android.data.db.PersonaWriteModel
 import com.elymbot.android.data.db.ProviderAggregate
 import com.elymbot.android.data.db.ProviderAggregateDao
@@ -524,6 +526,10 @@ private class InMemoryPersonaAggregateDao(
 
     override suspend fun upsertEnabledTools(entities: List<PersonaEnabledToolEntity>) = Unit
 
+    override suspend fun upsertTags(entities: List<PersonaTagEntity>) = Unit
+
+    override suspend fun upsertCovers(entities: List<PersonaCoverAssetEntity>) = Unit
+
     override suspend fun deleteMissingPersonas(ids: List<String>) = Unit
 
     override suspend fun clearPersonas() = Unit
@@ -531,6 +537,10 @@ private class InMemoryPersonaAggregateDao(
     override suspend fun deletePrompts(personaIds: List<String>) = Unit
 
     override suspend fun deleteEnabledTools(personaIds: List<String>) = Unit
+
+    override suspend fun deleteTags(personaIds: List<String>) = Unit
+
+    override suspend fun deleteCovers(personaIds: List<String>) = Unit
 
     override suspend fun count(): Int = aggregates.value.size
 
@@ -546,6 +556,8 @@ private class InMemoryPersonaAggregateDao(
             persona = writeModel.persona,
             prompts = listOf(writeModel.prompt),
             enabledTools = writeModel.enabledTools,
+            tags = writeModel.tags,
+            covers = writeModel.cover?.let(::listOf).orEmpty(),
         )
     }
 }

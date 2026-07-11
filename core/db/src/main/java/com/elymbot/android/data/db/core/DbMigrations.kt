@@ -802,3 +802,79 @@ internal val migration23To24 = object : Migration(23, 24) {
         )
     }
 }
+
+internal val migration24To25 = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE persona_tags_temp (
+                personaId TEXT NOT NULL, tag TEXT NOT NULL, sortIndex INTEGER NOT NULL,
+                PRIMARY KEY(personaId, tag)
+            )
+        """.trimIndent())
+        db.execSQL("""
+            WITH RECURSIVE split(personaId, rest, tag, sourceIndex) AS (
+                SELECT id, replace(trim(tag), '，', ',') || ',', '', 0 FROM persona_profiles
+                UNION ALL
+                SELECT personaId, substr(rest, instr(rest, ',') + 1), trim(substr(rest, 1, instr(rest, ',') - 1)), sourceIndex + 1
+                FROM split WHERE rest <> ''
+            ), unique_tags AS (
+                SELECT personaId, tag, min(sourceIndex) AS firstIndex FROM split WHERE tag <> '' GROUP BY personaId, tag
+            ), ranked AS (
+                SELECT personaId, tag, row_number() OVER (PARTITION BY personaId ORDER BY firstIndex) - 1 AS sortIndex FROM unique_tags
+            )
+            INSERT OR IGNORE INTO persona_tags_temp(personaId, tag, sortIndex)
+            SELECT personaId, tag, sortIndex FROM ranked WHERE sortIndex < 3
+        """.trimIndent())
+        db.execSQL("CREATE TEMP TABLE persona_prompts_temp AS SELECT * FROM persona_prompts")
+        db.execSQL("CREATE TEMP TABLE persona_enabled_tools_temp AS SELECT * FROM persona_enabled_tools")
+        db.execSQL("DROP TABLE persona_prompts")
+        db.execSQL("DROP TABLE persona_enabled_tools")
+        db.execSQL("""
+            CREATE TABLE persona_profiles_new (
+                id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, defaultProviderId TEXT NOT NULL,
+                maxContextMessages INTEGER NOT NULL, enabled INTEGER NOT NULL, sortIndex INTEGER NOT NULL, updatedAt INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("""
+            INSERT INTO persona_profiles_new(id, name, defaultProviderId, maxContextMessages, enabled, sortIndex, updatedAt)
+            SELECT id, name, defaultProviderId, maxContextMessages, enabled, sortIndex, updatedAt FROM persona_profiles
+        """.trimIndent())
+        db.execSQL("DROP TABLE persona_profiles")
+        db.execSQL("ALTER TABLE persona_profiles_new RENAME TO persona_profiles")
+        db.execSQL("""
+            CREATE TABLE persona_prompts (
+                personaId TEXT NOT NULL PRIMARY KEY, systemPrompt TEXT NOT NULL,
+                FOREIGN KEY(personaId) REFERENCES persona_profiles(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
+        db.execSQL("INSERT INTO persona_prompts SELECT * FROM persona_prompts_temp")
+        db.execSQL("DROP TABLE persona_prompts_temp")
+        db.execSQL("""
+            CREATE TABLE persona_enabled_tools (
+                personaId TEXT NOT NULL, toolName TEXT NOT NULL, sortIndex INTEGER NOT NULL,
+                PRIMARY KEY(personaId, toolName), FOREIGN KEY(personaId) REFERENCES persona_profiles(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
+        db.execSQL("INSERT INTO persona_enabled_tools SELECT * FROM persona_enabled_tools_temp")
+        db.execSQL("DROP TABLE persona_enabled_tools_temp")
+        db.execSQL("CREATE INDEX index_persona_enabled_tools_personaId_sortIndex ON persona_enabled_tools(personaId, sortIndex)")
+        db.execSQL("""
+            CREATE TABLE persona_tags (
+                personaId TEXT NOT NULL, tag TEXT NOT NULL, sortIndex INTEGER NOT NULL,
+                PRIMARY KEY(personaId, tag), FOREIGN KEY(personaId) REFERENCES persona_profiles(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
+        db.execSQL("INSERT INTO persona_tags SELECT * FROM persona_tags_temp")
+        db.execSQL("DROP TABLE persona_tags_temp")
+        db.execSQL("CREATE INDEX index_persona_tags_personaId_sortIndex ON persona_tags(personaId, sortIndex)")
+        db.execSQL("""
+            CREATE TABLE persona_cover_assets (
+                personaId TEXT NOT NULL PRIMARY KEY, assetRef TEXT NOT NULL, contentSha256 TEXT NOT NULL,
+                pixelWidth INTEGER NOT NULL, pixelHeight INTEGER NOT NULL,
+                portraitCenterX REAL NOT NULL, portraitCenterY REAL NOT NULL, portraitZoom REAL NOT NULL,
+                squareCenterX REAL NOT NULL, squareCenterY REAL NOT NULL, squareZoom REAL NOT NULL,
+                updatedAt INTEGER NOT NULL, FOREIGN KEY(personaId) REFERENCES persona_profiles(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
+    }
+}

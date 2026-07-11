@@ -19,10 +19,14 @@ abstract class PersonaAggregateDao {
     @Upsert protected abstract suspend fun upsertPersonas(entities: List<PersonaEntity>)
     @Upsert protected abstract suspend fun upsertPrompts(entities: List<PersonaPromptEntity>)
     @Upsert protected abstract suspend fun upsertEnabledTools(entities: List<PersonaEnabledToolEntity>)
+    @Upsert protected abstract suspend fun upsertTags(entities: List<PersonaTagEntity>)
+    @Upsert protected abstract suspend fun upsertCovers(entities: List<PersonaCoverAssetEntity>)
     @Query("DELETE FROM persona_profiles WHERE id NOT IN (:ids)") protected abstract suspend fun deleteMissingPersonas(ids: List<String>)
     @Query("DELETE FROM persona_profiles") protected abstract suspend fun clearPersonas()
     @Query("DELETE FROM persona_prompts WHERE personaId IN (:personaIds)") protected abstract suspend fun deletePrompts(personaIds: List<String>)
     @Query("DELETE FROM persona_enabled_tools WHERE personaId IN (:personaIds)") protected abstract suspend fun deleteEnabledTools(personaIds: List<String>)
+    @Query("DELETE FROM persona_tags WHERE personaId IN (:personaIds)") protected abstract suspend fun deleteTags(personaIds: List<String>)
+    @Query("DELETE FROM persona_cover_assets WHERE personaId IN (:personaIds)") protected abstract suspend fun deleteCovers(personaIds: List<String>)
     @Query("SELECT COUNT(*) FROM persona_profiles") abstract suspend fun count(): Int
 
     @Transaction
@@ -36,8 +40,14 @@ abstract class PersonaAggregateDao {
         deleteMissingPersonas(personaIds)
         deletePrompts(personaIds)
         deleteEnabledTools(personaIds)
+        deleteTags(personaIds)
+        deleteCovers(personaIds)
         upsertPrompts(writeModels.map { it.prompt })
         val enabledTools = writeModels.flatMap { it.enabledTools }
         if (enabledTools.isNotEmpty()) upsertEnabledTools(enabledTools)
+        val tags = writeModels.flatMap { it.tags }
+        if (tags.isNotEmpty()) upsertTags(tags)
+        val covers = writeModels.mapNotNull { it.cover }
+        if (covers.isNotEmpty()) upsertCovers(covers)
     }
 }

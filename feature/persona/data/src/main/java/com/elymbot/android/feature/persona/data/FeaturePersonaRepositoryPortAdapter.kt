@@ -33,7 +33,7 @@ class FeaturePersonaRepositoryPortAdapter @Inject constructor(
     override suspend fun add(profile: PersonaProfile) {
         repository.add(
             name = profile.name,
-            tag = profile.tag,
+            tag = profile.tags.joinToString(","),
             systemPrompt = profile.systemPrompt,
             enabledTools = profile.enabledTools,
             defaultProviderId = profile.defaultProviderId,
